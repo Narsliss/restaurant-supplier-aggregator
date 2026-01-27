@@ -1,0 +1,38 @@
+<div class="max-w-2xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900"><%= @location.name %></h1>
+    <div class="flex space-x-3">
+      <%= link_to "Edit", edit_location_path(@location), class: "text-indigo-600 hover:text-indigo-900 text-sm font-medium" %>
+      <%= link_to "Back", locations_path, class: "text-gray-600 hover:text-gray-900 text-sm font-medium" %>
+    </div>
+  </div>
+
+  <div class="bg-white shadow rounded-lg p-6">
+    <dl class="grid grid-cols-2 gap-4">
+      <div>
+        <dt class="text-sm font-medium text-gray-500">Address</dt>
+        <dd class="mt-1 text-gray-900"><%= @location.address || "—" %></dd>
+      </div>
+      <div>
+        <dt class="text-sm font-medium text-gray-500">City</dt>
+        <dd class="mt-1 text-gray-900"><%= @location.city || "—" %></dd>
+      </div>
+      <div>
+        <dt class="text-sm font-medium text-gray-500">State</dt>
+        <dd class="mt-1 text-gray-900"><%= @location.state || "—" %></dd>
+      </div>
+      <div>
+        <dt class="text-sm font-medium text-gray-500">Zip Code</dt>
+        <dd class="mt-1 text-gray-900"><%= @location.zip_code || "—" %></dd>
+      </div>
+      <div>
+        <dt class="text-sm font-medium text-gray-500">Phone</dt>
+        <dd class="mt-1 text-gray-900"><%= @location.phone || "—" %></dd>
+      </div>
+      <div>
+        <dt class="text-sm font-medium text-gray-500">Default</dt>
+        <dd class="mt-1 text-gray-900"><%= @location.is_default ? "Yes" : "No" %></dd>
+      </div>
+    </dl>
+  </div>
+</div>

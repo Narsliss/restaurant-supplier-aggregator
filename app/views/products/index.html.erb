@@ -1,0 +1,47 @@
+<div class="max-w-4xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Products</h1>
+    <%= link_to "Add Product", new_product_path, class: "bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700" %>
+  </div>
+
+  <!-- Search & Filter -->
+  <div class="bg-white shadow rounded-lg p-4 mb-6">
+    <%= form_with(url: products_path, method: :get, class: "flex space-x-3") do |form| %>
+      <div class="flex-1">
+        <%= form.text_field :search, value: params[:search], placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm" %>
+      </div>
+      <div class="w-48">
+        <%= form.select :category, Product.distinct.pluck(:category).compact.sort.map { |c| [c, c] }, { prompt: "All Categories", selected: params[:category] }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm" %>
+      </div>
+      <%= form.submit "Search", class: "bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 text-sm cursor-pointer" %>
+    <% end %>
+  </div>
+
+  <% if @products.any? %>
+    <div class="bg-white shadow rounded-lg divide-y divide-gray-200">
+      <% @products.each do |product| %>
+        <div class="p-4 flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-medium text-gray-900">
+              <%= link_to product.name, product_path(product), class: "hover:text-indigo-600" %>
+            </h3>
+            <p class="text-sm text-gray-500">
+              <%= [product.category, product.subcategory].compact.join(" > ") %>
+              <% if product.unit_of_measure.present? %>
+                &middot; <%= product.unit_of_measure %>
+              <% end %>
+            </p>
+          </div>
+          <div class="flex space-x-3">
+            <span class="text-sm text-gray-500"><%= product.supplier_products.size %> suppliers</span>
+            <%= link_to "Edit", edit_product_path(product), class: "text-sm text-indigo-600 hover:text-indigo-900 font-medium" %>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="text-center py-12 bg-white rounded-lg shadow">
+      <p class="text-gray-500">No products found.</p>
+    </div>
+  <% end %>
+</div>

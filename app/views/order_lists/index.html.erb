@@ -1,0 +1,44 @@
+<div class="max-w-4xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Order Lists</h1>
+    <%= link_to "New Order List", new_order_list_path, class: "bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700" %>
+  </div>
+
+  <% if @order_lists.any? %>
+    <div class="grid gap-4">
+      <% @order_lists.each do |list| %>
+        <div class="bg-white shadow rounded-lg p-5">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-medium text-gray-900">
+                <%= link_to list.name, order_list_path(list), class: "hover:text-indigo-600" %>
+                <% if list.is_favorite %>
+                  <span class="ml-1 text-yellow-500">&#9733;</span>
+                <% end %>
+              </h3>
+              <p class="text-sm text-gray-500">
+                <%= pluralize(list.order_list_items.size, "item") %>
+                <% if list.last_used_at %>
+                  &middot; Last used <%= time_ago_in_words(list.last_used_at) %> ago
+                <% end %>
+              </p>
+              <% if list.notes.present? %>
+                <p class="text-sm text-gray-400 mt-1"><%= truncate(list.notes, length: 100) %></p>
+              <% end %>
+            </div>
+            <div class="flex space-x-3">
+              <%= link_to "Compare Prices", price_comparison_order_list_path(list), class: "text-sm text-green-600 hover:text-green-900 font-medium" %>
+              <%= button_to "Duplicate", duplicate_order_list_path(list), method: :post, class: "text-sm text-indigo-600 hover:text-indigo-900 font-medium" %>
+              <%= link_to "Edit", edit_order_list_path(list), class: "text-sm text-indigo-600 hover:text-indigo-900 font-medium" %>
+              <%= button_to "Delete", order_list_path(list), method: :delete, data: { turbo_confirm: "Are you sure?" }, class: "text-sm text-red-600 hover:text-red-900 font-medium" %>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="text-center py-12 bg-white rounded-lg shadow">
+      <p class="text-gray-500">No order lists yet. Create your first order list to get started.</p>
+    </div>
+  <% end %>
+</div>

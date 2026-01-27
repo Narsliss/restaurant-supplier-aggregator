@@ -1,0 +1,103 @@
+class SupplierCredential < ApplicationRecord
+  # Encryption
+  attr_encrypted :username, key: :encryption_key
+  attr_encrypted :password, key: :encryption_key
+  attr_encrypted :session_data, key: :encryption_key
+
+  # Associations
+  belongs_to :user
+  belongs_to :location, optional: true
+  belongs_to :supplier
+  has_many :supplier_2fa_requests, dependent: :destroy
+
+  # Validations
+  validates :username, presence: true
+  validates :password, presence: true
+  validates :supplier_id, uniqueness: { 
+    scope: [:user_id, :location_id], 
+    message: "credential already exists for this location" 
+  }
+  validates :status, inclusion: { 
+    in: %w[pending active expired failed hold] 
+  }
+
+  # Scopes
+  scope :active, -> { where(status: "active") }
+  scope :needs_refresh, -> { where("last_login_at < ?", 6.hours.ago) }
+  scope :for_supplier, ->(supplier) { where(supplier: supplier) }
+
+  # Callbacks
+  after_create :validate_credentials_async
+
+  # Status constants
+  STATUSES = {
+    pending: "pending",
+    active: "active",
+    expired: "expired",
+    failed: "failed",
+    hold: "hold"
+  }.freeze
+
+  # Methods
+  def active?
+    status == "active"
+  end
+
+  def expired?
+    status == "expired"
+  end
+
+  def failed?
+    status == "failed"
+  end
+
+  def on_hold?
+    status == "hold" || account_on_hold?
+  end
+
+  def needs_refresh?
+    last_login_at.nil? || last_login_at < 6.hours.ago
+  end
+
+  def mark_active!
+    update!(status: "active", last_login_at: Time.current, last_error: nil)
+  end
+
+  def mark_failed!(error_message)
+    update!(status: "failed", last_error: error_message)
+  end
+
+  def mark_expired!
+    update!(status: "expired")
+  end
+
+  def mark_on_hold!(reason)
+    update!(status: "hold", account_on_hold: true, hold_reason: reason)
+  end
+
+  def clear_session!
+    update!(session_data: nil)
+  end
+
+  def session_valid?
+    session_data.present? && last_login_at.present? && last_login_at > 1.hour.ago
+  end
+
+  def trusted_device_valid?
+    trusted_device_token.present? && 
+      trusted_device_expires_at.present? && 
+      trusted_device_expires_at > Time.current
+  end
+
+  private
+
+  def encryption_key
+    Rails.application.credentials.encryption_key || 
+      ENV["ENCRYPTION_KEY"] || 
+      Rails.application.secret_key_base[0..31]
+  end
+
+  def validate_credentials_async
+    ValidateCredentialsJob.perform_later(id)
+  end
+end

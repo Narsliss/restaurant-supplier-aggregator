@@ -1,0 +1,299 @@
+# This file is auto-generated from the current state of the database. Instead
+# of editing this file, please use the migrations feature of Active Record to
+# incrementally modify your database, and then regenerate this schema definition.
+#
+# This file is the source Rails uses to define your schema when running `bin/rails
+# db:schema:load`. When creating a new database, `bin/rails db:schema:load` tends to
+# be faster and is potentially less error prone than running all of your
+# migrations from scratch. Old migrations may fail to apply correctly if those
+# migrations use external dependencies or application code.
+#
+# It's strongly recommended that you check this file into your version control system.
+
+ActiveRecord::Schema[7.1].define(version: 2026_01_26_000014) do
+  # These are extensions that must be enabled in order to support this database
+  enable_extension "plpgsql"
+
+  create_table "locations", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "name", null: false
+    t.text "address"
+    t.string "city"
+    t.string "state"
+    t.string "zip_code"
+    t.string "phone"
+    t.boolean "is_default", default: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id", "is_default"], name: "index_locations_on_user_id_and_is_default"
+    t.index ["user_id"], name: "index_locations_on_user_id"
+  end
+
+  create_table "order_items", force: :cascade do |t|
+    t.bigint "order_id", null: false
+    t.bigint "supplier_product_id", null: false
+    t.decimal "quantity", precision: 10, scale: 2, null: false
+    t.decimal "unit_price", precision: 10, scale: 2, null: false
+    t.decimal "line_total", precision: 10, scale: 2, null: false
+    t.string "status", default: "pending"
+    t.text "notes"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["order_id"], name: "index_order_items_on_order_id"
+    t.index ["status"], name: "index_order_items_on_status"
+    t.index ["supplier_product_id"], name: "index_order_items_on_supplier_product_id"
+  end
+
+  create_table "order_list_items", force: :cascade do |t|
+    t.bigint "order_list_id", null: false
+    t.bigint "product_id", null: false
+    t.decimal "quantity", precision: 10, scale: 2, default: "1.0", null: false
+    t.text "notes"
+    t.integer "position", default: 0
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["order_list_id", "position"], name: "index_order_list_items_on_order_list_id_and_position"
+    t.index ["order_list_id", "product_id"], name: "index_order_list_items_on_order_list_id_and_product_id", unique: true
+    t.index ["order_list_id"], name: "index_order_list_items_on_order_list_id"
+    t.index ["product_id"], name: "index_order_list_items_on_product_id"
+  end
+
+  create_table "order_lists", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "name", null: false
+    t.text "description"
+    t.boolean "is_favorite", default: false
+    t.datetime "last_used_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id", "is_favorite"], name: "index_order_lists_on_user_id_and_is_favorite"
+    t.index ["user_id", "last_used_at"], name: "index_order_lists_on_user_id_and_last_used_at"
+    t.index ["user_id"], name: "index_order_lists_on_user_id"
+  end
+
+  create_table "order_validations", force: :cascade do |t|
+    t.bigint "order_id", null: false
+    t.string "validation_type", null: false
+    t.boolean "passed", null: false
+    t.text "message"
+    t.jsonb "details", default: {}
+    t.datetime "validated_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["order_id", "validation_type"], name: "index_order_validations_on_order_id_and_validation_type"
+    t.index ["order_id"], name: "index_order_validations_on_order_id"
+    t.index ["passed"], name: "index_order_validations_on_passed"
+  end
+
+  create_table "orders", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "location_id"
+    t.bigint "supplier_id", null: false
+    t.bigint "order_list_id"
+    t.string "status", default: "pending", null: false
+    t.string "confirmation_number"
+    t.decimal "subtotal", precision: 10, scale: 2
+    t.decimal "tax", precision: 10, scale: 2
+    t.decimal "total_amount", precision: 10, scale: 2
+    t.date "delivery_date"
+    t.text "notes"
+    t.text "error_message"
+    t.datetime "submitted_at"
+    t.datetime "confirmed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
+    t.index ["location_id"], name: "index_orders_on_location_id"
+    t.index ["order_list_id"], name: "index_orders_on_order_list_id"
+    t.index ["status"], name: "index_orders_on_status"
+    t.index ["submitted_at"], name: "index_orders_on_submitted_at"
+    t.index ["supplier_id"], name: "index_orders_on_supplier_id"
+    t.index ["user_id", "status"], name: "index_orders_on_user_id_and_status"
+    t.index ["user_id", "submitted_at"], name: "index_orders_on_user_id_and_submitted_at"
+    t.index ["user_id"], name: "index_orders_on_user_id"
+  end
+
+  create_table "products", force: :cascade do |t|
+    t.string "name", null: false
+    t.string "normalized_name"
+    t.string "category"
+    t.string "subcategory"
+    t.string "unit_size"
+    t.string "unit_type"
+    t.string "upc"
+    t.string "brand"
+    t.text "description"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["category", "subcategory"], name: "index_products_on_category_and_subcategory"
+    t.index ["category"], name: "index_products_on_category"
+    t.index ["name"], name: "index_products_on_name"
+    t.index ["normalized_name"], name: "index_products_on_normalized_name"
+    t.index ["upc"], name: "index_products_on_upc"
+  end
+
+  create_table "supplier_2fa_requests", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "supplier_credential_id", null: false
+    t.string "session_token", null: false
+    t.string "request_type", null: false
+    t.string "two_fa_type"
+    t.text "prompt_message"
+    t.string "status", default: "pending"
+    t.string "code_submitted"
+    t.integer "attempts", default: 0
+    t.datetime "expires_at", null: false
+    t.datetime "verified_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["session_token"], name: "index_supplier_2fa_requests_on_session_token", unique: true
+    t.index ["status"], name: "index_supplier_2fa_requests_on_status"
+    t.index ["supplier_credential_id"], name: "index_supplier_2fa_requests_on_supplier_credential_id"
+    t.index ["user_id", "status"], name: "index_supplier_2fa_requests_on_user_id_and_status"
+    t.index ["user_id"], name: "index_supplier_2fa_requests_on_user_id"
+  end
+
+  create_table "supplier_credentials", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "location_id"
+    t.bigint "supplier_id", null: false
+    t.text "encrypted_username", null: false
+    t.string "encrypted_username_iv", null: false
+    t.text "encrypted_password", null: false
+    t.string "encrypted_password_iv", null: false
+    t.text "encrypted_session_data"
+    t.string "encrypted_session_data_iv"
+    t.string "status", default: "pending"
+    t.datetime "last_login_at"
+    t.text "last_error"
+    t.boolean "two_fa_enabled", default: false
+    t.string "two_fa_type"
+    t.text "trusted_device_token"
+    t.datetime "trusted_device_expires_at"
+    t.boolean "account_on_hold", default: false
+    t.string "hold_reason"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["location_id"], name: "index_supplier_credentials_on_location_id"
+    t.index ["status"], name: "index_supplier_credentials_on_status"
+    t.index ["supplier_id"], name: "index_supplier_credentials_on_supplier_id"
+    t.index ["user_id", "location_id", "supplier_id"], name: "idx_supplier_creds_unique", unique: true
+    t.index ["user_id"], name: "index_supplier_credentials_on_user_id"
+  end
+
+  create_table "supplier_delivery_schedules", force: :cascade do |t|
+    t.bigint "supplier_id", null: false
+    t.bigint "location_id"
+    t.integer "day_of_week", null: false
+    t.integer "cutoff_day", null: false
+    t.time "cutoff_time", null: false
+    t.string "delivery_window"
+    t.boolean "active", default: true
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["location_id"], name: "index_supplier_delivery_schedules_on_location_id"
+    t.index ["supplier_id", "day_of_week"], name: "idx_on_supplier_id_day_of_week_61a293b06b"
+    t.index ["supplier_id", "location_id"], name: "idx_on_supplier_id_location_id_5efef46a58"
+    t.index ["supplier_id"], name: "index_supplier_delivery_schedules_on_supplier_id"
+  end
+
+  create_table "supplier_products", force: :cascade do |t|
+    t.bigint "product_id"
+    t.bigint "supplier_id", null: false
+    t.string "supplier_sku", null: false
+    t.string "supplier_name", null: false
+    t.string "supplier_url"
+    t.decimal "current_price", precision: 10, scale: 2
+    t.decimal "previous_price", precision: 10, scale: 2
+    t.string "pack_size"
+    t.integer "minimum_quantity", default: 1
+    t.integer "maximum_quantity"
+    t.boolean "in_stock", default: true
+    t.datetime "price_updated_at"
+    t.datetime "last_scraped_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["in_stock"], name: "index_supplier_products_on_in_stock"
+    t.index ["product_id"], name: "index_supplier_products_on_product_id"
+    t.index ["supplier_id", "supplier_sku"], name: "index_supplier_products_on_supplier_id_and_supplier_sku", unique: true
+    t.index ["supplier_id"], name: "index_supplier_products_on_supplier_id"
+    t.index ["supplier_name"], name: "index_supplier_products_on_supplier_name"
+  end
+
+  create_table "supplier_requirements", force: :cascade do |t|
+    t.bigint "supplier_id", null: false
+    t.string "requirement_type", null: false
+    t.string "value"
+    t.decimal "numeric_value", precision: 10, scale: 2
+    t.text "description"
+    t.text "error_message", null: false
+    t.boolean "is_blocking", default: true
+    t.boolean "active", default: true
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["active"], name: "index_supplier_requirements_on_active"
+    t.index ["supplier_id", "requirement_type"], name: "idx_on_supplier_id_requirement_type_79869f2f8a"
+    t.index ["supplier_id"], name: "index_supplier_requirements_on_supplier_id"
+  end
+
+  create_table "suppliers", force: :cascade do |t|
+    t.string "name", null: false
+    t.string "code", null: false
+    t.string "base_url", null: false
+    t.string "login_url", null: false
+    t.string "scraper_class", null: false
+    t.boolean "active", default: true
+    t.text "notes"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["active"], name: "index_suppliers_on_active"
+    t.index ["code"], name: "index_suppliers_on_code", unique: true
+  end
+
+  create_table "users", force: :cascade do |t|
+    t.string "email", default: "", null: false
+    t.string "encrypted_password", default: "", null: false
+    t.string "reset_password_token"
+    t.datetime "reset_password_sent_at"
+    t.datetime "remember_created_at"
+    t.integer "sign_in_count", default: 0, null: false
+    t.datetime "current_sign_in_at"
+    t.datetime "last_sign_in_at"
+    t.string "current_sign_in_ip"
+    t.string "last_sign_in_ip"
+    t.integer "failed_attempts", default: 0, null: false
+    t.string "unlock_token"
+    t.datetime "locked_at"
+    t.string "role", default: "user"
+    t.string "first_name"
+    t.string "last_name"
+    t.string "phone"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_users_on_email", unique: true
+    t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
+    t.index ["unlock_token"], name: "index_users_on_unlock_token", unique: true
+  end
+
+  add_foreign_key "locations", "users", on_delete: :cascade
+  add_foreign_key "order_items", "orders", on_delete: :cascade
+  add_foreign_key "order_items", "supplier_products", on_delete: :restrict
+  add_foreign_key "order_list_items", "order_lists", on_delete: :cascade
+  add_foreign_key "order_list_items", "products", on_delete: :cascade
+  add_foreign_key "order_lists", "users", on_delete: :cascade
+  add_foreign_key "order_validations", "orders", on_delete: :cascade
+  add_foreign_key "orders", "locations", on_delete: :nullify
+  add_foreign_key "orders", "order_lists", on_delete: :nullify
+  add_foreign_key "orders", "suppliers", on_delete: :restrict
+  add_foreign_key "orders", "users", on_delete: :cascade
+  add_foreign_key "supplier_2fa_requests", "supplier_credentials", on_delete: :cascade
+  add_foreign_key "supplier_2fa_requests", "users", on_delete: :cascade
+  add_foreign_key "supplier_credentials", "locations", on_delete: :cascade
+  add_foreign_key "supplier_credentials", "suppliers", on_delete: :cascade
+  add_foreign_key "supplier_credentials", "users", on_delete: :cascade
+  add_foreign_key "supplier_delivery_schedules", "locations", on_delete: :cascade
+  add_foreign_key "supplier_delivery_schedules", "suppliers", on_delete: :cascade
+  add_foreign_key "supplier_products", "products", on_delete: :nullify
+  add_foreign_key "supplier_products", "suppliers", on_delete: :cascade
+  add_foreign_key "supplier_requirements", "suppliers", on_delete: :cascade
+end

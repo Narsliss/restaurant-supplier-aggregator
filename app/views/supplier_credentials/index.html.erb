@@ -1,0 +1,46 @@
+<div class="max-w-4xl mx-auto">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Supplier Credentials</h1>
+    <%= link_to "Add Credential", new_supplier_credential_path, class: "bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700" %>
+  </div>
+
+  <% if @credentials.any? %>
+    <div class="grid gap-4">
+      <% @credentials.each do |credential| %>
+        <div class="bg-white shadow rounded-lg p-5">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-medium text-gray-900"><%= credential.supplier.name %></h3>
+              <p class="text-sm text-gray-500">Username: <%= credential.username %></p>
+              <p class="text-sm text-gray-500">Location: <%= credential.location.name %></p>
+            </div>
+            <div class="flex items-center space-x-4">
+              <% case credential.status %>
+              <% when "active" %>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
+              <% when "invalid" %>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Invalid</span>
+              <% when "needs_2fa" %>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Needs 2FA</span>
+              <% else %>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"><%= credential.status.titleize %></span>
+              <% end %>
+              <div class="flex space-x-2">
+                <%= button_to "Validate", validate_supplier_credential_path(credential), method: :post, class: "text-sm text-indigo-600 hover:text-indigo-900 font-medium" %>
+                <%= link_to "Edit", edit_supplier_credential_path(credential), class: "text-sm text-indigo-600 hover:text-indigo-900 font-medium" %>
+                <%= button_to "Delete", supplier_credential_path(credential), method: :delete, data: { turbo_confirm: "Are you sure?" }, class: "text-sm text-red-600 hover:text-red-900 font-medium" %>
+              </div>
+            </div>
+          </div>
+          <% if credential.last_login_at.present? %>
+            <p class="mt-2 text-xs text-gray-400">Last login: <%= time_ago_in_words(credential.last_login_at) %> ago</p>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="text-center py-12 bg-white rounded-lg shadow">
+      <p class="text-gray-500">No supplier credentials configured. Add your first supplier login.</p>
+    </div>
+  <% end %>
+</div>

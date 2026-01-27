@@ -1,0 +1,42 @@
+<%= form_with(model: credential, class: "space-y-6") do |form| %>
+  <% if credential.errors.any? %>
+    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+      <h3 class="text-red-800 font-medium">Please fix the following errors:</h3>
+      <ul class="mt-2 list-disc list-inside text-sm text-red-700">
+        <% credential.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div>
+    <%= form.label :supplier_id, "Supplier", class: "block text-sm font-medium text-gray-700" %>
+    <%= form.collection_select :supplier_id, @all_suppliers, :id, :name, { prompt: "Select a supplier" }, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+  </div>
+
+  <div>
+    <%= form.label :location_id, "Location", class: "block text-sm font-medium text-gray-700" %>
+    <%= form.collection_select :location_id, current_user.locations, :id, :name, { prompt: "Select a location" }, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+  </div>
+
+  <div>
+    <%= form.label :username, class: "block text-sm font-medium text-gray-700" %>
+    <%= form.text_field :username, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500", required: true, autocomplete: "off" %>
+  </div>
+
+  <div>
+    <%= form.label :password, class: "block text-sm font-medium text-gray-700" %>
+    <%= form.password_field :password, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500", required: credential.new_record?, placeholder: credential.persisted? ? "Leave blank to keep current" : "" %>
+  </div>
+
+  <div>
+    <%= form.label :account_number, class: "block text-sm font-medium text-gray-700" %>
+    <%= form.text_field :account_number, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+  </div>
+
+  <div class="flex justify-end space-x-3">
+    <%= link_to "Cancel", supplier_credentials_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" %>
+    <%= form.submit class: "px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 cursor-pointer" %>
+  </div>
+<% end %>
