@@ -1,27 +1,28 @@
-<nav class="bg-white shadow">
+<nav class="bg-brand-navy shadow-lg">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="flex h-16 justify-between">
       <div class="flex">
         <div class="flex flex-shrink-0 items-center">
-          <%= link_to root_path, class: "text-xl font-bold text-indigo-600" do %>
-            SupplierHub
+          <%= link_to root_path, class: "flex items-center space-x-1 group" do %>
+            <span class="text-xl font-heading font-bold text-white tracking-wide">Supplier</span>
+            <span class="text-xl font-heading font-bold text-brand-orange tracking-wide">Hub</span>
           <% end %>
         </div>
-        <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
-          <%= link_to "Dashboard", root_path, 
-              class: "inline-flex items-center border-b-2 #{current_page?(root_path) ? 'border-indigo-500 text-gray-900' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} px-1 pt-1 text-sm font-medium" %>
-          
-          <%= link_to "Order Lists", order_lists_path, 
-              class: "inline-flex items-center border-b-2 #{controller_name == 'order_lists' ? 'border-indigo-500 text-gray-900' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} px-1 pt-1 text-sm font-medium" %>
-          
-          <%= link_to "Orders", orders_path, 
-              class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-indigo-500 text-gray-900' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} px-1 pt-1 text-sm font-medium" %>
-          
-          <%= link_to "Products", products_path, 
-              class: "inline-flex items-center border-b-2 #{controller_name == 'products' ? 'border-indigo-500 text-gray-900' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} px-1 pt-1 text-sm font-medium" %>
-          
-          <%= link_to "Suppliers", supplier_credentials_path, 
-              class: "inline-flex items-center border-b-2 #{controller_name == 'supplier_credentials' ? 'border-indigo-500 text-gray-900' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} px-1 pt-1 text-sm font-medium" %>
+        <div class="hidden sm:ml-8 sm:flex sm:space-x-6">
+          <%= link_to "Dashboard", root_path,
+              class: "inline-flex items-center border-b-2 #{current_page?(root_path) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+
+          <%= link_to "Order Lists", order_lists_path,
+              class: "inline-flex items-center border-b-2 #{controller_name == 'order_lists' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+
+          <%= link_to "Orders", orders_path,
+              class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+
+          <%= link_to "Products", products_path,
+              class: "inline-flex items-center border-b-2 #{controller_name == 'products' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+
+          <%= link_to "Suppliers", supplier_credentials_path,
+              class: "inline-flex items-center border-b-2 #{controller_name == 'supplier_credentials' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
         </div>
       </div>
 
@@ -29,8 +30,8 @@
         <!-- Location selector -->
         <% if current_user.locations.any? %>
           <div class="mr-4">
-            <select id="location-selector" 
-                    class="rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+            <select id="location-selector"
+                    class="rounded-md bg-brand-navy-light border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green"
                     data-controller="location-selector">
               <% current_user.locations.each do |location| %>
                 <option value="<%= location.id %>" <%= 'selected' if location == current_location %>>
@@ -43,35 +44,35 @@
 
         <!-- User dropdown -->
         <div class="relative ml-3" data-controller="dropdown">
-          <button type="button" 
-                  class="flex rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          <button type="button"
+                  class="flex rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-brand-green focus:ring-offset-2 focus:ring-offset-brand-navy"
                   data-action="click->dropdown#toggle">
-            <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100">
-              <span class="text-sm font-medium leading-none text-indigo-700">
+            <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand-orange">
+              <span class="text-sm font-medium leading-none text-white">
                 <%= current_user.full_name.first.upcase %>
               </span>
             </span>
           </button>
 
-          <div class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5"
+          <div class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black/5"
                data-dropdown-target="menu">
-            <div class="px-4 py-2 text-sm text-gray-700 border-b">
+            <div class="px-4 py-2 text-sm text-brand-navy font-medium border-b border-gray-100">
               <%= current_user.full_name %>
             </div>
-            <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" %>
-            <%= link_to "Locations", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" %>
+            <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
+            <%= link_to "Locations", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <% if current_user.admin? %>
-              <%= link_to "Sidekiq", sidekiq_web_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" %>
+              <%= link_to "Sidekiq", sidekiq_web_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <% end %>
-            <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" %>
+            <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-brand-orange hover:bg-red-50" %>
           </div>
         </div>
       </div>
 
       <!-- Mobile menu button -->
       <div class="flex items-center sm:hidden">
-        <button type="button" 
-                class="inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-500"
+        <button type="button"
+                class="inline-flex items-center justify-center rounded-md p-2 text-gray-300 hover:bg-brand-navy-light hover:text-white"
                 data-controller="mobile-menu"
                 data-action="click->mobile-menu#toggle">
           <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

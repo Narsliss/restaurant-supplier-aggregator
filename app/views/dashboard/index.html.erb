@@ -1,33 +1,41 @@
 <% content_for :title, "Dashboard" %>
 
-<div class="md:flex md:items-center md:justify-between mb-8">
-  <div class="min-w-0 flex-1">
-    <h2 class="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
-      Welcome back, <%= current_user.first_name || current_user.email.split('@').first %>
-    </h2>
-  </div>
-  <div class="mt-4 flex md:ml-4 md:mt-0">
-    <%= link_to new_order_list_path, class: "ml-3 inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700" do %>
-      <svg class="-ml-0.5 mr-1.5 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-        <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-      </svg>
-      New Order List
-    <% end %>
+<!-- Hero Banner -->
+<div class="-mx-4 sm:-mx-6 lg:-mx-8 -mt-10 mb-8">
+  <div class="relative overflow-hidden bg-brand-navy">
+    <img src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1920&q=80"
+         alt="Restaurant kitchen"
+         class="absolute inset-0 h-full w-full object-cover opacity-20">
+    <div class="relative px-6 py-12 sm:px-12 sm:py-16">
+      <h1 class="text-3xl sm:text-4xl font-heading font-bold text-white tracking-wide">
+        Welcome back, <%= current_user.first_name || current_user.email.split('@').first %>
+      </h1>
+      <p class="mt-2 text-lg text-gray-300 font-body">Manage your suppliers, track orders, and compare prices — all in one place.</p>
+      <div class="mt-6 flex flex-wrap gap-3">
+        <%= link_to new_order_list_path, class: "inline-flex items-center rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
+          <svg class="-ml-0.5 mr-1.5 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+          </svg>
+          New Order List
+        <% end %>
+        <%= link_to "View Orders", orders_path, class: "inline-flex items-center rounded-md bg-white/10 backdrop-blur px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-white/20 transition-colors border border-white/20" %>
+      </div>
+    </div>
   </div>
 </div>
 
 <!-- 2FA Alerts -->
 <% if @pending_2fa_requests.any? %>
-  <div class="mb-6 rounded-md bg-yellow-50 p-4">
+  <div class="mb-6 rounded-md bg-brand-orange-50 border border-brand-orange/20 p-4">
     <div class="flex">
       <div class="flex-shrink-0">
-        <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+        <svg class="h-5 w-5 text-brand-orange" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
         </svg>
       </div>
       <div class="ml-3">
-        <h3 class="text-sm font-medium text-yellow-800">Verification Required</h3>
-        <div class="mt-2 text-sm text-yellow-700">
+        <h3 class="text-sm font-medium text-brand-orange-dark">Verification Required</h3>
+        <div class="mt-2 text-sm text-brand-orange-dark/80">
           <p><%= @pending_2fa_requests.count %> supplier(s) require verification code:</p>
           <ul class="list-disc list-inside mt-1">
             <% @pending_2fa_requests.each do |request| %>
@@ -41,10 +49,10 @@
 <% end %>
 
 <!-- Stats -->
-<dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+<dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
   <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
     <dt>
-      <div class="absolute rounded-md bg-indigo-500 p-3">
+      <div class="absolute rounded-md bg-brand-navy p-3">
         <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
         </svg>
@@ -58,7 +66,7 @@
 
   <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
     <dt>
-      <div class="absolute rounded-md bg-green-500 p-3">
+      <div class="absolute rounded-md bg-brand-green p-3">
         <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
         </svg>
@@ -72,7 +80,7 @@
 
   <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
     <dt>
-      <div class="absolute rounded-md bg-purple-500 p-3">
+      <div class="absolute rounded-md bg-brand-orange p-3">
         <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
         </svg>
@@ -86,7 +94,7 @@
 
   <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
     <dt>
-      <div class="absolute rounded-md bg-yellow-500 p-3">
+      <div class="absolute rounded-md bg-brand-blue p-3">
         <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
         </svg>
@@ -102,17 +110,17 @@
 <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
   <!-- Recent Orders -->
   <div class="bg-white shadow rounded-lg">
-    <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
-      <h3 class="text-lg font-medium leading-6 text-gray-900">Recent Orders</h3>
-      <%= link_to "View all", orders_path, class: "text-sm text-indigo-600 hover:text-indigo-500" %>
+    <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
+      <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Recent Orders</h3>
+      <%= link_to "View all", orders_path, class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
     </div>
     <ul role="list" class="divide-y divide-gray-200">
       <% @recent_orders.each do |order| %>
         <li>
-          <%= link_to order, class: "block hover:bg-gray-50" do %>
+          <%= link_to order, class: "block hover:bg-brand-green-50 transition-colors" do %>
             <div class="px-4 py-4 sm:px-6">
               <div class="flex items-center justify-between">
-                <p class="truncate text-sm font-medium text-indigo-600">
+                <p class="truncate text-sm font-medium text-brand-navy">
                   <%= order.supplier.name %>
                 </p>
                 <div class="ml-2 flex flex-shrink-0">
@@ -144,7 +152,7 @@
       <% end %>
       <% if @recent_orders.empty? %>
         <li class="px-4 py-8 text-center text-gray-500">
-          No orders yet. <%= link_to "Create your first order", order_lists_path, class: "text-indigo-600 hover:text-indigo-500" %>
+          No orders yet. <%= link_to "Create your first order", order_lists_path, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
         </li>
       <% end %>
     </ul>
@@ -152,9 +160,9 @@
 
   <!-- Supplier Status -->
   <div class="bg-white shadow rounded-lg">
-    <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
-      <h3 class="text-lg font-medium leading-6 text-gray-900">Supplier Connections</h3>
-      <%= link_to "Manage", supplier_credentials_path, class: "text-sm text-indigo-600 hover:text-indigo-500" %>
+    <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
+      <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Supplier Connections</h3>
+      <%= link_to "Manage", supplier_credentials_path, class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
     </div>
     <ul role="list" class="divide-y divide-gray-200">
       <% @supplier_credentials.each do |credential| %>
@@ -163,7 +171,7 @@
             <p class="text-sm font-medium text-gray-900"><%= credential.supplier.name %></p>
             <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
               <%= case credential.status
-                  when 'active' then 'bg-green-100 text-green-800'
+                  when 'active' then 'bg-brand-green-100 text-brand-green-dark'
                   when 'pending' then 'bg-yellow-100 text-yellow-800'
                   when 'failed', 'hold' then 'bg-red-100 text-red-800'
                   else 'bg-gray-100 text-gray-800'
@@ -178,7 +186,7 @@
       <% end %>
       <% if @supplier_credentials.empty? %>
         <li class="px-4 py-8 text-center text-gray-500">
-          No suppliers connected. <%= link_to "Add your first supplier", new_supplier_credential_path, class: "text-indigo-600 hover:text-indigo-500" %>
+          No suppliers connected. <%= link_to "Add your first supplier", new_supplier_credential_path, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
         </li>
       <% end %>
     </ul>

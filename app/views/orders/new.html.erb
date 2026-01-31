@@ -42,11 +42,11 @@
         <%= form.hidden_field :supplier_id, value: @supplier.id %>
         <div class="mb-4">
           <%= form.label :notes, "Order Notes", class: "block text-sm font-medium text-gray-700" %>
-          <%= form.text_area :notes, rows: 2, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+          <%= form.text_area :notes, rows: 2, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green" %>
         </div>
         <div class="flex justify-end space-x-3">
           <%= link_to "Cancel", order_lists_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" %>
-          <%= form.submit "Create Order", class: "px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 cursor-pointer" %>
+          <%= form.submit "Create Order", class: "px-4 py-2 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark cursor-pointer" %>
         </div>
       <% end %>
     </div>
@@ -57,16 +57,16 @@
         <div>
           <%= form.label :order_list_id, "Order List", class: "block text-sm font-medium text-gray-700" %>
           <% if @order_lists.present? %>
-            <%= form.select :order_list_id, @order_lists.map { |l| [l.name, l.id] }, { prompt: "Select an order list" }, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+            <%= form.select :order_list_id, @order_lists.map { |l| [l.name, l.id] }, { prompt: "Select an order list" }, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green" %>
           <% else %>
-            <p class="mt-1 text-sm text-gray-500">No order lists available. <%= link_to "Create one first", new_order_list_path, class: "text-indigo-600 hover:text-indigo-900" %>.</p>
+            <p class="mt-1 text-sm text-gray-500">No order lists available. <%= link_to "Create one first", new_order_list_path, class: "text-brand-orange hover:text-brand-orange-dark" %>.</p>
           <% end %>
         </div>
 
         <div>
           <%= form.label :supplier_id, "Supplier", class: "block text-sm font-medium text-gray-700" %>
           <% if @suppliers.present? %>
-            <%= form.select :supplier_id, @suppliers.map { |s| [s.name, s.id] }, { prompt: "Select a supplier" }, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" %>
+            <%= form.select :supplier_id, @suppliers.map { |s| [s.name, s.id] }, { prompt: "Select a supplier" }, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green" %>
           <% else %>
             <p class="mt-1 text-sm text-gray-500">No suppliers configured.</p>
           <% end %>
@@ -74,7 +74,7 @@
 
         <div class="flex justify-end space-x-3">
           <%= link_to "Cancel", orders_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" %>
-          <%= form.submit "Preview Order", class: "px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 cursor-pointer" %>
+          <%= form.submit "Preview Order", class: "px-4 py-2 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark cursor-pointer" %>
         </div>
       <% end %>
     </div>

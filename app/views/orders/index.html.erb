@@ -3,11 +3,11 @@
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Orders</h1>
       <div class="mt-2 flex space-x-4">
-        <%= link_to "Active", orders_path, class: "text-sm font-medium #{ params[:status].blank? ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700' }" %>
+        <%= link_to "Active", orders_path, class: "text-sm font-medium #{ params[:status].blank? ? 'text-brand-orange border-b-2 border-brand-orange' : 'text-gray-500 hover:text-gray-700' }" %>
         <%= link_to "History", history_orders_path, class: "text-sm font-medium text-gray-500 hover:text-gray-700" %>
       </div>
     </div>
-    <%= link_to "New Order", new_order_path, class: "bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700" %>
+    <%= link_to "New Order", new_order_path, class: "bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark" %>
   </div>
 
   <% if @orders.any? %>
@@ -17,7 +17,7 @@
           <div class="flex items-center justify-between">
             <div>
               <h3 class="text-sm font-medium text-gray-900">
-                <%= link_to "Order ##{order.id}", order_path(order), class: "hover:text-indigo-600" %>
+                <%= link_to "Order ##{order.id}", order_path(order), class: "hover:text-brand-orange" %>
                 &middot; <%= order.supplier.name %>
               </h3>
               <p class="text-sm text-gray-500">
@@ -40,7 +40,7 @@
               <% when "cancelled" %>
                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Cancelled</span>
               <% end %>
-              <%= link_to "View", order_path(order), class: "text-sm text-indigo-600 hover:text-indigo-900 font-medium" %>
+              <%= link_to "View", order_path(order), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
             </div>
           </div>
         </div>

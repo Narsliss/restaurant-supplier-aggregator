@@ -1,4 +1,6 @@
 class Supplier2faRequest < ApplicationRecord
+  self.table_name = "supplier_2fa_requests"
+
   # Associations
   belongs_to :user
   belongs_to :supplier_credential

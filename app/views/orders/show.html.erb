@@ -16,7 +16,7 @@
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Submitted</span>
       <% when "failed" %>
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">Failed</span>
-        <%= button_to "Retry", submit_order_path(@order), method: :post, class: "bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 text-sm" %>
+        <%= button_to "Retry", submit_order_path(@order), method: :post, class: "bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark text-sm" %>
       <% when "cancelled" %>
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">Cancelled</span>
       <% end %>
