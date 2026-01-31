@@ -15,7 +15,7 @@
     <dl class="grid grid-cols-2 md:grid-cols-3 gap-4">
       <div>
         <dt class="text-sm font-medium text-gray-500">Unit</dt>
-        <dd class="mt-1 text-gray-900"><%= @product.unit_of_measure || "—" %></dd>
+        <dd class="mt-1 text-gray-900"><%= [@product.unit_size, @product.unit_type].compact.join(" ").presence || "—" %></dd>
       </div>
       <div>
         <dt class="text-sm font-medium text-gray-500">UPC</dt>
@@ -53,7 +53,7 @@
             <tr>
               <td class="px-4 py-3 text-sm text-gray-900"><%= sp.supplier.name %></td>
               <td class="px-4 py-3 text-sm text-gray-500"><%= sp.supplier_sku %></td>
-              <td class="px-4 py-3 text-sm text-gray-900 text-right font-medium"><%= number_to_currency(sp.price) %></td>
+              <td class="px-4 py-3 text-sm text-gray-900 text-right font-medium"><%= number_to_currency(sp.current_price) %></td>
               <td class="px-4 py-3 text-center">
                 <% if sp.in_stock %>
                   <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">In Stock</span>

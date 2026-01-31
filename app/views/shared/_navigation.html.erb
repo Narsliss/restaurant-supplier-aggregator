@@ -3,9 +3,8 @@
     <div class="flex h-16 justify-between">
       <div class="flex">
         <div class="flex flex-shrink-0 items-center">
-          <%= link_to root_path, class: "flex items-center space-x-1 group" do %>
-            <span class="text-xl font-heading font-bold text-white tracking-wide">Supplier</span>
-            <span class="text-xl font-heading font-bold text-brand-orange tracking-wide">Hub</span>
+          <%= link_to root_path, class: "flex items-center group" do %>
+            <%= render "shared/logo", variant: :nav %>
           <% end %>
         </div>
         <div class="hidden sm:ml-8 sm:flex sm:space-x-6">

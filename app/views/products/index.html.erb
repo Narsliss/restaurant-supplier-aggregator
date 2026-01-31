@@ -27,8 +27,8 @@
             </h3>
             <p class="text-sm text-gray-500">
               <%= [product.category, product.subcategory].compact.join(" > ") %>
-              <% if product.unit_of_measure.present? %>
-                &middot; <%= product.unit_of_measure %>
+              <% if product.unit_size.present? %>
+                &middot; <%= [product.unit_size, product.unit_type].compact.join(" ") %>
               <% end %>
             </p>
           </div>
