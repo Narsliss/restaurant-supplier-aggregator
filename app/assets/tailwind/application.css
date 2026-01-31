@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  /* US Foods Brand Colors */
+  --color-brand-green: #5C8727;
+  --color-brand-green-light: #6d9a30;
+  --color-brand-green-dark: #4a6e1f;
+  --color-brand-green-50: #f3f7ec;
+  --color-brand-green-100: #e4edcf;
+  --color-brand-green-200: #c9dba0;
+
+  --color-brand-orange: #CF4520;
+  --color-brand-orange-light: #e05533;
+  --color-brand-orange-dark: #b33a1a;
+  --color-brand-orange-50: #fef3f0;
+  --color-brand-orange-100: #fce4dc;
+
+  --color-brand-navy: #11116b;
+  --color-brand-navy-light: #1a1a8a;
+  --color-brand-navy-dark: #0d0d52;
+
+  --color-brand-gray: #717073;
+  --color-brand-blue: #7e91ff;
+  --color-brand-pomegranate: #EC4025;
+
+  /* Font families */
+  --font-heading: 'Oswald', sans-serif;
+  --font-body: 'Open Sans', sans-serif;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-body);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}

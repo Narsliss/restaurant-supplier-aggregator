@@ -1,0 +1,124 @@
+<% content_for :title, "Sign In" %>
+
+<div class="flex min-h-screen">
+  <!-- Left: Food imagery panel -->
+  <div class="hidden lg:flex lg:w-1/2 relative">
+    <img src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200&q=80"
+         alt="Fresh food ingredients"
+         class="absolute inset-0 h-full w-full object-cover">
+    <div class="absolute inset-0 bg-brand-navy/70"></div>
+    <div class="relative z-10 flex flex-col justify-between p-12">
+      <div>
+        <div class="flex items-center space-x-2">
+          <span class="text-3xl font-heading font-bold text-white tracking-wide">Supplier</span>
+          <span class="text-3xl font-heading font-bold text-brand-orange tracking-wide">Hub</span>
+        </div>
+        <p class="mt-2 text-lg text-gray-300">Restaurant Supplier Aggregator</p>
+      </div>
+      <div class="space-y-6">
+        <blockquote class="text-xl text-white font-heading leading-relaxed">
+          "Streamline your procurement across multiple suppliers. Compare prices, manage orders, and save time."
+        </blockquote>
+        <div class="flex items-center space-x-4 text-gray-300 text-sm">
+          <div class="flex items-center space-x-2">
+            <svg class="h-5 w-5 text-brand-green" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+            </svg>
+            <span>Multi-supplier ordering</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <svg class="h-5 w-5 text-brand-green" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+            </svg>
+            <span>Price comparison</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <svg class="h-5 w-5 text-brand-green" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+            </svg>
+            <span>Automated ordering</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Login form -->
+  <div class="flex flex-1 flex-col justify-center px-4 py-12 sm:px-6 lg:flex-none lg:w-1/2 lg:px-20 xl:px-24">
+    <div class="mx-auto w-full max-w-sm lg:w-96">
+      <!-- Mobile logo -->
+      <div class="lg:hidden mb-8">
+        <div class="flex items-center space-x-2">
+          <span class="text-2xl font-heading font-bold text-brand-navy tracking-wide">Supplier</span>
+          <span class="text-2xl font-heading font-bold text-brand-orange tracking-wide">Hub</span>
+        </div>
+      </div>
+
+      <div>
+        <h2 class="text-3xl font-heading font-bold tracking-tight text-gray-900">
+          Sign in to your account
+        </h2>
+        <p class="mt-2 text-sm text-gray-600">
+          Manage your restaurant supply chain
+        </p>
+      </div>
+
+      <div class="mt-8">
+        <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "space-y-6" }) do |f| %>
+          <div>
+            <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
+            <div class="mt-1">
+              <%= f.email_field :email, autofocus: true, autocomplete: "email",
+                  class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+                  placeholder: "you@restaurant.com" %>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between">
+              <%= f.label :password, class: "block text-sm font-medium text-gray-700" %>
+              <% if devise_mapping.recoverable? %>
+                <%= link_to "Forgot password?", new_password_path(resource_name), class: "text-sm font-medium text-brand-orange hover:text-brand-orange-dark" %>
+              <% end %>
+            </div>
+            <div class="mt-1">
+              <%= f.password_field :password, autocomplete: "current-password",
+                  class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+            </div>
+          </div>
+
+          <% if devise_mapping.rememberable? %>
+            <div class="flex items-center">
+              <%= f.check_box :remember_me, class: "rounded border-gray-300 text-brand-green focus:ring-brand-green" %>
+              <%= f.label :remember_me, class: "ml-2 block text-sm text-gray-700" %>
+            </div>
+          <% end %>
+
+          <div>
+            <%= f.submit "Sign in",
+                class: "flex w-full justify-center rounded-md bg-brand-orange px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange transition-colors cursor-pointer" %>
+          </div>
+        <% end %>
+
+        <% if devise_mapping.registerable? %>
+          <p class="mt-6 text-center text-sm text-gray-500">
+            Don't have an account?
+            <%= link_to "Sign up", new_registration_path(resource_name), class: "font-semibold text-brand-orange hover:text-brand-orange-dark" %>
+          </p>
+        <% end %>
+      </div>
+
+      <!-- Supplier logos -->
+      <div class="mt-10 pt-6 border-t border-gray-200">
+        <p class="text-xs text-gray-400 text-center mb-4">Supported Suppliers</p>
+        <div class="flex justify-center space-x-8 text-sm text-gray-400">
+          <span class="font-medium">US Foods</span>
+          <span class="text-brand-green">&#9679;</span>
+          <span class="font-medium">Chef's Warehouse</span>
+          <span class="text-brand-green">&#9679;</span>
+          <span class="font-medium">What Chefs Want</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

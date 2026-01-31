@@ -5,7 +5,7 @@
       <p class="text-sm text-gray-500"><%= [@product.category, @product.subcategory].compact.join(" > ") %></p>
     </div>
     <div class="flex space-x-3">
-      <%= link_to "Edit", edit_product_path(@product), class: "text-indigo-600 hover:text-indigo-900 text-sm font-medium" %>
+      <%= link_to "Edit", edit_product_path(@product), class: "text-brand-orange hover:text-brand-orange-dark text-sm font-medium" %>
       <%= link_to "Back", products_path, class: "text-gray-600 hover:text-gray-900 text-sm font-medium" %>
     </div>
   </div>

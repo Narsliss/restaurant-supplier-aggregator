@@ -7,21 +7,22 @@
   - [low, 1]
 
 # Scheduled jobs (using sidekiq-scheduler)
-:schedule:
-  refresh_prices:
-    cron: '0 4 * * *'  # Daily at 4 AM
-    class: ScrapePricesJob
-    queue: scraping
-    description: "Daily price refresh from all suppliers"
+:scheduler:
+  :schedule:
+    refresh_prices:
+      cron: '0 4 * * *'  # Daily at 4 AM
+      class: ScrapePricesJob
+      queue: scraping
+      description: "Daily price refresh from all suppliers"
 
-  refresh_sessions:
-    cron: '0 */6 * * *'  # Every 6 hours
-    class: RefreshSessionJob
-    queue: default
-    description: "Refresh supplier login sessions"
+    refresh_sessions:
+      cron: '0 */6 * * *'  # Every 6 hours
+      class: RefreshSessionJob
+      queue: default
+      description: "Refresh supplier login sessions"
 
-  expire_2fa_requests:
-    cron: '*/5 * * * *'  # Every 5 minutes
-    class: Expire2faRequestsJob
-    queue: low
-    description: "Expire old 2FA requests"
+    expire_2fa_requests:
+      cron: '*/5 * * * *'  # Every 5 minutes
+      class: Expire2faRequestsJob
+      queue: low
+      description: "Expire old 2FA requests"

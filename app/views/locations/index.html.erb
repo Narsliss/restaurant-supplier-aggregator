@@ -1,7 +1,7 @@
 <div class="max-w-4xl mx-auto">
   <div class="flex justify-between items-center mb-6">
     <h1 class="text-2xl font-bold text-gray-900">Locations</h1>
-    <%= link_to "Add Location", new_location_path, class: "bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700" %>
+    <%= link_to "Add Location", new_location_path, class: "bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark" %>
   </div>
 
   <% if @locations.any? %>
@@ -21,7 +21,7 @@
             <% end %>
           </div>
           <div class="flex space-x-3">
-            <%= link_to "Edit", edit_location_path(location), class: "text-indigo-600 hover:text-indigo-900 text-sm font-medium" %>
+            <%= link_to "Edit", edit_location_path(location), class: "text-brand-orange hover:text-brand-orange-dark text-sm font-medium" %>
             <%= button_to "Delete", location_path(location), method: :delete, data: { turbo_confirm: "Are you sure?" }, class: "text-red-600 hover:text-red-900 text-sm font-medium" %>
           </div>
         </div>

@@ -7,8 +7,8 @@
           <span class="ml-1 text-yellow-500">&#9733;</span>
         <% end %>
       </h1>
-      <% if @order_list.notes.present? %>
-        <p class="text-sm text-gray-500 mt-1"><%= @order_list.notes %></p>
+      <% if @order_list.description.present? %>
+        <p class="text-sm text-gray-500 mt-1"><%= @order_list.description %></p>
       <% end %>
     </div>
     <div class="flex space-x-3">
@@ -23,13 +23,13 @@
     <h3 class="text-sm font-medium text-gray-700 mb-3">Add Item</h3>
     <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex space-x-3") do |form| %>
       <div class="flex-1">
-        <%= form.text_field :product_search, placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm", id: "product-search", data: { action: "input->product-search#search" } %>
+        <%= form.text_field :product_search, placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", id: "product-search", data: { action: "input->product-search#search" } %>
         <%= form.hidden_field :product_id, id: "selected-product-id" %>
       </div>
       <div class="w-24">
-        <%= form.number_field :quantity, value: 1, min: 1, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm", placeholder: "Qty" %>
+        <%= form.number_field :quantity, value: 1, min: 1, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", placeholder: "Qty" %>
       </div>
-      <%= form.submit "Add", class: "bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm cursor-pointer" %>
+      <%= form.submit "Add", class: "bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer" %>
     <% end %>
   </div>
 
