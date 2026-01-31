@@ -33,6 +33,9 @@ gem "ferrum", "~> 0.14"
 gem "faraday", "~> 2.9"
 gem "nokogiri", "~> 1.16"
 
+# Pagination
+gem "kaminari", "~> 1.2"
+
 # JSON
 gem "jbuilder"
 

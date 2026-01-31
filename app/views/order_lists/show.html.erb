@@ -54,7 +54,7 @@
                   <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-20 rounded-md border-gray-300 text-sm", onchange: "this.form.requestSubmit()" %>
                 <% end %>
               </td>
-              <td class="px-4 py-3 text-sm text-gray-500"><%= item.product.unit_of_measure %></td>
+              <td class="px-4 py-3 text-sm text-gray-500"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></td>
               <td class="px-4 py-3 text-right">
                 <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-sm font-medium" %>
               </td>
