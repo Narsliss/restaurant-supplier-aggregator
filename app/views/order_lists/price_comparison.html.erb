@@ -1,18 +1,18 @@
 <div class="max-w-6xl mx-auto">
-  <div class="flex justify-between items-center mb-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Price Comparison</h1>
       <p class="text-sm text-gray-500">Order List: <%= @order_list.name %></p>
     </div>
-    <div class="flex space-x-3">
+    <div class="flex flex-wrap gap-2">
       <%= button_to "Refresh Prices", refresh_prices_price_comparison_path(@order_list), method: :post, class: "bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm" %>
-      <%= link_to "Back to List", order_list_path(@order_list), class: "text-gray-600 hover:text-gray-900 text-sm font-medium" %>
+      <%= link_to "Back to List", order_list_path(@order_list), class: "text-gray-600 hover:text-gray-900 text-sm font-medium py-2" %>
     </div>
   </div>
 
   <% if @comparison.present? %>
     <!-- Summary Cards -->
-    <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
       <% @comparison[:supplier_totals]&.each do |supplier_total| %>
         <div class="bg-white shadow rounded-lg p-4 <%= supplier_total[:recommended] ? 'ring-2 ring-green-500' : '' %>">
           <% if supplier_total[:recommended] %>
@@ -25,8 +25,34 @@
       <% end %>
     </div>
 
-    <!-- Item-by-Item Comparison Table -->
-    <div class="bg-white shadow rounded-lg overflow-hidden">
+    <!-- Item-by-Item Comparison — Mobile cards -->
+    <div class="sm:hidden bg-white shadow rounded-lg divide-y divide-gray-200">
+      <% @comparison[:items]&.each do |item| %>
+        <div class="p-4 space-y-2">
+          <div class="flex justify-between items-start">
+            <span class="text-sm font-medium text-gray-900"><%= item[:product_name] %></span>
+            <span class="text-xs text-gray-500 flex-shrink-0 ml-2">Qty: <%= item[:quantity] %></span>
+          </div>
+          <div class="space-y-1">
+            <% item[:prices]&.each_with_index do |price, idx| %>
+              <div class="flex justify-between text-sm">
+                <span class="text-gray-500"><%= @suppliers[idx]&.name %></span>
+                <span class="<%= price[:best_price] ? 'text-green-600 font-bold' : 'text-gray-900' %>">
+                  <% if price[:available] %>
+                    <%= number_to_currency(price[:unit_price]) %>
+                  <% else %>
+                    <span class="text-gray-400">N/A</span>
+                  <% end %>
+                </span>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </div>
+
+    <!-- Item-by-Item Comparison — Desktop table -->
+    <div class="hidden sm:block bg-white shadow rounded-lg overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">
           <tr>

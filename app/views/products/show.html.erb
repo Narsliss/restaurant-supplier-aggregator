@@ -1,5 +1,5 @@
 <div class="max-w-4xl mx-auto">
-  <div class="flex justify-between items-center mb-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900"><%= @product.name %></h1>
       <p class="text-sm text-gray-500"><%= [@product.category, @product.subcategory].compact.join(" > ") %></p>
@@ -11,8 +11,8 @@
   </div>
 
   <!-- Product Details -->
-  <div class="bg-white shadow rounded-lg p-6 mb-6">
-    <dl class="grid grid-cols-2 md:grid-cols-3 gap-4">
+  <div class="bg-white shadow rounded-lg p-4 sm:p-6 mb-6">
+    <dl class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
       <div>
         <dt class="text-sm font-medium text-gray-500">Unit</dt>
         <dd class="mt-1 text-gray-900"><%= [@product.unit_size, @product.unit_type].compact.join(" ").presence || "—" %></dd>
@@ -38,40 +38,65 @@
   <div class="bg-white shadow rounded-lg overflow-hidden">
     <h3 class="px-4 py-3 bg-gray-50 text-sm font-medium text-gray-700">Supplier Pricing</h3>
     <% if @supplier_products.any? %>
-      <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
-            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
-            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stock</th>
-            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Updated</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-200">
-          <% @supplier_products.each do |sp| %>
+      <!-- Mobile card layout -->
+      <div class="sm:hidden divide-y divide-gray-200">
+        <% @supplier_products.each do |sp| %>
+          <div class="p-4 space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-sm font-medium text-gray-900"><%= sp.supplier.name %></span>
+              <% if sp.in_stock %>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">In Stock</span>
+              <% else %>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Out of Stock</span>
+              <% end %>
+            </div>
+            <div class="flex justify-between items-center text-sm">
+              <span class="text-gray-500">SKU: <%= sp.supplier_sku %></span>
+              <span class="text-gray-900 font-semibold text-base"><%= number_to_currency(sp.current_price) %></span>
+            </div>
+            <% if sp.last_scraped_at %>
+              <p class="text-xs text-gray-400">Updated <%= time_ago_in_words(sp.last_scraped_at) %> ago</p>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+      <!-- Desktop table layout -->
+      <div class="hidden sm:block overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
             <tr>
-              <td class="px-4 py-3 text-sm text-gray-900"><%= sp.supplier.name %></td>
-              <td class="px-4 py-3 text-sm text-gray-500"><%= sp.supplier_sku %></td>
-              <td class="px-4 py-3 text-sm text-gray-900 text-right font-medium"><%= number_to_currency(sp.current_price) %></td>
-              <td class="px-4 py-3 text-center">
-                <% if sp.in_stock %>
-                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">In Stock</span>
-                <% else %>
-                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Out of Stock</span>
-                <% end %>
-              </td>
-              <td class="px-4 py-3 text-sm text-gray-500 text-right">
-                <% if sp.last_scraped_at %>
-                  <%= time_ago_in_words(sp.last_scraped_at) %> ago
-                <% else %>
-                  —
-                <% end %>
-              </td>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stock</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Updated</th>
             </tr>
-          <% end %>
-        </tbody>
-      </table>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @supplier_products.each do |sp| %>
+              <tr>
+                <td class="px-4 py-3 text-sm text-gray-900"><%= sp.supplier.name %></td>
+                <td class="px-4 py-3 text-sm text-gray-500"><%= sp.supplier_sku %></td>
+                <td class="px-4 py-3 text-sm text-gray-900 text-right font-medium"><%= number_to_currency(sp.current_price) %></td>
+                <td class="px-4 py-3 text-center">
+                  <% if sp.in_stock %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">In Stock</span>
+                  <% else %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Out of Stock</span>
+                  <% end %>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-500 text-right">
+                  <% if sp.last_scraped_at %>
+                    <%= time_ago_in_words(sp.last_scraped_at) %> ago
+                  <% else %>
+                    —
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
     <% else %>
       <div class="text-center py-8">
         <p class="text-gray-500">No supplier pricing data available.</p>

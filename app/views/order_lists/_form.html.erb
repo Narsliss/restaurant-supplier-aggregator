@@ -25,8 +25,8 @@
     <%= form.label :is_favorite, "Mark as favorite", class: "ml-2 text-sm text-gray-700" %>
   </div>
 
-  <div class="flex justify-end space-x-3">
-    <%= link_to "Cancel", order_lists_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" %>
+  <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+    <%= link_to "Cancel", order_lists_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
     <%= form.submit class: "px-4 py-2 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark cursor-pointer" %>
   </div>
 <% end %>
