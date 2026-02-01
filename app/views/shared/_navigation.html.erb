@@ -1,4 +1,4 @@
-<nav class="bg-brand-navy shadow-lg">
+<nav class="bg-brand-navy shadow-lg" data-controller="mobile-menu">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="flex h-16 justify-between">
       <div class="flex">
@@ -10,54 +10,40 @@
         <div class="hidden sm:ml-8 sm:flex sm:space-x-6">
           <%= link_to "Dashboard", root_path,
               class: "inline-flex items-center border-b-2 #{current_page?(root_path) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-
           <%= link_to "Order Lists", order_lists_path,
               class: "inline-flex items-center border-b-2 #{controller_name == 'order_lists' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-
           <%= link_to "Orders", orders_path,
               class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-
           <%= link_to "Products", products_path,
               class: "inline-flex items-center border-b-2 #{controller_name == 'products' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-
           <%= link_to "Suppliers", supplier_credentials_path,
               class: "inline-flex items-center border-b-2 #{controller_name == 'supplier_credentials' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
         </div>
       </div>
 
       <div class="hidden sm:ml-6 sm:flex sm:items-center">
-        <!-- Location selector -->
         <% if current_user.locations.any? %>
           <div class="mr-4">
             <select id="location-selector"
                     class="rounded-md bg-brand-navy-light border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green"
                     data-controller="location-selector">
               <% current_user.locations.each do |location| %>
-                <option value="<%= location.id %>" <%= 'selected' if location == current_location %>>
-                  <%= location.name %>
-                </option>
+                <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
               <% end %>
             </select>
           </div>
         <% end %>
-
-        <!-- User dropdown -->
         <div class="relative ml-3" data-controller="dropdown">
           <button type="button"
                   class="flex rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-brand-green focus:ring-offset-2 focus:ring-offset-brand-navy"
                   data-action="click->dropdown#toggle">
             <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand-orange">
-              <span class="text-sm font-medium leading-none text-white">
-                <%= current_user.full_name.first.upcase %>
-              </span>
+              <span class="text-sm font-medium leading-none text-white"><%= current_user.full_name.first.upcase %></span>
             </span>
           </button>
-
           <div class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black/5"
                data-dropdown-target="menu">
-            <div class="px-4 py-2 text-sm text-brand-navy font-medium border-b border-gray-100">
-              <%= current_user.full_name %>
-            </div>
+            <div class="px-4 py-2 text-sm text-brand-navy font-medium border-b border-gray-100"><%= current_user.full_name %></div>
             <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <%= link_to "Locations", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <% if current_user.admin? %>
@@ -71,13 +57,59 @@
       <!-- Mobile menu button -->
       <div class="flex items-center sm:hidden">
         <button type="button"
-                class="inline-flex items-center justify-center rounded-md p-2 text-gray-300 hover:bg-brand-navy-light hover:text-white"
-                data-controller="mobile-menu"
+                class="inline-flex items-center justify-center rounded-md p-2 text-gray-300 hover:bg-brand-navy-light hover:text-white focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-green"
                 data-action="click->mobile-menu#toggle">
-          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <svg data-mobile-menu-target="openIcon" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
           </svg>
+          <svg data-mobile-menu-target="closeIcon" class="hidden h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile menu panel -->
+  <div class="hidden sm:hidden" data-mobile-menu-target="menu">
+    <div class="space-y-1 px-2 pb-3 pt-2">
+      <%= link_to "Dashboard", root_path,
+          class: "block rounded-md px-3 py-2 text-base font-medium #{current_page?(root_path) ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>
+      <%= link_to "Order Lists", order_lists_path,
+          class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'order_lists' ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>
+      <%= link_to "Orders", orders_path,
+          class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'orders' ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>
+      <%= link_to "Products", products_path,
+          class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'products' ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>
+      <%= link_to "Suppliers", supplier_credentials_path,
+          class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'supplier_credentials' ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>
+    </div>
+    <div class="border-t border-white/10 px-4 pb-3 pt-4">
+      <% if current_user.locations.any? %>
+        <div class="mb-3">
+          <select class="w-full rounded-md bg-brand-navy-light border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green">
+            <% current_user.locations.each do |location| %>
+              <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
+            <% end %>
+          </select>
+        </div>
+      <% end %>
+      <div class="flex items-center mb-3">
+        <span class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-brand-orange">
+          <span class="text-sm font-medium leading-none text-white"><%= current_user.full_name.first.upcase %></span>
+        </span>
+        <div class="ml-3">
+          <p class="text-base font-medium text-white"><%= current_user.full_name %></p>
+          <p class="text-sm text-gray-400"><%= current_user.email %></p>
+        </div>
+      </div>
+      <div class="space-y-1">
+        <%= link_to "Settings", edit_user_registration_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
+        <%= link_to "Locations", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
+        <% if current_user.admin? %>
+          <%= link_to "Sidekiq", sidekiq_web_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
+        <% end %>
+        <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left rounded-md px-3 py-2 text-base font-medium text-brand-orange hover:bg-brand-navy-light" %>
       </div>
     </div>
   </div>

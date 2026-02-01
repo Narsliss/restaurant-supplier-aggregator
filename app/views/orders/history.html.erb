@@ -1,11 +1,9 @@
 <div class="max-w-4xl mx-auto">
-  <div class="flex justify-between items-center mb-6">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
-      <div class="mt-2 flex space-x-4">
-        <%= link_to "Active", orders_path, class: "text-sm font-medium text-gray-500 hover:text-gray-700" %>
-        <%= link_to "History", history_orders_path, class: "text-sm font-medium text-brand-orange border-b-2 border-brand-orange" %>
-      </div>
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
+    <div class="mt-2 flex space-x-4">
+      <%= link_to "Active", orders_path, class: "text-sm font-medium text-gray-500 hover:text-gray-700" %>
+      <%= link_to "History", history_orders_path, class: "text-sm font-medium text-brand-orange border-b-2 border-brand-orange" %>
     </div>
   </div>
 
@@ -13,29 +11,29 @@
     <div class="bg-white shadow rounded-lg divide-y divide-gray-200">
       <% @orders.each do |order| %>
         <div class="p-4">
-          <div class="flex items-center justify-between">
-            <div>
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
               <h3 class="text-sm font-medium text-gray-900">
                 <%= link_to "Order ##{order.id}", order_path(order), class: "hover:text-brand-orange" %>
-                &middot; <%= order.supplier.name %>
+                <span class="hidden sm:inline">&middot;</span>
+                <span class="block sm:inline text-gray-500 sm:text-gray-900"><%= order.supplier.name %></span>
               </h3>
-              <p class="text-sm text-gray-500">
+              <p class="text-sm text-gray-500 mt-0.5">
                 <%= order.order_items.size %> items &middot; <%= number_to_currency(order.total_amount) %>
                 <% if order.submitted_at %>
-                  &middot; <%= order.submitted_at.strftime("%b %d, %Y at %I:%M %p") %>
+                  <span class="hidden sm:inline">&middot; <%= order.submitted_at.strftime("%b %d, %Y") %></span>
                 <% end %>
               </p>
               <% if order.confirmation_number.present? %>
-                <p class="text-xs text-gray-400">Confirmation: <%= order.confirmation_number %></p>
+                <p class="text-xs text-gray-400 break-all">Confirmation: <%= order.confirmation_number %></p>
               <% end %>
             </div>
-            <div class="flex items-center space-x-3">
+            <div class="flex items-center gap-2 flex-shrink-0">
               <% if order.status == "submitted" %>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
               <% else %>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"><%= order.status.titleize %></span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"><%= order.status.titleize %></span>
               <% end %>
-              <%= link_to "View", order_path(order), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
             </div>
           </div>
         </div>

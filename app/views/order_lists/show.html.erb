@@ -1,5 +1,5 @@
 <div class="max-w-4xl mx-auto">
-  <div class="flex justify-between items-center mb-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">
         <%= @order_list.name %>
@@ -11,57 +11,82 @@
         <p class="text-sm text-gray-500 mt-1"><%= @order_list.description %></p>
       <% end %>
     </div>
-    <div class="flex space-x-3">
-      <%= link_to "Compare Prices", price_comparison_order_list_path(@order_list), class: "bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm" %>
-      <%= link_to "Edit", edit_order_list_path(@order_list), class: "bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 text-sm" %>
-      <%= link_to "Back", order_lists_path, class: "text-gray-600 hover:text-gray-900 text-sm font-medium" %>
+    <div class="flex flex-wrap gap-2">
+      <%= link_to "Compare Prices", price_comparison_order_list_path(@order_list), class: "bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 text-sm" %>
+      <%= link_to "Edit", edit_order_list_path(@order_list), class: "bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-300 text-sm" %>
+      <%= link_to "Back", order_lists_path, class: "text-gray-600 hover:text-gray-900 text-sm font-medium px-1 py-1.5" %>
     </div>
   </div>
 
   <!-- Add Item Form -->
   <div class="bg-white shadow rounded-lg p-4 mb-6">
     <h3 class="text-sm font-medium text-gray-700 mb-3">Add Item</h3>
-    <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex space-x-3") do |form| %>
+    <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex flex-col gap-3 sm:flex-row") do |form| %>
       <div class="flex-1">
         <%= form.text_field :product_search, placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", id: "product-search", data: { action: "input->product-search#search" } %>
         <%= form.hidden_field :product_id, id: "selected-product-id" %>
       </div>
-      <div class="w-24">
-        <%= form.number_field :quantity, value: 1, min: 1, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", placeholder: "Qty" %>
+      <div class="flex gap-3">
+        <div class="w-20 sm:w-24">
+          <%= form.number_field :quantity, value: 1, min: 1, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", placeholder: "Qty" %>
+        </div>
+        <%= form.submit "Add", class: "bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer" %>
       </div>
-      <%= form.submit "Add", class: "bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer" %>
     <% end %>
   </div>
 
   <!-- Items List -->
   <div id="order-list-items" class="bg-white shadow rounded-lg">
     <% if @items.any? %>
-      <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
-            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-200">
-          <% @items.each do |item| %>
+      <!-- Mobile card layout -->
+      <div class="sm:hidden divide-y divide-gray-200">
+        <% @items.each do |item| %>
+          <div class="p-4">
+            <div class="flex justify-between items-start gap-2">
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium text-gray-900"><%= item.product.name %></p>
+                <p class="text-xs text-gray-500 mt-0.5"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></p>
+              </div>
+              <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-xs font-medium flex-shrink-0" %>
+            </div>
+            <div class="mt-2">
+              <%= form_with(url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
+                <label class="text-xs text-gray-500">Qty:</label>
+                <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-16 rounded-md border-gray-300 text-sm ml-1", onchange: "this.form.requestSubmit()" %>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+      <!-- Desktop table -->
+      <div class="hidden sm:block overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
             <tr>
-              <td class="px-4 py-3 text-sm text-gray-900"><%= item.product.name %></td>
-              <td class="px-4 py-3 text-sm text-gray-900">
-                <%= form_with(url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
-                  <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-20 rounded-md border-gray-300 text-sm", onchange: "this.form.requestSubmit()" %>
-                <% end %>
-              </td>
-              <td class="px-4 py-3 text-sm text-gray-500"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></td>
-              <td class="px-4 py-3 text-right">
-                <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-sm font-medium" %>
-              </td>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
-          <% end %>
-        </tbody>
-      </table>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @items.each do |item| %>
+              <tr>
+                <td class="px-4 py-3 text-sm text-gray-900"><%= item.product.name %></td>
+                <td class="px-4 py-3 text-sm text-gray-900">
+                  <%= form_with(url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
+                    <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-20 rounded-md border-gray-300 text-sm", onchange: "this.form.requestSubmit()" %>
+                  <% end %>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-500"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></td>
+                <td class="px-4 py-3 text-right">
+                  <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-sm font-medium" %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
     <% else %>
       <div class="text-center py-8">
         <p class="text-gray-500">No items yet. Search for products to add to this list.</p>

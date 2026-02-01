@@ -1,16 +1,16 @@
 <div class="max-w-4xl mx-auto">
-  <div class="flex justify-between items-center mb-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
     <h1 class="text-2xl font-bold text-gray-900">Products</h1>
-    <%= link_to "Add Product", new_product_path, class: "bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark" %>
+    <%= link_to "Add Product", new_product_path, class: "inline-flex items-center justify-center bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark text-sm" %>
   </div>
 
   <!-- Search & Filter -->
   <div class="bg-white shadow rounded-lg p-4 mb-6">
-    <%= form_with(url: products_path, method: :get, class: "flex space-x-3") do |form| %>
+    <%= form_with(url: products_path, method: :get, class: "flex flex-col gap-3 sm:flex-row") do |form| %>
       <div class="flex-1">
         <%= form.text_field :search, value: params[:search], placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
-      <div class="w-48">
+      <div class="sm:w-48">
         <%= form.select :category, Product.distinct.pluck(:category).compact.sort.map { |c| [c, c] }, { prompt: "All Categories", selected: params[:category] }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
       <%= form.submit "Search", class: "bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 text-sm cursor-pointer" %>
@@ -20,21 +20,23 @@
   <% if @products.any? %>
     <div class="bg-white shadow rounded-lg divide-y divide-gray-200">
       <% @products.each do |product| %>
-        <div class="p-4 flex items-center justify-between">
-          <div>
-            <h3 class="text-sm font-medium text-gray-900">
-              <%= link_to product.name, product_path(product), class: "hover:text-brand-orange" %>
-            </h3>
-            <p class="text-sm text-gray-500">
-              <%= [product.category, product.subcategory].compact.join(" > ") %>
-              <% if product.unit_size.present? %>
-                &middot; <%= [product.unit_size, product.unit_type].compact.join(" ") %>
-              <% end %>
-            </p>
-          </div>
-          <div class="flex space-x-3">
-            <span class="text-sm text-gray-500"><%= product.supplier_products.size %> suppliers</span>
-            <%= link_to "Edit", edit_product_path(product), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+        <div class="p-4">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <h3 class="text-sm font-medium text-gray-900">
+                <%= link_to product.name, product_path(product), class: "hover:text-brand-orange" %>
+              </h3>
+              <p class="text-sm text-gray-500 truncate">
+                <%= [product.category, product.subcategory].compact.join(" > ") %>
+                <% if product.unit_size.present? %>
+                  &middot; <%= [product.unit_size, product.unit_type].compact.join(" ") %>
+                <% end %>
+              </p>
+            </div>
+            <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              <span class="hidden sm:inline text-sm text-gray-500"><%= product.supplier_products.size %> suppliers</span>
+              <%= link_to "Edit", edit_product_path(product), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+            </div>
           </div>
         </div>
       <% end %>
