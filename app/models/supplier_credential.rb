@@ -26,9 +26,6 @@ class SupplierCredential < ApplicationRecord
   scope :needs_refresh, -> { where("last_login_at < ?", 6.hours.ago) }
   scope :for_supplier, ->(supplier) { where(supplier: supplier) }
 
-  # Callbacks
-  after_create :validate_credentials_async
-
   # Status constants
   STATUSES = {
     pending: "pending",
@@ -92,12 +89,8 @@ class SupplierCredential < ApplicationRecord
   private
 
   def encryption_key
-    Rails.application.credentials.encryption_key || 
-      ENV["ENCRYPTION_KEY"] || 
+    Rails.application.credentials.encryption_key ||
+      ENV["ENCRYPTION_KEY"] ||
       Rails.application.secret_key_base[0..31]
-  end
-
-  def validate_credentials_async
-    ValidateCredentialsJob.perform_later(id)
   end
 end
