@@ -6,16 +6,15 @@ class SupplierCredential < ApplicationRecord
 
   # Associations
   belongs_to :user
-  belongs_to :location, optional: true
   belongs_to :supplier
   has_many :supplier_2fa_requests, dependent: :destroy
 
   # Validations
   validates :username, presence: true
   validates :password, presence: true
-  validates :supplier_id, uniqueness: { 
-    scope: [:user_id, :location_id], 
-    message: "credential already exists for this location" 
+  validates :supplier_id, uniqueness: {
+    scope: :user_id,
+    message: "credential already exists for this supplier"
   }
   validates :status, inclusion: { 
     in: %w[pending active expired failed hold] 

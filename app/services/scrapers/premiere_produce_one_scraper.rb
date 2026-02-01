@@ -1,24 +1,24 @@
 module Scrapers
-  class WhatChefsWantScraper < BaseScraper
-    BASE_URL = "https://www.whatchefswant.com".freeze
+  class PremiereProduceOneScraper < BaseScraper
+    BASE_URL = "https://www.premiereproduceone.com".freeze
     LOGIN_URL = "#{BASE_URL}/customer-login/".freeze
-    ORDER_MINIMUM = 150.00
+    ORDER_MINIMUM = 0.00
 
     def login
       with_browser do
         navigate_to(BASE_URL)
-        
+
         if restore_session
           browser.refresh
           return true if logged_in?
         end
 
         navigate_to(LOGIN_URL)
-        wait_for_selector("input[name='email'], #email, input[type='email']")
+        wait_for_selector("input[name='email'], #email, input[type='email'], input[name='username'], #username")
 
-        fill_field("input[name='email'], #email", credential.username)
-        fill_field("input[name='password'], #password", credential.password)
-        click("button[type='submit'], .login-button, .btn-login")
+        fill_field("input[name='email'], #email, input[type='email'], input[name='username'], #username", credential.username)
+        fill_field("input[name='password'], #password, input[type='password']", credential.password)
+        click("button[type='submit'], .login-button, .btn-login, input[type='submit']")
 
         wait_for_page_load
         sleep 2
@@ -28,7 +28,7 @@ module Scrapers
           credential.mark_active!
           true
         else
-          error_msg = extract_text(".error, .alert-error, .login-error") || "Login failed"
+          error_msg = extract_text(".error, .alert-error, .login-error, .error-message, .alert-danger") || "Login failed"
           credential.mark_failed!(error_msg)
           raise AuthenticationError, error_msg
         end
@@ -36,7 +36,7 @@ module Scrapers
     end
 
     def logged_in?
-      browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in]").present?
+      browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in], .my-account, .account-nav").present?
     end
 
     def scrape_prices(product_skus)
@@ -50,7 +50,7 @@ module Scrapers
             result = scrape_product(sku)
             results << result if result
           rescue ScrapingError => e
-            logger.warn "[WhatChefsWant] Failed to scrape SKU #{sku}: #{e.message}"
+            logger.warn "[PremiereProduceOne] Failed to scrape SKU #{sku}: #{e.message}"
           end
 
           rate_limit_delay
@@ -66,11 +66,11 @@ module Scrapers
 
         items.each do |item|
           navigate_to("#{BASE_URL}/products/#{item[:sku]}")
-          
+
           begin
             wait_for_selector(".product-page, .product-detail", timeout: 10)
           rescue ScrapingError
-            logger.warn "[WhatChefsWant] Product page not found for SKU #{item[:sku]}"
+            logger.warn "[PremiereProduceOne] Product page not found for SKU #{item[:sku]}"
             next
           end
 
@@ -81,11 +81,11 @@ module Scrapers
           end
 
           click(".add-to-cart, .btn-add-cart, [data-action='add-to-cart']")
-          
+
           begin
             wait_for_selector(".cart-added, .success-message, .cart-updated", timeout: 5)
           rescue ScrapingError
-            logger.warn "[WhatChefsWant] No cart confirmation for SKU #{item[:sku]}"
+            logger.warn "[PremiereProduceOne] No cart confirmation for SKU #{item[:sku]}"
           end
 
           rate_limit_delay
@@ -102,15 +102,6 @@ module Scrapers
 
         validate_cart_before_checkout
 
-        minimum_check = check_order_minimum_at_checkout
-        unless minimum_check[:met]
-          raise OrderMinimumError.new(
-            "Order minimum not met",
-            minimum: minimum_check[:minimum],
-            current_total: minimum_check[:current]
-          )
-        end
-
         unavailable = detect_unavailable_items_in_cart
         if unavailable.any?
           raise ItemUnavailableError.new(
@@ -121,9 +112,6 @@ module Scrapers
 
         click(".checkout, .btn-checkout, [data-action='checkout']")
         wait_for_selector(".checkout-page, .order-review")
-
-        # Select delivery date if required
-        select_delivery_date_if_needed
 
         click(".place-order, .btn-submit-order, [data-action='place-order']")
         wait_for_confirmation_or_error
@@ -140,11 +128,11 @@ module Scrapers
 
     def perform_login_steps
       navigate_to(LOGIN_URL)
-      wait_for_selector("input[name='email'], #email")
+      wait_for_selector("input[name='email'], #email, input[name='username'], #username")
 
-      fill_field("input[name='email'], #email", credential.username)
+      fill_field("input[name='email'], #email, input[name='username'], #username", credential.username)
       fill_field("input[name='password'], #password", credential.password)
-      click("button[type='submit'], .login-button")
+      click("button[type='submit'], .login-button, input[type='submit']")
 
       wait_for_page_load
       sleep 2
@@ -186,7 +174,7 @@ module Scrapers
           scraped_at: Time.current
         }
       rescue => e
-        logger.debug "[WhatChefsWant] Failed to extract catalog item: #{e.message}"
+        logger.debug "[PremiereProduceOne] Failed to extract catalog item: #{e.message}"
       end
 
       products
@@ -204,24 +192,6 @@ module Scrapers
         pack_size: extract_text(".pack-size, .product-unit"),
         in_stock: browser.at_css(".out-of-stock, .unavailable, .sold-out").nil?,
         scraped_at: Time.current
-      }
-    end
-
-    def check_order_minimum_at_checkout
-      subtotal_text = extract_text(".subtotal, .cart-total")
-      current_total = extract_price(subtotal_text) || 0
-
-      minimum_msg = extract_text(".minimum-order-message, .order-minimum")
-      minimum = if minimum_msg
-        extract_price(minimum_msg) || ORDER_MINIMUM
-      else
-        ORDER_MINIMUM
-      end
-
-      {
-        met: current_total >= minimum,
-        minimum: minimum,
-        current: current_total
       }
     end
 
@@ -246,19 +216,6 @@ module Scrapers
 
       if browser.at_css(".empty-cart, .cart-empty, .no-items")
         raise ScrapingError, "Cart is empty"
-      end
-    end
-
-    def select_delivery_date_if_needed
-      date_selector = browser.at_css(".delivery-date-select, select[name='delivery_date']")
-      return unless date_selector
-
-      # Select first available date
-      first_option = browser.at_css(".delivery-date-select option:not([disabled]):not([value='']), select[name='delivery_date'] option:not([disabled]):not([value=''])")
-      if first_option
-        date_selector.select(first_option.text)
-      else
-        raise DeliveryUnavailableError, "No delivery dates available"
       end
     end
 

@@ -33,7 +33,7 @@
       </div>
       <div>
         <dt class="text-sm font-medium text-gray-500">Location</dt>
-        <dd class="mt-1 text-gray-900"><%= @order.location.name %></dd>
+        <dd class="mt-1 text-gray-900"><%= @order.location&.name || "No Location" %></dd>
       </div>
       <div>
         <dt class="text-sm font-medium text-gray-500">Total</dt>

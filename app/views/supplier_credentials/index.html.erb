@@ -24,9 +24,11 @@
                 <% end %>
               </div>
               <p class="text-sm text-gray-500 mt-0.5">Username: <%= credential.username %></p>
-              <p class="text-sm text-gray-500">Location: <%= credential.location&.name || "All Locations" %></p>
               <% if credential.status == "failed" && credential.last_error.present? %>
-                <p class="text-xs text-red-500 mt-1">Error: <%= credential.last_error.truncate(120) %></p>
+                <div class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                  <p class="font-medium">Validation Error:</p>
+                  <p class="mt-0.5 break-words"><%= credential.last_error %></p>
+                </div>
               <% end %>
               <% if credential.on_hold? && credential.hold_reason.present? %>
                 <p class="text-xs text-yellow-600 mt-1">Hold reason: <%= credential.hold_reason %></p>
@@ -39,6 +41,12 @@
               <%= button_to validate_supplier_credential_path(credential), method: :post, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" do %>
                 <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 Validate
+              <% end %>
+              <% if credential.active? %>
+                <%= button_to import_products_supplier_credential_path(credential), method: :post, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-emerald-500 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors" do %>
+                  <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                  Import Products
+                <% end %>
               <% end %>
               <%= link_to edit_supplier_credential_path(credential), class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" do %>
                 <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>

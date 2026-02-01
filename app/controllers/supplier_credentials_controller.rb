@@ -1,10 +1,10 @@
 class SupplierCredentialsController < ApplicationController
-  before_action :set_credential, only: [:show, :edit, :update, :destroy, :validate, :refresh_session]
+  before_action :set_credential, only: [:show, :edit, :update, :destroy, :validate, :refresh_session, :import_products]
   before_action :set_suppliers, only: [:new, :create, :edit, :update]
 
   def index
     @credentials = current_user.supplier_credentials
-      .includes(:supplier, :location)
+      .includes(:supplier)
       .order("suppliers.name")
   end
 
@@ -30,23 +30,13 @@ class SupplierCredentialsController < ApplicationController
       end
     end
 
-    # Validate location belongs to current user
-    if @credential.location_id.present?
-      unless current_user.locations.exists?(id: @credential.location_id)
-        @credential.errors.add(:location_id, "is not a valid location for your account")
-        render :new, status: :unprocessable_entity and return
-      end
-    end
-
     # Check for duplicate credentials
     existing = current_user.supplier_credentials.find_by(
-      supplier_id: @credential.supplier_id,
-      location_id: @credential.location_id
+      supplier_id: @credential.supplier_id
     )
     if existing
       supplier_name = existing.supplier.name
-      location_name = existing.location&.name || "All Locations"
-      @credential.errors.add(:base, "You already have credentials for #{supplier_name} at #{location_name}. Please edit the existing credential instead.")
+      @credential.errors.add(:base, "You already have credentials for #{supplier_name}. Please edit the existing credential instead.")
       render :new, status: :unprocessable_entity and return
     end
 
@@ -77,14 +67,6 @@ class SupplierCredentialsController < ApplicationController
     if credential_params[:supplier_id].present? && credential_params[:supplier_id].to_i != @credential.supplier_id
       @credential.errors.add(:supplier_id, "cannot be changed. Please delete this credential and create a new one for a different supplier.")
       render :edit, status: :unprocessable_entity and return
-    end
-
-    # Validate location belongs to current user
-    if credential_params[:location_id].present?
-      unless current_user.locations.exists?(id: credential_params[:location_id])
-        @credential.errors.add(:location_id, "is not a valid location for your account")
-        render :edit, status: :unprocessable_entity and return
-      end
     end
 
     # Strip blank password so it doesn't overwrite existing
@@ -188,6 +170,30 @@ class SupplierCredentialsController < ApplicationController
     end
   end
 
+  def import_products
+    unless @credential.active?
+      respond_to do |format|
+        format.html do
+          redirect_to supplier_credentials_path,
+            alert: "Cannot import products from #{@credential.supplier.name} — credentials must be validated and active first."
+        end
+        format.json { render json: { status: "error", message: "Credentials not active" }, status: :unprocessable_entity }
+      end
+      return
+    end
+
+    ImportSupplierProductsJob.perform_later(@credential.id)
+    Rails.logger.info "[SupplierCredentials] Product import queued for credential ##{@credential.id} — #{@credential.supplier.name} (user: #{current_user.id})"
+
+    respond_to do |format|
+      format.html do
+        redirect_to supplier_credentials_path,
+          notice: "Product import started for #{@credential.supplier.name}. Products will appear shortly."
+      end
+      format.json { render json: { status: "importing", credential_id: @credential.id, supplier: @credential.supplier.name } }
+    end
+  end
+
   private
 
   def set_credential
@@ -200,16 +206,14 @@ class SupplierCredentialsController < ApplicationController
   end
 
   def set_suppliers
-    existing_supplier_ids = current_user.supplier_credentials
-      .where(location: current_location)
-      .pluck(:supplier_id)
+    existing_supplier_ids = current_user.supplier_credentials.pluck(:supplier_id)
 
     @available_suppliers = Supplier.active.where.not(id: existing_supplier_ids).order(:name)
     @all_suppliers = Supplier.active.order(:name)
   end
 
   def credential_params
-    params.require(:supplier_credential).permit(:supplier_id, :location_id, :username, :password)
+    params.require(:supplier_credential).permit(:supplier_id, :username, :password)
   end
 
   def validate_credential_now(credential)
