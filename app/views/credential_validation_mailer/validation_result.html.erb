@@ -1,0 +1,22 @@
+<h2>Credential Validation <%= @result[:valid] ? "Successful" : "Failed" %></h2>
+
+<p>Hi <%= @user.first_name || @user.email.split('@').first %>,</p>
+
+<% if @result[:valid] %>
+  <p>Your credentials for <strong><%= @supplier.name %></strong> have been verified successfully.</p>
+  <% if @result[:two_fa_required] %>
+    <p>Note: Two-factor authentication is enabled on this account. You may be prompted for a verification code during future logins.</p>
+  <% end %>
+<% else %>
+  <p>We were unable to validate your credentials for <strong><%= @supplier.name %></strong>.</p>
+  <% if @result[:message].present? %>
+    <p><strong>Reason:</strong> <%= @result[:message] %></p>
+  <% end %>
+  <p>Please check your username and password, then try again from the Supplier Credentials page.</p>
+<% end %>
+
+<p>
+  <strong>Supplier:</strong> <%= @supplier.name %><br>
+  <strong>Username:</strong> <%= @credential.username %><br>
+  <strong>Status:</strong> <%= @credential.status.titleize %>
+</p>

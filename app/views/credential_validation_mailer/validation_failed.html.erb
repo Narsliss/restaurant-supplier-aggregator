@@ -1,0 +1,12 @@
+<h2>Credential Validation Failed</h2>
+
+<p>Hi <%= @user.first_name || @user.email.split('@').first %>,</p>
+
+<p>We were unable to validate your login credentials for <strong><%= @supplier.name %></strong>.</p>
+
+<p>Please check your username and password, then try again from the Supplier Credentials page.</p>
+
+<p>
+  <strong>Supplier:</strong> <%= @supplier.name %><br>
+  <strong>Username:</strong> <%= @credential.username %>
+</p>

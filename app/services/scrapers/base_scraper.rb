@@ -126,15 +126,38 @@ module Scrapers
     end
 
     def fill_field(selector, value)
-      element = browser.at_css(selector)
+      element = find_first_visible(selector)
       return unless element
-      element.focus
-      element.type(value, :clear)
+
+      begin
+        element.focus
+        element.type(value, :clear)
+      rescue Ferrum::CoordinatesNotFoundError, Ferrum::NodeNotFoundError, Ferrum::BrowserError => e
+        # Element found in DOM but not interactable — try clicking first to focus
+        logger.debug "[Scraper] focus failed for '#{selector}', trying click: #{e.message}"
+        begin
+          element.click
+          element.type(value, :clear)
+        rescue => retry_error
+          # Last resort: use JavaScript to set value directly
+          logger.debug "[Scraper] click+type failed, using JS: #{retry_error.message}"
+          browser.execute("arguments[0].value = arguments[1]", element, value)
+          browser.execute("arguments[0].dispatchEvent(new Event('input', { bubbles: true }))", element)
+          browser.execute("arguments[0].dispatchEvent(new Event('change', { bubbles: true }))", element)
+        end
+      end
     end
 
     def click(selector)
-      element = browser.at_css(selector)
-      element&.click
+      element = find_first_visible(selector)
+      return unless element
+
+      begin
+        element.click
+      rescue Ferrum::CoordinatesNotFoundError, Ferrum::NodeNotFoundError, Ferrum::BrowserError => e
+        logger.debug "[Scraper] click failed for '#{selector}', using JS: #{e.message}"
+        browser.execute("arguments[0].click()", element)
+      end
     end
 
     def wait_for_page_load
@@ -164,6 +187,32 @@ module Scrapers
         end
         sleep 0.1
       end
+    end
+
+    def find_first_visible(selector)
+      # Try each selector individually to find a visible, interactable element
+      selectors = selector.split(",").map(&:strip)
+
+      selectors.each do |sel|
+        elements = browser.css(sel)
+        elements.each do |el|
+          # Check if element is visible via JS
+          visible = browser.evaluate("(function(el) {
+            if (!el) return false;
+            var style = window.getComputedStyle(el);
+            return style.display !== 'none' &&
+                   style.visibility !== 'hidden' &&
+                   style.opacity !== '0' &&
+                   el.offsetWidth > 0 &&
+                   el.offsetHeight > 0;
+          })(arguments[0])", el) rescue false
+
+          return el if visible
+        end
+      end
+
+      # Fallback: return first match regardless of visibility
+      browser.at_css(selector)
     end
 
     def extract_text(selector)

@@ -13,12 +13,14 @@ class ValidateCredentialsJob < ApplicationJob
 
     if result[:valid]
       Rails.logger.info "[ValidateCredentialsJob] Credentials valid"
-      
+      credential.mark_active!
+
       if result[:two_fa_required]
         credential.update!(two_fa_enabled: true)
       end
     else
       Rails.logger.warn "[ValidateCredentialsJob] Credentials invalid: #{result[:message]}"
+      credential.mark_failed!(result[:message] || "Validation failed")
     end
 
     # Notify user of validation result
