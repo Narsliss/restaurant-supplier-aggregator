@@ -11,6 +11,7 @@ Rails.application.routes.draw do
     member do
       post :validate
       post :refresh_session
+      post :import_products
     end
   end
 

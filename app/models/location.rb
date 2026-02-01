@@ -1,7 +1,6 @@
 class Location < ApplicationRecord
   # Associations
   belongs_to :user
-  has_many :supplier_credentials, dependent: :nullify
   has_many :supplier_delivery_schedules, dependent: :destroy
   has_many :orders, dependent: :nullify
 

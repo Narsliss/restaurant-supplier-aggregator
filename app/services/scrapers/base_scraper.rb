@@ -97,6 +97,48 @@ module Scrapers
       raise NotImplementedError, "Subclass must implement #scrape_prices"
     end
 
+    # Scrape the supplier's catalog by searching for terms.
+    # Returns an array of hashes: { supplier_sku, supplier_name, current_price, pack_size, in_stock, category }
+    # Default implementation searches the supplier site for each term.
+    def scrape_catalog(search_terms, max_per_term: 20)
+      results = []
+
+      with_browser do
+        # Use perform_login_steps (not login) to avoid nested with_browser blocks.
+        # First try restoring session, fall back to a fresh login within this browser.
+        unless restore_session && (navigate_to(supplier_base_url) || true) && logged_in?
+          perform_login_steps
+          sleep 2
+          unless logged_in?
+            raise AuthenticationError, "Could not log in for catalog import"
+          end
+          save_session
+        end
+
+        search_terms.each do |term|
+          begin
+            products = search_supplier_catalog(term, max: max_per_term)
+            results.concat(products)
+            logger.info "[Scraper] Found #{products.size} products for '#{term}' at #{credential.supplier.name}"
+          rescue ScrapingError => e
+            logger.warn "[Scraper] Catalog search failed for '#{term}': #{e.message}"
+          rescue => e
+            logger.warn "[Scraper] Unexpected error searching '#{term}': #{e.class}: #{e.message}"
+          end
+
+          rate_limit_delay
+        end
+      end
+
+      # De-duplicate by SKU
+      results.uniq { |r| r[:supplier_sku] }
+    end
+
+    # Override in subclasses to implement supplier-specific catalog search
+    def search_supplier_catalog(term, max: 20)
+      raise NotImplementedError, "Subclass must implement #search_supplier_catalog"
+    end
+
     def add_to_cart(items)
       raise NotImplementedError, "Subclass must implement #add_to_cart"
     end
@@ -141,9 +183,10 @@ module Scrapers
         rescue => retry_error
           # Last resort: use JavaScript to set value directly
           logger.debug "[Scraper] click+type failed, using JS: #{retry_error.message}"
-          browser.execute("arguments[0].value = arguments[1]", element, value)
-          browser.execute("arguments[0].dispatchEvent(new Event('input', { bubbles: true }))", element)
-          browser.execute("arguments[0].dispatchEvent(new Event('change', { bubbles: true }))", element)
+          element.evaluate("this.value = ''")
+          element.evaluate("this.value = '#{value.gsub("'", "\\\\'")}'")
+          element.evaluate("this.dispatchEvent(new Event('input', { bubbles: true }))")
+          element.evaluate("this.dispatchEvent(new Event('change', { bubbles: true }))")
         end
       end
     end
@@ -156,7 +199,7 @@ module Scrapers
         element.click
       rescue Ferrum::CoordinatesNotFoundError, Ferrum::NodeNotFoundError, Ferrum::BrowserError => e
         logger.debug "[Scraper] click failed for '#{selector}', using JS: #{e.message}"
-        browser.execute("arguments[0].click()", element)
+        element.evaluate("this.click()")
       end
     end
 
@@ -196,16 +239,14 @@ module Scrapers
       selectors.each do |sel|
         elements = browser.css(sel)
         elements.each do |el|
-          # Check if element is visible via JS
-          visible = browser.evaluate("(function(el) {
-            if (!el) return false;
-            var style = window.getComputedStyle(el);
-            return style.display !== 'none' &&
-                   style.visibility !== 'hidden' &&
-                   style.opacity !== '0' &&
-                   el.offsetWidth > 0 &&
-                   el.offsetHeight > 0;
-          })(arguments[0])", el) rescue false
+          visible = el.evaluate(<<~JS) rescue false
+            var s = window.getComputedStyle(this);
+            s.display !== 'none' &&
+            s.visibility !== 'hidden' &&
+            s.opacity !== '0' &&
+            this.offsetWidth > 0 &&
+            this.offsetHeight > 0
+          JS
 
           return el if visible
         end
@@ -244,15 +285,26 @@ module Scrapers
       begin
         cookies = JSON.parse(credential.session_data)
         cookies.each do |_name, cookie|
-          browser.cookies.set(
-            name: cookie["name"],
-            value: cookie["value"],
-            domain: cookie["domain"],
-            path: cookie["path"] || "/",
-            expires: cookie["expires"],
-            secure: cookie["secure"],
-            httponly: cookie["httponly"]
-          )
+          next unless cookie.is_a?(Hash) && cookie["name"].present? && cookie["value"].present?
+
+          params = {
+            name: cookie["name"].to_s,
+            value: cookie["value"].to_s,
+            domain: cookie["domain"].to_s,
+            path: cookie["path"].present? ? cookie["path"].to_s : "/"
+          }
+          # Only include optional params if they have valid values
+          params[:secure] = !!cookie["secure"] unless cookie["secure"].nil?
+          params[:httponly] = !!cookie["httponly"] unless cookie["httponly"].nil?
+          if cookie["expires"].is_a?(Numeric) && cookie["expires"] > 0
+            params[:expires] = cookie["expires"].to_i
+          end
+
+          begin
+            browser.cookies.set(**params)
+          rescue Ferrum::BrowserError => e
+            logger.debug "[Scraper] Skipping cookie '#{params[:name]}': #{e.message}"
+          end
         end
         logger.info "[Scraper] Session restored for #{credential.supplier.name}"
         true
@@ -279,11 +331,99 @@ module Scrapers
         logger.info "[Scraper] Login successful for #{credential.supplier.name}"
         true
       else
-        error_msg = extract_text(".error-message, .alert-danger, .error") || "Login failed"
-        credential.mark_failed!(error_msg)
-        logger.error "[Scraper] Login failed for #{credential.supplier.name}: #{error_msg}"
-        raise AuthenticationError, error_msg
+        full_error = diagnose_login_failure
+        credential.mark_failed!(full_error)
+        logger.error "[Scraper] Login failed for #{credential.supplier.name}: #{full_error}"
+        raise AuthenticationError, full_error
       end
+    end
+
+    def diagnose_login_failure
+      supplier_name = credential.supplier.name
+      current_url = browser.current_url rescue "unknown"
+      page_title = browser.evaluate("document.title") rescue "unknown"
+
+      # Try many error selectors
+      error_selectors = [
+        ".error-message", ".login-error", ".alert-danger", ".alert-error",
+        ".error", ".form-error", ".validation-error", ".invalid-feedback",
+        "[role='alert']", ".notification-error", ".toast-error",
+        ".field-error", ".input-error", ".message-error", ".flash-error",
+        ".snackbar-error", ".toast-message", ".notice-error",
+        "p.error", "span.error", "div.error",
+        "[data-testid*='error']", "[data-testid*='alert']",
+        ".MuiAlert-root", ".ant-alert-error", ".chakra-alert"
+      ]
+
+      site_error = nil
+      matched_selector = nil
+      error_selectors.each do |sel|
+        text = extract_text(sel)
+        if text.present?
+          site_error = text
+          matched_selector = sel
+          break
+        end
+      end
+
+      # Also scan for error-like text via JavaScript (some SPAs use custom elements)
+      if site_error.nil?
+        js_error = browser.evaluate(<<~JS) rescue nil
+          (function() {
+            // Look for elements with error-related attributes
+            var errorEls = document.querySelectorAll('[class*="error" i], [class*="alert" i], [class*="invalid" i], [class*="fail" i]');
+            for (var i = 0; i < errorEls.length; i++) {
+              var text = errorEls[i].innerText?.trim();
+              if (text && text.length > 3 && text.length < 500) return text;
+            }
+            // Check for aria-live regions (used for dynamic error messages)
+            var liveEls = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
+            for (var i = 0; i < liveEls.length; i++) {
+              var text = liveEls[i].innerText?.trim();
+              if (text && text.length > 3 && text.length < 500) return text;
+            }
+            return null;
+          })()
+        JS
+        if js_error.present?
+          site_error = js_error
+          matched_selector = "JS scan (class*=error/alert/invalid)"
+        end
+      end
+
+      # Build diagnostic details
+      details = []
+      details << "URL after login: #{current_url}"
+      details << "Page title: '#{page_title}'"
+
+      if site_error.present?
+        details << "Site error (#{matched_selector}): #{site_error}"
+        logger.info "[Scraper] Error found via '#{matched_selector}': #{site_error}"
+      else
+        body_text = browser.evaluate("document.body?.innerText?.substring(0, 500)") rescue ""
+        snippet = body_text.to_s.strip.truncate(300)
+        details << "No error message found on page"
+        details << "Page content: #{snippet}" if snippet.present?
+
+        # List all visible inputs for debugging
+        inputs_dump = browser.evaluate(<<~JS) rescue ""
+          (function() {
+            var inputs = document.querySelectorAll('input, button, [role="button"]');
+            var info = [];
+            for (var i = 0; i < inputs.length && i < 15; i++) {
+              var el = inputs[i];
+              var s = window.getComputedStyle(el);
+              if (s.display === 'none') continue;
+              info.push(el.tagName + '[type=' + (el.type||'') + ',name=' + (el.name||'') + ',id=' + (el.id||'') + ']');
+            }
+            return info.join(', ');
+          })()
+        JS
+        details << "Visible inputs: #{inputs_dump}" if inputs_dump.present?
+      end
+
+      error_summary = site_error.present? ? site_error : "Login failed — #{supplier_name} did not show an error message"
+      "#{error_summary} (#{details.join('; ')})"
     end
 
     def detect_error_conditions

@@ -164,6 +164,46 @@ module Scrapers
 
     private
 
+    def search_supplier_catalog(term, max: 20)
+      encoded = CGI.escape(term)
+      navigate_to("#{BASE_URL}/search?q=#{encoded}")
+      sleep 2
+
+      products = []
+      items = browser.css(".product-card, .product-item, .product-tile, [data-testid*='product'], .search-result-item")
+
+      items.first(max).each do |item|
+        name = item.at_css(".product-title, .product-name, h3, h4")&.text&.strip
+        next if name.blank?
+
+        price_text = item.at_css(".product-price, .price, [data-testid='price']")&.text
+        price = extract_price(price_text) if price_text
+
+        href = item.at_css("a[href*='/product/']")&.attribute("href").to_s
+        sku = item.attribute("data-sku").to_s.presence
+        sku ||= item.at_css("[data-sku]")&.attribute("data-sku").to_s.presence
+        sku ||= href.scan(%r{/product/([^/?#]+)}).flatten.first
+        sku ||= name.parameterize
+        next if sku.blank?
+
+        pack_size = item.at_css(".pack-size, .unit-size, .product-pack")&.text&.strip
+
+        products << {
+          supplier_sku: sku,
+          supplier_name: name.truncate(255),
+          current_price: price,
+          pack_size: pack_size,
+          in_stock: item.at_css(".out-of-stock, .unavailable").nil?,
+          category: nil,
+          scraped_at: Time.current
+        }
+      rescue => e
+        logger.debug "[UsFoods] Failed to extract catalog item: #{e.message}"
+      end
+
+      products
+    end
+
     def scrape_product(sku)
       navigate_to("#{BASE_URL}/product/#{sku}")
 

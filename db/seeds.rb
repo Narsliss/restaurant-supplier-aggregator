@@ -31,7 +31,7 @@ suppliers_data = [
     name: "What Chefs Want",
     code: "whatchefswant",
     base_url: "https://www.whatchefswant.com",
-    login_url: "https://www.whatchefswant.com/login",
+    login_url: "https://www.whatchefswant.com/customer-login/",
     scraper_class: "Scrapers::WhatChefsWantScraper",
     requirements: [
       { type: "order_minimum", numeric_value: 150.00, error_message: "What Chefs Want requires a minimum order of $150.00. Your current total is ${{current_total}}." }
