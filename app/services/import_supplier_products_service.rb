@@ -51,6 +51,7 @@ class ImportSupplierProductsService
         supplier_name: item[:supplier_name],
         current_price: item[:current_price],
         pack_size: item[:pack_size],
+        supplier_url: item[:supplier_url],
         in_stock: item[:in_stock] != false,
         price_updated_at: item[:current_price].present? ? Time.current : nil,
         last_scraped_at: Time.current
@@ -69,6 +70,7 @@ class ImportSupplierProductsService
       # Update existing record with fresh data
       attrs = { last_scraped_at: Time.current, supplier_name: item[:supplier_name] }
       attrs[:pack_size] = item[:pack_size] if item[:pack_size].present?
+      attrs[:supplier_url] = item[:supplier_url] if item[:supplier_url].present?
 
       if item[:current_price].present? && item[:current_price] != supplier_product.current_price
         attrs[:previous_price] = supplier_product.current_price

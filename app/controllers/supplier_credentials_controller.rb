@@ -49,6 +49,9 @@ class SupplierCredentialsController < ApplicationController
       if result[:valid]
         redirect_to supplier_credentials_path,
           notice: "#{@credential.supplier.name} credentials verified successfully."
+      elsif result[:two_fa_required]
+        redirect_to supplier_credentials_path,
+          notice: "#{@credential.supplier.name} credentials saved. A verification code is required — please enter the code sent to your phone or email."
       else
         redirect_to supplier_credentials_path,
           alert: "#{@credential.supplier.name} credentials saved but validation failed: #{result[:message]}"
@@ -81,6 +84,9 @@ class SupplierCredentialsController < ApplicationController
       if result[:valid]
         redirect_to supplier_credentials_path,
           notice: "#{@credential.supplier.name} credentials updated and verified successfully."
+      elsif result[:two_fa_required]
+        redirect_to supplier_credentials_path,
+          notice: "#{@credential.supplier.name} credentials updated. A verification code is required — please enter the code sent to your phone or email."
       else
         redirect_to supplier_credentials_path,
           alert: "#{@credential.supplier.name} credentials updated but validation failed: #{result[:message]}"
@@ -128,6 +134,12 @@ class SupplierCredentialsController < ApplicationController
             notice: "#{@credential.supplier.name} credentials verified successfully."
         end
         format.json { render json: { status: "active", credential_id: @credential.id, supplier: @credential.supplier.name } }
+      elsif result[:two_fa_required]
+        format.html do
+          redirect_to supplier_credentials_path,
+            notice: "#{@credential.supplier.name} requires a verification code. Please enter the code sent to your phone or email."
+        end
+        format.json { render json: { status: "two_fa_required", credential_id: @credential.id, supplier: @credential.supplier.name } }
       else
         format.html do
           redirect_to supplier_credentials_path,
@@ -230,7 +242,7 @@ class SupplierCredentialsController < ApplicationController
     result
   rescue Authentication::TwoFactorHandler::TwoFactorRequired => e
     credential.update!(two_fa_enabled: true, status: "pending")
-    { valid: false, message: "Two-factor authentication required. Please check your email or phone for a verification code." }
+    { valid: false, two_fa_required: true, message: "Verification code required. Check your phone or email." }
   rescue => e
     Rails.logger.error "[SupplierCredentials] Validation error: #{e.message}"
     credential.mark_failed!(e.message)

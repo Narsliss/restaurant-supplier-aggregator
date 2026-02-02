@@ -54,9 +54,16 @@
               <span class="text-gray-500">SKU: <%= sp.supplier_sku %></span>
               <span class="text-gray-900 font-semibold text-base"><%= number_to_currency(sp.current_price) %></span>
             </div>
-            <% if sp.last_scraped_at %>
-              <p class="text-xs text-gray-400">Updated <%= time_ago_in_words(sp.last_scraped_at) %> ago</p>
-            <% end %>
+            <div class="flex justify-between items-center">
+              <% if sp.last_scraped_at %>
+                <p class="text-xs text-gray-400">Updated <%= time_ago_in_words(sp.last_scraped_at) %> ago</p>
+              <% end %>
+              <% if sp.supplier_url.present? %>
+                <%= link_to sp.supplier_url, target: "_blank", rel: "noopener noreferrer", class: "text-xs text-brand-orange hover:text-brand-orange-dark font-medium" do %>
+                  View on site &rarr;
+                <% end %>
+              <% end %>
+            </div>
           </div>
         <% end %>
       </div>
@@ -70,6 +77,7 @@
               <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
               <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stock</th>
               <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Updated</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Link</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200">
@@ -90,6 +98,15 @@
                     <%= time_ago_in_words(sp.last_scraped_at) %> ago
                   <% else %>
                     —
+                  <% end %>
+                </td>
+                <td class="px-4 py-3 text-center">
+                  <% if sp.supplier_url.present? %>
+                    <%= link_to sp.supplier_url, target: "_blank", rel: "noopener noreferrer", class: "text-brand-orange hover:text-brand-orange-dark text-sm font-medium" do %>
+                      View &rarr;
+                    <% end %>
+                  <% else %>
+                    <span class="text-gray-300">—</span>
                   <% end %>
                 </td>
               </tr>

@@ -136,7 +136,7 @@ module Authentication
       end
 
       # Check for 2FA page by content
-      page_text = browser.body&.text&.downcase || ""
+      page_text = (browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue "").downcase
       two_fa_keywords = [
         "enter.*code",
         "verification.*code",

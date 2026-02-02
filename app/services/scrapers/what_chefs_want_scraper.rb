@@ -176,11 +176,16 @@ module Scrapers
 
         pack_size = item.at_css(".pack-size, .product-unit")&.text&.strip
 
+        product_url = href.presence
+        product_url = "#{BASE_URL}#{product_url}" if product_url && !product_url.start_with?("http")
+        product_url ||= "#{BASE_URL}/products/#{sku}" if sku.present?
+
         products << {
           supplier_sku: sku,
           supplier_name: name.truncate(255),
           current_price: price,
           pack_size: pack_size,
+          supplier_url: product_url,
           in_stock: item.at_css(".out-of-stock, .unavailable, .sold-out").nil?,
           category: nil,
           scraped_at: Time.current
