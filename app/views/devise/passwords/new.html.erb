@@ -1,0 +1,55 @@
+<% content_for :title, "Reset Password" %>
+
+<div class="flex min-h-screen">
+  <%= render "devise/shared/auth_panel" %>
+
+  <!-- Right: Forgot password form -->
+  <div class="flex flex-1 flex-col justify-center px-6 py-12 lg:flex-none lg:w-1/2 lg:px-20 xl:px-24">
+    <div class="mx-auto w-full max-w-sm lg:w-96">
+      <!-- Mobile logo -->
+      <div class="lg:hidden mb-10 text-center">
+        <%= render "shared/logo", variant: :login_mobile %>
+      </div>
+
+      <div>
+        <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-orange-50">
+          <svg class="h-6 w-6 text-brand-orange" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+          </svg>
+        </div>
+        <h2 class="text-3xl font-heading font-bold tracking-tight text-gray-900">
+          Forgot your password?
+        </h2>
+        <p class="mt-2 text-sm text-gray-500">
+          No worries. Enter your email and we'll send you a reset link.
+        </p>
+      </div>
+
+      <%= render "devise/shared/error_messages" %>
+
+      <div class="mt-8">
+        <%= form_for(resource, as: resource_name, url: password_path(resource_name), html: { method: :post, class: "space-y-5" }) do |f| %>
+          <div>
+            <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
+            <div class="mt-1.5">
+              <%= f.email_field :email, autofocus: true, autocomplete: "email",
+                  class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
+                  placeholder: "you@restaurant.com" %>
+            </div>
+          </div>
+
+          <div class="pt-1">
+            <%= f.submit "Send reset link",
+                class: "flex w-full justify-center rounded-lg bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange transition-colors cursor-pointer" %>
+          </div>
+        <% end %>
+
+        <p class="mt-8 text-center text-sm text-gray-500">
+          Remember your password?
+          <%= link_to "Back to sign in", new_session_path(resource_name),
+              class: "font-semibold text-brand-orange hover:text-brand-orange-dark transition-colors" %>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
