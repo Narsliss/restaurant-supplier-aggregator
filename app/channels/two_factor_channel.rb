@@ -23,10 +23,6 @@ class TwoFactorChannel < ApplicationCable::Channel
       return
     end
 
-    # Get the handler and submit the code
-    # Note: In a real implementation, you'd need to maintain browser session state
-    # This is a simplified version that triggers a re-attempt of the original action
-    
     result = process_2fa_code(request, data["code"])
 
     transmit({
@@ -38,7 +34,6 @@ class TwoFactorChannel < ApplicationCable::Channel
     })
 
     if result[:success]
-      # Resume the original operation if applicable
       resume_operation(request)
     end
   end
@@ -61,28 +56,62 @@ class TwoFactorChannel < ApplicationCable::Channel
 
     request.record_attempt!(code)
 
-    # In a real implementation, this would submit the code to the supplier site
-    # For now, we'll simulate the verification by checking if code is numeric and 6 digits
-    # The actual verification happens when the scraper resumes
-    
-    # Mark as submitted - actual verification happens when operation resumes
-    {
-      success: true,
-      message: "Code submitted. Verifying..."
-    }
+    # Get the scraper for this supplier and attempt login with the 2FA code
+    credential = request.supplier_credential
+    scraper = credential.supplier.scraper_klass.new(credential)
 
+    if scraper.respond_to?(:login_with_code)
+      result = scraper.login_with_code(code)
+
+      if result[:success]
+        request.mark_verified!
+        { success: true, message: "Verification successful" }
+      else
+        if request.attempts >= Supplier2faRequest::MAX_ATTEMPTS
+          request.mark_failed!
+          { success: false, error: result[:error] || "Verification failed", can_retry: false }
+        else
+          {
+            success: false,
+            error: result[:error] || "Invalid code",
+            can_retry: true,
+            attempts_remaining: Supplier2faRequest::MAX_ATTEMPTS - request.attempts
+          }
+        end
+      end
+    else
+      # Scraper doesn't support login_with_code — fall back to marking as submitted
+      # and letting the resume operation handle it
+      request.mark_verified!
+      { success: true, message: "Code submitted. Verifying..." }
+    end
+
+  rescue Scrapers::BaseScraper::AuthenticationError => e
+    Rails.logger.error "[TwoFactorChannel] Auth error during 2FA: #{e.message}"
+    if request.attempts >= Supplier2faRequest::MAX_ATTEMPTS
+      request.mark_failed!
+      { success: false, error: e.message, can_retry: false }
+    else
+      {
+        success: false,
+        error: "Login failed after code entry: #{e.message}",
+        can_retry: true,
+        attempts_remaining: Supplier2faRequest::MAX_ATTEMPTS - request.attempts
+      }
+    end
   rescue => e
     Rails.logger.error "[TwoFactorChannel] Error processing code: #{e.message}"
-    
+    Rails.logger.error e.backtrace&.first(5)&.join("\n")
+
     if request.attempts >= Supplier2faRequest::MAX_ATTEMPTS
       request.mark_failed!
       { success: false, error: "Max attempts exceeded", can_retry: false }
     else
-      { 
-        success: false, 
-        error: "Verification failed. Please try again.", 
-        can_retry: true, 
-        attempts_remaining: Supplier2faRequest::MAX_ATTEMPTS - request.attempts 
+      {
+        success: false,
+        error: "Verification failed. Please try again.",
+        can_retry: true,
+        attempts_remaining: Supplier2faRequest::MAX_ATTEMPTS - request.attempts
       }
     end
   end
@@ -90,7 +119,7 @@ class TwoFactorChannel < ApplicationCable::Channel
   def resume_operation(request)
     case request.request_type
     when "login"
-      # Trigger session refresh to complete login
+      # Login already completed by login_with_code — just refresh session state
       RefreshSessionJob.perform_later(request.supplier_credential_id)
     when "checkout"
       # Find and resume the pending order

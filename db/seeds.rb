@@ -36,6 +36,16 @@ suppliers_data = [
     requirements: [
       { type: "order_minimum", numeric_value: 150.00, error_message: "What Chefs Want requires a minimum order of $150.00. Your current total is ${{current_total}}." }
     ]
+  },
+  {
+    name: "Premiere Produce One",
+    code: "premiereproduceone",
+    base_url: "https://premierproduceone.pepr.app",
+    login_url: "https://premierproduceone.pepr.app/",
+    scraper_class: "Scrapers::PremiereProduceOneScraper",
+    requirements: [
+      { type: "order_minimum", numeric_value: 100.00, error_message: "Premiere Produce One requires a minimum order of $100.00. Your current total is ${{current_total}}." }
+    ]
   }
 ]
 

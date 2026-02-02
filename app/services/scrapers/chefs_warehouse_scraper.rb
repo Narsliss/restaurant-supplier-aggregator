@@ -496,11 +496,14 @@ module Scrapers
 
       (raw || []).map do |item|
         pack = item["price_info"].to_s.gsub(/\$[\d,.]+\s*/, "").strip.presence
+        product_url = item["url"].to_s.presence
+        product_url = "#{BASE_URL}#{product_url}" if product_url && !product_url.start_with?("http")
         {
           supplier_sku: item["sku"],
           supplier_name: item["name"],
           current_price: item["price"].is_a?(Numeric) ? item["price"] : nil,
           pack_size: pack,
+          supplier_url: product_url,
           in_stock: item["in_stock"] != false,
           category: nil,
           scraped_at: Time.current
@@ -545,11 +548,13 @@ module Scrapers
       JS
 
       (raw || []).map do |item|
+        sku = item["sku"]
         {
-          supplier_sku: item["sku"],
+          supplier_sku: sku,
           supplier_name: item["name"],
           current_price: item["price"].is_a?(Numeric) ? item["price"] : nil,
           pack_size: item["pack"].presence,
+          supplier_url: sku.present? ? "#{BASE_URL}/products/#{sku}/" : nil,
           in_stock: item["in_stock"] != false,
           category: nil,
           scraped_at: Time.current
