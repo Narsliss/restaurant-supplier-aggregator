@@ -1,9 +1,9 @@
-<% content_for :title, "Sign In" %>
+<% content_for :title, "Sign Up" %>
 
 <div class="flex min-h-screen">
   <%= render "devise/shared/auth_panel" %>
 
-  <!-- Right: Login form -->
+  <!-- Right: Registration form -->
   <div class="flex flex-1 flex-col justify-center px-6 py-12 lg:flex-none lg:w-1/2 lg:px-20 xl:px-24">
     <div class="mx-auto w-full max-w-sm lg:w-96">
       <!-- Mobile logo -->
@@ -13,17 +13,17 @@
 
       <div>
         <h2 class="text-3xl font-heading font-bold tracking-tight text-gray-900">
-          Welcome back
+          Create your account
         </h2>
         <p class="mt-2 text-sm text-gray-500">
-          Sign in to manage your restaurant supply chain
+          Get started with SupplierHub in seconds
         </p>
       </div>
 
-      <%= render "shared/flash_messages" %>
+      <%= render "devise/shared/error_messages" %>
 
       <div class="mt-8">
-        <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "space-y-5" }) do |f| %>
+        <%= form_for(resource, as: resource_name, url: registration_path(resource_name), html: { class: "space-y-5" }) do |f| %>
           <div>
             <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
             <div class="mt-1.5">
@@ -34,39 +34,34 @@
           </div>
 
           <div>
-            <div class="flex items-center justify-between">
-              <%= f.label :password, class: "block text-sm font-medium text-gray-700" %>
-              <% if devise_mapping.recoverable? %>
-                <%= link_to "Forgot password?", new_password_path(resource_name),
-                    class: "text-sm font-medium text-brand-orange hover:text-brand-orange-dark transition-colors" %>
-              <% end %>
-            </div>
+            <%= f.label :password, class: "block text-sm font-medium text-gray-700" %>
             <div class="mt-1.5">
-              <%= f.password_field :password, autocomplete: "current-password",
+              <%= f.password_field :password, autocomplete: "new-password",
+                  class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
+                  placeholder: "At least 6 characters" %>
+            </div>
+            <p class="mt-1 text-xs text-gray-400"><%= @minimum_password_length %> characters minimum</p>
+          </div>
+
+          <div>
+            <%= f.label :password_confirmation, "Confirm password", class: "block text-sm font-medium text-gray-700" %>
+            <div class="mt-1.5">
+              <%= f.password_field :password_confirmation, autocomplete: "new-password",
                   class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3" %>
             </div>
           </div>
 
-          <% if devise_mapping.rememberable? %>
-            <div class="flex items-center">
-              <%= f.check_box :remember_me, class: "rounded border-gray-300 text-brand-green focus:ring-brand-green" %>
-              <%= f.label :remember_me, "Keep me signed in", class: "ml-2 block text-sm text-gray-600" %>
-            </div>
-          <% end %>
-
           <div class="pt-1">
-            <%= f.submit "Sign in",
+            <%= f.submit "Create account",
                 class: "flex w-full justify-center rounded-lg bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange transition-colors cursor-pointer" %>
           </div>
         <% end %>
 
-        <% if devise_mapping.registerable? %>
-          <p class="mt-8 text-center text-sm text-gray-500">
-            Don't have an account?
-            <%= link_to "Create one now", new_registration_path(resource_name),
-                class: "font-semibold text-brand-orange hover:text-brand-orange-dark transition-colors" %>
-          </p>
-        <% end %>
+        <p class="mt-8 text-center text-sm text-gray-500">
+          Already have an account?
+          <%= link_to "Sign in", new_session_path(resource_name),
+              class: "font-semibold text-brand-orange hover:text-brand-orange-dark transition-colors" %>
+        </p>
       </div>
 
       <!-- Supplier logos -->
