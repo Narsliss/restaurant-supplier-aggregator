@@ -138,6 +138,99 @@ module Scrapers
       false
     end
 
+    # Override base scrape_catalog because PPO requires 2FA for login.
+    # The base class calls perform_login_steps which only enters the email —
+    # PPO needs the full login flow (with 2FA code polling) to get past the
+    # verification page.
+    def scrape_catalog(search_terms, max_per_term: 20)
+      results = []
+
+      with_browser do
+        # Try restoring session first
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          sleep 2
+        end
+
+        unless logged_in?
+          # Full login with 2FA handling (keeps browser alive for code entry)
+          perform_login_steps
+
+          if two_fa_page?
+            # Need verification code — run the same flow as login()
+            max_code_attempts = 3
+            attempt = 0
+
+            while two_fa_page? && attempt < max_code_attempts
+              attempt += 1
+              resent = attempt > 1
+
+              if resent
+                logger.info "[PremiereProduceOne] Import login: resending code (attempt #{attempt})"
+                click_button_by_text("resend code")
+                sleep 2
+              end
+
+              code = wait_for_user_code(attempt: attempt, resent: resent)
+
+              if code
+                type_code_and_submit(code)
+                sleep 5
+                wait_for_page_load
+
+                if logged_in?
+                  save_session
+                  credential.mark_active!
+                  save_trusted_device
+                  mark_2fa_request_verified!
+                  logger.info "[PremiereProduceOne] Import login: verified!"
+                  TwoFactorChannel.broadcast_to(credential.user, { type: "code_result", success: true })
+                  break
+                end
+
+                if attempt < max_code_attempts && two_fa_page?
+                  mark_2fa_request_failed!
+                  TwoFactorChannel.broadcast_to(
+                    credential.user,
+                    { type: "code_result", success: false, error: "Code expired or invalid. A new code is being sent.", can_retry: true }
+                  )
+                end
+              else
+                credential.mark_failed!("Verification timed out during import. No code was entered.")
+                raise AuthenticationError, "Verification timed out during catalog import"
+              end
+            end
+          end
+
+          unless logged_in?
+            credential.mark_failed!("Could not log in for catalog import")
+            raise AuthenticationError, "Could not log in for catalog import"
+          end
+
+          save_session
+        end
+
+        # Now scrape the catalog
+        search_terms.each do |term|
+          begin
+            products = search_supplier_catalog(term, max: max_per_term)
+            results.concat(products)
+            logger.info "[Scraper] Found #{products.size} products for '#{term}' at #{credential.supplier.name}"
+          rescue ScrapingError => e
+            logger.warn "[Scraper] Catalog search failed for '#{term}': #{e.message}"
+          rescue => e
+            logger.warn "[Scraper] Unexpected error searching '#{term}': #{e.class}: #{e.message}"
+          end
+
+          rate_limit_delay
+        end
+      end
+
+      # De-duplicate by SKU
+      results.uniq { |r| r[:supplier_sku] }
+    end
+
     def scrape_prices(product_skus)
       results = []
 
