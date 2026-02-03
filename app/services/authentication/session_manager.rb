@@ -48,7 +48,7 @@ module Authentication
         { valid: false, message: "Authentication failed: #{e.message}" }
       rescue Authentication::TwoFactorHandler::TwoFactorRequired => e
         Rails.logger.info "[SessionManager] 2FA required for #{supplier.name}"
-        { valid: true, message: "Credentials valid (2FA required)", two_fa_required: true }
+        { valid: false, two_fa_required: true, message: "Verification code required" }
       rescue Scrapers::BaseScraper::CaptchaDetectedError => e
         Rails.logger.warn "[SessionManager] CAPTCHA detected on #{supplier.name}"
         { valid: false, message: "CAPTCHA detected on #{supplier.name}'s login page. Please try again later or log in manually." }
