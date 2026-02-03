@@ -171,16 +171,11 @@ module Scrapers
       browser.evaluate('(function() { var tabs = document.querySelectorAll("[aria-selected]"); for (var i = 0; i < tabs.length; i++) { if (tabs[i].getAttribute("aria-selected") === "false") { tabs[i].click(); return true; } } return false; })()') rescue nil
       sleep 1
 
-      # Step 3: Enter email in the email input
+      # Step 3: Enter email in the email input (using React-compatible setter)
       email_input = browser.at_css("input[type='email']")
       if email_input
-        begin
-          email_input.focus
-          email_input.type(credential.username, :clear)
-        rescue => e
-          email_input.evaluate("this.value = '#{credential.username.gsub("'", "\\\\'")}'")
-          email_input.evaluate("this.dispatchEvent(new Event('input', { bubbles: true }))")
-        end
+        email_input.focus
+        set_react_input_value(email_input, credential.username)
       else
         logger.warn "[PremiereProduceOne] Email input not found on login page"
         raise AuthenticationError, "Could not find email input on login page"
@@ -192,6 +187,64 @@ module Scrapers
       click_button_by_text("continue")
       sleep 3
       wait_for_page_load
+
+      # Check for rate limiting
+      body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
+      if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
+        rate_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first
+        error_msg = rate_msg&.strip || "Too many login attempts. Please wait and try again."
+        credential.mark_failed!(error_msg)
+        raise AuthenticationError, error_msg
+      end
+    end
+
+    # Set a value on a React controlled input using the native HTMLInputElement
+    # value setter. React overrides the input's value property with its own getter/setter,
+    # so setting .value directly doesn't trigger React's onChange. By calling the NATIVE
+    # setter from HTMLInputElement.prototype, we bypass React's override, then dispatch
+    # the proper events so React picks up the change.
+    def set_react_input_value(input_node, value)
+      escaped = value.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
+
+      js = <<~JS
+        (function(el) {
+          // Clear first
+          var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          nativeSetter.call(el, '');
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+
+          // Set the actual value
+          nativeSetter.call(el, '#{escaped}');
+
+          // Dispatch events that React listens for
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+
+          return el.value;
+        })(this)
+      JS
+
+      result = input_node.evaluate(js)
+      logger.info "[PremiereProduceOne] React input value set, confirmed: '#{result}'"
+      result
+    rescue => e
+      logger.warn "[PremiereProduceOne] React setter failed (#{e.message}), falling back to character-by-character typing"
+      # Fallback: type character by character which generates real keyboard events
+      begin
+        input_node.focus
+        # Triple-click to select all, then delete
+        input_node.evaluate("this.select()")
+        browser.keyboard.type(:Backspace)
+        sleep 0.2
+        # Type each character individually to trigger React key events
+        value.each_char do |char|
+          browser.keyboard.type(char)
+          sleep 0.05
+        end
+      rescue => e2
+        logger.error "[PremiereProduceOne] Character typing also failed: #{e2.message}"
+        raise
+      end
     end
 
     private
@@ -265,6 +318,8 @@ module Scrapers
     end
 
     # Enter the verification code on the currently open code page and check the result.
+    # PPO is a React SPA — React overrides the native input value setter, so we must
+    # use the nativeInputValueSetter trick to update React's internal state.
     def enter_verification_code(code)
       code_input = find_2fa_code_input
       unless code_input
@@ -272,18 +327,29 @@ module Scrapers
         raise AuthenticationError, "Could not find verification code input"
       end
 
-      begin
-        code_input.focus
-        code_input.type(code, :clear)
-      rescue => e
-        code_input.evaluate("this.value = '#{code}'")
-        code_input.evaluate("this.dispatchEvent(new Event('input', { bubbles: true }))")
-      end
+      logger.info "[PremiereProduceOne] Entering verification code into input field"
+
+      # React-compatible value entry: use the native HTMLInputElement value setter
+      # to bypass React's synthetic event system, then dispatch proper events.
+      set_react_input_value(code_input, code)
 
       sleep 1
 
-      # Click "Continue" to submit the code
-      click_button_by_text("continue")
+      # Click "Continue" to submit the code.
+      # PPO is a React SPA — the previous email step's Continue button may still be in the DOM,
+      # so we must click the LAST Continue button on the page (the one for the code entry step).
+      continue_clicked = click_last_button_by_text("continue")
+      unless continue_clicked
+        # Fallback: try submitting by pressing Enter on the input
+        logger.info "[PremiereProduceOne] Continue button not found, trying Enter key"
+        begin
+          code_input.focus
+          browser.keyboard.type(:Enter)
+        rescue => e
+          logger.warn "[PremiereProduceOne] Enter key fallback failed: #{e.message}"
+        end
+      end
+
       sleep 5
       wait_for_page_load
 
@@ -307,7 +373,12 @@ module Scrapers
         )
       else
         body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
-        error = if body_text.match?(/invalid|incorrect|expired|wrong/i)
+        logger.warn "[PremiereProduceOne] Not logged in after code entry. Page text: #{body_text[0..300]}"
+
+        error = if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
+                  rate_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first
+                  rate_msg&.strip || "Too many login attempts. Please wait and try again."
+                elsif body_text.match?(/invalid|incorrect|expired|wrong/i)
                   body_text.scan(/(?:invalid|incorrect|expired|wrong)[^\n]{0,60}/i).first || "Invalid code"
                 elsif two_fa_page?
                   "Code not accepted. Please try again."
@@ -486,12 +557,24 @@ module Scrapers
       browser.at_css("input[type='text']")
     end
 
-    # Click a button by its visible text (case-insensitive exact match)
+    # Click a button by its visible text (case-insensitive exact match).
+    # Clicks the FIRST matching button.
     def click_button_by_text(text)
       js = "(function() { var btns = document.querySelectorAll('button, [role=\"button\"]'); for (var i = 0; i < btns.length; i++) { if (btns[i].innerText.trim().toLowerCase() === '#{text.downcase}') { btns[i].click(); return true; } } return false; })()"
       result = browser.evaluate(js) rescue false
       unless result
         logger.debug "[PremiereProduceOne] Button '#{text}' not found"
+      end
+      result
+    end
+
+    # Click the LAST button matching the given text.
+    # Useful in React SPAs where previous views may still be in the DOM.
+    def click_last_button_by_text(text)
+      js = "(function() { var btns = document.querySelectorAll('button, [role=\"button\"]'); var last = null; for (var i = 0; i < btns.length; i++) { if (btns[i].innerText.trim().toLowerCase() === '#{text.downcase}') { last = btns[i]; } } if (last) { last.click(); return true; } return false; })()"
+      result = browser.evaluate(js) rescue false
+      unless result
+        logger.debug "[PremiereProduceOne] Button '#{text}' (last) not found"
       end
       result
     end
