@@ -12,6 +12,7 @@ Rails.application.routes.draw do
       post :validate
       post :refresh_session
       post :import_products
+      post :submit_2fa_code
     end
   end
 
