@@ -107,20 +107,25 @@ module Scrapers
       # Check for common logged-in UI elements
       return true if browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in], .my-account, .account-nav").present?
 
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
-
       # Definitely NOT logged in if we're on the verification code page
       return false if two_fa_page?
 
-      # Definitely NOT logged in if we're on the landing/login page
+      # PPO-specific: check for buttons/links that only appear when logged in.
+      # "Log out" is in the footer/menu and won't appear in the first 3000 chars of body text
+      # because PPO shows dozens of product listings first.
+      has_logout = browser.evaluate("!!document.querySelector('button') && Array.from(document.querySelectorAll('button')).some(function(b) { return b.innerText.trim().toLowerCase() === 'log out'; })") rescue false
+      return true if has_logout
+
+      body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
+
+      # Definitely NOT logged in if we're on the landing page
       return false if body_text.match?(/become a customer/i) && body_text.match?(/explore catalog/i) && !body_text.match?(/order guide|add to cart|my orders/i)
 
       # Standard logged-in indicators
       return true if body_text.match?(/my account|sign out|log ?out|my orders|order guide|dashboard/i)
 
-      # PPO-specific: if we see product catalog content (not the landing page), we're logged in
-      # PPO shows product listings with prices after login
-      return true if body_text.match?(/add to cart|order guide|your cart|checkout/i)
+      # PPO-specific: product catalog indicators (prices, "Add note" buttons, etc.)
+      return true if body_text.match?(/add to cart|order guide|your cart|checkout|add note/i)
 
       # If we're not on the login page or code page and we see product-like content, assume logged in
       has_login_page = body_text.match?(/enter.*code|verification.*code|one.?time|sign in to|log in to/i)
