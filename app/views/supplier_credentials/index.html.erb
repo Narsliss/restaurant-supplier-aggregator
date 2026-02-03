@@ -7,6 +7,7 @@
   <% if @credentials.any? %>
     <div class="grid gap-4">
       <% @credentials.each do |credential| %>
+        <% pending_2fa = @pending_2fa[credential.id] %>
         <div class="bg-white shadow rounded-lg p-4 sm:p-5">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="min-w-0">
@@ -17,10 +18,12 @@
                   <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
                 <% when "invalid" %>
                   <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Invalid</span>
-                <% when "needs_2fa" %>
-                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Needs 2FA</span>
                 <% else %>
-                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"><%= credential.status.titleize %></span>
+                  <% if pending_2fa %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Awaiting Code</span>
+                  <% else %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"><%= credential.status.titleize %></span>
+                  <% end %>
                 <% end %>
               </div>
               <p class="text-sm text-gray-500 mt-0.5">Username: <%= credential.username %></p>
@@ -58,6 +61,51 @@
               <% end %>
             </div>
           </div>
+
+          <%# Inline 2FA code entry when a verification is pending %>
+          <% if pending_2fa %>
+            <div class="mt-4 border-t border-amber-200 pt-4 bg-amber-50 -mx-4 sm:-mx-5 -mb-4 sm:-mb-5 px-4 sm:px-5 pb-4 sm:pb-5 rounded-b-lg">
+              <div class="flex items-start gap-3">
+                <div class="flex-shrink-0 mt-0.5">
+                  <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-amber-800">Verification code required</p>
+                  <p class="text-xs text-amber-600 mt-0.5"><%= pending_2fa.prompt_message %></p>
+
+                  <%= form_tag submit_2fa_code_supplier_credential_path(credential), method: :post, class: "mt-3 flex items-end gap-2" do %>
+                    <div class="flex-1 max-w-xs">
+                      <label for="code_<%= credential.id %>" class="block text-xs font-medium text-amber-700 mb-1">Enter code</label>
+                      <input type="text"
+                             id="code_<%= credential.id %>"
+                             name="code"
+                             placeholder="Enter verification code"
+                             autocomplete="one-time-code"
+                             inputmode="numeric"
+                             maxlength="10"
+                             required
+                             class="block w-full rounded-md border-amber-300 text-sm shadow-sm focus:border-amber-500 focus:ring-amber-500 bg-white placeholder-gray-400">
+                    </div>
+                    <button type="submit" class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 shadow-sm transition-colors">
+                      <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Verify
+                    </button>
+                  <% end %>
+
+                  <p class="text-xs text-amber-500 mt-2">
+                    Expires in <%= distance_of_time_in_words(Time.current, pending_2fa.expires_at) %>
+                    <% if pending_2fa.attempts > 0 %>
+                      &middot; <%= Supplier2faRequest::MAX_ATTEMPTS - pending_2fa.attempts %> attempt<%= (Supplier2faRequest::MAX_ATTEMPTS - pending_2fa.attempts) != 1 ? 's' : '' %> remaining
+                    <% end %>
+                  </p>
+                </div>
+              </div>
+            </div>
+          <% end %>
         </div>
       <% end %>
     </div>

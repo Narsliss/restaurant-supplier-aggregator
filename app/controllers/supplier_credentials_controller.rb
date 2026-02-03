@@ -1,11 +1,17 @@
 class SupplierCredentialsController < ApplicationController
-  before_action :set_credential, only: [:show, :edit, :update, :destroy, :validate, :refresh_session, :import_products]
+  before_action :set_credential, only: [:show, :edit, :update, :destroy, :validate, :refresh_session, :import_products, :submit_2fa_code]
   before_action :set_suppliers, only: [:new, :create, :edit, :update]
 
   def index
     @credentials = current_user.supplier_credentials
       .includes(:supplier)
       .order("suppliers.name")
+
+    # Load any active 2FA requests so we can show inline code entry
+    @pending_2fa = Supplier2faRequest
+      .where(user: current_user, status: "pending")
+      .where("expires_at > ?", Time.current)
+      .index_by(&:supplier_credential_id)
   end
 
   def show
@@ -179,6 +185,72 @@ class SupplierCredentialsController < ApplicationController
           notice: "Session refresh started for #{@credential.supplier.name}.#{last_login_info}"
       end
       format.json { render json: { status: "refreshing", credential_id: @credential.id, supplier: @credential.supplier.name } }
+    end
+  end
+
+  def submit_2fa_code
+    code = params[:code].to_s.strip
+
+    if code.blank?
+      redirect_to supplier_credentials_path, alert: "Please enter a verification code."
+      return
+    end
+
+    # Find the active 2FA request for this credential
+    request = Supplier2faRequest.where(
+      user: current_user,
+      supplier_credential: @credential,
+      status: "pending"
+    ).where("expires_at > ?", Time.current).order(created_at: :desc).first
+
+    unless request
+      redirect_to supplier_credentials_path, alert: "No pending verification request found for #{@credential.supplier.name}. Please click Validate to start again."
+      return
+    end
+
+    # Record the attempt
+    request.record_attempt!(code)
+
+    # Use the scraper to submit the code
+    begin
+      scraper = @credential.supplier.scraper_klass.new(@credential)
+
+      if scraper.respond_to?(:login_with_code)
+        result = scraper.login_with_code(code)
+
+        if result[:success]
+          request.mark_verified!
+          @credential.mark_active!
+          redirect_to supplier_credentials_path,
+            notice: "#{@credential.supplier.name} verified successfully!"
+        else
+          remaining = Supplier2faRequest::MAX_ATTEMPTS - request.attempts
+          if remaining <= 0
+            request.mark_failed!
+            redirect_to supplier_credentials_path,
+              alert: "#{result[:error] || 'Invalid code'}. Maximum attempts reached — please click Validate to try again."
+          else
+            # Reset status back to pending so the form stays visible
+            request.update!(status: "pending")
+            redirect_to supplier_credentials_path,
+              alert: "#{result[:error] || 'Invalid code'}. #{remaining} attempt#{'s' if remaining != 1} remaining."
+          end
+        end
+      else
+        request.mark_verified!
+        redirect_to supplier_credentials_path,
+          notice: "Code submitted for #{@credential.supplier.name}."
+      end
+    rescue => e
+      Rails.logger.error "[SupplierCredentials] 2FA code submission error: #{e.message}"
+      remaining = Supplier2faRequest::MAX_ATTEMPTS - request.attempts
+      if remaining <= 0
+        request.mark_failed!
+      else
+        request.update!(status: "pending")
+      end
+      redirect_to supplier_credentials_path,
+        alert: "Verification failed: #{e.message}. Please try again."
     end
   end
 
