@@ -10,6 +10,7 @@ export default class extends Controller {
     "errorBlock",        // the red error box
     "errorText",         // the text inside the error box
     "validateBtn",       // the Validate button
+    "importBtn",         // the Import Products button (hidden until active)
     "tfaBlock",          // 2FA inline form container (hidden by default)
     "tfaPrompt",         // prompt text from the server
     "tfaCodeInput",      // the code <input>
@@ -29,6 +30,7 @@ export default class extends Controller {
     this.polling = false
     this.timerInterval = null
     this.currentState = "idle"
+    console.log(`[credential-validator] connected for credential ${this.credentialIdValue}`)
 
     // If the 2FA block is already visible on page load (server-rendered pending state),
     // auto-start polling so updates appear without a manual refresh.
@@ -46,10 +48,12 @@ export default class extends Controller {
   // ── Validate button clicked ──────────────────────────────────────
   async startValidation(event) {
     event.preventDefault()
+    console.log(`[credential-validator] startValidation for credential ${this.credentialIdValue}`)
     this.showState("validating")
 
     try {
       const resp = await this.postJSON(this.validateUrlValue)
+      console.log(`[credential-validator] validate response:`, resp)
       if (resp.status === "validating" || resp.status === "two_fa_required") {
         // Async validation (PPO) — start polling for the 2FA request
         this.startPolling()
@@ -59,6 +63,7 @@ export default class extends Controller {
         this.showState("failed", resp.message || "Validation failed")
       }
     } catch (err) {
+      console.error(`[credential-validator] validate error:`, err)
       this.showState("failed", err.message || "Request failed")
     }
   }
@@ -69,10 +74,12 @@ export default class extends Controller {
     const code = this.tfaCodeInputTarget.value.trim()
     if (!code) return
 
+    console.log(`[credential-validator] submitting code: ${code}`)
     this.showState("verifying")
 
     try {
       const resp = await this.postJSON(this.submitCodeUrlValue, { code })
+      console.log(`[credential-validator] submitCode response:`, resp)
       if (resp.status === "submitted") {
         // Code written to DB — scraper will pick it up. Keep polling.
         this.startPolling()
@@ -80,6 +87,7 @@ export default class extends Controller {
         this.showState("failed", resp.message || "Submission failed")
       }
     } catch (err) {
+      console.error(`[credential-validator] submitCode error:`, err)
       this.showState("failed", err.message || "Request failed")
     }
   }
@@ -120,6 +128,7 @@ export default class extends Controller {
   handlePollResult(data) {
     const cred = data.credential
     const tfa = data.two_fa_request
+    console.log(`[credential-validator] poll result: cred=${cred.status}, tfa=${tfa ? tfa.status : 'none'}, currentState=${this.currentState}`)
 
     if (cred.status === "active") {
       this.stopPolling()
@@ -158,6 +167,7 @@ export default class extends Controller {
   showState(state, message, tfa) {
     const prevState = this.currentState
     this.currentState = state
+    console.log(`[credential-validator] showState: ${prevState} → ${state}`, message || "", tfa || "")
 
     // Hide everything first — unless staying in the same state
     // (avoid resetting the code input while user is typing)
@@ -168,6 +178,9 @@ export default class extends Controller {
       }
       this.enableValidateBtn()
     }
+
+    // Hide import button during non-active states
+    this.hideImportBtn()
 
     switch (state) {
       case "validating":
@@ -197,6 +210,7 @@ export default class extends Controller {
         this.updateBadge("Active", "bg-green-100 text-green-800")
         this.hideTfaBlock()
         this.enableValidateBtn()
+        this.showImportBtn()
         this.showSuccessFlash()
         break
 
@@ -260,10 +274,25 @@ export default class extends Controller {
     }
   }
 
+  // ── Import Products button ───────────────────────────────────────
+  showImportBtn() {
+    if (this.hasImportBtnTarget) {
+      this.importBtnTarget.classList.remove("hidden")
+    }
+  }
+
+  hideImportBtn() {
+    if (this.hasImportBtnTarget) {
+      this.importBtnTarget.classList.add("hidden")
+    }
+  }
+
   // ── 2FA block ────────────────────────────────────────────────────
   showTfaBlock(tfa) {
+    console.log(`[credential-validator] showTfaBlock called, hasTfaBlockTarget=${this.hasTfaBlockTarget}`, tfa)
     if (!this.hasTfaBlockTarget) return
     this.tfaBlockTarget.classList.remove("hidden")
+    console.log(`[credential-validator] tfaBlock hidden class removed, classList:`, this.tfaBlockTarget.classList.toString())
 
     if (tfa && this.hasTfaPromptTarget) {
       this.tfaPromptTarget.textContent = tfa.prompt_message || "A verification code has been sent."
