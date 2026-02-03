@@ -3,6 +3,11 @@ class ValidateCredentialsJob < ApplicationJob
 
   discard_on ActiveRecord::RecordNotFound
 
+  # For PPO (passwordless), this job can run for up to 5 minutes while
+  # the scraper polls the DB waiting for the user's verification code.
+  # Sidekiq's default timeout should be longer than 5 minutes.
+  sidekiq_options retry: 1
+
   def perform(credential_id)
     credential = SupplierCredential.find(credential_id)
 
@@ -12,24 +17,26 @@ class ValidateCredentialsJob < ApplicationJob
     result = manager.validate_credentials
 
     if result[:valid]
-      Rails.logger.info "[ValidateCredentialsJob] Credentials valid"
+      Rails.logger.info "[ValidateCredentialsJob] Credentials valid for #{credential.supplier.name}"
       credential.mark_active!
-
-      if result[:two_fa_required]
-        credential.update!(two_fa_enabled: true)
-      end
+    elsif result[:two_fa_required]
+      # For non-polling scrapers, 2FA was requested but handled via exception
+      Rails.logger.info "[ValidateCredentialsJob] 2FA required for #{credential.supplier.name}"
+      credential.update!(two_fa_enabled: true, status: "pending")
     else
-      Rails.logger.warn "[ValidateCredentialsJob] Credentials invalid: #{result[:message]}"
+      Rails.logger.warn "[ValidateCredentialsJob] Credentials invalid for #{credential.supplier.name}: #{result[:message]}"
       credential.mark_failed!(result[:message] || "Validation failed")
     end
-
-    # Notify user of validation result
-    CredentialValidationMailer.validation_result(credential, result).deliver_later
   rescue Authentication::TwoFactorHandler::TwoFactorRequired => e
-    Rails.logger.info "[ValidateCredentialsJob] 2FA required during validation"
-    credential.update!(two_fa_enabled: true)
+    # This shouldn't happen for PPO (it polls inline), but handle it for other scrapers
+    Rails.logger.info "[ValidateCredentialsJob] 2FA required (exception) for #{credential.supplier.name}"
+    credential.update!(two_fa_enabled: true, status: "pending")
+  rescue Scrapers::BaseScraper::AuthenticationError => e
+    Rails.logger.warn "[ValidateCredentialsJob] Auth error: #{e.message}"
+    credential.mark_failed!(e.message)
   rescue => e
-    Rails.logger.error "[ValidateCredentialsJob] Validation error: #{e.message}"
+    Rails.logger.error "[ValidateCredentialsJob] Unexpected error: #{e.class.name}: #{e.message}"
+    Rails.logger.error e.backtrace&.first(5)&.join("\n")
     credential.mark_failed!(e.message)
   end
 end
