@@ -5,9 +5,11 @@ import FlashController from "./flash_controller"
 import DropdownController from "./dropdown_controller"
 import MobileMenuController from "./mobile_menu_controller"
 import PasswordToggleController from "./password_toggle_controller"
+import CredentialValidatorController from "./credential_validator_controller"
 
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
 application.register("dropdown", DropdownController)
 application.register("mobile-menu", MobileMenuController)
 application.register("password-toggle", PasswordToggleController)
+application.register("credential-validator", CredentialValidatorController)

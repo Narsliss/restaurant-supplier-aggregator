@@ -13,6 +13,7 @@ Rails.application.routes.draw do
       post :refresh_session
       post :import_products
       post :submit_2fa_code
+      get :status
     end
   end
 

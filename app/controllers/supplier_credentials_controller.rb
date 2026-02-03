@@ -1,5 +1,5 @@
 class SupplierCredentialsController < ApplicationController
-  before_action :set_credential, only: [:show, :edit, :update, :destroy, :validate, :refresh_session, :import_products, :submit_2fa_code]
+  before_action :set_credential, only: [:show, :edit, :update, :destroy, :validate, :refresh_session, :import_products, :submit_2fa_code, :status]
   before_action :set_suppliers, only: [:new, :create, :edit, :update]
 
   def index
@@ -212,10 +212,13 @@ class SupplierCredentialsController < ApplicationController
   end
 
   def submit_2fa_code
-    code = params[:code].to_s.strip
+    code = (params[:code] || "").to_s.strip
 
     if code.blank?
-      redirect_to supplier_credentials_path, alert: "Please enter a verification code."
+      respond_to do |format|
+        format.html { redirect_to supplier_credentials_path, alert: "Please enter a verification code." }
+        format.json { render json: { status: "error", message: "Please enter a verification code." }, status: :unprocessable_entity }
+      end
       return
     end
 
@@ -227,16 +230,47 @@ class SupplierCredentialsController < ApplicationController
     ).where("expires_at > ?", Time.current).order(created_at: :desc).first
 
     unless request
-      redirect_to supplier_credentials_path, alert: "No pending verification request found for #{@credential.supplier.name}. Please click Validate to start again."
+      msg = "No pending verification request found for #{@credential.supplier.name}. Please click Validate to start again."
+      respond_to do |format|
+        format.html { redirect_to supplier_credentials_path, alert: msg }
+        format.json { render json: { status: "error", message: msg }, status: :not_found }
+      end
       return
     end
 
     # Write the code to the DB — the background scraper is polling for this.
-    # record_attempt! sets status to "submitted" and stores the code.
     request.record_attempt!(code)
 
-    redirect_to supplier_credentials_path,
-      notice: "Code submitted for #{@credential.supplier.name}. Verifying now — this page will update shortly."
+    respond_to do |format|
+      format.html { redirect_to supplier_credentials_path, notice: "Code submitted for #{@credential.supplier.name}. Verifying now..." }
+      format.json { render json: { status: "submitted", message: "Code submitted. Verifying now..." } }
+    end
+  end
+
+  # JSON endpoint for the Stimulus controller to poll credential + 2FA state.
+  def status
+    tfa_request = Supplier2faRequest
+      .where(user: current_user, supplier_credential: @credential)
+      .where(status: ["pending", "submitted", "verified", "failed"])
+      .where("expires_at > ? OR status IN ('verified', 'failed')", Time.current)
+      .order(created_at: :desc)
+      .first
+
+    render json: {
+      credential: {
+        id: @credential.id,
+        status: @credential.status,
+        last_error: @credential.last_error,
+        supplier_name: @credential.supplier.name
+      },
+      two_fa_request: tfa_request ? {
+        id: tfa_request.id,
+        status: tfa_request.status,
+        prompt_message: tfa_request.prompt_message,
+        expires_at: tfa_request.expires_at&.iso8601,
+        attempts: tfa_request.attempts
+      } : nil
+    }
   end
 
   def import_products
