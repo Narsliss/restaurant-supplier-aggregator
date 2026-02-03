@@ -4,6 +4,10 @@ module Scrapers
     LOGIN_URL = "#{BASE_URL}/".freeze
     ORDER_MINIMUM = 0.00
 
+    # PPO uses passwordless auth: email → code → logged in.
+    # Because the verification page is a React SPA with no URL change and no cookies,
+    # we MUST keep the browser alive while waiting for the user's code.
+    # This method is designed to run inside a Sidekiq job.
     def login
       with_browser do
         navigate_to(BASE_URL)
@@ -18,9 +22,14 @@ module Scrapers
 
         # PPO always requires a verification code (passwordless auth)
         if two_fa_page?
-          logger.info "[PremiereProduceOne] Verification code page detected"
-          initiate_2fa_request!("login")
-          # ^ raises TwoFactorRequired — browser will be cleaned up by ensure block
+          logger.info "[PremiereProduceOne] Verification code page detected — waiting for user code"
+          code = wait_for_user_code
+          if code
+            enter_verification_code(code)
+          else
+            credential.mark_failed!("Verification timed out. No code was entered.")
+            raise AuthenticationError, "Verification timed out"
+          end
         end
 
         if logged_in?
@@ -28,7 +37,6 @@ module Scrapers
           credential.mark_active!
           true
         else
-          # Check for rate limiting or other errors in page text
           body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
           if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
             error_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first || "Too many login attempts. Please wait and try again."
@@ -45,72 +53,15 @@ module Scrapers
       end
     end
 
-    # Login with a 2FA code — called when resuming after user enters code.
-    # Re-performs the login steps (enter email → Continue) which triggers a new code,
-    # but the user should already have a code from the initial attempt.
-    # PPO sends the code via email, so re-triggering may send a new one.
+    # Not used for PPO — the login method handles code entry inline.
+    # Kept for interface compatibility with TwoFactorChannel.
     def login_with_code(code)
-      with_browser do
-        # Re-login to get back to the verification page
-        perform_login_steps
-
-        # Wait for 2FA prompt
-        sleep 2
-        unless two_fa_page?
-          if logged_in?
-            save_session
-            credential.mark_active!
-            return { success: true }
-          end
-          return { success: false, error: "Verification page not found after login" }
-        end
-
-        # Find the code input and enter the code
-        code_input = find_2fa_code_input
-        unless code_input
-          return { success: false, error: "Could not find verification code input" }
-        end
-
-        begin
-          code_input.focus
-          code_input.type(code, :clear)
-        rescue => e
-          code_input.evaluate("this.value = '#{code}'")
-          code_input.evaluate("this.dispatchEvent(new Event('input', { bubbles: true }))")
-        end
-
-        sleep 1
-
-        # PPO uses a "Continue" button to submit the code
-        click_button_by_text("continue")
-        sleep 5
-        wait_for_page_load
-
-        if logged_in?
-          save_session
-          credential.mark_active!
-          save_trusted_device
-          { success: true }
-        else
-          # Check for error messages
-          body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
-          if body_text.match?(/invalid|incorrect|expired|wrong/i)
-            error = body_text.scan(/(?:invalid|incorrect|expired|wrong)[^\n]{0,60}/i).first || "Invalid code"
-            { success: false, error: error.strip }
-          elsif two_fa_page?
-            { success: false, error: "Code not accepted. Please try again." }
-          else
-            { success: false, error: "Verification failed" }
-          end
-        end
-      end
+      { success: false, error: "Use the inline verification form instead. Click Validate to start a new login." }
     end
 
     def logged_in?
-      # Check for common logged-in indicators
       return true if browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in], .my-account, .account-nav").present?
 
-      # Check page text (exclude login/2FA pages)
       body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
       return false if body_text.match?(/enter.*code|verification.*code|one.?time|otp|sign in|log in/i)
       return true if body_text.match?(/my account|sign out|log ?out|my orders|order guide|dashboard/i)
@@ -245,6 +196,142 @@ module Scrapers
 
     private
 
+    # Create a 2FA request in the DB and poll for the user's code.
+    # The browser stays open on the verification page while we wait.
+    # Returns the code string when the user submits it, or nil on timeout.
+    def wait_for_user_code
+      body_text = browser.evaluate("document.body?.innerText?.substring(0, 1000)") rescue ""
+      prompt = body_text.scan(/your code.*?\./i).first || "A verification code has been sent to your email."
+
+      # Create the 2FA request record
+      request = Supplier2faRequest.create!(
+        user: credential.user,
+        supplier_credential: credential,
+        request_type: "login",
+        two_fa_type: "email",
+        prompt_message: prompt,
+        status: "pending",
+        expires_at: 5.minutes.from_now
+      )
+
+      credential.update!(two_fa_enabled: true, two_fa_type: "email")
+
+      # Broadcast to ActionCable (may not be received, but try)
+      TwoFactorChannel.broadcast_to(
+        credential.user,
+        {
+          type: "two_fa_required",
+          request_id: request.id,
+          session_token: request.session_token,
+          supplier_name: credential.supplier.name,
+          two_fa_type: "email",
+          prompt_message: prompt,
+          expires_at: request.expires_at.iso8601
+        }
+      )
+
+      logger.info "[PremiereProduceOne] Waiting for user to submit code (request ##{request.id})"
+
+      # Poll the DB for the user's code submission.
+      # The controller's submit_2fa_code action will update the request.
+      timeout = 5.minutes
+      poll_interval = 2.seconds
+      started_at = Time.current
+
+      loop do
+        if Time.current - started_at > timeout
+          request.mark_expired! if request.reload.pending?
+          logger.warn "[PremiereProduceOne] Timed out waiting for code"
+          return nil
+        end
+
+        request.reload
+
+        case request.status
+        when "submitted"
+          # User submitted a code — return it
+          logger.info "[PremiereProduceOne] Code received from user"
+          return request.code_submitted
+        when "cancelled"
+          logger.info "[PremiereProduceOne] User cancelled 2FA"
+          return nil
+        when "failed", "expired"
+          logger.info "[PremiereProduceOne] 2FA request #{request.status}"
+          return nil
+        end
+
+        sleep poll_interval
+      end
+    end
+
+    # Enter the verification code on the currently open code page and check the result.
+    def enter_verification_code(code)
+      code_input = find_2fa_code_input
+      unless code_input
+        credential.mark_failed!("Could not find verification code input")
+        raise AuthenticationError, "Could not find verification code input"
+      end
+
+      begin
+        code_input.focus
+        code_input.type(code, :clear)
+      rescue => e
+        code_input.evaluate("this.value = '#{code}'")
+        code_input.evaluate("this.dispatchEvent(new Event('input', { bubbles: true }))")
+      end
+
+      sleep 1
+
+      # Click "Continue" to submit the code
+      click_button_by_text("continue")
+      sleep 5
+      wait_for_page_load
+
+      # Update the 2FA request based on the result
+      request = Supplier2faRequest.where(
+        supplier_credential: credential,
+        status: "submitted"
+      ).order(created_at: :desc).first
+
+      if logged_in?
+        save_session
+        credential.mark_active!
+        save_trusted_device
+        request&.mark_verified!
+        logger.info "[PremiereProduceOne] Verification successful — logged in!"
+
+        # Broadcast success to the frontend
+        TwoFactorChannel.broadcast_to(
+          credential.user,
+          { type: "code_result", success: true }
+        )
+      else
+        body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
+        error = if body_text.match?(/invalid|incorrect|expired|wrong/i)
+                  body_text.scan(/(?:invalid|incorrect|expired|wrong)[^\n]{0,60}/i).first || "Invalid code"
+                elsif two_fa_page?
+                  "Code not accepted. Please try again."
+                else
+                  "Verification failed"
+                end
+
+        logger.warn "[PremiereProduceOne] Code rejected: #{error}"
+        request&.mark_failed!
+
+        # Check if we can retry
+        remaining = request ? (Supplier2faRequest::MAX_ATTEMPTS - request.attempts) : 0
+
+        # Broadcast failure to the frontend
+        TwoFactorChannel.broadcast_to(
+          credential.user,
+          { type: "code_result", success: false, error: error, can_retry: remaining > 0, attempts_remaining: remaining }
+        )
+
+        credential.mark_failed!(error)
+        raise AuthenticationError, error
+      end
+    end
+
     def search_supplier_catalog(term, max: 20)
       encoded = CGI.escape(term)
       navigate_to("#{BASE_URL}/search?q=#{encoded}")
@@ -347,17 +434,14 @@ module Scrapers
     end
 
     def two_fa_page?
-      # PPO-specific: check for the code input with placeholder "Code"
       return true if browser.at_css("input[placeholder='Code']")
 
-      # Check page text for PPO's "Verification code" heading
       body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
       return true if body_text.include?("Verification code")
       return true if body_text.match?(/code.*been sent|enter.*code|verification.*code/i)
       return true if body_text.match?(/we.?(?:sent|texted|emailed).*code/i)
       return true if body_text.match?(/check your (?:phone|email|text)/i)
 
-      # Generic 2FA input selectors
       code_selectors = [
         "input[name*='code']",
         "input[name*='verification']",
@@ -375,11 +459,9 @@ module Scrapers
     end
 
     def find_2fa_code_input
-      # PPO-specific: input with placeholder "Code"
       el = browser.at_css("input[placeholder='Code']")
       return el if el
 
-      # Try specific 2FA input selectors
       specific_selectors = [
         "input[name*='code']",
         "input[name*='verification']",
@@ -395,55 +477,13 @@ module Scrapers
         return el if el
       end
 
-      # Fallback: find a visible text input that looks like a code field
       browser.css("input[type='text'], input[type='tel'], input[type='number']").each do |input|
         placeholder = input.evaluate("this.placeholder || ''") rescue ""
         next if placeholder.match?(/email|password|search|phone/i)
         return input if placeholder.match?(/code|otp|verify|token/i)
       end
 
-      # Last resort: first visible text input
       browser.at_css("input[type='text']")
-    end
-
-    # Create a 2FA request, broadcast to user via ActionCable, and raise TwoFactorRequired
-    def initiate_2fa_request!(operation_type)
-      # Get the prompt message from the page
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 1000)") rescue ""
-      prompt = body_text.scan(/your code.*?\./i).first || "A verification code has been sent to your email."
-
-      request = Supplier2faRequest.create!(
-        user: credential.user,
-        supplier_credential: credential,
-        request_type: operation_type,
-        two_fa_type: "email",
-        prompt_message: prompt,
-        status: "pending",
-        expires_at: 5.minutes.from_now
-      )
-
-      credential.update!(two_fa_enabled: true, two_fa_type: "email")
-
-      # Broadcast to user's browser via ActionCable
-      TwoFactorChannel.broadcast_to(
-        credential.user,
-        {
-          type: "two_fa_required",
-          request_id: request.id,
-          session_token: request.session_token,
-          supplier_name: credential.supplier.name,
-          two_fa_type: "email",
-          prompt_message: prompt,
-          expires_at: request.expires_at.iso8601
-        }
-      )
-
-      raise Authentication::TwoFactorHandler::TwoFactorRequired.new(
-        request_id: request.id,
-        two_fa_type: :email,
-        prompt_message: prompt,
-        session_token: request.session_token
-      )
     end
 
     # Click a button by its visible text (case-insensitive exact match)
@@ -457,7 +497,6 @@ module Scrapers
     end
 
     def save_trusted_device
-      # Look for "remember this device" or "trust this browser" checkbox
       remember_selectors = [
         "input[name*='remember']",
         "input[name*='trust']",
@@ -484,7 +523,6 @@ module Scrapers
         end
       end
 
-      # Also look for a "remember device" button (some sites use a button instead)
       button_selectors = [
         "button[class*='trust']",
         "button[class*='remember']",

@@ -7,10 +7,12 @@ class SupplierCredentialsController < ApplicationController
       .includes(:supplier)
       .order("suppliers.name")
 
-    # Load any active 2FA requests so we can show inline code entry
+    # Load any active 2FA requests so we can show inline code entry.
+    # Include "pending" (waiting for code) and "submitted" (code entered, verifying).
     @pending_2fa = Supplier2faRequest
-      .where(user: current_user, status: "pending")
+      .where(user: current_user, status: ["pending", "submitted"])
       .where("expires_at > ?", Time.current)
+      .order(created_at: :desc)
       .index_by(&:supplier_credential_id)
   end
 
@@ -131,6 +133,27 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
+    # PPO (and other passwordless suppliers) use a long-running login that polls
+    # the DB for the user's code. Run these asynchronously via Sidekiq so the
+    # request doesn't block for up to 5 minutes.
+    if @credential.supplier.scraper_class == "Scrapers::PremiereProduceOneScraper"
+      # Cancel any existing pending 2FA requests for this credential
+      Supplier2faRequest.where(supplier_credential: @credential, status: "pending").update_all(status: "cancelled")
+      @credential.update!(status: "pending")
+
+      ValidateCredentialsJob.perform_later(@credential.id)
+
+      respond_to do |format|
+        format.html do
+          redirect_to supplier_credentials_path,
+            notice: "Validating #{@credential.supplier.name}... A verification code will be sent to your email. Refresh this page in a few seconds to see the code entry form."
+        end
+        format.json { render json: { status: "validating", credential_id: @credential.id, supplier: @credential.supplier.name } }
+      end
+      return
+    end
+
+    # Non-PPO suppliers: validate synchronously
     result = validate_credential_now(@credential)
 
     respond_to do |format|
@@ -196,7 +219,7 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
-    # Find the active 2FA request for this credential
+    # Find the active 2FA request for this credential (pending = scraper is polling)
     request = Supplier2faRequest.where(
       user: current_user,
       supplier_credential: @credential,
@@ -208,50 +231,12 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
-    # Record the attempt
+    # Write the code to the DB — the background scraper is polling for this.
+    # record_attempt! sets status to "submitted" and stores the code.
     request.record_attempt!(code)
 
-    # Use the scraper to submit the code
-    begin
-      scraper = @credential.supplier.scraper_klass.new(@credential)
-
-      if scraper.respond_to?(:login_with_code)
-        result = scraper.login_with_code(code)
-
-        if result[:success]
-          request.mark_verified!
-          @credential.mark_active!
-          redirect_to supplier_credentials_path,
-            notice: "#{@credential.supplier.name} verified successfully!"
-        else
-          remaining = Supplier2faRequest::MAX_ATTEMPTS - request.attempts
-          if remaining <= 0
-            request.mark_failed!
-            redirect_to supplier_credentials_path,
-              alert: "#{result[:error] || 'Invalid code'}. Maximum attempts reached — please click Validate to try again."
-          else
-            # Reset status back to pending so the form stays visible
-            request.update!(status: "pending")
-            redirect_to supplier_credentials_path,
-              alert: "#{result[:error] || 'Invalid code'}. #{remaining} attempt#{'s' if remaining != 1} remaining."
-          end
-        end
-      else
-        request.mark_verified!
-        redirect_to supplier_credentials_path,
-          notice: "Code submitted for #{@credential.supplier.name}."
-      end
-    rescue => e
-      Rails.logger.error "[SupplierCredentials] 2FA code submission error: #{e.message}"
-      remaining = Supplier2faRequest::MAX_ATTEMPTS - request.attempts
-      if remaining <= 0
-        request.mark_failed!
-      else
-        request.update!(status: "pending")
-      end
-      redirect_to supplier_credentials_path,
-        alert: "Verification failed: #{e.message}. Please try again."
-    end
+    redirect_to supplier_credentials_path,
+      notice: "Code submitted for #{@credential.supplier.name}. Verifying now — this page will update shortly."
   end
 
   def import_products

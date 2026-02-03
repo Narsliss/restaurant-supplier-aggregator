@@ -72,36 +72,50 @@
                   </svg>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-amber-800">Verification code required</p>
-                  <p class="text-xs text-amber-600 mt-0.5"><%= pending_2fa.prompt_message %></p>
-
-                  <%= form_tag submit_2fa_code_supplier_credential_path(credential), method: :post, class: "mt-3 flex items-end gap-2" do %>
-                    <div class="flex-1 max-w-xs">
-                      <label for="code_<%= credential.id %>" class="block text-xs font-medium text-amber-700 mb-1">Enter code</label>
-                      <input type="text"
-                             id="code_<%= credential.id %>"
-                             name="code"
-                             placeholder="Enter verification code"
-                             autocomplete="one-time-code"
-                             inputmode="numeric"
-                             maxlength="10"
-                             required
-                             class="block w-full rounded-md border-amber-300 text-sm shadow-sm focus:border-amber-500 focus:ring-amber-500 bg-white placeholder-gray-400">
-                    </div>
-                    <button type="submit" class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 shadow-sm transition-colors">
-                      <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <% if pending_2fa.submitted? %>
+                    <%# Code was submitted — scraper is verifying it now %>
+                    <p class="text-sm font-medium text-amber-800">Verifying code...</p>
+                    <p class="text-xs text-amber-600 mt-1">Your code has been submitted. The verification is in progress — please refresh this page in a few seconds.</p>
+                    <div class="mt-2 flex items-center gap-2">
+                      <svg class="animate-spin h-4 w-4 text-amber-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                       </svg>
-                      Verify
-                    </button>
-                  <% end %>
+                      <span class="text-xs text-amber-600">Processing...</span>
+                    </div>
+                  <% else %>
+                    <%# Waiting for user to enter code %>
+                    <p class="text-sm font-medium text-amber-800">Verification code required</p>
+                    <p class="text-xs text-amber-600 mt-0.5"><%= pending_2fa.prompt_message %></p>
 
-                  <p class="text-xs text-amber-500 mt-2">
-                    Expires in <%= distance_of_time_in_words(Time.current, pending_2fa.expires_at) %>
-                    <% if pending_2fa.attempts > 0 %>
-                      &middot; <%= Supplier2faRequest::MAX_ATTEMPTS - pending_2fa.attempts %> attempt<%= (Supplier2faRequest::MAX_ATTEMPTS - pending_2fa.attempts) != 1 ? 's' : '' %> remaining
+                    <%= form_tag submit_2fa_code_supplier_credential_path(credential), method: :post, class: "mt-3 flex items-end gap-2" do %>
+                      <div class="flex-1 max-w-xs">
+                        <label for="code_<%= credential.id %>" class="block text-xs font-medium text-amber-700 mb-1">Enter code</label>
+                        <input type="text"
+                               id="code_<%= credential.id %>"
+                               name="code"
+                               placeholder="Enter verification code"
+                               autocomplete="one-time-code"
+                               inputmode="numeric"
+                               maxlength="10"
+                               required
+                               class="block w-full rounded-md border-amber-300 text-sm shadow-sm focus:border-amber-500 focus:ring-amber-500 bg-white placeholder-gray-400">
+                      </div>
+                      <button type="submit" class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 shadow-sm transition-colors">
+                        <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Verify
+                      </button>
                     <% end %>
-                  </p>
+
+                    <p class="text-xs text-amber-500 mt-2">
+                      Expires in <%= distance_of_time_in_words(Time.current, pending_2fa.expires_at) %>
+                      <% if pending_2fa.attempts > 0 %>
+                        &middot; <%= Supplier2faRequest::MAX_ATTEMPTS - pending_2fa.attempts %> attempt<%= (Supplier2faRequest::MAX_ATTEMPTS - pending_2fa.attempts) != 1 ? 's' : '' %> remaining
+                      <% end %>
+                    </p>
+                  <% end %>
                 </div>
               </div>
             </div>
