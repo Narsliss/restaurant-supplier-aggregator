@@ -142,7 +142,7 @@ module Scrapers
     # The base class calls perform_login_steps which only enters the email —
     # PPO needs the full login flow (with 2FA code polling) to get past the
     # verification page.
-    def scrape_catalog(search_terms, max_per_term: 20)
+    def scrape_catalog(search_terms, max_per_term: 50)
       results = []
 
       with_browser do
@@ -210,6 +210,10 @@ module Scrapers
 
           save_session
         end
+
+        # Ensure we're on the catalog page with the search input visible.
+        # When logged in, PPO shows the catalog directly. If not, click "Explore catalog".
+        ensure_catalog_page_loaded
 
         # Now scrape the catalog
         search_terms.each do |term|
@@ -411,6 +415,41 @@ module Scrapers
 
     private
 
+    # Navigate to the catalog page and ensure the search input is visible.
+    # When logged in PPO goes straight to the catalog. When not logged in
+    # (e.g. exploring), we click "Explore catalog". Either way, we wait
+    # for the search input to appear.
+    def ensure_catalog_page_loaded
+      # Check if we already have the search input
+      if browser.at_css("input[placeholder='Search']")
+        logger.info "[PremiereProduceOne] Catalog page already loaded (search input found)"
+        return
+      end
+
+      # Try clicking "Explore catalog" button (visible when not logged in or on landing)
+      clicked = click_button_by_text("explore catalog")
+      if clicked
+        logger.info "[PremiereProduceOne] Clicked 'Explore catalog'"
+        sleep 5
+      end
+
+      # Wait for the search input to appear (catalog page is loaded)
+      10.times do
+        break if browser.at_css("input[placeholder='Search']")
+        sleep 1
+      end
+
+      unless browser.at_css("input[placeholder='Search']")
+        # Last resort: refresh and try again
+        navigate_to(BASE_URL)
+        sleep 3
+        click_button_by_text("explore catalog")
+        sleep 5
+      end
+
+      logger.info "[PremiereProduceOne] Catalog page ready (search input: #{browser.at_css("input[placeholder='Search']").present?})"
+    end
+
     # Create a 2FA request in the DB and poll for the user's code.
     # The browser stays open on the verification page while we wait.
     # Returns the code string when the user submits it, or nil on timeout.
@@ -546,49 +585,123 @@ module Scrapers
         .order(created_at: :desc).first&.mark_failed!
     end
 
-    def search_supplier_catalog(term, max: 20)
-      encoded = CGI.escape(term)
-      navigate_to("#{BASE_URL}/search?q=#{encoded}")
-      sleep 2
+    # PPO is a React SPA (Pepper platform) with no semantic CSS classes.
+    # Products are displayed as text blocks. The search input filters in-place.
+    # We type into the search input, wait for results, then parse the text.
+    #
+    # Product text pattern:
+    #   PRODUCT NAME
+    #   [price or "Special Order Item"] | Brand: BRAND | Pack Size: SIZE | ...
+    #   Case • SKU
+    def search_supplier_catalog(term, max: 50)
+      # Find and use the in-page search input
+      search_input = browser.at_css("input[placeholder='Search']")
+      unless search_input
+        logger.warn "[PremiereProduceOne] Search input not found"
+        return []
+      end
 
-      products = []
-      items = browser.css(".product-card, .product-item, .product-tile, .search-result-item")
+      # Clear and type the search term
+      search_input.focus
+      sleep 0.3
+      set_react_input_value(search_input, term)
+      sleep 3 # Wait for React to filter results
 
-      items.first(max).each do |item|
-        name = item.at_css(".product-title, .product-name, h3, h4")&.text&.strip
-        next if name.blank?
+      # Extract products from the page text using JavaScript
+      products_json = browser.evaluate(<<~JS)
+        (function() {
+          var text = document.body.innerText;
+          var lines = text.split("\\n").map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+          var products = [];
 
-        price_text = item.at_css(".price, .product-price, .current-price")&.text
-        price = extract_price(price_text) if price_text
+          for (var i = 0; i < lines.length; i++) {
+            // Look for "Case • NNNNN" pattern which marks the end of a product block
+            var skuMatch = lines[i].match(/^(?:Case|Each|Piece)\\s*[•·]\\s*(\\d{3,})$/);
+            if (!skuMatch) continue;
 
-        href = item.at_css("a[href*='/products/']")&.attribute("href").to_s
-        sku = item.attribute("data-sku").to_s.presence
-        sku ||= item.at_css("[data-sku]")&.attribute("data-sku").to_s.presence
-        sku ||= href.scan(%r{/products/([^/?#]+)}).flatten.first
-        sku ||= name.parameterize
-        next if sku.blank?
+            var sku = skuMatch[1];
 
-        pack_size = item.at_css(".pack-size, .product-unit")&.text&.strip
+            // Walk backwards to find the product name and description
+            // The name is the first ALL-CAPS line before the description
+            var name = null;
+            var description = null;
+            var price = null;
+            var packSize = null;
+            var brand = null;
+            var unit = lines[i].match(/^(Case|Each|Piece)/)[1];
+            var category = null;
 
-        product_url = href.presence
-        product_url = "#{BASE_URL}#{product_url}" if product_url && !product_url.start_with?("http")
-        product_url ||= "#{BASE_URL}/products/#{sku}" if sku.present?
+            for (var j = i - 1; j >= Math.max(0, i - 5); j--) {
+              var line = lines[j];
 
-        products << {
-          supplier_sku: sku,
-          supplier_name: name.truncate(255),
-          current_price: price,
-          pack_size: pack_size,
-          supplier_url: product_url,
-          in_stock: item.at_css(".out-of-stock, .unavailable, .sold-out").nil?,
+              // Skip category headers (they're in the sidebar)
+              if (/^(All|BAKERY|BEVERAGE|DAIRY|FFV|FOODSERVICE|PANTRY|PRODUCE|PROTEIN|SPECIALTY|Sort:)/.test(line)) continue;
+              if (/^See all \\d+ products/.test(line)) continue;
+              if (/^\\d+$/.test(line)) continue; // category counts
+              if (/^".*"$/.test(line)) continue; // search term echo
+
+              // Description line with Brand/Pack Size
+              if (line.includes("Brand:") || line.includes("Pack Size:")) {
+                description = line;
+                var brandMatch = line.match(/Brand:\\s*([^|]+)/);
+                if (brandMatch) brand = brandMatch[1].trim();
+                var packMatch = line.match(/Pack Size:\\s*([^|]+)/);
+                if (packMatch) packSize = packMatch[1].trim();
+                var priceMatch = line.match(/\\$([\\d,.]+)/);
+                if (priceMatch) price = parseFloat(priceMatch[1].replace(",", ""));
+                continue;
+              }
+
+              // Product name — typically ALL CAPS or mixed case, before the description.
+              // Skip lines that look like continuation descriptions (start lowercase,
+              // contain "Storage Instructions", or are very long paragraphs).
+              if (!name && line.length > 2 && line.length < 120 && !line.includes("|")
+                  && !line.startsWith("Storage") && !line.startsWith("An ")
+                  && !line.startsWith("A ") && !line.startsWith("The ")
+                  && !line.startsWith("Tender ") && !line.startsWith("Made ")
+                  && !line.startsWith("Pre-Order") && !line.startsWith("Variable")
+                  && !/^[a-z]/.test(line)) {
+                name = line;
+                break;
+              }
+            }
+
+            if (name && sku) {
+              products.push({
+                sku: sku,
+                name: name,
+                price: price,
+                pack_size: packSize ? (unit + " - " + packSize) : unit,
+                brand: brand,
+                in_stock: !(description || "").includes("Special Order Item")
+              });
+            }
+
+            if (products.length >= #{max}) break;
+          }
+
+          return JSON.stringify(products);
+        })()
+      JS
+
+      items = JSON.parse(products_json) rescue []
+      logger.info "[PremiereProduceOne] Parsed #{items.size} products for '#{term}' from page text"
+
+      items.map do |item|
+        {
+          supplier_sku: item["sku"],
+          supplier_name: item["name"].to_s.truncate(255),
+          current_price: item["price"],
+          pack_size: item["pack_size"],
+          supplier_url: nil,
+          in_stock: item["in_stock"] != false,
           category: nil,
           scraped_at: Time.current
         }
-      rescue => e
-        logger.debug "[PremiereProduceOne] Failed to extract catalog item: #{e.message}"
       end
-
-      products
+    rescue => e
+      logger.warn "[PremiereProduceOne] search_supplier_catalog error for '#{term}': #{e.message}"
+      []
     end
 
     def scrape_product(sku)
