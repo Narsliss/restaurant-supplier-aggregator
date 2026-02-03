@@ -13,11 +13,18 @@
       <div class="sm:w-48">
         <%= form.select :category, Product.distinct.pluck(:category).compact.sort.map { |c| [c, c] }, { prompt: "All Categories", selected: params[:category] }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
+      <div class="sm:w-28">
+        <%= form.select :per_page, [["50 / page", 50], ["100 / page", 100], ["All", 200]], { selected: params[:per_page] || 50 }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+      </div>
       <%= form.submit "Search", class: "bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 text-sm cursor-pointer" %>
     <% end %>
   </div>
 
   <% if @products.any? %>
+    <p class="text-sm text-gray-500 mb-3">
+      Showing <%= @products.offset_value + 1 %>–<%= [@products.offset_value + @products.limit_value, @products.total_count].min %> of <%= @products.total_count %> products
+    </p>
+
     <div class="bg-white shadow rounded-lg divide-y divide-gray-200">
       <% @products.each do |product| %>
         <div class="p-4">
@@ -41,6 +48,61 @@
         </div>
       <% end %>
     </div>
+
+    <!-- Pagination -->
+    <nav class="mt-4 flex items-center justify-between" aria-label="Pagination">
+      <div class="flex gap-1">
+        <% if @products.prev_page %>
+          <%= link_to products_path(page: @products.prev_page, search: params[:search], category: params[:category], per_page: params[:per_page]),
+                class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" do %>
+            <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+            Previous
+          <% end %>
+        <% end %>
+      </div>
+
+      <div class="hidden sm:flex gap-1">
+        <% pages_to_show = ([@products.current_page - 2, 1].max..[@products.current_page + 2, @products.total_pages].min) %>
+        <% if pages_to_show.first > 1 %>
+          <%= link_to "1", products_path(page: 1, search: params[:search], category: params[:category], per_page: params[:per_page]),
+                class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
+          <% if pages_to_show.first > 2 %>
+            <span class="inline-flex items-center px-2 py-2 text-sm text-gray-400">&hellip;</span>
+          <% end %>
+        <% end %>
+
+        <% pages_to_show.each do |page_num| %>
+          <% if page_num == @products.current_page %>
+            <span class="inline-flex items-center px-3 py-2 text-sm font-semibold rounded-md bg-brand-orange text-white"><%= page_num %></span>
+          <% else %>
+            <%= link_to page_num, products_path(page: page_num, search: params[:search], category: params[:category], per_page: params[:per_page]),
+                  class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
+          <% end %>
+        <% end %>
+
+        <% if pages_to_show.last < @products.total_pages %>
+          <% if pages_to_show.last < @products.total_pages - 1 %>
+            <span class="inline-flex items-center px-2 py-2 text-sm text-gray-400">&hellip;</span>
+          <% end %>
+          <%= link_to @products.total_pages, products_path(page: @products.total_pages, search: params[:search], category: params[:category], per_page: params[:per_page]),
+                class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
+        <% end %>
+      </div>
+
+      <div class="sm:hidden text-sm text-gray-500">
+        Page <%= @products.current_page %> of <%= @products.total_pages %>
+      </div>
+
+      <div class="flex gap-1">
+        <% if @products.next_page %>
+          <%= link_to products_path(page: @products.next_page, search: params[:search], category: params[:category], per_page: params[:per_page]),
+                class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" do %>
+            Next
+            <svg class="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+          <% end %>
+        <% end %>
+      </div>
+    </nav>
   <% else %>
     <div class="text-center py-12 bg-white rounded-lg shadow">
       <p class="text-gray-500">No products found.</p>

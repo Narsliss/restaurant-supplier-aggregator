@@ -2,9 +2,12 @@ class ProductsController < ApplicationController
   before_action :set_product, only: [:show, :edit, :update]
 
   def index
+    per_page = (params[:per_page] || 50).to_i.clamp(10, 200)
+
     @products = Product.includes(:supplier_products)
       .order(:name)
       .page(params[:page])
+      .per(per_page)
 
     if params[:category].present?
       @products = @products.by_category(params[:category])
