@@ -104,11 +104,31 @@ module Scrapers
     end
 
     def logged_in?
+      # Check for common logged-in UI elements
       return true if browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in], .my-account, .account-nav").present?
 
       body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
-      return false if body_text.match?(/enter.*code|verification.*code|one.?time|otp|sign in|log in/i)
+
+      # Definitely NOT logged in if we're on the verification code page
+      return false if two_fa_page?
+
+      # Definitely NOT logged in if we're on the landing/login page
+      return false if body_text.match?(/become a customer/i) && body_text.match?(/explore catalog/i) && !body_text.match?(/order guide|add to cart|my orders/i)
+
+      # Standard logged-in indicators
       return true if body_text.match?(/my account|sign out|log ?out|my orders|order guide|dashboard/i)
+
+      # PPO-specific: if we see product catalog content (not the landing page), we're logged in
+      # PPO shows product listings with prices after login
+      return true if body_text.match?(/add to cart|order guide|your cart|checkout/i)
+
+      # If we're not on the login page or code page and we see product-like content, assume logged in
+      has_login_page = body_text.match?(/enter.*code|verification.*code|one.?time|sign in to|log in to/i)
+      return false if has_login_page
+
+      # Check for product catalog indicators (prices, product names, etc.)
+      has_products = browser.at_css("[class*='product'], [class*='catalog'], [class*='item-card'], [class*='order']").present?
+      return true if has_products
 
       false
     end
