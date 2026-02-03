@@ -234,13 +234,16 @@ class SupplierCredentialsController < ApplicationController
 
     if result[:valid]
       credential.mark_active!
-      credential.update!(two_fa_enabled: true) if result[:two_fa_required]
+    elsif result[:two_fa_required]
+      # 2FA pending — keep credential in pending state, don't mark failed
+      credential.update!(two_fa_enabled: true, status: "pending")
     else
       credential.mark_failed!(result[:message] || "Validation failed")
     end
 
     result
   rescue Authentication::TwoFactorHandler::TwoFactorRequired => e
+    # Direct raise from scraper (bypasses SessionManager catch)
     credential.update!(two_fa_enabled: true, status: "pending")
     { valid: false, two_fa_required: true, message: "Verification code required. Check your phone or email." }
   rescue => e
