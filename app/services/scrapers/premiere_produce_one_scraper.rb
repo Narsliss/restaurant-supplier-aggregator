@@ -9,6 +9,8 @@ module Scrapers
     # we MUST keep the browser alive while waiting for the user's code.
     # This method is designed to run inside a Sidekiq job.
     def login
+      max_code_attempts = 3
+
       with_browser do
         navigate_to(BASE_URL)
 
@@ -20,35 +22,77 @@ module Scrapers
 
         perform_login_steps
 
-        # PPO always requires a verification code (passwordless auth)
-        if two_fa_page?
-          logger.info "[PremiereProduceOne] Verification code page detected — waiting for user code"
-          code = wait_for_user_code
+        # PPO always requires a verification code (passwordless auth).
+        # Codes may expire quickly (~2 min), so if the first code fails we
+        # click "Resend code" and ask the user for a new one, up to max_code_attempts.
+        attempt = 0
+        while two_fa_page? && attempt < max_code_attempts
+          attempt += 1
+          resent = attempt > 1
+
+          if resent
+            logger.info "[PremiereProduceOne] Code attempt ##{attempt}: clicking Resend code"
+            click_button_by_text("resend code")
+            sleep 2
+          end
+
+          logger.info "[PremiereProduceOne] Verification code page detected (attempt #{attempt}/#{max_code_attempts}) — waiting for user code"
+          code = wait_for_user_code(attempt: attempt, resent: resent)
+
           if code
-            enter_verification_code(code)
+            type_code_and_submit(code)
+            sleep 5
+            wait_for_page_load
+
+            if logged_in?
+              save_session
+              credential.mark_active!
+              save_trusted_device
+              mark_2fa_request_verified!
+              logger.info "[PremiereProduceOne] Verification successful — logged in!"
+              TwoFactorChannel.broadcast_to(credential.user, { type: "code_result", success: true })
+              return true
+            end
+
+            # Still on code page — code was likely expired or invalid
+            body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
+            logger.warn "[PremiereProduceOne] Code attempt #{attempt} failed. Page: #{body_text[0..200]}"
+
+            if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
+              rate_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first
+              error_msg = rate_msg&.strip || "Too many login attempts. Please wait and try again."
+              credential.mark_failed!(error_msg)
+              raise AuthenticationError, error_msg
+            end
+
+            # Notify user the code didn't work, but we can retry
+            if attempt < max_code_attempts && two_fa_page?
+              mark_2fa_request_failed!
+              TwoFactorChannel.broadcast_to(
+                credential.user,
+                { type: "code_result", success: false, error: "Code expired or invalid. A new code is being sent — please enter the new code.", can_retry: true }
+              )
+            end
           else
             credential.mark_failed!("Verification timed out. No code was entered.")
             raise AuthenticationError, "Verification timed out"
           end
         end
 
+        # Final check after all attempts
         if logged_in?
           save_session
           credential.mark_active!
           true
         else
-          body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
-          if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
-            error_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first || "Too many login attempts. Please wait and try again."
-            credential.mark_failed!(error_msg.strip)
-            raise AuthenticationError, error_msg.strip
-          end
-
-          error_msg = extract_text(".error, .alert-error, .login-error, .error-message, .alert-danger")
-          error_msg ||= body_text.scan(/(?:invalid|error|failed|incorrect)[^\n]{0,80}/i).first
-          error_msg ||= "Login failed"
-          credential.mark_failed!(error_msg.strip)
-          raise AuthenticationError, error_msg.strip
+          mark_2fa_request_failed!
+          error_msg = "Verification failed after #{attempt} attempt(s). Please try again."
+          credential.mark_failed!(error_msg)
+          TwoFactorChannel.broadcast_to(
+            credential.user,
+            { type: "code_result", success: false, error: error_msg, can_retry: false }
+          )
+          raise AuthenticationError, error_msg
         end
       end
     end
@@ -252,9 +296,10 @@ module Scrapers
     # Create a 2FA request in the DB and poll for the user's code.
     # The browser stays open on the verification page while we wait.
     # Returns the code string when the user submits it, or nil on timeout.
-    def wait_for_user_code
+    def wait_for_user_code(attempt: 1, resent: false)
       body_text = browser.evaluate("document.body?.innerText?.substring(0, 1000)") rescue ""
       prompt = body_text.scan(/your code.*?\./i).first || "A verification code has been sent to your email."
+      prompt = "NEW CODE SENT: #{prompt} (previous code expired)" if resent
 
       # Create the 2FA request record
       request = Supplier2faRequest.create!(
@@ -264,7 +309,7 @@ module Scrapers
         two_fa_type: "email",
         prompt_message: prompt,
         status: "pending",
-        expires_at: 5.minutes.from_now
+        expires_at: 3.minutes.from_now
       )
 
       credential.update!(two_fa_enabled: true, two_fa_type: "email")
@@ -317,90 +362,70 @@ module Scrapers
       end
     end
 
-    # Enter the verification code on the currently open code page and check the result.
-    # PPO is a React SPA — React overrides the native input value setter, so we must
-    # use the nativeInputValueSetter trick to update React's internal state.
-    def enter_verification_code(code)
+    # Type the verification code into the input and click Continue.
+    # Does NOT check the result — the caller (login) handles that.
+    def type_code_and_submit(code)
       code_input = find_2fa_code_input
       unless code_input
         credential.mark_failed!("Could not find verification code input")
         raise AuthenticationError, "Could not find verification code input"
       end
 
-      logger.info "[PremiereProduceOne] Entering verification code into input field"
+      logger.info "[PremiereProduceOne] Typing verification code into input"
 
-      # React-compatible value entry: use the native HTMLInputElement value setter
-      # to bypass React's synthetic event system, then dispatch proper events.
-      set_react_input_value(code_input, code)
+      # Type character-by-character (generates real key events React responds to)
+      begin
+        code_input.focus
+        sleep 0.2
+        browser.keyboard.type([:control, "a"])
+        sleep 0.1
+        browser.keyboard.type(:Backspace)
+        sleep 0.2
+        code.to_s.each_char do |char|
+          browser.keyboard.type(char)
+          sleep 0.05
+        end
+        actual = code_input.evaluate("this.value") rescue "unknown"
+        logger.info "[PremiereProduceOne] Input value after typing: '#{actual}'"
+
+        # If typing didn't stick, use React native setter
+        if actual != code.to_s
+          logger.warn "[PremiereProduceOne] Typing gave '#{actual}', using nativeInputValueSetter"
+          set_react_input_value(code_input, code)
+        end
+      rescue => e
+        logger.warn "[PremiereProduceOne] Typing failed: #{e.message}, using nativeInputValueSetter"
+        set_react_input_value(code_input, code)
+      end
 
       sleep 1
 
-      # Click "Continue" to submit the code.
-      # PPO is a React SPA — the previous email step's Continue button may still be in the DOM,
-      # so we must click the LAST Continue button on the page (the one for the code entry step).
+      # Click the LAST Continue button (PPO SPA may have multiple in the DOM)
       continue_clicked = click_last_button_by_text("continue")
+      logger.info "[PremiereProduceOne] Continue clicked: #{continue_clicked}"
+
       unless continue_clicked
-        # Fallback: try submitting by pressing Enter on the input
-        logger.info "[PremiereProduceOne] Continue button not found, trying Enter key"
+        # Fallback: press Enter
         begin
           code_input.focus
           browser.keyboard.type(:Enter)
+          logger.info "[PremiereProduceOne] Pressed Enter as fallback"
         rescue => e
-          logger.warn "[PremiereProduceOne] Enter key fallback failed: #{e.message}"
+          logger.warn "[PremiereProduceOne] Enter fallback failed: #{e.message}"
         end
       end
+    end
 
-      sleep 5
-      wait_for_page_load
+    # Helper to mark the latest submitted 2FA request as verified
+    def mark_2fa_request_verified!
+      Supplier2faRequest.where(supplier_credential: credential, status: "submitted")
+        .order(created_at: :desc).first&.mark_verified!
+    end
 
-      # Update the 2FA request based on the result
-      request = Supplier2faRequest.where(
-        supplier_credential: credential,
-        status: "submitted"
-      ).order(created_at: :desc).first
-
-      if logged_in?
-        save_session
-        credential.mark_active!
-        save_trusted_device
-        request&.mark_verified!
-        logger.info "[PremiereProduceOne] Verification successful — logged in!"
-
-        # Broadcast success to the frontend
-        TwoFactorChannel.broadcast_to(
-          credential.user,
-          { type: "code_result", success: true }
-        )
-      else
-        body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
-        logger.warn "[PremiereProduceOne] Not logged in after code entry. Page text: #{body_text[0..300]}"
-
-        error = if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
-                  rate_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first
-                  rate_msg&.strip || "Too many login attempts. Please wait and try again."
-                elsif body_text.match?(/invalid|incorrect|expired|wrong/i)
-                  body_text.scan(/(?:invalid|incorrect|expired|wrong)[^\n]{0,60}/i).first || "Invalid code"
-                elsif two_fa_page?
-                  "Code not accepted. Please try again."
-                else
-                  "Verification failed"
-                end
-
-        logger.warn "[PremiereProduceOne] Code rejected: #{error}"
-        request&.mark_failed!
-
-        # Check if we can retry
-        remaining = request ? (Supplier2faRequest::MAX_ATTEMPTS - request.attempts) : 0
-
-        # Broadcast failure to the frontend
-        TwoFactorChannel.broadcast_to(
-          credential.user,
-          { type: "code_result", success: false, error: error, can_retry: remaining > 0, attempts_remaining: remaining }
-        )
-
-        credential.mark_failed!(error)
-        raise AuthenticationError, error
-      end
+    # Helper to mark the latest submitted 2FA request as failed
+    def mark_2fa_request_failed!
+      Supplier2faRequest.where(supplier_credential: credential, status: "submitted")
+        .order(created_at: :desc).first&.mark_failed!
     end
 
     def search_supplier_catalog(term, max: 20)
