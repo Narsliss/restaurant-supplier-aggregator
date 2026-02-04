@@ -483,7 +483,8 @@ module Scrapers
                   sku: obj.sku,
                   name: (obj.brand ? obj.name + " - " + obj.brand : obj.name).substring(0, 255),
                   price: obj.price || null,
-                  price_info: obj.price_info || "",
+                  pack_size: obj.pack_size || "",
+                  unit_of_measure: obj.unit_of_measure || "",
                   url: obj.url || "",
                   in_stock: true
                 });
@@ -495,7 +496,7 @@ module Scrapers
       JS
 
       (raw || []).map do |item|
-        pack = item["price_info"].to_s.gsub(/\$[\d,.]+\s*/, "").strip.presence
+        pack = item["pack_size"].to_s.strip.presence
         product_url = item["url"].to_s.presence
         product_url = "#{BASE_URL}#{product_url}" if product_url && !product_url.start_with?("http")
         {
