@@ -252,7 +252,7 @@ class SupplierCredentialsController < ApplicationController
     tfa_request = Supplier2faRequest
       .where(user: current_user, supplier_credential: @credential)
       .where(status: ["pending", "submitted", "verified", "failed"])
-      .where("expires_at > ? OR status IN ('verified', 'failed')", Time.current)
+      .where("expires_at > ? OR (status IN ('verified', 'failed') AND created_at > ?)", Time.current, 5.minutes.ago)
       .order(created_at: :desc)
       .first
 
@@ -261,7 +261,8 @@ class SupplierCredentialsController < ApplicationController
         id: @credential.id,
         status: @credential.status,
         last_error: @credential.last_error,
-        supplier_name: @credential.supplier.name
+        supplier_name: @credential.supplier.name,
+        importing: @credential.importing?
       },
       two_fa_request: tfa_request ? {
         id: tfa_request.id,
@@ -285,6 +286,21 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
+    if @credential.importing?
+      respond_to do |format|
+        format.html do
+          redirect_to supplier_credentials_path,
+            alert: "An import is already in progress for #{@credential.supplier.name}. Please wait for it to finish."
+        end
+        format.json { render json: { status: "error", message: "Import already in progress" }, status: :conflict }
+      end
+      return
+    end
+
+    # Set importing flag NOW (before enqueueing) so the status endpoint immediately
+    # reflects the import-in-progress state. Without this, there's a race window
+    # where polling sees importing=false + status=active and re-enables the button.
+    @credential.update_columns(importing: true)
     ImportSupplierProductsJob.perform_later(@credential.id)
     Rails.logger.info "[SupplierCredentials] Product import queued for credential ##{@credential.id} — #{@credential.supplier.name} (user: #{current_user.id})"
 

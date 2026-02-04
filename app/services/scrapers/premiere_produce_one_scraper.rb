@@ -16,8 +16,11 @@ module Scrapers
 
         if restore_session
           browser.refresh
-          sleep 2
+          # Longer timeout for session restore — React needs time to process restored tokens
+          wait_for_react_render(timeout: 15)
+          logger.info "[PremiereProduceOne] After session restore, logged_in?=#{logged_in?}, url=#{browser.current_url}"
           return true if logged_in?
+          logger.info "[PremiereProduceOne] Session restore didn't produce logged-in state, proceeding to full login"
         end
 
         perform_login_steps
@@ -103,6 +106,109 @@ module Scrapers
       { success: false, error: "Use the inline verification form instead. Click Validate to start a new login." }
     end
 
+    # Override save_session to also capture localStorage.
+    # PPO's Pepper React SPA stores auth tokens in localStorage, not just cookies.
+    # Without localStorage, cookie-only restore results in an unauthenticated React state.
+    def save_session
+      cookies = browser.cookies.all.transform_values(&:to_h)
+
+      # Capture localStorage (contains Pepper auth tokens)
+      local_storage = browser.evaluate(<<~JS) rescue {}
+        (function() {
+          var data = {};
+          for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            data[key] = localStorage.getItem(key);
+          }
+          return data;
+        })()
+      JS
+
+      session_payload = {
+        cookies: cookies,
+        local_storage: local_storage
+      }.to_json
+
+      credential.update!(
+        session_data: session_payload,
+        last_login_at: Time.current,
+        status: "active"
+      )
+
+      ls_keys = local_storage.is_a?(Hash) ? local_storage.keys : []
+      logger.info "[PremiereProduceOne] Session saved (#{cookies.size} cookies, #{ls_keys.size} localStorage keys: #{ls_keys.first(5).join(', ')})"
+    end
+
+    # Override restore_session to also restore localStorage.
+    # Must restore localStorage BEFORE refreshing the page so React picks up the tokens.
+    # Uses a longer session TTL (24h) since PPO requires 2FA and we want to avoid
+    # re-authentication as much as possible.
+    def restore_session
+      return false unless credential.session_data.present?
+      # Use longer TTL for PPO (24h instead of default 1h) since 2FA is expensive
+      return false unless credential.last_login_at.present? && credential.last_login_at > 24.hours.ago
+
+      begin
+        data = JSON.parse(credential.session_data)
+
+        # Support both old format (flat cookie hash) and new format (with local_storage)
+        if data.key?("cookies")
+          cookies = data["cookies"]
+          local_storage = data["local_storage"] || {}
+        else
+          # Legacy format: entire session_data is cookies
+          cookies = data
+          local_storage = {}
+        end
+
+        # Restore cookies
+        cookies.each do |_name, cookie|
+          next unless cookie.is_a?(Hash) && cookie["name"].present? && cookie["value"].present?
+
+          params = {
+            name: cookie["name"].to_s,
+            value: cookie["value"].to_s,
+            domain: cookie["domain"].to_s,
+            path: cookie["path"].present? ? cookie["path"].to_s : "/"
+          }
+          params[:secure] = !!cookie["secure"] unless cookie["secure"].nil?
+          params[:httponly] = !!cookie["httponly"] unless cookie["httponly"].nil?
+          if cookie["expires"].is_a?(Numeric) && cookie["expires"] > 0
+            params[:expires] = cookie["expires"].to_i
+          end
+
+          begin
+            browser.cookies.set(**params)
+          rescue Ferrum::BrowserError => e
+            logger.debug "[PremiereProduceOne] Skipping cookie '#{params[:name]}': #{e.message}"
+          end
+        end
+
+        # Restore localStorage (Pepper auth tokens)
+        if local_storage.is_a?(Hash) && local_storage.any?
+          # Serialize data into JS string (Ferrum doesn't support argument passing)
+          ls_json = local_storage.to_json
+          browser.evaluate(<<~JS)
+            (function() {
+              var data = #{ls_json};
+              for (var key in data) {
+                if (data.hasOwnProperty(key)) {
+                  try { localStorage.setItem(key, data[key]); } catch(e) {}
+                }
+              }
+            })()
+          JS
+          logger.info "[PremiereProduceOne] Restored #{local_storage.size} localStorage keys"
+        end
+
+        logger.info "[PremiereProduceOne] Session restored (#{cookies.size} cookies, #{local_storage.size} localStorage keys)"
+        true
+      rescue JSON::ParserError => e
+        logger.warn "[PremiereProduceOne] Failed to parse session data: #{e.message}"
+        false
+      end
+    end
+
     def logged_in?
       # Check for common logged-in UI elements
       return true if browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in], .my-account, .account-nav").present?
@@ -150,7 +256,9 @@ module Scrapers
         navigate_to(BASE_URL)
         if restore_session
           browser.refresh
-          sleep 2
+          # PPO is a React SPA — longer timeout for session restore to process restored tokens
+          wait_for_react_render(timeout: 15)
+          logger.info "[PremiereProduceOne] After session restore, logged_in?=#{logged_in?}, url=#{browser.current_url}"
         end
 
         unless logged_in?
@@ -415,6 +523,31 @@ module Scrapers
 
     private
 
+    # Wait for PPO's React SPA to fully render after page load / session restore.
+    # The SPA needs time to hydrate and render logged-in UI elements.
+    def wait_for_react_render(timeout: 10)
+      start = Time.current
+      loop do
+        # Check if React has rendered meaningful content
+        body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
+        has_content = body_text.length > 100
+        has_logged_in_indicators = body_text.match?(/order guide|add to cart|my orders|explore catalog|log out|become a customer/i)
+        has_2fa_indicators = body_text.match?(/enter.*code|verification.*code|one.?time/i)
+
+        if has_content && (has_logged_in_indicators || has_2fa_indicators)
+          logger.info "[PremiereProduceOne] React rendered in #{(Time.current - start).round(1)}s (content_length=#{body_text.length})"
+          return
+        end
+
+        if Time.current - start > timeout
+          logger.warn "[PremiereProduceOne] React render timeout after #{timeout}s (content_length=#{body_text.length})"
+          return
+        end
+
+        sleep 0.5
+      end
+    end
+
     # Navigate to the catalog page and ensure the search input is visible.
     # When logged in PPO goes straight to the catalog. When not logged in
     # (e.g. exploring), we click "Explore catalog". Either way, we wait
@@ -589,10 +722,19 @@ module Scrapers
     # Products are displayed as text blocks. The search input filters in-place.
     # We type into the search input, wait for results, then parse the text.
     #
-    # Product text pattern:
+    # PPO (Pepper React SPA) renders products as card-like divs. Each product
+    # card's innerText looks like one of:
+    #
     #   PRODUCT NAME
-    #   [price or "Special Order Item"] | Brand: BRAND | Pack Size: SIZE | ...
+    #   Brand: BRAND | Pack Size: SIZE | ...
     #   Case • SKU
+    #
+    # Prices are NOT rendered in innerText — they're in a separate React
+    # component. We first do a DOM probe to discover the price selector,
+    # then fall back to text-only if prices aren't in the DOM either.
+    #
+    # Order history entries ("N fulfilled on DATE") also match the SKU
+    # pattern, so we must filter those out.
     def search_supplier_catalog(term, max: 50)
       # Find and use the in-page search input
       search_input = browser.at_css("input[placeholder='Search']")
@@ -607,12 +749,109 @@ module Scrapers
       set_react_input_value(search_input, term)
       sleep 3 # Wait for React to filter results
 
+      # DOM probe: scan all elements by innerText (not textContent) to handle
+      # React's split-text-node rendering. Also search globally for $ prices.
+      dom_probe = browser.evaluate(<<~JS) rescue nil
+        (function() {
+          var url = window.location.href;
+
+          // Find elements whose innerText matches SKU pattern
+          var allEls = document.querySelectorAll("*");
+          var skuEl = null;
+          for (var i = 0; i < allEls.length; i++) {
+            var el = allEls[i];
+            if (el.children.length > 3) continue;
+            var t = (el.innerText || "").trim();
+            if (/^(?:Case|Each|Piece)\\s*[•·]\\s*\\d{3,}$/.test(t)) {
+              skuEl = el;
+              break;
+            }
+          }
+
+          // Search for ANY dollar amounts anywhere on the page (leaf nodes)
+          var dollarElements = [];
+          for (var i = 0; i < allEls.length; i++) {
+            var el = allEls[i];
+            if (el.children.length > 0) continue;
+            var t = (el.textContent || "").trim();
+            if (/^\\$[\\d,.]+$/.test(t) && dollarElements.length < 15) {
+              dollarElements.push({
+                text: t,
+                tag: el.tagName,
+                classes: (el.className || "").substring(0, 80),
+                parentClasses: el.parentElement ? (el.parentElement.className || "").substring(0, 80) : ""
+              });
+            }
+          }
+
+          // Also search for $ in innerText of elements (price might span nodes)
+          var dollarInnerText = [];
+          for (var i = 0; i < allEls.length; i++) {
+            var el = allEls[i];
+            if (el.children.length > 2) continue;
+            var t = (el.innerText || "").trim();
+            if (/^\\$[\\d,.]+$/.test(t) && dollarInnerText.length < 10) {
+              dollarInnerText.push({text: t, tag: el.tagName, classes: (el.className || "").substring(0, 80)});
+            }
+          }
+
+          if (!skuEl) {
+            return JSON.stringify({found: false, url: url, dollarElements: dollarElements, dollarInnerText: dollarInnerText});
+          }
+
+          // Walk up from SKU, find product card
+          var ancestors = [];
+          var productCard = skuEl;
+          var card = skuEl.parentElement;
+          for (var i = 0; i < 10 && card && card !== document.body; i++) {
+            var ct = card.innerText || "";
+            ancestors.push({
+              level: i, tag: card.tagName,
+              classes: (card.className || "").substring(0, 120),
+              textLen: ct.length, hasDollar: /\\$\\d/.test(ct), hasBrand: /Brand:/.test(ct)
+            });
+            if (ct.length > 50 && /Brand:|Pack Size:/.test(ct)) { productCard = card; break; }
+            card = card.parentElement;
+          }
+
+          return JSON.stringify({
+            found: true, url: url,
+            ancestors: ancestors,
+            cardText: (productCard.innerText || "").substring(0, 1500),
+            cardHtml: productCard.outerHTML.substring(0, 4000),
+            dollarElements: dollarElements,
+            dollarInnerText: dollarInnerText
+          });
+        })()
+      JS
+
+      if dom_probe
+        probe = JSON.parse(dom_probe) rescue {}
+        logger.info "[PremiereProduceOne] DOM probe URL: #{probe['url']}"
+        logger.info "[PremiereProduceOne] DOM probe $ leaf nodes: #{probe['dollarElements']&.inspect}"
+        logger.info "[PremiereProduceOne] DOM probe $ innerText: #{probe['dollarInnerText']&.inspect}"
+        if probe["found"]
+          logger.info "[PremiereProduceOne] DOM probe SKU found! ancestors: #{probe['ancestors']&.map { |a| "#{a['tag']}(#{a['textLen']}ch,$=#{a['hasDollar']})" }&.join(' > ')}"
+          logger.info "[PremiereProduceOne] DOM probe card text: #{probe['cardText']&.gsub("\n", ' | ')&.truncate(500)}"
+          html = probe["cardHtml"] || ""
+          if html.include?("$")
+            price_html = html.scan(/.{0,80}\$[\d,.]+.{0,40}/)
+            logger.info "[PremiereProduceOne] DOM probe price HTML: #{price_html.first(3).inspect}"
+          else
+            logger.info "[PremiereProduceOne] DOM probe: NO $ in card HTML"
+          end
+        else
+          logger.warn "[PremiereProduceOne] DOM probe: no SKU element found via innerText scan"
+        end
+      end
+
       # Extract products from the page text using JavaScript
       products_json = browser.evaluate(<<~JS)
         (function() {
           var text = document.body.innerText;
           var lines = text.split("\\n").map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
           var products = [];
+          var debugLines = [];
 
           for (var i = 0; i < lines.length; i++) {
             // Look for "Case • NNNNN" pattern which marks the end of a product block
@@ -621,17 +860,16 @@ module Scrapers
 
             var sku = skuMatch[1];
 
-            // Walk backwards to find the product name and description
-            // The name is the first ALL-CAPS line before the description
+            // Walk backwards to find the product name, description, and price
             var name = null;
             var description = null;
             var price = null;
             var packSize = null;
             var brand = null;
             var unit = lines[i].match(/^(Case|Each|Piece)/)[1];
-            var category = null;
+            var blockLines = [];
 
-            for (var j = i - 1; j >= Math.max(0, i - 5); j--) {
+            for (var j = i - 1; j >= Math.max(0, i - 6); j--) {
               var line = lines[j];
 
               // Skip category headers (they're in the sidebar)
@@ -639,6 +877,12 @@ module Scrapers
               if (/^See all \\d+ products/.test(line)) continue;
               if (/^\\d+$/.test(line)) continue; // category counts
               if (/^".*"$/.test(line)) continue; // search term echo
+              // Skip order history lines (e.g. "1 fulfilled on Oct 27, 2025")
+              if (/^\\d+\\s+fulfilled\\s+on\\s+/i.test(line)) continue;
+              // Skip "Add to cart" / quantity buttons
+              if (/^Add to cart$/i.test(line) || /^\\d+\\s*[-+]$/.test(line)) continue;
+
+              blockLines.unshift(line);
 
               // Description line with Brand/Pack Size
               if (line.includes("Brand:") || line.includes("Pack Size:")) {
@@ -647,45 +891,99 @@ module Scrapers
                 if (brandMatch) brand = brandMatch[1].trim();
                 var packMatch = line.match(/Pack Size:\\s*([^|]+)/);
                 if (packMatch) packSize = packMatch[1].trim();
+                // Price might be on this same line
                 var priceMatch = line.match(/\\$([\\d,.]+)/);
                 if (priceMatch) price = parseFloat(priceMatch[1].replace(",", ""));
                 continue;
               }
 
+              // Standalone price line (e.g. "$5.99" or "$12.50")
+              if (!price && /^\\$[\\d,.]+$/.test(line)) {
+                price = parseFloat(line.replace("$", "").replace(",", ""));
+                continue;
+              }
+
+              // Price with label (e.g. "Price: $5.99" or "$5.99 / case")
+              if (!price) {
+                var pMatch = line.match(/\\$([\\d,.]+)/);
+                if (pMatch && line.length < 30) {
+                  price = parseFloat(pMatch[1].replace(",", ""));
+                  continue;
+                }
+              }
+
               // Product name — typically ALL CAPS or mixed case, before the description.
-              // Skip lines that look like continuation descriptions (start lowercase,
-              // contain "Storage Instructions", or are very long paragraphs).
+              // Skip lines that look like order history or fulfillment info.
               if (!name && line.length > 2 && line.length < 120 && !line.includes("|")
                   && !line.startsWith("Storage") && !line.startsWith("An ")
                   && !line.startsWith("A ") && !line.startsWith("The ")
                   && !line.startsWith("Tender ") && !line.startsWith("Made ")
                   && !line.startsWith("Pre-Order") && !line.startsWith("Variable")
-                  && !/^[a-z]/.test(line)) {
+                  && !/^[a-z]/.test(line)
+                  && !/fulfilled on/i.test(line)
+                  && !/^\\d+\\s+(fulfilled|ordered|delivered)/i.test(line)) {
                 name = line;
                 break;
               }
             }
 
-            if (name && sku) {
-              products.push({
-                sku: sku,
-                name: name,
-                price: price,
-                pack_size: packSize ? (unit + " - " + packSize) : unit,
-                brand: brand,
-                in_stock: !(description || "").includes("Special Order Item")
-              });
+            // Skip if no valid name found (likely order history entry)
+            if (!name || !sku) continue;
+            // Skip order history entries that slipped through
+            if (/^\\d+\\s+fulfilled/i.test(name) || /fulfilled on/i.test(name)) continue;
+
+            // PPO renders price AFTER the SKU line in the card text:
+            //   ... | Case • SKU | $37.00 | Add note
+            // Look forward from the SKU line for the price.
+            if (!price) {
+              for (var fwd = i + 1; fwd <= Math.min(i + 3, lines.length - 1); fwd++) {
+                var fwdLine = lines[fwd];
+                // Standalone price: "$37.00"
+                if (/^\\$[\\d,.]+$/.test(fwdLine)) {
+                  price = parseFloat(fwdLine.replace("$", "").replace(",", ""));
+                  break;
+                }
+                // Price with unit: "$83.00   $8.30/pound"
+                var fwdMatch = fwdLine.match(/^\\$([\\d,.]+)/);
+                if (fwdMatch) {
+                  price = parseFloat(fwdMatch[1].replace(",", ""));
+                  break;
+                }
+                // Stop if we hit "Add note", another product, or a non-price line
+                if (/^Add note$/i.test(fwdLine) || /^(?:Case|Each|Piece)\\s*[•·]/.test(fwdLine)) break;
+              }
+            }
+
+            products.push({
+              sku: sku,
+              name: name,
+              price: price,
+              pack_size: packSize ? (unit + " - " + packSize) : unit,
+              brand: brand,
+              in_stock: !(description || "").includes("Special Order Item")
+            });
+
+            // Capture first few product blocks for debugging
+            if (debugLines.length < 3) {
+              debugLines.push({sku: sku, name: name, price: price, lines: blockLines});
             }
 
             if (products.length >= #{max}) break;
           }
 
-          return JSON.stringify(products);
+          return JSON.stringify({products: products, debug: debugLines});
         })()
       JS
 
-      items = JSON.parse(products_json) rescue []
-      logger.info "[PremiereProduceOne] Parsed #{items.size} products for '#{term}' from page text"
+      parsed = JSON.parse(products_json) rescue {}
+      items = parsed["products"] || []
+      debug = parsed["debug"] || []
+
+      items_with_price = items.count { |i| i["price"].present? }
+      logger.info "[PremiereProduceOne] Parsed #{items.size} products for '#{term}' (#{items_with_price} with prices)"
+      debug.each do |d|
+        logger.info "[PremiereProduceOne] DEBUG product: sku=#{d['sku']} name=#{d['name']} price=#{d['price']} lines=#{d['lines'].inspect}"
+      end
 
       items.map do |item|
         {
@@ -693,7 +991,7 @@ module Scrapers
           supplier_name: item["name"].to_s.truncate(255),
           current_price: item["price"],
           pack_size: item["pack_size"],
-          supplier_url: nil,
+          supplier_url: "#{BASE_URL}/products/#{item["sku"]}",
           in_stock: item["in_stock"] != false,
           category: nil,
           scraped_at: Time.current

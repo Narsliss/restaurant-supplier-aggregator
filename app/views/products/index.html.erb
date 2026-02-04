@@ -38,6 +38,10 @@
                 <% if product.unit_size.present? %>
                   &middot; <%= [product.unit_size, product.unit_type].compact.join(" ") %>
                 <% end %>
+                <% pack_sizes = product.supplier_products.map(&:pack_size).compact_blank.uniq %>
+                <% if pack_sizes.any? %>
+                  &middot; <%= pack_sizes.join(", ") %>
+                <% end %>
               </p>
             </div>
             <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">

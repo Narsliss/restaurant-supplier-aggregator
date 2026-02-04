@@ -12,9 +12,13 @@ class ImportSupplierProductsJob < ApplicationJob
       return
     end
 
+    credential.update!(importing: true)
+
     service = ImportSupplierProductsService.new(credential)
     results = service.import_catalog(search_terms: search_terms)
 
     Rails.logger.info "[ImportProductsJob] #{credential.supplier.name}: imported=#{results[:imported]}, updated=#{results[:updated]}, skipped=#{results[:skipped]}, errors=#{results[:errors].size}"
+  ensure
+    credential&.update_columns(importing: false, last_import_at: Time.current) if credential&.persisted?
   end
 end
