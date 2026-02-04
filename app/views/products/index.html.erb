@@ -45,7 +45,17 @@
               </p>
             </div>
             <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-              <span class="hidden sm:inline text-sm text-gray-500"><%= product.supplier_products.size %> suppliers</span>
+              <% sp_count = product.supplier_products.size %>
+              <% supplier_count = product.supplier_products.map(&:supplier_id).uniq.size %>
+              <span class="hidden sm:inline text-sm text-gray-500">
+                <% if supplier_count > 1 %>
+                  <%= supplier_count %> suppliers
+                <% elsif sp_count > 1 %>
+                  <%= sp_count %> products
+                <% else %>
+                  1 product
+                <% end %>
+              </span>
               <%= link_to "Edit", edit_product_path(product), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
             </div>
           </div>
