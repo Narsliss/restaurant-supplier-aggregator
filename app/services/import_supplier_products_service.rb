@@ -92,15 +92,27 @@ class ImportSupplierProductsService
 
   private
 
-  # Try to match an existing Product by name, or create a new one
+  # Try to match an existing Product by name, or create a new one.
+  # Size variants (e.g. "Chicken Breast 4oz" vs "6oz") should match the same Product
+  # so they appear as different listings on the same product page.
   def find_or_create_product(item)
     normalized = item[:supplier_name].downcase.gsub(/[^a-z0-9\s]/, "").squish
 
     # First try exact normalized match
     product = Product.where("normalized_name = ?", normalized).first
+    return product if product
 
-    # Try fuzzy match if no exact match
-    product ||= Product.where("normalized_name ILIKE ?", "%#{normalized.split.first(3).join('%')}%").first if normalized.split.size >= 2
+    # Fuzzy match: strip size/weight tokens so "Chicken Breast 4oz" matches "Chicken Breast 6oz"
+    base = base_product_name(normalized)
+
+    if base.split.size >= 2
+      words = base.split
+      pattern = "%" + words.join("%") + "%"
+      candidates = Product.where("normalized_name ILIKE ?", pattern).to_a
+
+      # Among candidates, verify their base name matches ours (not just a substring)
+      product = candidates.find { |c| base_product_name(c.normalized_name.to_s) == base }
+    end
 
     # Create new product if no match found
     product ||= Product.create!(
@@ -110,6 +122,17 @@ class ImportSupplierProductsService
     )
 
     product
+  end
+
+  # Strip size/weight/count tokens from a normalized product name to get the "base" identity.
+  # This lets size variants like "Salmon 6 Oz" and "Salmon 8 Oz" match the same product.
+  # Keeps words that describe the product itself (brand, variety, cut, etc.).
+  def base_product_name(name)
+    name
+      .gsub(/\b\d+\s*(oz|lb|lbs|kg|g|gal|gallon|liter|litre|ct|count|pc|pcs|pack|pk)\b/, "") # 6 oz, 40 lb
+      .gsub(/\b\d+x\d+\b/, "")       # case packs like 4x5
+      .gsub(/\b\d+\s*#\b/, "")        # weight like 40#
+      .squish
   end
 
   # Simple category guesser based on product name keywords
