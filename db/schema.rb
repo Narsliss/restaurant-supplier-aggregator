@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_01_212549) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_03_220856) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -173,6 +173,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_01_212549) do
     t.string "hold_reason"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "importing", default: false, null: false
+    t.datetime "last_import_at"
     t.index ["status"], name: "index_supplier_credentials_on_status"
     t.index ["supplier_id"], name: "index_supplier_credentials_on_supplier_id"
     t.index ["user_id", "supplier_id"], name: "idx_supplier_creds_unique", unique: true

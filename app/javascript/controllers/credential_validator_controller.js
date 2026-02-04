@@ -24,6 +24,8 @@ export default class extends Controller {
     statusUrl: String,     // GET endpoint for polling status
     validateUrl: String,   // POST endpoint to start validation
     submitCodeUrl: String, // POST endpoint to submit 2FA code
+    importUrl: String,     // POST endpoint to start product import
+    importing: Boolean,    // true if an import is already in progress on page load
   }
 
   connect() {
@@ -31,6 +33,13 @@ export default class extends Controller {
     this.timerInterval = null
     this.currentState = "idle"
     console.log(`[credential-validator] connected for credential ${this.credentialIdValue}`)
+
+    // If an import is already in progress on page load, show importing state and poll
+    if (this.importingValue) {
+      this.showState("importing")
+      this.startPolling()
+      return
+    }
 
     // If the 2FA block is already visible on page load (server-rendered pending state),
     // auto-start polling so updates appear without a manual refresh.
@@ -65,6 +74,27 @@ export default class extends Controller {
     } catch (err) {
       console.error(`[credential-validator] validate error:`, err)
       this.showState("failed", err.message || "Request failed")
+    }
+  }
+
+  // ── Import Products clicked ─────────────────────────────────────
+  // POST to enqueue the background import job, then start polling so we
+  // can show a 2FA prompt if the job needs a verification code.
+  async startImport(event) {
+    event.preventDefault()
+    if (this.currentState === "importing") return
+    console.log(`[credential-validator] startImport for credential ${this.credentialIdValue}`)
+    this.importPollCount = 0
+    this.showState("importing")
+
+    try {
+      const resp = await this.postImport(this.importUrlValue)
+      console.log(`[credential-validator] import response:`, resp)
+      // Job is queued — start polling for 2FA requests or completion
+      this.startPolling()
+    } catch (err) {
+      console.error(`[credential-validator] import error:`, err)
+      this.showState("failed", err.message || "Import failed")
     }
   }
 
@@ -130,19 +160,8 @@ export default class extends Controller {
     const tfa = data.two_fa_request
     console.log(`[credential-validator] poll result: cred=${cred.status}, tfa=${tfa ? tfa.status : 'none'}, currentState=${this.currentState}`)
 
-    if (cred.status === "active") {
-      this.stopPolling()
-      this.showState("success")
-      return
-    }
-
-    if (cred.status === "failed") {
-      this.stopPolling()
-      this.showState("failed", cred.last_error || "Validation failed")
-      return
-    }
-
-    // Credential is still pending — check 2FA request state
+    // When there's an active 2FA request, always handle it first —
+    // the credential may still be "active" while the background job waits for a code
     if (tfa) {
       if (tfa.status === "pending") {
         // Scraper is waiting for user code
@@ -157,8 +176,32 @@ export default class extends Controller {
         // Check if a new request replaced this one (retry flow)
         // Keep polling — the scraper may create a new request
       }
-    } else {
-      // No 2FA request yet — scraper is still logging in
+      return
+    }
+
+    // No active 2FA request — check credential status
+    if (cred.importing) {
+      // Server says import is in progress — keep polling for 2FA or completion
+      this.showState("importing")
+      return
+    }
+
+    if (cred.status === "active") {
+      // cred.importing is checked above, so reaching here means the import
+      // is truly finished (importing=false, status=active).
+      this.stopPolling()
+      this.showState("success")
+      return
+    }
+
+    if (cred.status === "failed") {
+      this.stopPolling()
+      this.showState("failed", cred.last_error || "Validation failed")
+      return
+    }
+
+    // Credential is pending — scraper is still logging in
+    if (this.currentState !== "importing") {
       this.showState("validating")
     }
   }
@@ -183,6 +226,13 @@ export default class extends Controller {
     this.hideImportBtn()
 
     switch (state) {
+      case "importing":
+        this.updateBadge("Importing...", "bg-blue-100 text-blue-800")
+        this.disableValidateBtn("Importing...")
+        this.showImportBtn()
+        this.disableImportBtn()
+        break
+
       case "validating":
         this.updateBadge("Validating...", "bg-blue-100 text-blue-800")
         this.disableValidateBtn("Validating...")
@@ -211,6 +261,7 @@ export default class extends Controller {
         this.hideTfaBlock()
         this.enableValidateBtn()
         this.showImportBtn()
+        this.enableImportBtn()
         this.showSuccessFlash()
         break
 
@@ -284,6 +335,31 @@ export default class extends Controller {
   hideImportBtn() {
     if (this.hasImportBtnTarget) {
       this.importBtnTarget.classList.add("hidden")
+    }
+  }
+
+  disableImportBtn() {
+    if (!this.hasImportBtnTarget) return
+    const btn = this.importBtnTarget.querySelector("button")
+    if (!btn) return
+    btn.disabled = true
+    this._origImportBtnHTML = this._origImportBtnHTML || btn.innerHTML
+    btn.innerHTML = `
+      <svg class="animate-spin w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      Importing...
+    `
+  }
+
+  enableImportBtn() {
+    if (!this.hasImportBtnTarget) return
+    const btn = this.importBtnTarget.querySelector("button")
+    if (!btn) return
+    btn.disabled = false
+    if (this._origImportBtnHTML) {
+      btn.innerHTML = this._origImportBtnHTML
     }
   }
 
@@ -410,6 +486,30 @@ export default class extends Controller {
       },
       body: JSON.stringify(body),
     })
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}))
+      throw new Error(data.message || `HTTP ${resp.status}`)
+    }
+    return resp.json()
+  }
+
+  // POST to start an import. Treats 409 Conflict as "already importing" (not an error)
+  // so the UI stays in the importing state and starts polling.
+  async postImport(url) {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-CSRF-Token": this.csrfToken,
+      },
+      body: JSON.stringify({}),
+    })
+    if (resp.status === 409) {
+      // Server says import already in progress — treat as success (keep polling)
+      console.log(`[credential-validator] import already in progress (409), will poll`)
+      return { status: "importing" }
+    }
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}))
       throw new Error(data.message || `HTTP ${resp.status}`)
