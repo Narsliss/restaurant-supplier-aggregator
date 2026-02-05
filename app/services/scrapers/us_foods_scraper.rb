@@ -960,6 +960,11 @@ module Scrapers
 
     # Extract product data from all ion-card elements currently on the page.
     # Used by both browse_category and search_supplier_catalog.
+    #
+    # US Foods shows TWO prices on product cards:
+    #   1. Case price (larger) - the actual price for the pack/case (e.g., "$56.30")
+    #   2. Unit price (smaller) - price per unit like "/oz" or "/lb" (e.g., "$0.18/oz")
+    # We want the CASE PRICE, not the unit price.
     def extract_products_from_page(max = 100)
       products_json = browser.evaluate(<<~JS) rescue "[]"
         (function() {
@@ -988,9 +993,49 @@ module Scrapers
             var packEl = card.querySelector('[data-cy*="product-packsize"]');
             var packSize = packEl ? packEl.innerText.trim() : '';
 
-            // Price (only visible when logged in)
-            var priceMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
-            var price = priceMatch ? parseFloat(priceMatch[1].replace(',', '')) : null;
+            // Extract CASE PRICE (not unit price).
+            // US Foods shows case price in a larger element, and unit price in smaller text with "/oz", "/lb", etc.
+            // Strategy: Look for the price element that does NOT have a unit suffix.
+            var price = null;
+
+            // Method 1: Look for data-cy price elements (case price vs unit price)
+            var casePriceEl = card.querySelector('[data-cy*="case-price"], [data-cy*="product-price"]:not([data-cy*="unit"])');
+            if (casePriceEl) {
+              var casePriceText = casePriceEl.innerText || '';
+              var casePriceMatch = casePriceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+              if (casePriceMatch) {
+                price = parseFloat(casePriceMatch[1].replace(',', ''));
+              }
+            }
+
+            // Method 2: Find all prices and pick the one WITHOUT a unit suffix (/oz, /lb, /ea, /gal, etc.)
+            if (!price) {
+              var allPrices = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})(?:\\/[a-z]+)?/gi) || [];
+              for (var p = 0; p < allPrices.length; p++) {
+                var priceStr = allPrices[p];
+                // Skip unit prices (they have /oz, /lb, /ea, /gal, /ct, etc. suffix)
+                if (priceStr.match(/\\/[a-z]/i)) continue;
+                var match = priceStr.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+                if (match) {
+                  var val = parseFloat(match[1].replace(',', ''));
+                  // Case prices are typically > $1.00 and larger than unit prices
+                  if (!price || val > price) {
+                    price = val;
+                  }
+                }
+              }
+            }
+
+            // Method 3: Fallback - get largest price found (case price is usually bigger)
+            if (!price) {
+              var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
+              for (var m = 0; m < priceMatches.length; m++) {
+                var val = parseFloat(priceMatches[m].replace('$', '').replace(',', ''));
+                if (!price || val > price) {
+                  price = val;
+                }
+              }
+            }
 
             var inStock = !text.toLowerCase().includes('out of stock') &&
                           !text.toLowerCase().includes('unavailable') &&
@@ -1039,15 +1084,50 @@ module Scrapers
           var brandEl = document.querySelector('[data-cy*="product-brand"]');
           var descEl = document.querySelector('[data-cy="product-description-text"]');
           var packEl = document.querySelector('[data-cy*="product-packsize"]');
-          var priceMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
 
           var brand = brandEl ? brandEl.innerText.trim() : '';
           var desc = descEl ? descEl.innerText.trim() : '';
 
+          // Extract CASE PRICE (not unit price) - same logic as extract_products_from_page
+          var price = null;
+
+          // Method 1: Look for case price element
+          var casePriceEl = document.querySelector('[data-cy*="case-price"], [data-cy*="product-price"]:not([data-cy*="unit"])');
+          if (casePriceEl) {
+            var casePriceText = casePriceEl.innerText || '';
+            var casePriceMatch = casePriceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+            if (casePriceMatch) {
+              price = parseFloat(casePriceMatch[1].replace(',', ''));
+            }
+          }
+
+          // Method 2: Find prices without unit suffix
+          if (!price) {
+            var allPrices = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})(?:\\/[a-z]+)?/gi) || [];
+            for (var p = 0; p < allPrices.length; p++) {
+              var priceStr = allPrices[p];
+              if (priceStr.match(/\\/[a-z]/i)) continue;
+              var match = priceStr.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+              if (match) {
+                var val = parseFloat(match[1].replace(',', ''));
+                if (!price || val > price) price = val;
+              }
+            }
+          }
+
+          // Method 3: Fallback - largest price
+          if (!price) {
+            var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
+            for (var m = 0; m < priceMatches.length; m++) {
+              var val = parseFloat(priceMatches[m].replace('$', '').replace(',', ''));
+              if (!price || val > price) price = val;
+            }
+          }
+
           return {
             sku: skuMatch[1],
             name: brand ? (brand + ' ' + desc) : desc,
-            price: priceMatch ? parseFloat(priceMatch[1].replace(',', '')) : null,
+            price: price,
             pack_size: packEl ? packEl.innerText.trim() : '',
             in_stock: !text.toLowerCase().includes('out of stock')
           };
