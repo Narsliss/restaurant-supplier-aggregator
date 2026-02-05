@@ -21,6 +21,12 @@
       queue: default
       description: "Refresh supplier login sessions"
 
+    scheduled_import:
+      cron: '0 * * * *'  # Every hour
+      class: ScheduledImportJob
+      queue: scraping
+      description: "Hourly product import for all active credentials (keeps sessions alive)"
+
     expire_2fa_requests:
       cron: '*/5 * * * *'  # Every 5 minutes
       class: Expire2faRequestsJob

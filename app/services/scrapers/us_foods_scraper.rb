@@ -211,13 +211,47 @@ module Scrapers
     # 2. Scroll to load more products within each category page
     # 3. Also run keyword searches for additional coverage
     # This gives much better coverage than keyword search alone.
-    USFOODS_CATEGORIES = %w[
-      Beef Beverages Dairy\ and\ Eggs Dry\ Storage
-      Fresh\ Produce Frozen\ Foods Pork Poultry
-      Prepared\ Foods\ and\ Deli Seafood Specialty\ Meats
+    # Top-level categories plus key subcategories for deeper coverage.
+    # Subcategories are separated by | in the US Foods facet hierarchy.
+    USFOODS_CATEGORIES = [
+      "Beef",
+      "Beverages",
+      "Dairy and Eggs",
+      "Dry Storage",
+      "Fresh Produce",
+      "Frozen Foods",
+      "Pork",
+      "Poultry",
+      "Prepared Foods and Deli",
+      "Seafood",
+      "Specialty Meats",
+      # Key subcategories that may not load fully from top-level browsing
+      "Beef|Ground Beef",
+      "Beef|Steaks",
+      "Fresh Produce|Vegetables",
+      "Fresh Produce|Fruits",
+      "Seafood|Shellfish",
+      "Seafood|Fin Fish",
+      "Frozen Foods|Frozen Vegetables",
+      "Frozen Foods|Frozen Fruits",
+      "Frozen Foods|Frozen Desserts",
+      "Dairy and Eggs|Cheese",
+      "Dairy and Eggs|Milk and Cream",
+      "Dry Storage|Canned Goods",
+      "Dry Storage|Pasta and Grains",
+      "Dry Storage|Sauces and Condiments",
+      "Dry Storage|Spices and Seasonings",
+      "Specialty Meats|Veal",
+      "Specialty Meats|Lamb",
+      "Specialty Meats|Game",
+      "Prepared Foods and Deli|Soups",
+      "Prepared Foods and Deli|Salads",
+      "Poultry|Turkey",
+      "Poultry|Chicken",
+      "Poultry|Duck",
     ].freeze
 
-    def scrape_catalog(search_terms, max_per_term: 20)
+    def scrape_catalog(search_terms, max_per_term: 50)
       results = []
 
       with_browser do
@@ -244,10 +278,13 @@ module Scrapers
 
         save_session
 
-        # Phase 1: Browse each category for broad coverage
+        # Phase 1: Browse each category and subcategory for broad coverage
         USFOODS_CATEGORIES.each do |category|
           begin
             products = browse_category(category)
+            # Tag products with their category for better classification
+            display_name = category.include?("|") ? category.split("|").last : category
+            products.each { |p| p[:category] ||= display_name }
             results.concat(products)
             logger.info "[UsFoods] Category '#{category}': #{products.size} products"
           rescue => e
@@ -797,75 +834,127 @@ module Scrapers
     end
 
     # Browse a US Foods product category via the search2 facet URL.
-    # Scrolls to load more products and extracts up to max_products.
-    def browse_category(category, max_products: 100)
-      encoded_category = CGI.escape(category)
-      url = "#{BASE_URL}/desktop/search2?originSearchPage=catalog&facetFilters=ec_category:#{encoded_category}"
+    # US Foods uses Ionic's ion-infinite-scroll for pagination.
+    # We must scroll the ion-content's internal shadow DOM scroll element
+    # to trigger the ionInfinite event and load more products.
+    def browse_category(category, max_products: 200)
+      # Support both top-level categories and subcategory paths (e.g. "Beef|Steaks")
+      if category.include?("|")
+        parts = category.split("|")
+        url = "#{BASE_URL}/desktop/search2?originSearchPage=catalog&facetFilters=ec_category:#{CGI.escape(parts.first)}|#{CGI.escape(parts.last)}"
+      else
+        url = "#{BASE_URL}/desktop/search2?originSearchPage=catalog&facetFilters=ec_category:#{CGI.escape(category)}"
+      end
       navigate_to(url)
       sleep 5
 
-      # Scroll down multiple times to trigger lazy-loading of more products
       previous_count = 0
-      8.times do |scroll_attempt|
-        browser.evaluate(<<~JS) rescue nil
-          (function() {
-            var content = document.querySelector('ion-content');
-            if (content && content.scrollToBottom) {
-              content.scrollToBottom(300);
-            }
-            window.scrollTo(0, document.body.scrollHeight);
-          })()
-        JS
-        sleep 2
+      stale_rounds = 0
 
+      25.times do |attempt|
         current_count = browser.evaluate("document.querySelectorAll('ion-card').length") rescue 0
         break if current_count >= max_products
-        break if current_count == previous_count && scroll_attempt > 2 # No new items loaded
+
+        if current_count == previous_count
+          stale_rounds += 1
+          break if stale_rounds >= 3 # No new products after 3 consecutive attempts
+        else
+          stale_rounds = 0
+        end
         previous_count = current_count
+
+        # Trigger Ionic infinite scroll by scrolling the ion-content's
+        # internal scroll element (inside the shadow DOM).
+        trigger_ionic_infinite_scroll
+        sleep 3
       end
+
+      final_count = browser.evaluate("document.querySelectorAll('ion-card').length") rescue 0
+      logger.info "[UsFoods] Category '#{category}': #{final_count} cards loaded after scrolling"
 
       extract_products_from_page(max_products)
     end
 
-    # Search for products by keyword via the ion-searchbar typeahead.
-    def search_supplier_catalog(term, max: 20)
+    # Trigger Ionic's infinite scroll by scrolling the ion-content shadow DOM element.
+    # ion-content uses a shadow root with an internal .inner-scroll div.
+    # ion-infinite-scroll listens for scroll events on that container and fires
+    # ionInfinite when the user nears the bottom (threshold ~15%).
+    def trigger_ionic_infinite_scroll
+      browser.evaluate(<<~JS) rescue nil
+        (async function() {
+          // Method 1: Use Ionic's getScrollElement() API to get the real scrollable element
+          var ionContent = document.querySelector('ion-content');
+          if (ionContent && typeof ionContent.getScrollElement === 'function') {
+            try {
+              var scrollEl = await ionContent.getScrollElement();
+              if (scrollEl) {
+                scrollEl.scrollTop = scrollEl.scrollHeight;
+                scrollEl.dispatchEvent(new CustomEvent('scroll', { bubbles: true }));
+              }
+            } catch(e) {}
+          }
+
+          // Method 2: Use ion-content's scrollToBottom which handles shadow DOM internally
+          if (ionContent && typeof ionContent.scrollToBottom === 'function') {
+            try { await ionContent.scrollToBottom(300); } catch(e) {}
+          }
+
+          // Method 3: Directly access shadow root scroll container
+          if (ionContent && ionContent.shadowRoot) {
+            var innerScroll = ionContent.shadowRoot.querySelector('.inner-scroll');
+            if (innerScroll) {
+              innerScroll.scrollTop = innerScroll.scrollHeight;
+              innerScroll.dispatchEvent(new CustomEvent('scroll', { bubbles: true }));
+            }
+          }
+
+          // Method 4: Trigger ionInfinite event directly on the infinite scroll element
+          var infiniteScroll = document.querySelector('ion-infinite-scroll');
+          if (infiniteScroll) {
+            // Reset the infinite scroll's internal state so it can fire again
+            if (typeof infiniteScroll.complete === 'function') {
+              try { await infiniteScroll.complete(); } catch(e) {}
+            }
+            infiniteScroll.dispatchEvent(new CustomEvent('ionInfinite', {
+              bubbles: true, detail: { complete: function() {} }
+            }));
+          }
+
+          // Method 5: Standard window scroll as a fallback
+          window.scrollTo(0, document.body.scrollHeight);
+        })()
+      JS
+    end
+
+    # Search for products by keyword via URL-based search.
+    # After initial results load, triggers Ionic infinite scroll to load more.
+    def search_supplier_catalog(term, max: 50)
       logger.info "[UsFoods] Searching catalog for: #{term}"
 
-      # Type search term into the ion-searchbar input
-      typed = browser.evaluate(<<~JS) rescue false
-        (function() {
-          var input = document.querySelector('ion-searchbar input.searchbar-input');
-          if (!input) return false;
-          input.focus();
-          var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-          nativeInputValueSetter.call(input, '');
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          nativeInputValueSetter.call(input, #{term.to_json});
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
-        })()
-      JS
+      # Use URL-based search for more reliable results
+      navigate_to("#{BASE_URL}/desktop/search2?q=#{CGI.escape(term)}")
+      sleep 5
 
-      unless typed
-        logger.warn "[UsFoods] Could not find search input, trying URL navigation"
-        navigate_to("#{BASE_URL}/desktop/search?q=#{CGI.escape(term)}")
+      # Scroll to load more search results using Ionic infinite scroll
+      previous_count = 0
+      stale_rounds = 0
+
+      10.times do |attempt|
+        current_count = browser.evaluate("document.querySelectorAll('ion-card').length") rescue 0
+        break if current_count >= max
+
+        if current_count == previous_count
+          stale_rounds += 1
+          break if stale_rounds >= 2
+        else
+          stale_rounds = 0
+        end
+        previous_count = current_count
+
+        trigger_ionic_infinite_scroll
+        sleep 3
       end
 
-      sleep 1
-
-      # Submit search by pressing Enter
-      browser.evaluate(<<~JS) rescue nil
-        (function() {
-          var input = document.querySelector('ion-searchbar input.searchbar-input');
-          if (input) {
-            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-            input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-          }
-        })()
-      JS
-
-      sleep 4
       extract_products_from_page(max)
     end
 

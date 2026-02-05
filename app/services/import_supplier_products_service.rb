@@ -156,6 +156,17 @@ class ImportSupplierProductsService
       lettuce tomato onion potato
       cheese butter cream milk
       oil flour sugar rice pasta
+      turkey lamb veal bacon sausage
+      crab lobster tilapia cod tuna
+      mushroom pepper garlic celery carrot
+      broccoli squash zucchini cucumber spinach
+      avocado lemon lime apple berry
+      bread tortilla bun roll
+      sauce vinegar ketchup mustard mayo
+      coffee tea juice
+      egg yogurt sour\ cream
+      ice\ cream frozen
+      herbs seasoning spice
     ]
   end
 end
