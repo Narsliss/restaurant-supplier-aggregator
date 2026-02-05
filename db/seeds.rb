@@ -9,8 +9,8 @@ suppliers_data = [
   {
     name: "US Foods",
     code: "usfoods",
-    base_url: "https://www.usfoods.com",
-    login_url: "https://www.usfoods.com/sign-in",
+    base_url: "https://order.usfoods.com",
+    login_url: "https://order.usfoods.com",
     scraper_class: "Scrapers::UsFoodsScraper",
     requirements: [
       { type: "order_minimum", numeric_value: 250.00, error_message: "US Foods requires a minimum order of $250.00. Your current total is ${{current_total}}. Add ${{difference}} more to proceed." },

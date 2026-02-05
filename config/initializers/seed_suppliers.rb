@@ -10,8 +10,8 @@ Rails.application.config.after_initialize do
     {
       code: "usfoods",
       name: "US Foods",
-      base_url: "https://www.usfoods.com",
-      login_url: "https://www.usfoods.com/sign-in",
+      base_url: "https://order.usfoods.com",
+      login_url: "https://order.usfoods.com",
       scraper_class: "Scrapers::UsFoodsScraper"
     },
     {
