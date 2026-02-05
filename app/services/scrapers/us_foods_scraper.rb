@@ -48,6 +48,113 @@ module Scrapers
       browser.evaluate('Object.defineProperty(navigator, "webdriver", {get: () => false})') rescue nil
     end
 
+    # US Foods stores auth tokens in localStorage/sessionStorage (Ionic SPA),
+    # not just cookies. Override save/restore to capture all storage.
+    def save_session
+      cookies = browser.cookies.all.transform_values(&:to_h)
+      local_storage = browser.evaluate(<<~JS) rescue {}
+        (function() {
+          var data = {};
+          for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            data[key] = localStorage.getItem(key);
+          }
+          return data;
+        })()
+      JS
+      session_storage = browser.evaluate(<<~JS) rescue {}
+        (function() {
+          var data = {};
+          for (var i = 0; i < sessionStorage.length; i++) {
+            var key = sessionStorage.key(i);
+            data[key] = sessionStorage.getItem(key);
+          }
+          return data;
+        })()
+      JS
+
+      session_blob = {
+        cookies: cookies,
+        local_storage: local_storage,
+        session_storage: session_storage
+      }.to_json
+
+      credential.update!(
+        session_data: session_blob,
+        last_login_at: Time.current,
+        status: "active"
+      )
+      logger.info "[UsFoods] Session saved (cookies: #{cookies.size}, localStorage: #{local_storage.size}, sessionStorage: #{session_storage.size})"
+    end
+
+    def restore_session
+      return false unless credential.session_data.present?
+      # US Foods B2C tokens typically last 24h. Use a wider validity window
+      # than the default 1 hour to avoid unnecessary MFA re-auth.
+      return false unless credential.last_login_at.present? && credential.last_login_at > 12.hours.ago
+
+      begin
+        data = JSON.parse(credential.session_data)
+
+        # Handle both old format (flat cookies) and new format (nested blob)
+        cookies = data["cookies"] || data
+        local_storage = data["local_storage"] || {}
+        session_storage = data["session_storage"] || {}
+
+        # Restore cookies
+        cookies.each do |_name, cookie|
+          next unless cookie.is_a?(Hash) && cookie["name"].present? && cookie["value"].present?
+          params = {
+            name: cookie["name"].to_s,
+            value: cookie["value"].to_s,
+            domain: cookie["domain"].to_s,
+            path: cookie["path"].present? ? cookie["path"].to_s : "/"
+          }
+          params[:secure] = !!cookie["secure"] unless cookie["secure"].nil?
+          params[:httponly] = !!cookie["httponly"] unless cookie["httponly"].nil?
+          if cookie["expires"].is_a?(Numeric) && cookie["expires"] > 0
+            params[:expires] = cookie["expires"].to_i
+          end
+          browser.cookies.set(**params) rescue nil
+        end
+
+        # Navigate to the site so we have a JS context for storage injection
+        browser.goto(BASE_URL)
+        sleep 2
+        apply_stealth
+
+        # Restore localStorage
+        if local_storage.any?
+          browser.evaluate(<<~JS)
+            (function() {
+              var data = #{local_storage.to_json};
+              Object.keys(data).forEach(function(key) {
+                try { localStorage.setItem(key, data[key]); } catch(e) {}
+              });
+            })()
+          JS
+        end
+
+        # Restore sessionStorage
+        if session_storage.any?
+          browser.evaluate(<<~JS)
+            (function() {
+              var data = #{session_storage.to_json};
+              Object.keys(data).forEach(function(key) {
+                try { sessionStorage.setItem(key, data[key]); } catch(e) {}
+              });
+            })()
+          JS
+        end
+
+        logger.info "[UsFoods] Session restored (cookies: #{cookies.size}, localStorage: #{local_storage.size}, sessionStorage: #{session_storage.size})"
+        true
+      rescue JSON::ParserError => e
+        logger.warn "[UsFoods] Failed to parse session data: #{e.message}"
+        false
+      end
+    end
+
     def login
       with_browser do
         navigate_to(BASE_URL)
@@ -114,13 +221,27 @@ module Scrapers
       results = []
 
       with_browser do
-        # Login — US Foods always requires MFA, so session restore rarely works.
-        perform_login_steps
-        sleep 3
-
-        unless logged_in?
-          raise AuthenticationError, "Could not log in for catalog import"
+        # Try restoring session first to avoid MFA on every import
+        session_restored = false
+        if restore_session
+          browser.refresh
+          sleep 3
+          if logged_in?
+            logger.info "[UsFoods] Session restored successfully — skipping MFA login"
+            session_restored = true
+          else
+            logger.info "[UsFoods] Session restore failed (not logged in), doing fresh login"
+          end
         end
+
+        unless session_restored
+          perform_login_steps
+          sleep 3
+          unless logged_in?
+            raise AuthenticationError, "Could not log in for catalog import"
+          end
+        end
+
         save_session
 
         # Phase 1: Browse each category for broad coverage
