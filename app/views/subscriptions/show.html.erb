@@ -1,0 +1,182 @@
+<div class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <h1 class="text-3xl font-bold text-gray-900 mb-8">Subscription & Billing</h1>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- Subscription Status -->
+    <div class="lg:col-span-2">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-200">
+          <h2 class="text-lg font-semibold text-gray-900">Current Plan</h2>
+        </div>
+
+        <div class="p-6">
+          <% if @subscription %>
+            <div class="flex items-start justify-between mb-6">
+              <div>
+                <h3 class="text-2xl font-bold text-gray-900">SupplierHub Pro</h3>
+                <p class="text-gray-600"><%= @subscription.formatted_amount %></p>
+              </div>
+              <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
+                <%= case @subscription.status
+                    when 'active' then 'bg-green-100 text-green-800'
+                    when 'trialing' then 'bg-blue-100 text-blue-800'
+                    when 'past_due' then 'bg-yellow-100 text-yellow-800'
+                    when 'canceled' then 'bg-red-100 text-red-800'
+                    else 'bg-gray-100 text-gray-800'
+                    end %>">
+                <%= @subscription.status.titleize %>
+              </span>
+            </div>
+
+            <% if @subscription.trialing? %>
+              <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div class="flex items-center">
+                  <svg class="h-5 w-5 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                  </svg>
+                  <span class="text-blue-800">
+                    <strong><%= @subscription.trial_days_remaining %> days</strong> remaining in your free trial
+                  </span>
+                </div>
+              </div>
+            <% end %>
+
+            <% if @subscription.cancel_at_period_end? %>
+              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                <div class="flex items-start">
+                  <svg class="h-5 w-5 text-yellow-500 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                  </svg>
+                  <div>
+                    <p class="text-yellow-800 font-medium">Subscription Canceling</p>
+                    <p class="text-yellow-700 text-sm mt-1">
+                      Your subscription will end on <%= @subscription.current_period_end&.strftime("%B %d, %Y") %>.
+                      You'll continue to have access until then.
+                    </p>
+                    <%= button_to "Reactivate Subscription", reactivate_subscription_path, method: :post, class: "mt-3 text-sm font-medium text-yellow-800 hover:text-yellow-900 underline" %>
+                  </div>
+                </div>
+              </div>
+            <% end %>
+
+            <dl class="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <dt class="text-gray-500">Current Period</dt>
+                <dd class="text-gray-900 font-medium">
+                  <%= @subscription.current_period_start&.strftime("%b %d") %> -
+                  <%= @subscription.current_period_end&.strftime("%b %d, %Y") %>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-gray-500">Next Billing Date</dt>
+                <dd class="text-gray-900 font-medium">
+                  <%= @subscription.cancel_at_period_end? ? "N/A" : @subscription.current_period_end&.strftime("%B %d, %Y") %>
+                </dd>
+              </div>
+            </dl>
+
+            <div class="mt-6 pt-6 border-t border-gray-200 flex flex-wrap gap-3">
+              <%= button_to "Manage Billing", billing_portal_subscription_path, method: :post, class: "px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors" %>
+
+              <% unless @subscription.cancel_at_period_end? %>
+                <%= button_to "Cancel Subscription", cancel_subscription_subscription_path, method: :post, class: "px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors", data: { confirm: "Are you sure you want to cancel? You'll lose access at the end of your billing period." } %>
+              <% end %>
+            </div>
+          <% else %>
+            <div class="text-center py-8">
+              <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+              <h3 class="mt-4 text-lg font-medium text-gray-900">No Active Subscription</h3>
+              <p class="mt-2 text-gray-600">Subscribe to access all SupplierHub features.</p>
+              <%= link_to "Subscribe Now", new_subscription_path, class: "mt-4 inline-block px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors" %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="space-y-6">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">Plan Details</h3>
+        <dl class="space-y-3">
+          <div class="flex justify-between">
+            <dt class="text-gray-600">Plan</dt>
+            <dd class="font-medium text-gray-900">Pro</dd>
+          </div>
+          <div class="flex justify-between">
+            <dt class="text-gray-600">Price</dt>
+            <dd class="font-medium text-gray-900">$99/mo</dd>
+          </div>
+          <div class="flex justify-between">
+            <dt class="text-gray-600">Suppliers</dt>
+            <dd class="font-medium text-gray-900">Unlimited</dd>
+          </div>
+          <div class="flex justify-between">
+            <dt class="text-gray-600">Users</dt>
+            <dd class="font-medium text-gray-900">Unlimited</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">Need Help?</h3>
+        <p class="text-sm text-gray-600 mb-4">
+          Questions about your subscription or billing? We're here to help.
+        </p>
+        <a href="mailto:support@supplierhub.com" class="text-primary-600 hover:text-primary-700 text-sm font-medium">
+          Contact Support →
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Invoice History -->
+  <% if @invoices.any? %>
+    <div class="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-5 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Invoice History</h2>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            <% @invoices.each do |invoice| %>
+              <tr>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <%= invoice.created_at.strftime("%b %d, %Y") %>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <%= invoice.formatted_amount_due %>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                    <%= invoice.paid? ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800' %>">
+                    <%= invoice.status.titleize %>
+                  </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                  <% if invoice.hosted_invoice_url %>
+                    <%= link_to "View", invoice.hosted_invoice_url, target: "_blank", class: "text-primary-600 hover:text-primary-700" %>
+                  <% end %>
+                  <% if invoice.invoice_pdf_url %>
+                    · <%= link_to "PDF", invoice.invoice_pdf_url, target: "_blank", class: "text-primary-600 hover:text-primary-700" %>
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% end %>
+</div>

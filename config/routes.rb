@@ -1,7 +1,23 @@
 Rails.application.routes.draw do
-  devise_for :users
+  devise_for :users, controllers: {
+    registrations: "users/registrations"
+  }
 
   root "dashboard#index"
+
+  # Stripe Webhooks
+  namespace :webhooks do
+    post "stripe", to: "stripe#create"
+  end
+
+  # Subscription & Billing
+  resource :subscription, only: [:show, :new, :create] do
+    get :success
+    get :cancel
+    post :billing_portal
+    post :cancel_subscription
+    post :reactivate
+  end
 
   # Locations
   resources :locations

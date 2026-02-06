@@ -7,7 +7,7 @@ Rails.application.configure do
   config.action_controller.perform_caching = true
   config.public_file_server.enabled = ENV["RAILS_SERVE_STATIC_FILES"].present?
   config.active_storage.service = :local
-  config.force_ssl = true
+  config.force_ssl = ENV["DISABLE_SSL"].blank?
   config.logger = ActiveSupport::Logger.new(STDOUT)
     .tap  { |logger| logger.formatter = ::Logger::Formatter.new }
     .then { |logger| ActiveSupport::TaggedLogging.new(logger) }

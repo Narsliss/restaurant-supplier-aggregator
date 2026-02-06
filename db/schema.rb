@@ -10,9 +10,47 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_03_220856) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
+
+  create_table "billing_events", force: :cascade do |t|
+    t.bigint "user_id"
+    t.bigint "subscription_id"
+    t.string "stripe_event_id", null: false
+    t.string "event_type", null: false
+    t.jsonb "data", default: {}
+    t.boolean "processed", default: false
+    t.text "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["event_type"], name: "index_billing_events_on_event_type"
+    t.index ["processed"], name: "index_billing_events_on_processed"
+    t.index ["stripe_event_id"], name: "index_billing_events_on_stripe_event_id", unique: true
+    t.index ["subscription_id"], name: "index_billing_events_on_subscription_id"
+    t.index ["user_id"], name: "index_billing_events_on_user_id"
+  end
+
+  create_table "invoices", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "subscription_id"
+    t.string "stripe_invoice_id", null: false
+    t.string "status", null: false
+    t.integer "amount_due_cents"
+    t.integer "amount_paid_cents"
+    t.string "currency", default: "usd"
+    t.string "hosted_invoice_url"
+    t.string "invoice_pdf_url"
+    t.datetime "period_start"
+    t.datetime "period_end"
+    t.datetime "paid_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["status"], name: "index_invoices_on_status"
+    t.index ["stripe_invoice_id"], name: "index_invoices_on_stripe_invoice_id", unique: true
+    t.index ["subscription_id"], name: "index_invoices_on_subscription_id"
+    t.index ["user_id"], name: "index_invoices_on_user_id"
+  end
 
   create_table "locations", force: :cascade do |t|
     t.bigint "user_id", null: false
@@ -130,6 +168,31 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_03_220856) do
     t.index ["name"], name: "index_products_on_name"
     t.index ["normalized_name"], name: "index_products_on_normalized_name"
     t.index ["upc"], name: "index_products_on_upc"
+  end
+
+  create_table "subscriptions", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "stripe_subscription_id", null: false
+    t.string "stripe_price_id"
+    t.string "status", default: "incomplete", null: false
+    t.string "plan_name", default: "pro"
+    t.integer "amount_cents", default: 9900
+    t.string "currency", default: "usd"
+    t.string "interval", default: "month"
+    t.datetime "current_period_start"
+    t.datetime "current_period_end"
+    t.datetime "trial_start"
+    t.datetime "trial_end"
+    t.boolean "cancel_at_period_end", default: false
+    t.datetime "canceled_at"
+    t.datetime "ended_at"
+    t.jsonb "metadata", default: {}
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["status"], name: "index_subscriptions_on_status"
+    t.index ["stripe_subscription_id"], name: "index_subscriptions_on_stripe_subscription_id", unique: true
+    t.index ["user_id", "status"], name: "index_subscriptions_on_user_id_and_status"
+    t.index ["user_id"], name: "index_subscriptions_on_user_id"
   end
 
   create_table "supplier_2fa_requests", force: :cascade do |t|
@@ -270,11 +333,17 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_03_220856) do
     t.string "phone"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "stripe_customer_id"
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
+    t.index ["stripe_customer_id"], name: "index_users_on_stripe_customer_id", unique: true
     t.index ["unlock_token"], name: "index_users_on_unlock_token", unique: true
   end
 
+  add_foreign_key "billing_events", "subscriptions"
+  add_foreign_key "billing_events", "users"
+  add_foreign_key "invoices", "subscriptions"
+  add_foreign_key "invoices", "users"
   add_foreign_key "locations", "users", on_delete: :cascade
   add_foreign_key "order_items", "orders", on_delete: :cascade
   add_foreign_key "order_items", "supplier_products", on_delete: :restrict
@@ -286,6 +355,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_03_220856) do
   add_foreign_key "orders", "order_lists", on_delete: :nullify
   add_foreign_key "orders", "suppliers", on_delete: :restrict
   add_foreign_key "orders", "users", on_delete: :cascade
+  add_foreign_key "subscriptions", "users"
   add_foreign_key "supplier_2fa_requests", "supplier_credentials", on_delete: :cascade
   add_foreign_key "supplier_2fa_requests", "users", on_delete: :cascade
   add_foreign_key "supplier_credentials", "suppliers", on_delete: :cascade

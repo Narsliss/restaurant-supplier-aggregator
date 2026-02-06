@@ -4,7 +4,14 @@
 # on existing records so changes here propagate automatically.
 
 Rails.application.config.after_initialize do
-  next unless ActiveRecord::Base.connection.table_exists?("suppliers")
+  # Skip during asset precompilation or when database isn't available
+  next if ENV["SECRET_KEY_BASE_DUMMY"].present?
+
+  begin
+    next unless ActiveRecord::Base.connection.table_exists?("suppliers")
+  rescue ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad
+    next
+  end
 
   suppliers = [
     {

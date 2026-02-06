@@ -77,7 +77,8 @@ suppliers_data.each do |supplier_data|
 end
 
 # Create sample products (for development/testing)
-if Rails.env.development?
+# Also create users in production for initial setup
+if Rails.env.development? || Rails.env.production?
   puts "Creating sample products..."
 
   products_data = [

@@ -4,6 +4,13 @@
 if [ "${1}" == "./bin/rails" ] && [ "${2}" == "server" ]; then
   echo "Preparing database..."
   ./bin/rails db:prepare
+
+  # Seed the database if it's empty (first run)
+  USER_COUNT=$(./bin/rails runner "puts User.count" 2>/dev/null || echo "0")
+  if [ "$USER_COUNT" == "0" ]; then
+    echo "Database is empty, running seeds..."
+    ./bin/rails db:seed
+  fi
 fi
 
 exec "${@}"

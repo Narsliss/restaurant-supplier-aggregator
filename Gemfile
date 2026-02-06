@@ -21,6 +21,9 @@ gem "attr_encrypted", "~> 4.0"
 gem "secure_headers", "~> 6.5"
 gem "bcrypt", "~> 3.1"
 
+# Payments
+gem "stripe", "~> 12.0"
+
 # Background Jobs
 gem "sidekiq", "~> 7.2"
 gem "sidekiq-scheduler", "~> 5.0"

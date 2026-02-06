@@ -55,6 +55,13 @@ services:
       BROWSER_HEADLESS: "true"
       # Encryption key for credentials (generate with: rails secret)
       ATTR_ENCRYPTED_KEY: ${ATTR_ENCRYPTED_KEY}
+      # Disable SSL for local Docker testing
+      DISABLE_SSL: ${DISABLE_SSL:-}
+      # Stripe
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_MONTHLY_PRICE_ID: ${STRIPE_MONTHLY_PRICE_ID:-}
+      STRIPE_TRIAL_DAYS: ${STRIPE_TRIAL_DAYS:-14}
     volumes:
       - rails_storage:/rails/storage
       - rails_tmp:/rails/tmp
