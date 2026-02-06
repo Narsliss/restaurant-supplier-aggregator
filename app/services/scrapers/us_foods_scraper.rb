@@ -343,34 +343,334 @@ module Scrapers
       deduped
     end
 
-    def add_to_cart(items)
+    # US Foods uses an Order-based workflow:
+    # 1. Search for product → Enter quantity → Click "Add To List" button
+    # 2. Modal appears with "Create new order" or "Add to existing order" options
+    # 3. Select delivery date and click "Add Product"
+    # 4. Repeat for each item
+
+    def add_to_cart(items, delivery_date: nil)
+      @target_delivery_date = delivery_date
+
       with_browser do
-        login unless logged_in?
+        # Restore session and navigate to check if logged in
+        if restore_session
+          navigate_to(BASE_URL)
+          sleep 2
+          unless logged_in?
+            logger.info "[UsFoods] Session invalid, performing fresh login"
+            perform_login_steps
+            save_session
+          end
+        else
+          logger.info "[UsFoods] No session to restore, performing login"
+          perform_login_steps
+          save_session
+        end
+
+        logger.info "[UsFoods] Logged in, starting add-to-cart for #{items.size} items"
+        logger.info "[UsFoods] Target delivery date: #{@target_delivery_date || 'default'}"
+
+        added_items = []
+        failed_items = []
+        first_item = true
 
         items.each do |item|
-          navigate_to("#{BASE_URL}/product/#{item[:sku]}")
-          wait_for_selector(".add-to-cart, .add-to-order, [data-testid='add-to-cart']")
-
-          # Set quantity
-          qty_field = browser.at_css("input[name='quantity'], .quantity-input, [data-testid='quantity']")
-          if qty_field
-            qty_field.focus
-            qty_field.type(item[:quantity].to_s, :clear)
-          end
-
-          click(".add-to-cart, .add-to-order, [data-testid='add-to-cart']")
-          
-          # Wait for cart confirmation
           begin
-            wait_for_selector(".cart-confirmation, .added-to-cart, .cart-updated", timeout: 5)
-          rescue ScrapingError
-            logger.warn "[UsFoods] No cart confirmation for SKU #{item[:sku]}"
+            add_item_to_order(item[:sku], item[:quantity], create_new_order: first_item)
+            added_items << item
+            logger.info "[UsFoods] Added SKU #{item[:sku]} qty #{item[:quantity]} to order"
+            first_item = false # Subsequent items go to existing order
+          rescue => e
+            logger.warn "[UsFoods] Failed to add SKU #{item[:sku]}: #{e.message}"
+            failed_items << { sku: item[:sku], error: e.message }
           end
-
           rate_limit_delay
         end
 
-        true
+        if failed_items.any? && added_items.empty?
+          raise ItemUnavailableError.new(
+            "All items failed to add to order",
+            items: failed_items
+          )
+        end
+
+        logger.info "[UsFoods] Added #{added_items.size} items to order (#{failed_items.size} failed)"
+        { added: added_items.size, failed: failed_items }
+      end
+    end
+
+    # Add a single item to an order via US Foods search → modal flow
+    def add_item_to_order(sku, quantity, create_new_order: false)
+      # Search for the product
+      navigate_to("#{BASE_URL}/desktop/search2?searchText=#{sku}")
+      sleep 3
+
+      # Verify product was found
+      page_text = browser.evaluate("document.body.innerText") rescue ""
+      if page_text.include?("couldn't find any matches") || page_text.include?("No results")
+        raise ScrapingError, "Product SKU #{sku} not found"
+      end
+
+      # Set quantity in the input field
+      qty_set = browser.evaluate(<<~JS)
+        (function() {
+          // Find the quantity input - US Foods uses ion-input with class "quantity-input-box"
+          var ionInput = document.querySelector('ion-input.quantity-input-box');
+          if (ionInput) {
+            var nativeInput = ionInput.querySelector('input.native-input');
+            if (nativeInput) {
+              nativeInput.value = '#{quantity}';
+              nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
+              nativeInput.dispatchEvent(new Event('change', { bubbles: true }));
+              ionInput.value = '#{quantity}';
+              return true;
+            }
+          }
+          return false;
+        })()
+      JS
+
+      unless qty_set
+        raise ScrapingError, "Could not set quantity for SKU #{sku}"
+      end
+      sleep 1
+
+      # Click the "Add To List" button (which opens the order modal)
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('ion-button');
+          for (var btn of buttons) {
+            var text = btn.innerText?.trim();
+            if (text === 'Add To List' || text === 'Add to List') {
+              // Make sure it's the one in the content area, not header
+              var rect = btn.getBoundingClientRect();
+              if (rect.top > 150) { // Below header
+                btn.click();
+                return true;
+              }
+            }
+          }
+          // Fallback: click any Add To List button
+          for (var btn of buttons) {
+            if (btn.innerText?.includes('Add To List') || btn.innerText?.includes('Add to List')) {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        })()
+      JS
+
+      unless clicked
+        raise ScrapingError, "Could not find Add To List button for SKU #{sku}"
+      end
+
+      # Wait for the "Add Product to Order" modal to appear
+      sleep 2
+      modal_appeared = wait_for_order_modal(timeout: 5)
+
+      unless modal_appeared
+        # Modal might not appear if item was added directly
+        logger.info "[UsFoods] No modal appeared - item may have been added directly"
+        return true
+      end
+
+      # Select order type: create new or add to existing
+      if create_new_order
+        # Click "Create new order"
+        browser.evaluate(<<~JS)
+          (function() {
+            var items = document.querySelectorAll('ion-item, [class*="order-option"]');
+            for (var item of items) {
+              if (item.innerText && item.innerText.includes('Create new order')) {
+                item.click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        logger.info "[UsFoods] Selected 'Create new order'"
+
+        # Select the delivery date if specified
+        sleep 1
+        select_delivery_date_in_modal if @target_delivery_date
+      else
+        # Click "Add to existing order" if available
+        browser.evaluate(<<~JS)
+          (function() {
+            var items = document.querySelectorAll('ion-item, [class*="order-option"]');
+            for (var item of items) {
+              if (item.innerText && item.innerText.includes('existing order')) {
+                item.click();
+                return true;
+              }
+            }
+            // Fallback to Create new order if no existing
+            for (var item of items) {
+              if (item.innerText && item.innerText.includes('Create new order')) {
+                item.click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        logger.info "[UsFoods] Selected existing order (or new if none available)"
+      end
+      sleep 1
+
+      # Click the "Add Product" button to confirm
+      add_product_clicked = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('ion-button, button');
+          for (var btn of buttons) {
+            var text = btn.innerText?.trim();
+            if (text === 'Add Product') {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        })()
+      JS
+
+      unless add_product_clicked
+        raise ScrapingError, "Could not click 'Add Product' button for SKU #{sku}"
+      end
+
+      # Wait for modal to close and confirmation
+      sleep 2
+      logger.info "[UsFoods] Product added to order"
+      true
+    end
+
+    # Wait for the "Add Product to Order" modal to appear
+    def wait_for_order_modal(timeout: 5)
+      start_time = Time.current
+      loop do
+        modal_visible = browser.evaluate(<<~JS) rescue false
+          (function() {
+            var modal = document.querySelector('ion-modal, [role="dialog"]');
+            if (modal) {
+              var text = modal.innerText || '';
+              return text.includes('Add Product to Order') ||
+                     text.includes('Create new order') ||
+                     text.includes('existing order');
+            }
+            return false;
+          })()
+        JS
+        return true if modal_visible
+
+        if Time.current - start_time > timeout
+          return false
+        end
+        sleep 0.3
+      end
+    end
+
+    # Select the delivery date in the order modal calendar
+    # The US Foods modal shows a calendar with clickable dates
+    def select_delivery_date_in_modal
+      return unless @target_delivery_date
+
+      target_date = @target_delivery_date.is_a?(Date) ? @target_delivery_date : Date.parse(@target_delivery_date.to_s)
+      target_day = target_date.day
+      target_month = target_date.strftime("%B %Y") # e.g., "February 2026"
+
+      logger.info "[UsFoods] Selecting delivery date: #{target_date} (day #{target_day})"
+
+      # First, navigate to the correct month if needed
+      # The modal shows month/year like "February 2026" and has < > navigation buttons
+      navigate_to_correct_month(target_month)
+
+      # Click on the target day in the calendar
+      date_clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Find calendar day buttons - US Foods uses buttons or divs with day numbers
+          var dayElements = document.querySelectorAll(
+            '[class*="calendar"] button, ' +
+            '[class*="calendar"] [class*="day"], ' +
+            'ion-datetime button, ' +
+            '[class*="date-picker"] button'
+          );
+
+          for (var el of dayElements) {
+            var text = el.innerText?.trim();
+            // Match the exact day number
+            if (text === '#{target_day}' || text === '#{target_day.to_s.rjust(2, '0')}') {
+              // Make sure it's not disabled/grayed out
+              var isDisabled = el.disabled ||
+                              el.classList.contains('disabled') ||
+                              el.getAttribute('aria-disabled') === 'true' ||
+                              el.classList.contains('unavailable');
+              if (!isDisabled) {
+                el.click();
+                return { clicked: true, day: text };
+              }
+            }
+          }
+
+          // Fallback: try finding by aria-label which often contains the full date
+          var allButtons = document.querySelectorAll('button, [role="button"]');
+          for (var btn of allButtons) {
+            var label = btn.getAttribute('aria-label') || '';
+            if (label.toLowerCase().includes('#{target_date.strftime("%B").downcase}') &&
+                label.includes('#{target_day}')) {
+              btn.click();
+              return { clicked: true, method: 'aria-label', label: label };
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      if date_clicked && date_clicked["clicked"]
+        logger.info "[UsFoods] Clicked delivery date: #{date_clicked}"
+      else
+        logger.warn "[UsFoods] Could not click delivery date #{target_date}, using default"
+      end
+
+      sleep 0.5
+    end
+
+    # Navigate to the correct month in the calendar
+    def navigate_to_correct_month(target_month)
+      5.times do |attempt|
+        current_month = browser.evaluate(<<~JS) rescue nil
+          (function() {
+            // Look for month/year display in the calendar
+            var monthEl = document.querySelector(
+              '[class*="calendar"] [class*="month"], ' +
+              '[class*="calendar-header"], ' +
+              '[class*="date-picker"] [class*="month"]'
+            );
+            return monthEl?.innerText?.trim();
+          })()
+        JS
+
+        if current_month && current_month.include?(target_month.split(" ").first) # Check month name
+          logger.info "[UsFoods] Calendar showing correct month: #{current_month}"
+          return
+        end
+
+        # Click next month button
+        browser.evaluate(<<~JS)
+          (function() {
+            var nextBtn = document.querySelector(
+              '[class*="calendar"] [class*="next"], ' +
+              '[class*="calendar"] ion-icon[name*="forward"], ' +
+              '[class*="calendar"] button:last-child, ' +
+              '[aria-label*="next month"]'
+            );
+            if (nextBtn) nextBtn.click();
+          })()
+        JS
+
+        sleep 0.5
       end
     end
 

@@ -60,40 +60,171 @@ module Scrapers
       results
     end
 
-    def add_to_cart(items)
+    def add_to_cart(items, delivery_date: nil)
+      @target_delivery_date = delivery_date
+
       with_browser do
-        login unless logged_in?
+        unless restore_session && logged_in?
+          perform_login_steps
+          save_session
+        end
+
+        added_items = []
+        failed_items = []
 
         items.each do |item|
-          navigate_to("#{BASE_URL}/products/#{item[:sku]}")
-          
           begin
-            wait_for_selector(".product-page, .product-detail", timeout: 10)
-          rescue ScrapingError
-            logger.warn "[WhatChefsWant] Product page not found for SKU #{item[:sku]}"
-            next
-          end
-
-          qty_field = browser.at_css("input[name='quantity'], .quantity-field, #quantity")
-          if qty_field
-            qty_field.focus
-            qty_field.type(item[:quantity].to_s, :clear)
-          end
-
-          click(".add-to-cart, .btn-add-cart, [data-action='add-to-cart']")
-          
-          begin
-            wait_for_selector(".cart-added, .success-message, .cart-updated", timeout: 5)
-          rescue ScrapingError
-            logger.warn "[WhatChefsWant] No cart confirmation for SKU #{item[:sku]}"
+            add_single_item_to_cart(item)
+            added_items << item
+            logger.info "[WhatChefsWant] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
+          rescue => e
+            logger.warn "[WhatChefsWant] Failed to add SKU #{item[:sku]}: #{e.message}"
+            failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
           end
 
           rate_limit_delay
         end
 
-        true
+        if failed_items.any?
+          raise ItemUnavailableError.new(
+            "#{failed_items.count} item(s) could not be added",
+            items: failed_items
+          )
+        end
+
+        { added: added_items.count }
       end
     end
+
+    private
+
+    def add_single_item_to_cart(item)
+      # Try direct product page first
+      navigate_to("#{BASE_URL}/products/#{item[:sku]}")
+      sleep 2
+
+      # Check if product page loaded
+      product_found = false
+      begin
+        wait_for_any_selector(
+          ".product-page",
+          ".product-detail",
+          ".product-info",
+          ".pdp-container",
+          timeout: 5
+        )
+        product_found = true
+      rescue ScrapingError
+        # Product page not found, try search
+        logger.debug "[WhatChefsWant] Direct product page not found, trying search"
+      end
+
+      unless product_found
+        # Try searching for the product
+        encoded_sku = CGI.escape(item[:sku].to_s)
+        navigate_to("#{BASE_URL}/search?q=#{encoded_sku}")
+        sleep 2
+
+        # Click on first matching product
+        product_link = browser.at_css(".product-card a, .product-item a, .search-result a")
+        if product_link
+          product_link.click
+          sleep 2
+          wait_for_any_selector(".product-page", ".product-detail", timeout: 10)
+        else
+          raise ScrapingError, "Product not found for SKU #{item[:sku]}"
+        end
+      end
+
+      # Set quantity
+      qty_selectors = [
+        "input[name='quantity']",
+        ".quantity-field",
+        "#quantity",
+        "input[type='number']",
+        ".qty-input"
+      ]
+
+      qty_field = nil
+      qty_selectors.each do |sel|
+        qty_field = browser.at_css(sel)
+        break if qty_field
+      end
+
+      if qty_field && item[:quantity].to_i > 1
+        qty_field.focus
+        qty_field.type(item[:quantity].to_s, :clear)
+        sleep 0.5
+      end
+
+      # Click add to cart
+      add_btn_selectors = [
+        ".add-to-cart",
+        ".btn-add-cart",
+        "[data-action='add-to-cart']",
+        "button.add-to-cart",
+        "#add-to-cart",
+        ".product-add-to-cart"
+      ]
+
+      add_btn = nil
+      add_btn_selectors.each do |sel|
+        add_btn = browser.at_css(sel)
+        break if add_btn
+      end
+
+      if add_btn
+        click_element(add_btn)
+      else
+        raise ScrapingError, "Add to cart button not found for SKU #{item[:sku]}"
+      end
+
+      # Wait for confirmation
+      wait_for_cart_confirmation
+    end
+
+    def click_element(element)
+      begin
+        element.click
+      rescue => e
+        logger.debug "[WhatChefsWant] Native click failed: #{e.message}, trying JS click"
+        element.evaluate("this.click()")
+      end
+    end
+
+    def wait_for_cart_confirmation
+      begin
+        wait_for_any_selector(
+          ".cart-added",
+          ".success-message",
+          ".cart-updated",
+          ".cart-notification",
+          ".added-to-cart",
+          timeout: 5
+        )
+        sleep 1
+      rescue ScrapingError
+        logger.debug "[WhatChefsWant] No confirmation modal, checking cart state"
+        sleep 1
+      end
+    end
+
+    def wait_for_any_selector(*selectors, timeout: 10)
+      options = selectors.last.is_a?(Hash) ? selectors.pop : {}
+      timeout_val = options[:timeout] || timeout
+
+      start_time = Time.current
+      while Time.current - start_time < timeout_val
+        selectors.each do |sel|
+          return true if browser.at_css(sel)
+        end
+        sleep 0.3
+      end
+
+      raise ScrapingError, "None of selectors found: #{selectors.join(', ')}"
+    end
+
+    public
 
     def checkout
       with_browser do

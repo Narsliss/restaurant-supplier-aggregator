@@ -48,6 +48,8 @@ Rails.application.routes.draw do
     end
     collection do
       get :history
+      get :split_preview
+      post :split_create
     end
   end
 

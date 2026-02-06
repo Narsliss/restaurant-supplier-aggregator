@@ -364,40 +364,233 @@ module Scrapers
       results
     end
 
-    def add_to_cart(items)
+    def add_to_cart(items, delivery_date: nil)
+      @target_delivery_date = delivery_date
+
       with_browser do
-        login unless logged_in?
+        # PPO requires full login with 2FA - restore session first
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          wait_for_react_render(timeout: 15)
+        end
+
+        unless logged_in?
+          # Full login with 2FA handling
+          perform_login_steps
+
+          if two_fa_page?
+            # Need verification code
+            code = wait_for_user_code(attempt: 1, resent: false)
+            if code
+              type_code_and_submit(code)
+              sleep 5
+              wait_for_page_load
+
+              if logged_in?
+                save_session
+                credential.mark_active!
+                mark_2fa_request_verified!
+                TwoFactorChannel.broadcast_to(credential.user, { type: "code_result", success: true })
+              else
+                raise AuthenticationError, "Login failed after 2FA"
+              end
+            else
+              raise AuthenticationError, "Verification timed out"
+            end
+          end
+
+          save_session unless logged_in?
+        end
+
+        logger.info "[PremiereProduceOne] Logged in, starting add-to-cart for #{items.size} items"
+        logger.info "[PremiereProduceOne] Target delivery date: #{@target_delivery_date || 'default'}"
+
+        added_items = []
+        failed_items = []
 
         items.each do |item|
-          navigate_to("#{BASE_URL}/products/#{item[:sku]}")
-
           begin
-            wait_for_selector(".product-page, .product-detail", timeout: 10)
-          rescue ScrapingError
-            logger.warn "[PremiereProduceOne] Product page not found for SKU #{item[:sku]}"
-            next
-          end
-
-          qty_field = browser.at_css("input[name='quantity'], .quantity-field, #quantity")
-          if qty_field
-            qty_field.focus
-            qty_field.type(item[:quantity].to_s, :clear)
-          end
-
-          click(".add-to-cart, .btn-add-cart, [data-action='add-to-cart']")
-
-          begin
-            wait_for_selector(".cart-added, .success-message, .cart-updated", timeout: 5)
-          rescue ScrapingError
-            logger.warn "[PremiereProduceOne] No cart confirmation for SKU #{item[:sku]}"
+            add_single_item_to_cart(item)
+            added_items << item
+            logger.info "[PremiereProduceOne] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
+          rescue => e
+            logger.warn "[PremiereProduceOne] Failed to add SKU #{item[:sku]}: #{e.message}"
+            failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
           end
 
           rate_limit_delay
         end
 
-        true
+        if failed_items.any?
+          raise ItemUnavailableError.new(
+            "#{failed_items.count} item(s) could not be added",
+            items: failed_items
+          )
+        end
+
+        { added: added_items.count }
       end
     end
+
+    private
+
+    def add_single_item_to_cart(item)
+      # PPO is a React SPA - search for the product using the search input
+      search_input = browser.at_css("input[placeholder='Search']")
+
+      unless search_input
+        # Navigate to catalog to get search input
+        ensure_catalog_page_loaded
+        search_input = browser.at_css("input[placeholder='Search']")
+      end
+
+      unless search_input
+        raise ScrapingError, "Search input not found"
+      end
+
+      # Search for the product by SKU
+      search_input.focus
+      set_react_input_value(search_input, item[:sku].to_s)
+      sleep 3 # Wait for React to filter results
+
+      # PPO displays products in a list with format:
+      # Product Name | Brand: X | Pack Size: Y | Case • SKU | [+] button
+      # Find the product row containing our SKU and click its "+" button
+      quantity_to_add = item[:quantity].to_i
+      quantity_to_add = 1 if quantity_to_add < 1
+
+      # Click the "Increase quantity" button for the matching product
+      # Each click adds 1 to the quantity, so we click multiple times for quantity > 1
+      quantity_to_add.times do |i|
+        clicked = browser.evaluate(<<~JS)
+          (function() {
+            // Find all elements that contain "Case • SKU" pattern
+            var allElements = document.querySelectorAll('*');
+            var targetSku = '#{item[:sku]}';
+
+            for (var el of allElements) {
+              // Skip elements with many children (we want leaf/near-leaf nodes)
+              if (el.children.length > 5) continue;
+
+              var text = el.innerText || '';
+              // Match "Case • SKU" or "Each • SKU" or "Piece • SKU"
+              var match = text.match(/(?:Case|Each|Piece)\\s*[•·]\\s*(\\d+)/);
+              if (match && match[1] === targetSku) {
+                // Found the SKU! Now find the "+" button in the same product row
+                // Walk up to find the product container, then find the button
+                var container = el;
+                for (var j = 0; j < 10 && container; j++) {
+                  container = container.parentElement;
+                  if (!container) break;
+
+                  // Look for button with "+" or aria-label containing "increase" or "add"
+                  var buttons = container.querySelectorAll('button');
+                  for (var btn of buttons) {
+                    var btnText = (btn.innerText || '').trim();
+                    var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+
+                    // PPO uses a "+" button or "Increase quantity" button
+                    if (btnText === '+' ||
+                        btnText === '' && btn.querySelector('svg') || // Icon button
+                        ariaLabel.includes('increase') ||
+                        ariaLabel.includes('add')) {
+                      btn.click();
+                      return { found: true, clicked: true, sku: targetSku };
+                    }
+                  }
+                }
+              }
+            }
+
+            // Fallback: If there's only one product visible (from search), click the first "+" button
+            var plusButtons = document.querySelectorAll('button');
+            for (var btn of plusButtons) {
+              var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+              if (ariaLabel.includes('increase quantity')) {
+                btn.click();
+                return { found: true, clicked: true, method: 'fallback' };
+              }
+            }
+
+            return { found: false };
+          })()
+        JS
+
+        unless clicked && clicked["clicked"]
+          if i == 0
+            raise ScrapingError, "Product not found or could not click add button for SKU #{item[:sku]}"
+          else
+            logger.warn "[PremiereProduceOne] Could only add #{i} of #{quantity_to_add} for SKU #{item[:sku]}"
+            break
+          end
+        end
+
+        # Small delay between clicks for quantity > 1
+        sleep 0.3 if i < quantity_to_add - 1
+      end
+
+      logger.info "[PremiereProduceOne] Clicked + button #{quantity_to_add} time(s) for SKU #{item[:sku]}"
+
+      # Wait for cart confirmation
+      wait_for_cart_confirmation
+    end
+
+    def click_add_to_cart_button
+      browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('button, [role="button"]');
+          for (var btn of buttons) {
+            var text = btn.innerText?.trim().toLowerCase();
+            var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+            if (text === '+' ||
+                ariaLabel.includes('increase quantity') ||
+                ariaLabel.includes('add to cart') ||
+                text === 'add to cart' ||
+                text.includes('add to cart')) {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        })()
+      JS
+    end
+
+    def wait_for_cart_confirmation
+      begin
+        wait_for_any_selector(
+          ".cart-added",
+          ".success-message",
+          ".cart-updated",
+          ".cart-notification",
+          ".toast",
+          "[class*='success']",
+          timeout: 5
+        )
+        sleep 1
+      rescue ScrapingError
+        logger.debug "[PremiereProduceOne] No confirmation modal, checking cart state"
+        sleep 1
+      end
+    end
+
+    def wait_for_any_selector(*selectors, timeout: 10)
+      options = selectors.last.is_a?(Hash) ? selectors.pop : {}
+      timeout_val = options[:timeout] || timeout
+
+      start_time = Time.current
+      while Time.current - start_time < timeout_val
+        selectors.each do |sel|
+          return true if browser.at_css(sel)
+        end
+        sleep 0.3
+      end
+
+      raise ScrapingError, "None of selectors found: #{selectors.join(', ')}"
+    end
+
+    public
 
     def checkout
       with_browser do

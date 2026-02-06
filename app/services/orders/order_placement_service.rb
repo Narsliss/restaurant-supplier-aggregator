@@ -19,9 +19,9 @@ module Orders
       order.update!(status: "processing")
 
       begin
-        # Step 4: Add items to cart
+        # Step 4: Add items to cart with delivery date
         cart_items = build_cart_items
-        scraper.add_to_cart(cart_items)
+        scraper.add_to_cart(cart_items, delivery_date: order.delivery_date)
 
         # Step 5: Attempt checkout with error handling
         result = scraper.checkout

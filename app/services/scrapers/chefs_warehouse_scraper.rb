@@ -175,41 +175,39 @@ module Scrapers
       results
     end
 
-    def add_to_cart(items)
+    def add_to_cart(items, delivery_date: nil)
+      @target_delivery_date = delivery_date
+
       with_browser do
-        login unless logged_in?
+        unless restore_session && logged_in?
+          perform_login_steps
+          save_session
+        end
+
+        added_items = []
+        failed_items = []
 
         items.each do |item|
-          # Search for product by SKU
-          navigate_to("#{BASE_URL}/search?q=#{item[:sku]}")
-          wait_for_selector(".product-list, .search-results", timeout: 10)
-
-          # Click on the product
-          product_link = browser.at_css("a[href*='#{item[:sku]}'], .product-item a")
-          if product_link
-            product_link.click
-            wait_for_selector(".product-detail, .pdp-container")
-          end
-
-          # Set quantity
-          qty_field = browser.at_css("input[name='quantity'], .qty-input")
-          if qty_field
-            qty_field.focus
-            qty_field.type(item[:quantity].to_s, :clear)
-          end
-
-          click(".add-to-cart, .add-to-order-btn")
-          
           begin
-            wait_for_selector(".cart-notification, .added-message", timeout: 5)
-          rescue ScrapingError
-            logger.warn "[ChefsWarehouse] No cart confirmation for SKU #{item[:sku]}"
+            add_single_item_to_cart(item)
+            added_items << item
+            logger.info "[ChefsWarehouse] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
+          rescue => e
+            logger.warn "[ChefsWarehouse] Failed to add SKU #{item[:sku]}: #{e.message}"
+            failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
           end
 
           rate_limit_delay
         end
 
-        true
+        if failed_items.any?
+          raise ItemUnavailableError.new(
+            "#{failed_items.count} item(s) could not be added",
+            items: failed_items
+          )
+        end
+
+        { added: added_items.count }
       end
     end
 
@@ -249,6 +247,158 @@ module Scrapers
           delivery_date: extract_text(".delivery-date, .ship-date")
         }
       end
+    end
+
+    private
+
+    def add_single_item_to_cart(item)
+      # Navigate directly to the product page - CW has predictable URLs
+      product_url = "#{BASE_URL}/products/#{item[:sku]}/"
+      navigate_to(product_url)
+      sleep 3 # Wait for SPA to render
+
+      # Check if we landed on a valid product page
+      page_has_product = browser.evaluate(<<~JS)
+        (function() {
+          // Check for product detail indicators
+          var hasProductName = !!document.querySelector('.product-name, .product-title, h1');
+          var hasAddButton = !!document.querySelector('.add-to-cart-btn, button.add-to-cart');
+          var hasPrice = document.body.innerText.match(/\\$\\d+\\.\\d{2}/);
+          return hasProductName || hasAddButton || hasPrice;
+        })()
+      JS
+
+      unless page_has_product
+        # Fallback: try searching for the product
+        logger.debug "[ChefsWarehouse] Direct product URL didn't work, trying search"
+        encoded_sku = CGI.escape(item[:sku].to_s)
+        navigate_to("#{BASE_URL}/search?q=#{encoded_sku}")
+        sleep 3
+
+        # Find and click the product link
+        clicked = browser.evaluate(<<~JS)
+          (function() {
+            var links = document.querySelectorAll('a[href*="#{item[:sku]}"]');
+            for (var link of links) {
+              if (link.href.includes('/products/')) {
+                link.click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+
+        if clicked
+          sleep 3
+        else
+          raise ScrapingError, "Product not found for SKU #{item[:sku]}"
+        end
+      end
+
+      # Now we should be on the product detail page
+      add_product_from_detail_page(item)
+    end
+
+    def add_product_from_detail_page(item)
+      # CW is a Vue.js SPA - use JavaScript to interact with form elements
+      # Set quantity if needed
+      if item[:quantity].to_i > 1
+        browser.evaluate(<<~JS)
+          (function() {
+            var qtyInputs = document.querySelectorAll('input[type="number"], input.qty-input, input[name="quantity"], .quantity-input input');
+            for (var input of qtyInputs) {
+              if (input.offsetParent !== null) { // visible
+                input.value = '#{item[:quantity]}';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        sleep 0.5
+      end
+
+      # Click add to cart using JavaScript (handles Vue.js event binding)
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Find visible add-to-cart button
+          var selectors = [
+            '.add-to-cart-btn',
+            'button.add-to-cart',
+            '.add-to-cart',
+            '#add-to-cart',
+            'button[class*="add-to-cart"]',
+            '.pdp-add-to-cart'
+          ];
+
+          for (var sel of selectors) {
+            var buttons = document.querySelectorAll(sel);
+            for (var btn of buttons) {
+              // Check if button is in viewport or make it visible
+              btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+
+              // Trigger click
+              btn.click();
+              return { clicked: true, selector: sel };
+            }
+          }
+
+          // Fallback: find any button with "add" text
+          var allButtons = document.querySelectorAll('button');
+          for (var btn of allButtons) {
+            if (btn.innerText.toLowerCase().includes('add to cart')) {
+              btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+              btn.click();
+              return { clicked: true, method: 'text-match' };
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      unless clicked && clicked["clicked"]
+        raise ScrapingError, "Add to cart button not found for SKU #{item[:sku]}"
+      end
+
+      logger.debug "[ChefsWarehouse] Clicked add-to-cart: #{clicked.inspect}"
+      wait_for_cart_confirmation
+    end
+
+    def wait_for_cart_confirmation
+      begin
+        wait_for_any_selector(
+          ".cart-notification",
+          ".added-message",
+          ".cart-popup",
+          ".cart-updated",
+          ".success-message",
+          timeout: 5
+        )
+        sleep 1 # Brief pause before next item
+      rescue ScrapingError
+        # Check if cart count changed instead
+        logger.debug "[ChefsWarehouse] No confirmation modal, checking cart state"
+        sleep 1
+      end
+    end
+
+    def wait_for_any_selector(*selectors, timeout: 10)
+      options = selectors.last.is_a?(Hash) ? selectors.pop : {}
+      timeout_val = options[:timeout] || timeout
+
+      start_time = Time.current
+      while Time.current - start_time < timeout_val
+        selectors.each do |sel|
+          return true if browser.at_css(sel)
+        end
+        sleep 0.3
+      end
+
+      raise ScrapingError, "None of selectors found: #{selectors.join(', ')}"
     end
 
     protected

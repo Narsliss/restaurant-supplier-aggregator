@@ -46,6 +46,7 @@ class OrdersController < ApplicationController
   def create
     @order_list = current_user.order_lists.find(params[:order][:order_list_id])
     @supplier = Supplier.find(params[:order][:supplier_id])
+    delivery_date = params[:order][:delivery_date]
 
     builder = Orders::OrderBuilderService.new(
       user: current_user,
@@ -56,6 +57,10 @@ class OrdersController < ApplicationController
 
     begin
       @order = builder.build_and_save!
+      @order.update!(
+        delivery_date: delivery_date,
+        notes: params[:order][:notes]
+      )
       redirect_to @order, notice: "Order created. Review and submit when ready."
     rescue ArgumentError => e
       redirect_to new_order_path(order_list_id: @order_list.id), alert: e.message
@@ -109,6 +114,38 @@ class OrdersController < ApplicationController
     end
   end
 
+  # Split order - preview
+  def split_preview
+    @order_list = current_user.order_lists.find(params[:order_list_id])
+    @service = Orders::SplitOrderService.new(@order_list, location: current_location)
+    @preview = @service.preview
+  end
+
+  # Split order - create all orders
+  def split_create
+    @order_list = current_user.order_lists.find(params[:order_list_id])
+    delivery_date = params[:delivery_date]
+
+    service = Orders::SplitOrderService.new(@order_list, location: current_location)
+
+    begin
+      @orders = service.create_orders!(delivery_date: delivery_date)
+
+      if params[:submit_immediately] == "true"
+        service.submit_all!(@orders)
+        redirect_to orders_path, notice: "#{@orders.size} orders created and submitted to suppliers."
+      else
+        redirect_to orders_path, notice: "#{@orders.size} orders created. Review and submit when ready."
+      end
+    rescue Orders::SplitOrderService::OrderMinimumError => e
+      redirect_to split_preview_orders_path(order_list_id: @order_list.id),
+        alert: "#{e.supplier.name} minimum not met. Need $#{'%.2f' % e.minimum}, have $#{'%.2f' % e.current}."
+    rescue => e
+      redirect_to split_preview_orders_path(order_list_id: @order_list.id),
+        alert: "Failed to create orders: #{e.message}"
+    end
+  end
+
   private
 
   def set_order
@@ -116,6 +153,6 @@ class OrdersController < ApplicationController
   end
 
   def order_params
-    params.require(:order).permit(:location_id, :notes)
+    params.require(:order).permit(:location_id, :notes, :delivery_date)
   end
 end

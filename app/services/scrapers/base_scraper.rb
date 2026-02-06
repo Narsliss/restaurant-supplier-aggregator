@@ -44,21 +44,37 @@ module Scrapers
     end
 
     def with_browser(&block)
+      headless_mode = ENV.fetch("BROWSER_HEADLESS", "true") == "true"
+
       browser_opts = {
-        headless: ENV.fetch("BROWSER_HEADLESS", "true") == "true",
+        headless: headless_mode,
         timeout: 30,
-        window_size: [1920, 1080],
-        browser_options: {
+        window_size: [1920, 1080]
+      }
+
+      # Only use restrictive options in headless mode (for Docker/server environments)
+      if headless_mode
+        browser_opts[:browser_options] = {
           "no-sandbox": true,
           "disable-gpu": true,
           "disable-dev-shm-usage": true
         }
-      }
+      else
+        # For visible browser mode, use minimal options to allow window to display
+        browser_opts[:browser_options] = {
+          "no-sandbox": true,
+          "start-maximized": true
+        }
+        # Explicitly set headless to "new" false mode
+        browser_opts[:headless] = false
+      end
+
       # Allow custom Chrome/Chromium path via environment variable
       if ENV["BROWSER_PATH"].present?
         browser_opts[:browser_path] = ENV["BROWSER_PATH"]
       end
 
+      logger.info "[Scraper] Starting browser (headless=#{headless_mode})"
       @browser = Ferrum::Browser.new(**browser_opts)
       yield(browser)
     ensure
@@ -145,7 +161,7 @@ module Scrapers
       raise NotImplementedError, "Subclass must implement #search_supplier_catalog"
     end
 
-    def add_to_cart(items)
+    def add_to_cart(items, delivery_date: nil)
       raise NotImplementedError, "Subclass must implement #add_to_cart"
     end
 
