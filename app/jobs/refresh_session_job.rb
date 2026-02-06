@@ -39,9 +39,12 @@ class RefreshSessionJob < ApplicationJob
   end
 
   def refresh_all_stale_credentials
+    # Find credentials that haven't been used recently
+    # Skip those that had a recent import (hourly import keeps session alive)
     stale_credentials = SupplierCredential
       .where(status: %w[active expired])
       .where("last_login_at < ? OR last_login_at IS NULL", 6.hours.ago)
+      .where("last_import_at < ? OR last_import_at IS NULL", 2.hours.ago)
 
     Rails.logger.info "[RefreshSessionJob] Found #{stale_credentials.count} credentials to refresh"
 

@@ -91,7 +91,8 @@ module Scrapers
       return false unless credential.session_data.present?
       # US Foods B2C tokens typically last 24h. Use a wider validity window
       # than the default 1 hour to avoid unnecessary MFA re-auth.
-      return false unless credential.last_login_at.present? && credential.last_login_at > 12.hours.ago
+      # Extended to 20 hours to cover overnight gaps between cron runs.
+      return false unless credential.last_login_at.present? && credential.last_login_at > 20.hours.ago
 
       begin
         data = JSON.parse(credential.session_data)
@@ -162,7 +163,11 @@ module Scrapers
         if restore_session
           browser.refresh
           sleep 2
-          return true if logged_in?
+          if logged_in?
+            # Session is still valid - refresh the timestamp to extend validity
+            save_session
+            return true
+          end
           logger.info "[UsFoods] Session restore failed, doing fresh login"
         end
 
@@ -178,6 +183,24 @@ module Scrapers
           credential.mark_failed!(error_msg)
           raise AuthenticationError, error_msg
         end
+      end
+    end
+
+    # Soft refresh - just verify session is still valid without triggering full login/MFA
+    # Used by session refresh jobs to extend session lifetime without re-authentication
+    def soft_refresh
+      with_browser do
+        if restore_session
+          browser.refresh
+          sleep 2
+          if logged_in?
+            save_session
+            logger.info "[UsFoods] Soft refresh successful - session extended"
+            return true
+          end
+        end
+        logger.info "[UsFoods] Soft refresh failed - session expired"
+        false
       end
     end
 
@@ -237,6 +260,8 @@ module Scrapers
       "Frozen Foods|Frozen Desserts",
       "Dairy and Eggs|Cheese",
       "Dairy and Eggs|Milk and Cream",
+      "Dairy and Eggs|Eggs",
+      "Dairy and Eggs|Butter and Margarine",
       "Dry Storage|Canned Goods",
       "Dry Storage|Pasta and Grains",
       "Dry Storage|Sauces and Condiments",
@@ -307,6 +332,9 @@ module Scrapers
           end
           rate_limit_delay
         end
+
+        # Refresh session at end of successful scrape to extend validity for next cron run
+        save_session if results.any?
       end
 
       # De-duplicate by SKU
@@ -1008,31 +1036,46 @@ module Scrapers
               }
             }
 
-            // Method 2: Find all prices and pick the one WITHOUT a unit suffix (/oz, /lb, /ea, /gal, etc.)
+            // Method 2: Split text by lines/spaces and find prices, excluding unit prices
+            // Unit prices have format "$X.XX/oz" or "$X.XX/lb" etc.
             if (!price) {
-              var allPrices = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})(?:\\/[a-z]+)?/gi) || [];
-              for (var p = 0; p < allPrices.length; p++) {
-                var priceStr = allPrices[p];
-                // Skip unit prices (they have /oz, /lb, /ea, /gal, /ct, etc. suffix)
-                if (priceStr.match(/\\/[a-z]/i)) continue;
-                var match = priceStr.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
-                if (match) {
-                  var val = parseFloat(match[1].replace(',', ''));
-                  // Case prices are typically > $1.00 and larger than unit prices
-                  if (!price || val > price) {
-                    price = val;
-                  }
+              // Find all price patterns in the text
+              var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(\\/[a-zA-Z]+)?/g;
+              var match;
+              var casePrices = [];
+              var unitPrices = [];
+
+              while ((match = priceRegex.exec(text)) !== null) {
+                var val = parseFloat(match[1].replace(',', ''));
+                if (match[2]) {
+                  // Has unit suffix like /oz, /lb - this is a unit price
+                  unitPrices.push(val);
+                } else {
+                  // No unit suffix - could be case price
+                  casePrices.push(val);
                 }
+              }
+
+              // Prefer case prices (no unit suffix)
+              if (casePrices.length > 0) {
+                // Take the largest case price (in case there are multiple)
+                price = Math.max.apply(null, casePrices);
               }
             }
 
-            // Method 3: Fallback - get largest price found (case price is usually bigger)
+            // Method 3: Fallback - if no case price found but we have unit prices,
+            // the case price might not be showing. Use the largest price overall,
+            // but only if it's reasonably large (> $1) to avoid unit prices.
             if (!price) {
               var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
-              for (var m = 0; m < priceMatches.length; m++) {
-                var val = parseFloat(priceMatches[m].replace('$', '').replace(',', ''));
-                if (!price || val > price) {
-                  price = val;
+              var allPrices = priceMatches.map(function(p) {
+                return parseFloat(p.replace('$', '').replace(',', ''));
+              });
+              if (allPrices.length > 0) {
+                var maxPrice = Math.max.apply(null, allPrices);
+                // Only use if it looks like a case price (> $1)
+                if (maxPrice > 1) {
+                  price = maxPrice;
                 }
               }
             }
@@ -1101,26 +1144,34 @@ module Scrapers
             }
           }
 
-          // Method 2: Find prices without unit suffix
+          // Method 2: Split text and find prices, excluding unit prices
           if (!price) {
-            var allPrices = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})(?:\\/[a-z]+)?/gi) || [];
-            for (var p = 0; p < allPrices.length; p++) {
-              var priceStr = allPrices[p];
-              if (priceStr.match(/\\/[a-z]/i)) continue;
-              var match = priceStr.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
-              if (match) {
-                var val = parseFloat(match[1].replace(',', ''));
-                if (!price || val > price) price = val;
+            var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(\\/[a-zA-Z]+)?/g;
+            var match;
+            var casePrices = [];
+
+            while ((match = priceRegex.exec(text)) !== null) {
+              var val = parseFloat(match[1].replace(',', ''));
+              if (!match[2]) {
+                // No unit suffix - could be case price
+                casePrices.push(val);
               }
+            }
+
+            if (casePrices.length > 0) {
+              price = Math.max.apply(null, casePrices);
             }
           }
 
-          // Method 3: Fallback - largest price
+          // Method 3: Fallback - largest price, but only if > $1
           if (!price) {
             var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
-            for (var m = 0; m < priceMatches.length; m++) {
-              var val = parseFloat(priceMatches[m].replace('$', '').replace(',', ''));
-              if (!price || val > price) price = val;
+            var allPrices = priceMatches.map(function(p) {
+              return parseFloat(p.replace('$', '').replace(',', ''));
+            });
+            if (allPrices.length > 0) {
+              var maxPrice = Math.max.apply(null, allPrices);
+              if (maxPrice > 1) price = maxPrice;
             }
           }
 

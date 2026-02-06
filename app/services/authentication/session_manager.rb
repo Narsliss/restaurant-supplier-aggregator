@@ -10,8 +10,23 @@ module Authentication
       return false unless credential.present?
 
       scraper = credential.supplier.scraper_klass.new(credential)
-      
+
       begin
+        # Try soft refresh first (if available) to avoid triggering MFA
+        # Soft refresh just validates the existing session without re-authenticating
+        if scraper.respond_to?(:soft_refresh)
+          if scraper.soft_refresh
+            Rails.logger.info "[SessionManager] Soft refresh succeeded for #{credential.supplier.name}"
+            return true
+          end
+          Rails.logger.info "[SessionManager] Soft refresh failed, session expired for #{credential.supplier.name}"
+          # Don't fall through to full login - let the user trigger that manually
+          # This prevents unexpected MFA prompts from background jobs
+          credential.mark_expired!
+          return false
+        end
+
+        # Fallback to full login for scrapers without soft_refresh
         scraper.login
         true
       rescue Scrapers::BaseScraper::AuthenticationError => e

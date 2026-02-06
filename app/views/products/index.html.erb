@@ -6,12 +6,15 @@
 
   <!-- Search & Filter -->
   <div class="bg-white shadow rounded-lg p-4 mb-6">
-    <%= form_with(url: products_path, method: :get, class: "flex flex-col gap-3 sm:flex-row") do |form| %>
-      <div class="flex-1">
+    <%= form_with(url: products_path, method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap") do |form| %>
+      <div class="flex-1 min-w-[200px]">
         <%= form.text_field :search, value: params[:search], placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
-      <div class="sm:w-48">
+      <div class="sm:w-40">
         <%= form.select :category, Product.distinct.pluck(:category).compact.sort.map { |c| [c, c] }, { prompt: "All Categories", selected: params[:category] }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+      </div>
+      <div class="sm:w-40">
+        <%= form.select :supplier_id, @suppliers.map { |s| [s.name, s.id] }, { prompt: "All Suppliers", selected: params[:supplier_id] }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
       <div class="sm:w-28">
         <%= form.select :per_page, [["50 / page", 50], ["100 / page", 100], ["All", 200]], { selected: params[:per_page] || 50 }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
@@ -33,29 +36,26 @@
               <h3 class="text-sm font-medium text-gray-900">
                 <%= link_to product.name, product_path(product), class: "hover:text-brand-orange" %>
               </h3>
-              <p class="text-sm text-gray-500 truncate">
+              <p class="text-sm text-gray-500">
                 <%= [product.category, product.subcategory].compact.join(" > ") %>
                 <% if product.unit_size.present? %>
                   &middot; <%= [product.unit_size, product.unit_type].compact.join(" ") %>
                 <% end %>
                 <% pack_sizes = product.supplier_products.map(&:pack_size).compact_blank.uniq %>
                 <% if pack_sizes.any? %>
-                  &middot; <%= pack_sizes.join(", ") %>
+                  &middot; <%= pack_sizes.first %><%= " +#{pack_sizes.size - 1}" if pack_sizes.size > 1 %>
                 <% end %>
               </p>
+              <% suppliers = product.supplier_products.map(&:supplier).uniq %>
+              <% if suppliers.any? %>
+                <p class="text-xs text-gray-400 mt-1">
+                  <% suppliers.each_with_index do |supplier, idx| %>
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 mr-1"><%= supplier.name %></span>
+                  <% end %>
+                </p>
+              <% end %>
             </div>
             <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-              <% sp_count = product.supplier_products.size %>
-              <% supplier_count = product.supplier_products.map(&:supplier_id).uniq.size %>
-              <span class="hidden sm:inline text-sm text-gray-500">
-                <% if supplier_count > 1 %>
-                  <%= supplier_count %> suppliers
-                <% elsif sp_count > 1 %>
-                  <%= sp_count %> products
-                <% else %>
-                  1 product
-                <% end %>
-              </span>
               <%= link_to "Edit", edit_product_path(product), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
             </div>
           </div>
@@ -64,10 +64,11 @@
     </div>
 
     <!-- Pagination -->
+    <% filter_params = { search: params[:search], category: params[:category], supplier_id: params[:supplier_id], per_page: params[:per_page] }.compact_blank %>
     <nav class="mt-4 flex items-center justify-between" aria-label="Pagination">
       <div class="flex gap-1">
         <% if @products.prev_page %>
-          <%= link_to products_path(page: @products.prev_page, search: params[:search], category: params[:category], per_page: params[:per_page]),
+          <%= link_to products_path(filter_params.merge(page: @products.prev_page)),
                 class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" do %>
             <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
             Previous
@@ -78,7 +79,7 @@
       <div class="hidden sm:flex gap-1">
         <% pages_to_show = ([@products.current_page - 2, 1].max..[@products.current_page + 2, @products.total_pages].min) %>
         <% if pages_to_show.first > 1 %>
-          <%= link_to "1", products_path(page: 1, search: params[:search], category: params[:category], per_page: params[:per_page]),
+          <%= link_to "1", products_path(filter_params.merge(page: 1)),
                 class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
           <% if pages_to_show.first > 2 %>
             <span class="inline-flex items-center px-2 py-2 text-sm text-gray-400">&hellip;</span>
@@ -89,7 +90,7 @@
           <% if page_num == @products.current_page %>
             <span class="inline-flex items-center px-3 py-2 text-sm font-semibold rounded-md bg-brand-orange text-white"><%= page_num %></span>
           <% else %>
-            <%= link_to page_num, products_path(page: page_num, search: params[:search], category: params[:category], per_page: params[:per_page]),
+            <%= link_to page_num, products_path(filter_params.merge(page: page_num)),
                   class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
           <% end %>
         <% end %>
@@ -98,7 +99,7 @@
           <% if pages_to_show.last < @products.total_pages - 1 %>
             <span class="inline-flex items-center px-2 py-2 text-sm text-gray-400">&hellip;</span>
           <% end %>
-          <%= link_to @products.total_pages, products_path(page: @products.total_pages, search: params[:search], category: params[:category], per_page: params[:per_page]),
+          <%= link_to @products.total_pages, products_path(filter_params.merge(page: @products.total_pages)),
                 class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
         <% end %>
       </div>
@@ -109,7 +110,7 @@
 
       <div class="flex gap-1">
         <% if @products.next_page %>
-          <%= link_to products_path(page: @products.next_page, search: params[:search], category: params[:category], per_page: params[:per_page]),
+          <%= link_to products_path(filter_params.merge(page: @products.next_page)),
                 class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" do %>
             Next
             <svg class="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>

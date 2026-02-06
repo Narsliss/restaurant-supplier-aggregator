@@ -121,6 +121,18 @@ class SupplierCredentialsController < ApplicationController
   end
 
   def validate
+    # Check if credential is already active and recently validated
+    if @credential.active? && @credential.last_login_at.present? && @credential.last_login_at > 1.hour.ago
+      respond_to do |format|
+        format.html do
+          redirect_to supplier_credentials_path,
+            notice: "#{@credential.supplier.name} credentials are already validated and active."
+        end
+        format.json { render json: { status: "already_active", message: "Credentials are already validated and active.", credential_id: @credential.id } }
+      end
+      return
+    end
+
     # Check if credential is on hold
     if @credential.on_hold?
       respond_to do |format|
@@ -133,10 +145,15 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
-    # PPO (and other passwordless suppliers) use a long-running login that polls
-    # the DB for the user's code. Run these asynchronously via Sidekiq so the
-    # request doesn't block for up to 5 minutes.
-    if @credential.supplier.scraper_class == "Scrapers::PremiereProduceOneScraper"
+    # Suppliers that may require 2FA (with code polling) should run asynchronously
+    # via Sidekiq so the HTTP request doesn't block for up to 5 minutes.
+    # This includes PPO (passwordless) and US Foods (MFA via Azure B2C).
+    async_scrapers = [
+      "Scrapers::PremiereProduceOneScraper",
+      "Scrapers::UsFoodsScraper"
+    ]
+
+    if async_scrapers.include?(@credential.supplier.scraper_class)
       # Cancel any existing pending 2FA requests for this credential
       Supplier2faRequest.where(supplier_credential: @credential, status: "pending").update_all(status: "cancelled")
       @credential.update!(status: "pending")
@@ -146,14 +163,14 @@ class SupplierCredentialsController < ApplicationController
       respond_to do |format|
         format.html do
           redirect_to supplier_credentials_path,
-            notice: "Validating #{@credential.supplier.name}... A verification code will be sent to your email. Refresh this page in a few seconds to see the code entry form."
+            notice: "Validating #{@credential.supplier.name}... Check your email or phone for a verification code."
         end
         format.json { render json: { status: "validating", credential_id: @credential.id, supplier: @credential.supplier.name } }
       end
       return
     end
 
-    # Non-PPO suppliers: validate synchronously
+    # Other suppliers: validate synchronously
     result = validate_credential_now(@credential)
 
     respond_to do |format|

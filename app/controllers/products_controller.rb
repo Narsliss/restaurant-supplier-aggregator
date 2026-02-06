@@ -4,7 +4,7 @@ class ProductsController < ApplicationController
   def index
     per_page = (params[:per_page] || 50).to_i.clamp(10, 200)
 
-    @products = Product.includes(:supplier_products)
+    @products = Product.includes(supplier_products: :supplier)
       .order(:name)
       .page(params[:page])
       .per(per_page)
@@ -13,9 +13,17 @@ class ProductsController < ApplicationController
       @products = @products.by_category(params[:category])
     end
 
+    if params[:supplier_id].present?
+      @products = @products.joins(:supplier_products)
+        .where(supplier_products: { supplier_id: params[:supplier_id] })
+        .distinct
+    end
+
     if params[:search].present?
       @products = @products.search(params[:search])
     end
+
+    @suppliers = Supplier.joins(:supplier_products).distinct.order(:name)
   end
 
   def search

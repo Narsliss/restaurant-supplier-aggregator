@@ -19,18 +19,27 @@
   </div>
 
   <!-- Add Item Form -->
-  <div class="bg-white shadow rounded-lg p-4 mb-6">
+  <div class="bg-white shadow rounded-lg p-4 mb-6" data-controller="product-search">
     <h3 class="text-sm font-medium text-gray-700 mb-3">Add Item</h3>
-    <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex flex-col gap-3 sm:flex-row") do |form| %>
-      <div class="flex-1">
-        <%= form.text_field :product_search, placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", id: "product-search", data: { action: "input->product-search#search" } %>
-        <%= form.hidden_field :product_id, id: "selected-product-id" %>
+    <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex flex-col gap-3 sm:flex-row sm:items-start", data: { turbo: false }) do %>
+      <div class="flex-1 relative">
+        <input type="text"
+               placeholder="Search products..."
+               class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm"
+               autocomplete="off"
+               data-product-search-target="input"
+               data-action="input->product-search#search blur->product-search#hideResults" />
+        <input type="hidden" name="order_list_item[product_id]" data-product-search-target="productId" />
+        <!-- Search Results Dropdown -->
+        <div data-product-search-target="results"
+             class="hidden absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 max-h-60 overflow-y-auto">
+        </div>
       </div>
       <div class="flex gap-3">
         <div class="w-20 sm:w-24">
-          <%= form.number_field :quantity, value: 1, min: 1, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", placeholder: "Qty" %>
+          <input type="number" name="order_list_item[quantity]" value="1" min="1" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" placeholder="Qty" />
         </div>
-        <%= form.submit "Add", class: "bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer" %>
+        <button type="submit" class="bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer">Add</button>
       </div>
     <% end %>
   </div>
@@ -50,7 +59,7 @@
               <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-xs font-medium flex-shrink-0" %>
             </div>
             <div class="mt-2">
-              <%= form_with(url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
+              <%= form_with(model: [item.order_list, item], url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
                 <label class="text-xs text-gray-500">Qty:</label>
                 <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-16 rounded-md border-gray-300 text-sm ml-1", onchange: "this.form.requestSubmit()" %>
               <% end %>
@@ -74,7 +83,7 @@
               <tr>
                 <td class="px-4 py-3 text-sm text-gray-900"><%= item.product.name %></td>
                 <td class="px-4 py-3 text-sm text-gray-900">
-                  <%= form_with(url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
+                  <%= form_with(model: [item.order_list, item], url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
                     <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-20 rounded-md border-gray-300 text-sm", onchange: "this.form.requestSubmit()" %>
                   <% end %>
                 </td>

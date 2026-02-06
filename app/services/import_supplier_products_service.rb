@@ -93,58 +93,61 @@ class ImportSupplierProductsService
   private
 
   # Try to match an existing Product by name, or create a new one.
-  # Size variants (e.g. "Chicken Breast 4oz" vs "6oz") should match the same Product
-  # so they appear as different listings on the same product page.
+  # Uses ProductNormalizer for intelligent matching across size variants and brands.
   def find_or_create_product(item)
-    normalized = item[:supplier_name].downcase.gsub(/[^a-z0-9\s]/, "").squish
+    normalizer = ProductNormalizer.new(item[:supplier_name], pack_size: item[:pack_size])
+    canonical = normalizer.canonical_name
 
-    # First try exact normalized match
-    product = Product.where("normalized_name = ?", normalized).first
+    return nil if canonical.blank?
+
+    # First try exact match on canonical name
+    product = Product.find_by("LOWER(normalized_name) = ?", canonical.downcase)
     return product if product
 
-    # Fuzzy match: strip size/weight tokens so "Chicken Breast 4oz" matches "Chicken Breast 6oz"
-    base = base_product_name(normalized)
+    # Try similarity matching against existing products
+    # Only check products with similar first word to avoid scanning entire table
+    first_word = canonical.split.first
+    if first_word.present?
+      candidates = Product.where("normalized_name ILIKE ?", "#{first_word}%").to_a
+      candidates += Product.where("normalized_name ILIKE ?", "%#{first_word}%").limit(50).to_a
+      candidates.uniq!
 
-    if base.split.size >= 2
-      words = base.split
-      pattern = "%" + words.join("%") + "%"
-      candidates = Product.where("normalized_name ILIKE ?", pattern).to_a
+      # Find best match above threshold (0.75 to avoid false positives on
+      # products that differ only by size/count like 21-25 vs 26-30 shrimp)
+      best_match = nil
+      best_score = 0.0
 
-      # Among candidates, verify their base name matches ours (not just a substring)
-      product = candidates.find { |c| base_product_name(c.normalized_name.to_s) == base }
+      candidates.each do |candidate|
+        score = ProductNormalizer.similarity(item[:supplier_name], candidate.name)
+        if score > best_score && score >= 0.75
+          best_score = score
+          best_match = candidate
+        end
+      end
+
+      return best_match if best_match
     end
 
-    # Create new product if no match found
-    product ||= Product.create!(
-      name: item[:supplier_name],
-      category: item[:category] || guess_category(item[:supplier_name]),
-      unit_size: item[:pack_size]
+    # No match found - create a new canonical product
+    display_name = canonical.split.map(&:capitalize).join(" ")
+
+    Product.create!(
+      name: display_name,
+      normalized_name: canonical.downcase.gsub(/[^a-z0-9\s]/, "").squish,
+      category: item[:category] || guess_category(item[:supplier_name])
     )
-
-    product
-  end
-
-  # Strip size/weight/count tokens from a normalized product name to get the "base" identity.
-  # This lets size variants like "Salmon 6 Oz" and "Salmon 8 Oz" match the same product.
-  # Keeps words that describe the product itself (brand, variety, cut, etc.).
-  def base_product_name(name)
-    name
-      .gsub(/\b\d+\s*(oz|lb|lbs|kg|g|gal|gallon|liter|litre|ct|count|pc|pcs|pack|pk)\b/, "") # 6 oz, 40 lb
-      .gsub(/\b\d+x\d+\b/, "")       # case packs like 4x5
-      .gsub(/\b\d+\s*#\b/, "")        # weight like 40#
-      .squish
   end
 
   # Simple category guesser based on product name keywords
   def guess_category(name)
     n = name.downcase
     return "Poultry" if n.match?(/chicken|turkey|duck|poultry|wing|thigh|breast/)
-    return "Meat" if n.match?(/beef|steak|pork|lamb|veal|bacon|sausage|ground|rib|loin|chop/)
-    return "Seafood" if n.match?(/salmon|shrimp|fish|tuna|crab|lobster|oyster|clam|scallop|cod|tilapia|mahi/)
-    return "Produce" if n.match?(/lettuce|tomato|onion|potato|carrot|pepper|garlic|herb|mushroom|avocado|lemon|lime|apple|berry|fruit|vegetable|greens|kale|spinach|celery|cucumber/)
-    return "Dairy" if n.match?(/milk|cream|cheese|butter|yogurt|egg|mozzarella|parmesan|cheddar/)
+    return "Meat" if n.match?(/beef|steak|pork|lamb|veal|bacon|sausage|ground|rib|loin|chop|elk|venison/)
+    return "Seafood" if n.match?(/salmon|shrimp|fish|tuna|crab|lobster|oyster|clam|scallop|cod|tilapia|mahi|caviar|trout|roe/)
+    return "Produce" if n.match?(/lettuce|tomato|onion|potato|carrot|pepper|garlic|herb|mushroom|avocado|lemon|lime|apple|berry|fruit|vegetable|greens|kale|spinach|celery|cucumber|squash|cabbage/)
+    return "Dairy" if n.match?(/milk|cream|cheese|butter|yogurt|egg|mozzarella|parmesan|cheddar|gouda/)
     return "Bakery" if n.match?(/bread|roll|bun|tortilla|pastry|cake|cookie|muffin|croissant/)
-    return "Dry Goods" if n.match?(/flour|sugar|rice|pasta|oil|vinegar|sauce|spice|salt|pepper|seasoning/)
+    return "Dry Goods" if n.match?(/flour|sugar|rice|pasta|oil|vinegar|sauce|spice|salt|pepper|seasoning|tortellini|rigatoni/)
     return "Beverages" if n.match?(/water|juice|soda|coffee|tea|wine|beer/)
     return "Frozen" if n.match?(/frozen|ice cream|sorbet/)
     nil

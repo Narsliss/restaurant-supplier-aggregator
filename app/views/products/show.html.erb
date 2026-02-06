@@ -10,29 +10,11 @@
     </div>
   </div>
 
-  <!-- Product Details -->
-  <div class="bg-white shadow rounded-lg p-4 sm:p-6 mb-6">
-    <dl class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-      <div>
-        <dt class="text-sm font-medium text-gray-500">Unit</dt>
-        <dd class="mt-1 text-gray-900"><%= [@product.unit_size, @product.unit_type].compact.join(" ").presence || "—" %></dd>
-      </div>
-      <div>
-        <dt class="text-sm font-medium text-gray-500">UPC</dt>
-        <dd class="mt-1 text-gray-900"><%= @product.upc || "—" %></dd>
-      </div>
-      <div>
-        <dt class="text-sm font-medium text-gray-500">Brand</dt>
-        <dd class="mt-1 text-gray-900"><%= @product.brand || "—" %></dd>
-      </div>
-    </dl>
-    <% if @product.description.present? %>
-      <div class="mt-4">
-        <dt class="text-sm font-medium text-gray-500">Description</dt>
-        <dd class="mt-1 text-gray-900"><%= @product.description %></dd>
-      </div>
-    <% end %>
-  </div>
+  <% if @product.description.present? %>
+    <div class="bg-white shadow rounded-lg p-4 sm:p-6 mb-6">
+      <p class="text-gray-700"><%= @product.description %></p>
+    </div>
+  <% end %>
 
   <!-- Supplier Prices -->
   <div class="bg-white shadow rounded-lg overflow-hidden">
