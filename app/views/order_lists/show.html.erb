@@ -50,6 +50,7 @@
       <!-- Mobile card layout -->
       <div class="sm:hidden divide-y divide-gray-200">
         <% @items.each do |item| %>
+          <% best_price = item.product.supplier_products.select { |sp| sp.current_price.present? }.min_by(&:current_price) %>
           <div class="p-4">
             <div class="flex justify-between items-start gap-2">
               <div class="min-w-0 flex-1">
@@ -58,11 +59,21 @@
               </div>
               <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-xs font-medium flex-shrink-0" %>
             </div>
-            <div class="mt-2">
-              <%= form_with(model: [item.order_list, item], url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
-                <label class="text-xs text-gray-500">Qty:</label>
-                <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-16 rounded-md border-gray-300 text-sm ml-1", onchange: "this.form.requestSubmit()" %>
-              <% end %>
+            <div class="mt-2 flex justify-between items-center">
+              <div>
+                <%= form_with(model: [item.order_list, item], url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
+                  <label class="text-xs text-gray-500">Qty:</label>
+                  <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-16 rounded-md border-gray-300 text-sm ml-1", onchange: "this.form.requestSubmit()" %>
+                <% end %>
+              </div>
+              <div class="text-right">
+                <% if best_price %>
+                  <p class="text-sm font-medium text-gray-900"><%= number_to_currency(best_price.current_price) %></p>
+                  <p class="text-xs text-gray-500"><%= best_price.supplier.name %></p>
+                <% else %>
+                  <p class="text-sm text-gray-400">No price</p>
+                <% end %>
+              </div>
             </div>
           </div>
         <% end %>
@@ -73,27 +84,56 @@
           <thead class="bg-gray-50">
             <tr>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Quantity</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Best Price</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Line Total</th>
               <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200">
+            <% total = 0 %>
             <% @items.each do |item| %>
+              <% best_price = item.product.supplier_products.select { |sp| sp.current_price.present? }.min_by(&:current_price) %>
+              <% line_total = best_price ? best_price.current_price * item.quantity : 0 %>
+              <% total += line_total %>
               <tr>
-                <td class="px-4 py-3 text-sm text-gray-900"><%= item.product.name %></td>
-                <td class="px-4 py-3 text-sm text-gray-900">
+                <td class="px-4 py-3">
+                  <p class="text-sm text-gray-900"><%= item.product.name %></p>
+                  <p class="text-xs text-gray-500"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></p>
+                </td>
+                <td class="px-4 py-3 text-center">
                   <%= form_with(model: [item.order_list, item], url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
-                    <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-20 rounded-md border-gray-300 text-sm", onchange: "this.form.requestSubmit()" %>
+                    <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-20 rounded-md border-gray-300 text-sm text-center", onchange: "this.form.requestSubmit()" %>
                   <% end %>
                 </td>
-                <td class="px-4 py-3 text-sm text-gray-500"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></td>
+                <td class="px-4 py-3 text-right">
+                  <% if best_price %>
+                    <p class="text-sm text-gray-900"><%= number_to_currency(best_price.current_price) %></p>
+                    <p class="text-xs text-gray-500"><%= best_price.supplier.name %></p>
+                  <% else %>
+                    <span class="text-sm text-gray-400">—</span>
+                  <% end %>
+                </td>
+                <td class="px-4 py-3 text-right text-sm font-medium text-gray-900">
+                  <% if best_price %>
+                    <%= number_to_currency(line_total) %>
+                  <% else %>
+                    <span class="text-gray-400">—</span>
+                  <% end %>
+                </td>
                 <td class="px-4 py-3 text-right">
                   <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-sm font-medium" %>
                 </td>
               </tr>
             <% end %>
           </tbody>
+          <tfoot class="bg-gray-50">
+            <tr>
+              <td class="px-4 py-3 text-sm font-medium text-gray-900" colspan="3">Estimated Total (Best Prices)</td>
+              <td class="px-4 py-3 text-right text-sm font-bold text-gray-900"><%= number_to_currency(total) %></td>
+              <td></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     <% else %>
