@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+
+# Logs
+log/*
+tmp/*
+
+# Storage (use volumes instead)
+storage/*
+
+# Environment files with secrets
+.env
+.env.*
+!.env.example
+
+# Development/test gems
+vendor/bundle
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (if any)
+node_modules
+
+# Test files
+spec/
+coverage/
+.rspec
+
+# Documentation
+README.md
+CHANGELOG.md
+docs/
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+
+# Docker files (don't need to copy into image)
+docker-compose*.yml
+Dockerfile*
+
+# Claude/AI config
+.claude/

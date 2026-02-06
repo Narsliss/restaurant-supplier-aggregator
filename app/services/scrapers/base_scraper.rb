@@ -44,8 +44,8 @@ module Scrapers
     end
 
     def with_browser(&block)
-      @browser = Ferrum::Browser.new(
-        headless: true,
+      browser_opts = {
+        headless: ENV.fetch("BROWSER_HEADLESS", "true") == "true",
         timeout: 30,
         window_size: [1920, 1080],
         browser_options: {
@@ -53,7 +53,13 @@ module Scrapers
           "disable-gpu": true,
           "disable-dev-shm-usage": true
         }
-      )
+      }
+      # Allow custom Chrome/Chromium path via environment variable
+      if ENV["BROWSER_PATH"].present?
+        browser_opts[:browser_path] = ENV["BROWSER_PATH"]
+      end
+
+      @browser = Ferrum::Browser.new(**browser_opts)
       yield(browser)
     ensure
       browser&.quit
