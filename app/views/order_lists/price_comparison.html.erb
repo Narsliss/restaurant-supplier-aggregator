@@ -35,6 +35,18 @@
               Need <%= number_to_currency(totals[:amount_to_minimum]) %> more to meet minimum
             </p>
           <% end %>
+          <div class="mt-3">
+            <% if totals[:available_items] > 0 %>
+              <%= link_to new_order_path(order_list_id: @order_list.id, supplier_id: supplier_id),
+                  class: "inline-flex items-center justify-center w-full bg-brand-orange text-white px-3 py-2 rounded-lg hover:bg-brand-orange-dark text-sm font-medium" do %>
+                Create Order
+              <% end %>
+            <% else %>
+              <span class="inline-flex items-center justify-center w-full bg-gray-100 text-gray-400 px-3 py-2 rounded-lg text-sm">
+                No items available
+              </span>
+            <% end %>
+          </div>
         </div>
       <% end %>
     </div>
