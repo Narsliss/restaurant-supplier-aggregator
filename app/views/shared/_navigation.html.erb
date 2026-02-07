@@ -45,6 +45,7 @@
                data-dropdown-target="menu">
             <div class="px-4 py-2 text-sm text-brand-navy font-medium border-b border-gray-100"><%= current_user.full_name %></div>
             <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
+            <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <%= link_to "Locations", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <% if current_user.admin? %>
@@ -106,6 +107,7 @@
       </div>
       <div class="space-y-1">
         <%= link_to "Settings", edit_user_registration_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
+        <%= link_to "Team", organization_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
         <%= link_to "Billing", subscription_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
         <%= link_to "Locations", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
         <% if current_user.admin? %>

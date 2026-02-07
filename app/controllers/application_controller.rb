@@ -1,6 +1,7 @@
 class ApplicationController < ActionController::Base
   before_action :authenticate_user!
-  before_action :require_subscription, unless: :skip_subscription_check?
+  # TODO: Re-enable subscription enforcement when ready for production
+  # before_action :require_subscription, unless: :skip_subscription_check?
   before_action :configure_permitted_parameters, if: :devise_controller?
 
   helper_method :current_location, :subscription_required?

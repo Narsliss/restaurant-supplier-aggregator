@@ -4,6 +4,12 @@ class User < ApplicationRecord
          :trackable, :lockable
 
   # Associations
+  # Organization memberships
+  has_many :memberships, dependent: :destroy
+  has_many :organizations, through: :memberships
+  belongs_to :current_organization, class_name: "Organization", optional: true
+
+  # Personal resources (legacy - will be moved to organization)
   has_many :locations, dependent: :destroy
   has_many :supplier_credentials, dependent: :destroy
   has_many :suppliers, through: :supplier_credentials
@@ -13,6 +19,9 @@ class User < ApplicationRecord
   has_many :subscriptions, dependent: :destroy
   has_many :invoices, dependent: :destroy
   has_many :billing_events, dependent: :nullify
+
+  # Invitations sent by this user
+  has_many :sent_invitations, class_name: "OrganizationInvitation", foreign_key: :invited_by_id
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
@@ -48,13 +57,65 @@ class User < ApplicationRecord
     supplier_credentials.find_by(supplier: supplier)
   end
 
-  # Subscription methods
+  # Organization methods
+  def organization
+    current_organization
+  end
+
+  def has_organization?
+    current_organization.present?
+  end
+
+  def membership_for(org)
+    memberships.find_by(organization: org)
+  end
+
+  def role_in(org)
+    membership_for(org)&.role
+  end
+
+  def owner_of?(org)
+    role_in(org) == "owner"
+  end
+
+  def admin_of?(org)
+    %w[owner admin].include?(role_in(org))
+  end
+
+  def manager_of?(org)
+    %w[owner admin manager].include?(role_in(org))
+  end
+
+  def member_of?(org)
+    memberships.exists?(organization: org, active: true)
+  end
+
+  # Create a new organization with this user as owner
+  def create_organization!(name:, **attributes)
+    transaction do
+      org = Organization.create!(name: name, **attributes)
+      memberships.create!(organization: org, role: "owner")
+      update!(current_organization: org) if current_organization.nil?
+      org
+    end
+  end
+
+  # Switch to a different organization
+  def switch_organization!(org)
+    raise "Not a member of this organization" unless member_of?(org)
+
+    update!(current_organization: org)
+  end
+
+  # Subscription methods (now delegates to organization when present)
   def current_subscription
-    subscriptions.active_or_trialing.order(created_at: :desc).first
+    # Check organization subscription first, fall back to personal
+    current_organization&.current_subscription || subscriptions.active_or_trialing.order(created_at: :desc).first
   end
 
   def subscribed?
-    current_subscription&.allows_access? || false
+    # Check organization subscription first, fall back to personal
+    current_organization&.subscribed? || current_subscription&.allows_access? || false
   end
 
   def subscription_status

@@ -19,6 +19,18 @@ Rails.application.routes.draw do
     post :reactivate
   end
 
+  # Organizations & Team Management
+  resource :organization, only: [:show, :new, :create, :edit, :update] do
+    post :switch, on: :member
+    resources :memberships, only: [:update, :destroy], module: :organizations
+    resources :invitations, only: [:create, :destroy], module: :organizations do
+      post :resend, on: :member
+    end
+  end
+
+  # Accept invitation (public route)
+  get "invitations/:token/accept", to: "organizations/invitations#accept", as: :accept_invitation
+
   # Locations
   resources :locations
 

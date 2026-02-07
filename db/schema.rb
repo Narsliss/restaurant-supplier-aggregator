@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_07_014350) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -46,6 +46,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
     t.datetime "paid_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "organization_id"
+    t.index ["organization_id"], name: "index_invoices_on_organization_id"
     t.index ["status"], name: "index_invoices_on_status"
     t.index ["stripe_invoice_id"], name: "index_invoices_on_stripe_invoice_id", unique: true
     t.index ["subscription_id"], name: "index_invoices_on_subscription_id"
@@ -63,8 +65,29 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
     t.boolean "is_default", default: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "organization_id"
+    t.index ["organization_id"], name: "index_locations_on_organization_id"
     t.index ["user_id", "is_default"], name: "index_locations_on_user_id_and_is_default"
     t.index ["user_id"], name: "index_locations_on_user_id"
+  end
+
+  create_table "memberships", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "organization_id", null: false
+    t.string "role", default: "member", null: false
+    t.string "invitation_token"
+    t.datetime "invitation_sent_at"
+    t.datetime "invitation_accepted_at"
+    t.string "invited_by_id"
+    t.boolean "active", default: true
+    t.datetime "deactivated_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invitation_token"], name: "index_memberships_on_invitation_token", unique: true
+    t.index ["organization_id"], name: "index_memberships_on_organization_id"
+    t.index ["role"], name: "index_memberships_on_role"
+    t.index ["user_id", "organization_id"], name: "index_memberships_on_user_id_and_organization_id", unique: true
+    t.index ["user_id"], name: "index_memberships_on_user_id"
   end
 
   create_table "order_items", force: :cascade do |t|
@@ -104,6 +127,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
     t.datetime "last_used_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "organization_id"
+    t.index ["organization_id"], name: "index_order_lists_on_organization_id"
     t.index ["user_id", "is_favorite"], name: "index_order_lists_on_user_id_and_is_favorite"
     t.index ["user_id", "last_used_at"], name: "index_order_lists_on_user_id_and_last_used_at"
     t.index ["user_id"], name: "index_order_lists_on_user_id"
@@ -140,15 +165,52 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
     t.datetime "confirmed_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "organization_id"
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"
     t.index ["order_list_id"], name: "index_orders_on_order_list_id"
+    t.index ["organization_id"], name: "index_orders_on_organization_id"
     t.index ["status"], name: "index_orders_on_status"
     t.index ["submitted_at"], name: "index_orders_on_submitted_at"
     t.index ["supplier_id"], name: "index_orders_on_supplier_id"
     t.index ["user_id", "status"], name: "index_orders_on_user_id_and_status"
     t.index ["user_id", "submitted_at"], name: "index_orders_on_user_id_and_submitted_at"
     t.index ["user_id"], name: "index_orders_on_user_id"
+  end
+
+  create_table "organization_invitations", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "invited_by_id", null: false
+    t.string "email", null: false
+    t.string "role", default: "member", null: false
+    t.string "token", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "accepted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invited_by_id"], name: "index_organization_invitations_on_invited_by_id"
+    t.index ["organization_id", "email"], name: "index_organization_invitations_on_organization_id_and_email", unique: true
+    t.index ["organization_id"], name: "index_organization_invitations_on_organization_id"
+    t.index ["token"], name: "index_organization_invitations_on_token", unique: true
+  end
+
+  create_table "organizations", force: :cascade do |t|
+    t.string "name", null: false
+    t.string "slug", null: false
+    t.string "phone"
+    t.text "address"
+    t.string "city"
+    t.string "state"
+    t.string "zip_code"
+    t.string "timezone", default: "America/New_York"
+    t.string "stripe_customer_id"
+    t.jsonb "settings", default: {}
+    t.boolean "active", default: true
+    t.datetime "suspended_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["slug"], name: "index_organizations_on_slug", unique: true
+    t.index ["stripe_customer_id"], name: "index_organizations_on_stripe_customer_id", unique: true
   end
 
   create_table "products", force: :cascade do |t|
@@ -189,6 +251,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
     t.jsonb "metadata", default: {}
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "organization_id"
+    t.index ["organization_id"], name: "index_subscriptions_on_organization_id"
     t.index ["status"], name: "index_subscriptions_on_status"
     t.index ["stripe_subscription_id"], name: "index_subscriptions_on_stripe_subscription_id", unique: true
     t.index ["user_id", "status"], name: "index_subscriptions_on_user_id_and_status"
@@ -238,6 +302,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
     t.datetime "updated_at", null: false
     t.boolean "importing", default: false, null: false
     t.datetime "last_import_at"
+    t.bigint "organization_id"
+    t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"
     t.index ["status"], name: "index_supplier_credentials_on_status"
     t.index ["supplier_id"], name: "index_supplier_credentials_on_supplier_id"
     t.index ["user_id", "supplier_id"], name: "idx_supplier_creds_unique", unique: true
@@ -334,6 +400,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "stripe_customer_id"
+    t.bigint "current_organization_id"
+    t.index ["current_organization_id"], name: "index_users_on_current_organization_id"
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
     t.index ["stripe_customer_id"], name: "index_users_on_stripe_customer_id", unique: true
@@ -342,22 +410,32 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
 
   add_foreign_key "billing_events", "subscriptions"
   add_foreign_key "billing_events", "users"
+  add_foreign_key "invoices", "organizations"
   add_foreign_key "invoices", "subscriptions"
   add_foreign_key "invoices", "users"
+  add_foreign_key "locations", "organizations"
   add_foreign_key "locations", "users", on_delete: :cascade
+  add_foreign_key "memberships", "organizations"
+  add_foreign_key "memberships", "users"
   add_foreign_key "order_items", "orders", on_delete: :cascade
   add_foreign_key "order_items", "supplier_products", on_delete: :restrict
   add_foreign_key "order_list_items", "order_lists", on_delete: :cascade
   add_foreign_key "order_list_items", "products", on_delete: :cascade
+  add_foreign_key "order_lists", "organizations"
   add_foreign_key "order_lists", "users", on_delete: :cascade
   add_foreign_key "order_validations", "orders", on_delete: :cascade
   add_foreign_key "orders", "locations", on_delete: :nullify
   add_foreign_key "orders", "order_lists", on_delete: :nullify
+  add_foreign_key "orders", "organizations"
   add_foreign_key "orders", "suppliers", on_delete: :restrict
   add_foreign_key "orders", "users", on_delete: :cascade
+  add_foreign_key "organization_invitations", "organizations"
+  add_foreign_key "organization_invitations", "users", column: "invited_by_id"
+  add_foreign_key "subscriptions", "organizations"
   add_foreign_key "subscriptions", "users"
   add_foreign_key "supplier_2fa_requests", "supplier_credentials", on_delete: :cascade
   add_foreign_key "supplier_2fa_requests", "users", on_delete: :cascade
+  add_foreign_key "supplier_credentials", "organizations"
   add_foreign_key "supplier_credentials", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_credentials", "users", on_delete: :cascade
   add_foreign_key "supplier_delivery_schedules", "locations", on_delete: :cascade
@@ -365,4 +443,5 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_06_223848) do
   add_foreign_key "supplier_products", "products", on_delete: :nullify
   add_foreign_key "supplier_products", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_requirements", "suppliers", on_delete: :cascade
+  add_foreign_key "users", "organizations", column: "current_organization_id"
 end

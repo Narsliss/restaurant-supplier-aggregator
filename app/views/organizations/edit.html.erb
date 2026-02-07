@@ -1,0 +1,52 @@
+<div class="max-w-2xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <div class="mb-8">
+    <%= link_to "← Back to Organization", organization_path, class: "text-primary-600 hover:text-primary-700 text-sm" %>
+    <h1 class="text-3xl font-bold text-gray-900 mt-4">Edit Organization</h1>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <%= form_with model: @organization, url: organization_path, method: :patch, local: true, class: "space-y-5" do |f| %>
+      <div>
+        <%= f.label :name, "Organization Name", class: "block text-sm font-medium text-gray-700" %>
+        <%= f.text_field :name, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500", required: true %>
+      </div>
+
+      <div>
+        <%= f.label :phone, "Phone Number", class: "block text-sm font-medium text-gray-700" %>
+        <%= f.telephone_field :phone, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500" %>
+      </div>
+
+      <div>
+        <%= f.label :address, "Address", class: "block text-sm font-medium text-gray-700" %>
+        <%= f.text_area :address, rows: 2, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500" %>
+      </div>
+
+      <div class="grid grid-cols-6 gap-4">
+        <div class="col-span-3">
+          <%= f.label :city, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.text_field :city, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500" %>
+        </div>
+
+        <div class="col-span-1">
+          <%= f.label :state, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.text_field :state, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500", maxlength: 2 %>
+        </div>
+
+        <div class="col-span-2">
+          <%= f.label :zip_code, "ZIP", class: "block text-sm font-medium text-gray-700" %>
+          <%= f.text_field :zip_code, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500" %>
+        </div>
+      </div>
+
+      <div>
+        <%= f.label :timezone, "Timezone", class: "block text-sm font-medium text-gray-700" %>
+        <%= f.time_zone_select :timezone, ActiveSupport::TimeZone.us_zones, {}, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500" %>
+      </div>
+
+      <div class="pt-4 flex justify-end space-x-3">
+        <%= link_to "Cancel", organization_path, class: "px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors" %>
+        <%= f.submit "Save Changes", class: "px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors cursor-pointer" %>
+      </div>
+    <% end %>
+  </div>
+</div>

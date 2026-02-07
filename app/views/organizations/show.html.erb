@@ -1,0 +1,165 @@
+<div class="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900"><%= @organization.name %></h1>
+      <p class="text-gray-600 mt-1">Team & Organization Settings</p>
+    </div>
+    <% if current_user.admin_of?(@organization) %>
+      <%= link_to "Edit Organization", edit_organization_path, class: "px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors" %>
+    <% end %>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- Team Members -->
+    <div class="lg:col-span-2">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-200 flex justify-between items-center">
+          <h2 class="text-lg font-semibold text-gray-900">Team Members</h2>
+          <span class="text-sm text-gray-500"><%= @members.count %> member<%= @members.count == 1 ? '' : 's' %></span>
+        </div>
+
+        <ul class="divide-y divide-gray-200">
+          <% @members.each do |membership| %>
+            <li class="px-6 py-4 flex items-center justify-between">
+              <div class="flex items-center">
+                <span class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary-100">
+                  <span class="text-sm font-medium text-primary-700"><%= membership.user.full_name.first.upcase %></span>
+                </span>
+                <div class="ml-4">
+                  <p class="text-sm font-medium text-gray-900">
+                    <%= membership.user.full_name %>
+                    <% if membership.user == current_user %>
+                      <span class="text-gray-500">(you)</span>
+                    <% end %>
+                  </p>
+                  <p class="text-sm text-gray-500"><%= membership.user.email %></p>
+                </div>
+              </div>
+              <div class="flex items-center space-x-3">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                  <%= case membership.role
+                      when 'owner' then 'bg-purple-100 text-purple-800'
+                      when 'admin' then 'bg-blue-100 text-blue-800'
+                      when 'manager' then 'bg-green-100 text-green-800'
+                      else 'bg-gray-100 text-gray-800'
+                      end %>">
+                  <%= membership.role_display %>
+                </span>
+
+                <% if current_user.admin_of?(@organization) && !membership.owner? && membership.user != current_user %>
+                  <div class="relative" data-controller="dropdown">
+                    <button type="button" class="text-gray-400 hover:text-gray-600" data-action="click->dropdown#toggle">
+                      <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                      </svg>
+                    </button>
+                    <div class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black/5" data-dropdown-target="menu">
+                      <% %w[admin manager member].each do |role| %>
+                        <% unless role == membership.role %>
+                          <%= button_to "Make #{role.titleize}", organization_membership_path(membership), method: :patch, params: { role: role }, class: "block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" %>
+                        <% end %>
+                      <% end %>
+                      <div class="border-t border-gray-100 my-1"></div>
+                      <%= button_to "Remove", organization_membership_path(membership), method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50", data: { confirm: "Are you sure you want to remove #{membership.user.full_name} from the organization?" } %>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+            </li>
+          <% end %>
+        </ul>
+      </div>
+
+      <!-- Pending Invitations -->
+      <% if current_user.admin_of?(@organization) && @pending_invitations.any? %>
+        <div class="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div class="px-6 py-5 border-b border-gray-200">
+            <h2 class="text-lg font-semibold text-gray-900">Pending Invitations</h2>
+          </div>
+
+          <ul class="divide-y divide-gray-200">
+            <% @pending_invitations.each do |invitation| %>
+              <li class="px-6 py-4 flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-medium text-gray-900"><%= invitation.email %></p>
+                  <p class="text-sm text-gray-500">
+                    Invited as <%= invitation.role.titleize %> ·
+                    Expires <%= time_ago_in_words(invitation.expires_at) %> from now
+                  </p>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <%= button_to "Resend", resend_organization_invitation_path(invitation), method: :post, class: "text-sm text-primary-600 hover:text-primary-700" %>
+                  <%= button_to "Cancel", organization_invitation_path(invitation), method: :delete, class: "text-sm text-red-600 hover:text-red-700" %>
+                </div>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+      <% end %>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="space-y-6">
+      <!-- Invite Team Member -->
+      <% if current_user.admin_of?(@organization) %>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">Invite Team Member</h3>
+
+          <%= form_with url: organization_invitations_path, method: :post, local: true, class: "space-y-4" do |f| %>
+            <div>
+              <%= f.label :email, "Email Address", class: "block text-sm font-medium text-gray-700" %>
+              <%= f.email_field :email, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm", placeholder: "team@example.com", required: true %>
+            </div>
+
+            <div>
+              <%= f.label :role, "Role", class: "block text-sm font-medium text-gray-700" %>
+              <%= f.select :role, [["Member", "member"], ["Manager", "manager"], ["Admin", "admin"]], {}, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 text-sm" %>
+            </div>
+
+            <button type="submit" class="w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium">
+              Send Invitation
+            </button>
+          <% end %>
+
+          <div class="mt-4 pt-4 border-t border-gray-200">
+            <p class="text-xs text-gray-500">
+              <strong>Member:</strong> Can view and place orders<br>
+              <strong>Manager:</strong> Can manage orders and lists<br>
+              <strong>Admin:</strong> Full access including team management
+            </p>
+          </div>
+        </div>
+      <% end %>
+
+      <!-- Organization Details -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">Organization Details</h3>
+        <dl class="space-y-3 text-sm">
+          <div>
+            <dt class="text-gray-500">Name</dt>
+            <dd class="font-medium text-gray-900"><%= @organization.name %></dd>
+          </div>
+          <% if @organization.phone.present? %>
+            <div>
+              <dt class="text-gray-500">Phone</dt>
+              <dd class="font-medium text-gray-900"><%= @organization.phone %></dd>
+            </div>
+          <% end %>
+          <% if @organization.city.present? %>
+            <div>
+              <dt class="text-gray-500">Location</dt>
+              <dd class="font-medium text-gray-900">
+                <%= [@organization.city, @organization.state].compact.join(", ") %>
+                <%= @organization.zip_code %>
+              </dd>
+            </div>
+          <% end %>
+          <div>
+            <dt class="text-gray-500">Created</dt>
+            <dd class="font-medium text-gray-900"><%= @organization.created_at.strftime("%B %d, %Y") %></dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
