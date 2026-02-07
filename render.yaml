@@ -1,0 +1,90 @@
+databases:
+  - name: supplierhub-db
+    databaseName: supplierhub
+    user: supplierhub
+    plan: starter
+
+services:
+  # Redis
+  - type: redis
+    name: supplierhub-redis
+    plan: starter
+    maxmemoryPolicy: noeviction
+
+  # Web Service
+  - type: web
+    name: supplierhub-web
+    runtime: image
+    image:
+      url: docker.io/narsliss/supplierhub-web:latest
+    plan: starter
+    envVars:
+      - key: RAILS_ENV
+        value: production
+      - key: RAILS_LOG_TO_STDOUT
+        value: "true"
+      - key: RAILS_SERVE_STATIC_FILES
+        value: "true"
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: supplierhub-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: supplierhub-redis
+          type: redis
+          property: connectionString
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: ATTR_ENCRYPTED_KEY
+        sync: false  # You'll set this manually
+      - key: GROQ_API_KEY
+        sync: false  # You'll set this manually
+      - key: BROWSER_PATH
+        value: /usr/bin/chromium
+      - key: BROWSER_HEADLESS
+        value: "true"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_MONTHLY_PRICE_ID
+        sync: false
+
+  # Sidekiq Background Worker
+  - type: worker
+    name: supplierhub-sidekiq
+    runtime: image
+    image:
+      url: docker.io/narsliss/supplierhub-sidekiq:latest
+    plan: starter
+    dockerCommand: bundle exec sidekiq
+    envVars:
+      - key: RAILS_ENV
+        value: production
+      - key: RAILS_LOG_TO_STDOUT
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: supplierhub-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: supplierhub-redis
+          type: redis
+          property: connectionString
+      - key: SECRET_KEY_BASE
+        fromService:
+          name: supplierhub-web
+          type: web
+          envVarKey: SECRET_KEY_BASE
+      - key: ATTR_ENCRYPTED_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: BROWSER_PATH
+        value: /usr/bin/chromium
+      - key: BROWSER_HEADLESS
+        value: "true"
