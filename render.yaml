@@ -5,13 +5,6 @@ databases:
     plan: starter
 
 services:
-  # Redis
-  - type: redis
-    name: supplierhub-redis
-    plan: starter
-    maxmemoryPolicy: noeviction
-    ipAllowList: []  # Allow connections from all Render services
-
   # Web Service
   - type: web
     name: supplierhub-web
@@ -33,16 +26,13 @@ services:
           name: supplierhub-db
           property: connectionString
       - key: REDIS_URL
-        fromService:
-          name: supplierhub-redis
-          type: redis
-          property: connectionString
+        sync: false
       - key: SECRET_KEY_BASE
         generateValue: true
       - key: ATTR_ENCRYPTED_KEY
-        sync: false  # You'll set this manually
+        sync: false
       - key: GROQ_API_KEY
-        sync: false  # You'll set this manually
+        sync: false
       - key: BROWSER_PATH
         value: /usr/bin/chromium
       - key: BROWSER_HEADLESS
@@ -72,10 +62,7 @@ services:
           name: supplierhub-db
           property: connectionString
       - key: REDIS_URL
-        fromService:
-          name: supplierhub-redis
-          type: redis
-          property: connectionString
+        sync: false
       - key: SECRET_KEY_BASE
         fromService:
           name: supplierhub-web
