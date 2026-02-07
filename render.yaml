@@ -1,11 +1,6 @@
 services:
   - type: web
+    runtime: image
     name: supplierhub-web
-    env: docker
     image:
       url: docker.io/narsliss/supplierhub-web:latest
-    envVars:
-      - key: RAILS_ENV
-        value: production
-      - key: SECRET_KEY_BASE
-        generateValue: true
