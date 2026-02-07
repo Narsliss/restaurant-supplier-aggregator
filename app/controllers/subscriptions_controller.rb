@@ -1,6 +1,7 @@
 class SubscriptionsController < ApplicationController
   before_action :authenticate_user!
-  skip_before_action :require_subscription, only: [:new, :create, :success, :cancel]
+  # TODO: Re-enable when subscription enforcement is active
+  # skip_before_action :require_subscription, only: [:new, :create, :success, :cancel]
 
   def show
     @subscription = current_user.current_subscription
