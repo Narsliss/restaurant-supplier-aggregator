@@ -25,20 +25,24 @@ class User < ApplicationRecord
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
-  validates :role, inclusion: { in: %w[user manager admin] }
+  validates :role, inclusion: { in: %w[user super_admin] }
+
+  # System-level roles (different from organization roles):
+  # - user: Regular user, access determined by organization membership
+  # - super_admin: Platform owner/support staff, can access any organization for support
 
   # Scopes
-  scope :admins, -> { where(role: "admin") }
-  scope :managers, -> { where(role: "manager") }
+  scope :super_admins, -> { where(role: "super_admin") }
   scope :active, -> { where(locked_at: nil) }
 
-  # Methods
-  def admin?
-    role == "admin"
+  # System-level role checks (platform-wide, not organization-specific)
+  def super_admin?
+    role == "super_admin"
   end
 
-  def manager?
-    role == "manager"
+  # Alias for backwards compatibility and clarity
+  def platform_admin?
+    super_admin?
   end
 
   def full_name
@@ -79,15 +83,27 @@ class User < ApplicationRecord
   end
 
   def admin_of?(org)
-    %w[owner admin].include?(role_in(org))
+    super_admin? || %w[owner admin].include?(role_in(org))
   end
 
   def manager_of?(org)
-    %w[owner admin manager].include?(role_in(org))
+    super_admin? || %w[owner admin manager].include?(role_in(org))
   end
 
   def member_of?(org)
-    memberships.exists?(organization: org, active: true)
+    super_admin? || memberships.exists?(organization: org, active: true)
+  end
+
+  # Super admins can impersonate/access any organization for support
+  def can_access_any_organization?
+    super_admin?
+  end
+
+  # For support: access an organization without being a member
+  def impersonate_organization!(org)
+    raise "Not authorized" unless super_admin?
+
+    update!(current_organization: org)
   end
 
   # Create a new organization with this user as owner

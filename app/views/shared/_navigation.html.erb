@@ -48,7 +48,7 @@
             <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <%= link_to "Locations", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
-            <% if current_user.admin? %>
+            <% if current_user.super_admin? %>
               <%= link_to "Sidekiq", sidekiq_web_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-navy" %>
             <% end %>
             <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-brand-orange hover:bg-red-50" %>
@@ -110,7 +110,7 @@
         <%= link_to "Team", organization_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
         <%= link_to "Billing", subscription_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
         <%= link_to "Locations", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
-        <% if current_user.admin? %>
+        <% if current_user.super_admin? %>
           <%= link_to "Sidekiq", sidekiq_web_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-navy-light hover:text-white" %>
         <% end %>
         <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left rounded-md px-3 py-2 text-base font-medium text-brand-orange hover:bg-brand-navy-light" %>
