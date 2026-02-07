@@ -1,6 +1,6 @@
 services:
   - type: web
-    runtime: image
     name: supplierhub-web
+    runtime: image
     image:
-      url: docker.io/narsliss/supplierhub-web:latest
+      url: narsliss/supplierhub-web:latest
