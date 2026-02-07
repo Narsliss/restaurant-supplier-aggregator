@@ -5,15 +5,6 @@ databases:
     plan: starter
 
 services:
-  # Redis/Key Value Store
-  - type: keyvalue
-    name: supplierhub-redis
-    plan: starter
-    maxmemoryPolicy: noeviction
-    ipAllowList:
-      - source: 0.0.0.0/0
-        description: Allow all connections
-
   # Web Service
   - type: web
     name: supplierhub-web
@@ -35,10 +26,7 @@ services:
           name: supplierhub-db
           property: connectionString
       - key: REDIS_URL
-        fromService:
-          name: supplierhub-redis
-          type: keyvalue
-          property: connectionString
+        sync: false
       - key: SECRET_KEY_BASE
         generateValue: true
       - key: ATTR_ENCRYPTED_KEY
@@ -74,10 +62,7 @@ services:
           name: supplierhub-db
           property: connectionString
       - key: REDIS_URL
-        fromService:
-          name: supplierhub-redis
-          type: keyvalue
-          property: connectionString
+        sync: false
       - key: SECRET_KEY_BASE
         fromService:
           name: supplierhub-web
