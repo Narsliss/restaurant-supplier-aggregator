@@ -63,3 +63,4 @@ services:
     name: supplierhub-redis
     plan: free
     maxmemoryPolicy: noeviction
+    ipAllowList: []
