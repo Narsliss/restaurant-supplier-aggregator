@@ -6,12 +6,23 @@
 
   <!-- Search & Filter -->
   <div class="bg-white shadow rounded-lg p-4 mb-6">
-    <%= form_with(url: products_path, method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap") do |form| %>
+    <%= form_with(url: products_path, method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap", data: { controller: "category-filter" }) do |form| %>
       <div class="flex-1 min-w-[200px]">
         <%= form.text_field :search, value: params[:search], placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
-      <div class="sm:w-40">
-        <%= form.select :category, Product.distinct.pluck(:category).compact.sort.map { |c| [c, c] }, { prompt: "All Categories", selected: params[:category] }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+      <div class="sm:w-44">
+        <%= form.select :category,
+            @categories.keys.sort.map { |c| [c, c] },
+            { prompt: "All Categories", selected: params[:category] },
+            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+            data: { action: "change->category-filter#categoryChanged", category_filter_target: "category" } %>
+      </div>
+      <div class="sm:w-40" data-category-filter-target="subcategoryWrapper" class="<%= 'hidden' if @subcategories.empty? %>">
+        <%= form.select :subcategory,
+            @subcategories.map { |s| [s, s] },
+            { prompt: "All Subcategories", selected: params[:subcategory] },
+            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+            data: { category_filter_target: "subcategory" } %>
       </div>
       <div class="sm:w-40">
         <%= form.select :supplier_id, @suppliers.map { |s| [s.name, s.id] }, { prompt: "All Suppliers", selected: params[:supplier_id] }, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
@@ -22,6 +33,11 @@
       <%= form.submit "Search", class: "bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 text-sm cursor-pointer" %>
     <% end %>
   </div>
+
+  <!-- Category data for JS -->
+  <script type="application/json" id="categories-data">
+    <%= raw @categories.to_json %>
+  </script>
 
   <% if @products.any? %>
     <p class="text-sm text-gray-500 mb-3">
@@ -64,7 +80,7 @@
     </div>
 
     <!-- Pagination -->
-    <% filter_params = { search: params[:search], category: params[:category], supplier_id: params[:supplier_id], per_page: params[:per_page] }.compact_blank %>
+    <% filter_params = { search: params[:search], category: params[:category], subcategory: params[:subcategory], supplier_id: params[:supplier_id], per_page: params[:per_page] }.compact_blank %>
     <nav class="mt-4 flex items-center justify-between" aria-label="Pagination">
       <div class="flex gap-1">
         <% if @products.prev_page %>

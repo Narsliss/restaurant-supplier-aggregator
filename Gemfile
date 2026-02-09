@@ -42,6 +42,9 @@ gem "kaminari", "~> 1.2"
 # JSON
 gem "jbuilder"
 
+# AI
+gem "ruby-openai", "~> 7.0"
+
 # Timezone data for Windows
 gem "tzinfo-data", platforms: %i[windows jruby]
 

@@ -7,6 +7,7 @@ import MobileMenuController from "./mobile_menu_controller"
 import PasswordToggleController from "./password_toggle_controller"
 import CredentialValidatorController from "./credential_validator_controller"
 import ProductSearchController from "./product_search_controller"
+import CategoryFilterController from "./category_filter_controller"
 
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
@@ -15,3 +16,4 @@ application.register("mobile-menu", MobileMenuController)
 application.register("password-toggle", PasswordToggleController)
 application.register("credential-validator", CredentialValidatorController)
 application.register("product-search", ProductSearchController)
+application.register("category-filter", CategoryFilterController)

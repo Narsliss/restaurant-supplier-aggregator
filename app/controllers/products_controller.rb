@@ -13,6 +13,10 @@ class ProductsController < ApplicationController
       @products = @products.by_category(params[:category])
     end
 
+    if params[:subcategory].present?
+      @products = @products.where(subcategory: params[:subcategory])
+    end
+
     if params[:supplier_id].present?
       @products = @products.joins(:supplier_products)
         .where(supplier_products: { supplier_id: params[:supplier_id] })
@@ -24,6 +28,8 @@ class ProductsController < ApplicationController
     end
 
     @suppliers = Supplier.joins(:supplier_products).distinct.order(:name)
+    @categories = AiProductCategorizer::CATEGORIES
+    @subcategories = params[:category].present? ? @categories.dig(params[:category], :subcategories) || [] : []
   end
 
   def search

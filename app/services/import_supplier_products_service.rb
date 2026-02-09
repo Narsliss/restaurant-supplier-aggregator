@@ -130,27 +130,25 @@ class ImportSupplierProductsService
 
     # No match found - create a new canonical product
     display_name = canonical.split.map(&:capitalize).join(" ")
+    categorization = AiProductCategorizer.rule_based_categorize(item[:supplier_name])
 
     Product.create!(
       name: display_name,
       normalized_name: canonical.downcase.gsub(/[^a-z0-9\s]/, "").squish,
-      category: item[:category] || guess_category(item[:supplier_name])
+      category: item[:category] || categorization[:category],
+      subcategory: item[:subcategory] || categorization[:subcategory]
     )
   end
 
-  # Simple category guesser based on product name keywords
+  # Use AI-powered categorizer for better accuracy
   def guess_category(name)
-    n = name.downcase
-    return "Poultry" if n.match?(/chicken|turkey|duck|poultry|wing|thigh|breast/)
-    return "Meat" if n.match?(/beef|steak|pork|lamb|veal|bacon|sausage|ground|rib|loin|chop|elk|venison/)
-    return "Seafood" if n.match?(/salmon|shrimp|fish|tuna|crab|lobster|oyster|clam|scallop|cod|tilapia|mahi|caviar|trout|roe/)
-    return "Produce" if n.match?(/lettuce|tomato|onion|potato|carrot|pepper|garlic|herb|mushroom|avocado|lemon|lime|apple|berry|fruit|vegetable|greens|kale|spinach|celery|cucumber|squash|cabbage/)
-    return "Dairy" if n.match?(/milk|cream|cheese|butter|yogurt|egg|mozzarella|parmesan|cheddar|gouda/)
-    return "Bakery" if n.match?(/bread|roll|bun|tortilla|pastry|cake|cookie|muffin|croissant/)
-    return "Dry Goods" if n.match?(/flour|sugar|rice|pasta|oil|vinegar|sauce|spice|salt|pepper|seasoning|tortellini|rigatoni/)
-    return "Beverages" if n.match?(/water|juice|soda|coffee|tea|wine|beer/)
-    return "Frozen" if n.match?(/frozen|ice cream|sorbet/)
-    nil
+    result = AiProductCategorizer.rule_based_categorize(name)
+    result[:category]
+  end
+
+  def guess_subcategory(name)
+    result = AiProductCategorizer.rule_based_categorize(name)
+    result[:subcategory]
   end
 
   def default_search_terms
