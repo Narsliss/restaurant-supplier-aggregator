@@ -5,7 +5,33 @@ class OrdersController < ApplicationController
     @orders = current_user.orders
       .includes(:supplier, :location, :order_items)
       .order(created_at: :desc)
-      .page(params[:page])
+
+    # Filter by supplier
+    if params[:supplier_id].present?
+      @orders = @orders.where(supplier_id: params[:supplier_id])
+    end
+
+    # Filter by status
+    if params[:status].present?
+      @orders = @orders.where(status: params[:status])
+    end
+
+    # Filter by date range
+    if params[:date_from].present?
+      @orders = @orders.where("created_at >= ?", Date.parse(params[:date_from]).beginning_of_day)
+    end
+    if params[:date_to].present?
+      @orders = @orders.where("created_at <= ?", Date.parse(params[:date_to]).end_of_day)
+    end
+
+    # Search by order ID or confirmation number
+    if params[:search].present?
+      search_term = "%#{params[:search]}%"
+      @orders = @orders.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number ILIKE ?", search_term, search_term)
+    end
+
+    @orders = @orders.page(params[:page])
+    @suppliers = Supplier.joins(:orders).where(orders: { user_id: current_user.id }).distinct.order(:name)
   end
 
   def history

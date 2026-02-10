@@ -4,17 +4,22 @@ module Scrapers
     ORDER_URL = "https://order.chefswarehouse.com".freeze
     ORDER_MINIMUM = 200.00
 
-    # Broad selectors — the site is a JS SPA, so we try many patterns
+    # Broad selectors — the site is a JS SPA with dynamically generated IDs
+    # The login form uses type=text for email (not type=email) and has uid-* IDs
     EMAIL_SELECTORS = [
       "#email", "#username", "#loginEmail", "#userEmail",
       "input[name='email']", "input[name='username']", "input[name='loginId']",
-      "input[type='email']", "input[placeholder*='email' i]",
+      "input[type='email']",
+      # CW uses dynamic uid-* IDs, so we need to find input by context
+      "input[id^='uid-'][type='text']",
+      "input[placeholder*='email' i]",
       "input[placeholder*='username' i]", "input[aria-label*='email' i]"
     ].freeze
 
     PASSWORD_SELECTORS = [
       "#password", "#loginPassword", "#userPassword",
       "input[name='password']", "input[type='password']",
+      "input[id^='uid-'][type='password']",
       "input[placeholder*='password' i]", "input[aria-label*='password' i]"
     ].freeze
 
@@ -23,7 +28,9 @@ module Scrapers
       "button.btn-sign-in",
       "button[type='submit'].btn-secondary",
       ".login-btn", ".sign-in-button", ".btn-login", ".login-button",
-      "button[data-testid*='login' i]", "button[data-testid*='sign' i]"
+      "button[data-testid*='login' i]", "button[data-testid*='sign' i]",
+      # CW has multiple submit buttons - look for Sign In text
+      "button[type='submit']"
     ].freeze
 
     LOGGED_IN_SELECTORS = [
@@ -64,44 +71,160 @@ module Scrapers
           logger.info "[ChefsWarehouse] Redirected to: #{browser.current_url}"
         end
 
-        # Discover the login form — wait for any input to appear
-        email_field = discover_field(EMAIL_SELECTORS, "email/username")
-        unless email_field
-          # Try waiting longer — SPA might still be loading
-          sleep 3
-          email_field = discover_field(EMAIL_SELECTORS, "email/username")
-        end
+        # Use JavaScript to find and fill the login form
+        # CW has multiple forms/inputs on the page, we need to find the login-specific ones
+        # The login form has: text input (email), password input, and "Sign In" button
+        login_result = browser.evaluate(<<~JS)
+          (function() {
+            var result = { found: false, email: null, password: null, button: null };
 
-        unless email_field
+            // Find the password field first - there's usually only one
+            var passwordInputs = document.querySelectorAll('input[type="password"]');
+            var passwordField = null;
+            for (var pw of passwordInputs) {
+              if (pw.offsetParent !== null) {
+                passwordField = pw;
+                break;
+              }
+            }
+
+            if (!passwordField) {
+              return { found: false, error: 'No visible password field' };
+            }
+
+            // Find the email/username field - it's a text input near the password field
+            // Look for text inputs that appear before the password field in DOM order
+            var allInputs = document.querySelectorAll('input[type="text"], input[type="email"]');
+            var emailField = null;
+
+            // Strategy: find text input that's in the same form or container as password
+            var passwordContainer = passwordField.closest('form') || passwordField.closest('div[class*="login"]') || passwordField.parentElement?.parentElement?.parentElement;
+
+            if (passwordContainer) {
+              var containerInputs = passwordContainer.querySelectorAll('input[type="text"], input[type="email"]');
+              for (var inp of containerInputs) {
+                if (inp.offsetParent !== null && inp !== passwordField) {
+                  emailField = inp;
+                  break;
+                }
+              }
+            }
+
+            // Fallback: just find the visible text input that comes before password
+            if (!emailField) {
+              for (var inp of allInputs) {
+                if (inp.offsetParent !== null) {
+                  emailField = inp;
+                  break;
+                }
+              }
+            }
+
+            if (!emailField) {
+              return { found: false, error: 'No visible email/text field' };
+            }
+
+            // Find the Sign In button - look for button with "Sign In" text near the form
+            var submitButton = null;
+            var buttons = document.querySelectorAll('button[type="submit"], button');
+            for (var btn of buttons) {
+              var text = (btn.innerText || '').trim().toLowerCase();
+              if (text === 'sign in' && btn.offsetParent !== null) {
+                submitButton = btn;
+                break;
+              }
+            }
+
+            // Store the element IDs or generate temp IDs for reference
+            if (!emailField.id) emailField.id = 'cw-temp-email-' + Date.now();
+            if (!passwordField.id) passwordField.id = 'cw-temp-password-' + Date.now();
+            if (submitButton && !submitButton.id) submitButton.id = 'cw-temp-submit-' + Date.now();
+
+            return {
+              found: true,
+              emailId: emailField.id,
+              passwordId: passwordField.id,
+              submitId: submitButton ? submitButton.id : null,
+              emailType: emailField.type,
+              debug: {
+                emailPlaceholder: emailField.placeholder,
+                containerClass: passwordContainer?.className?.substring(0, 50)
+              }
+            };
+          })()
+        JS
+
+        unless login_result && login_result["found"]
           dump = capture_page_diagnostics
-          raise AuthenticationError, "Login form not found. #{dump}"
+          error_detail = login_result&.dig("error") || "unknown"
+          raise AuthenticationError, "Login form not found (#{error_detail}). #{dump}"
         end
 
-        password_field = discover_field(PASSWORD_SELECTORS, "password")
-        unless password_field
-          dump = capture_page_diagnostics
-          raise AuthenticationError, "Password field not found. #{dump}"
-        end
+        logger.info "[ChefsWarehouse] Found login form: email=##{login_result['emailId']}, password=##{login_result['passwordId']}, submit=##{login_result['submitId']}"
 
-        # Fill credentials
-        fill_element(email_field, credential.username, "email")
-        fill_element(password_field, credential.password, "password")
-        logger.info "[ChefsWarehouse] Credentials entered, looking for submit button"
+        # Fill credentials using the discovered element IDs
+        email_id = login_result["emailId"]
+        password_id = login_result["passwordId"]
+        submit_id = login_result["submitId"]
+        escaped_username = credential.username.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
+        escaped_password = credential.password.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
 
-        # Find and click submit
-        submit_btn = discover_field(SUBMIT_SELECTORS, "submit button")
-        if submit_btn
-          begin
-            submit_btn.click
-          rescue => e
-            logger.debug "[ChefsWarehouse] Native click failed, using JS: #{e.message}"
-            submit_btn.evaluate("this.click()")
-          end
+        # Fill email field
+        browser.evaluate(<<~JS)
+          (function() {
+            var el = document.getElementById('#{email_id}');
+            if (!el) return false;
+            el.focus();
+            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeSetter.call(el, '#{escaped_username}');
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          })()
+        JS
+        sleep 0.3
+
+        # Fill password field
+        browser.evaluate(<<~JS)
+          (function() {
+            var el = document.getElementById('#{password_id}');
+            if (!el) return false;
+            el.focus();
+            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeSetter.call(el, '#{escaped_password}');
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          })()
+        JS
+        sleep 0.3
+
+        logger.info "[ChefsWarehouse] Credentials entered, clicking submit"
+
+        # Click submit button
+        if submit_id
+          browser.evaluate("document.getElementById('#{submit_id}')?.click()")
         else
-          # Fallback: try pressing Enter on the password field
-          logger.info "[ChefsWarehouse] No submit button found, pressing Enter on password field"
-          password_field.focus rescue nil
-          browser.keyboard.type(:Enter)
+          # Fallback: find and click "Sign In" button by text
+          browser.evaluate(<<~JS)
+            (function() {
+              var buttons = document.querySelectorAll('button');
+              for (var btn of buttons) {
+                var text = (btn.innerText || '').trim().toLowerCase();
+                if (text === 'sign in' && btn.offsetParent !== null) {
+                  btn.click();
+                  return true;
+                }
+              }
+              // Last resort: press Enter on password field
+              var pwField = document.getElementById('#{password_id}');
+              if (pwField) {
+                pwField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                pwField.form?.submit();
+              }
+              return false;
+            })()
+          JS
         end
 
         logger.info "[ChefsWarehouse] Form submitted, waiting for response..."
@@ -502,25 +625,120 @@ module Scrapers
     end
 
     # ── Fill a specific element with value ──────────────────────────
+    # For Vue.js SPAs, use JavaScript-based filling to avoid stale element references
     def fill_element(element, value, label)
+      # First try to get a stable selector for the element
+      selector = get_element_selector(element)
+      escaped_value = value.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
+
+      # Use JavaScript to fill the field - more robust for SPAs
+      filled = browser.evaluate(<<~JS) rescue false
+        (function() {
+          var el = document.querySelector('#{selector}');
+          if (!el) return false;
+
+          // Clear and set value using native setter to trigger Vue/React bindings
+          var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          nativeSetter.call(el, '');
+          nativeSetter.call(el, '#{escaped_value}');
+
+          // Dispatch events to trigger framework reactivity
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.dispatchEvent(new Event('blur', { bubbles: true }));
+
+          return el.value === '#{escaped_value}';
+        })()
+      JS
+
+      if filled
+        logger.info "[ChefsWarehouse] Filled #{label} via JS (selector: #{selector})"
+        return
+      end
+
+      # Fallback: try direct element interaction
       begin
         element.focus
         element.type(value, :clear)
         logger.info "[ChefsWarehouse] Filled #{label} via focus+type"
-      rescue => e
-        logger.debug "[ChefsWarehouse] focus+type failed for #{label}: #{e.message}"
-        begin
-          element.click
-          element.type(value, :clear)
-          logger.info "[ChefsWarehouse] Filled #{label} via click+type"
-        rescue => e2
-          logger.debug "[ChefsWarehouse] click+type failed for #{label}: #{e2.message}"
-          element.evaluate("this.value = ''")
-          element.evaluate("this.value = '#{value.gsub("'", "\\\\'")}'")
-          element.evaluate("this.dispatchEvent(new Event('input', { bubbles: true }))")
-          element.evaluate("this.dispatchEvent(new Event('change', { bubbles: true }))")
-          logger.info "[ChefsWarehouse] Filled #{label} via JS value assignment"
-        end
+      rescue Ferrum::NodeNotFoundError, Ferrum::BrowserError => e
+        logger.debug "[ChefsWarehouse] Element interaction failed for #{label}: #{e.message}"
+        # Element was removed from DOM - try finding it again
+        retry_fill_by_label(label, value)
+      end
+    end
+
+    # Get a CSS selector that can identify this element
+    def get_element_selector(element)
+      selector = element.evaluate(<<~JS) rescue nil
+        (function() {
+          var el = this;
+          if (el.id) return '#' + el.id;
+          if (el.name) return el.tagName.toLowerCase() + '[name="' + el.name + '"]';
+          if (el.type) return el.tagName.toLowerCase() + '[type="' + el.type + '"]';
+          return el.tagName.toLowerCase();
+        })()
+      JS
+      selector || "input"
+    end
+
+    # Retry filling a field by searching for it again
+    def retry_fill_by_label(label, value)
+      escaped_value = value.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
+
+      if label.include?("email") || label.include?("username")
+        browser.evaluate(<<~JS)
+          (function() {
+            // CW uses type=text for email field, not type=email
+            // Find text input that's near a password field (login context)
+            var pwField = document.querySelector('input[type="password"]');
+            if (pwField) {
+              var container = pwField.closest('form') || pwField.parentElement?.parentElement?.parentElement;
+              if (container) {
+                var textInputs = container.querySelectorAll('input[type="text"], input[type="email"]');
+                for (var inp of textInputs) {
+                  if (inp.offsetParent !== null) {
+                    var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    nativeSetter.call(inp, '#{escaped_value}');
+                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                  }
+                }
+              }
+            }
+            // Fallback to any visible text/email input
+            var inputs = document.querySelectorAll('input[type="email"], input[type="text"]');
+            for (var inp of inputs) {
+              if (inp.offsetParent !== null) {
+                var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(inp, '#{escaped_value}');
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        logger.info "[ChefsWarehouse] Filled #{label} via retry JS scan"
+      elsif label.include?("password")
+        browser.evaluate(<<~JS)
+          (function() {
+            var inputs = document.querySelectorAll('input[type="password"]');
+            for (var inp of inputs) {
+              if (inp.offsetParent !== null) {
+                var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                nativeSetter.call(inp, '#{escaped_value}');
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        logger.info "[ChefsWarehouse] Filled #{label} via retry JS scan"
       end
     end
 

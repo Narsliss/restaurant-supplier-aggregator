@@ -7,13 +7,13 @@ class OrderListItemsController < ApplicationController
 
     if @item.save
       respond_to do |format|
-        format.html { redirect_to @order_list, notice: "Item added." }
+        format.html { redirect_to redirect_path, notice: "Item added." }
         format.turbo_stream
         format.json { render json: @item, status: :created }
       end
     else
       respond_to do |format|
-        format.html { redirect_to @order_list, alert: @item.errors.full_messages.join(", ") }
+        format.html { redirect_to redirect_path, alert: @item.errors.full_messages.join(", ") }
         format.json { render json: { errors: @item.errors }, status: :unprocessable_entity }
       end
     end
@@ -56,5 +56,14 @@ class OrderListItemsController < ApplicationController
 
   def item_params
     params.require(:order_list_item).permit(:product_id, :quantity, :notes, :position)
+  end
+
+  def redirect_path
+    # Preserve search params when redirecting back
+    if params[:redirect_back] && (params[:search].present? || params[:category].present? || params[:subcategory].present?)
+      order_list_path(@order_list, search: params[:search], category: params[:category], subcategory: params[:subcategory])
+    else
+      @order_list
+    end
   end
 end

@@ -34,6 +34,13 @@ class ApplicationController < ActionController::Base
     end
   end
 
+  def require_super_admin
+    unless current_user&.super_admin?
+      flash[:alert] = "You are not authorized to access this page."
+      redirect_to root_path
+    end
+  end
+
   # Subscription enforcement
   def require_subscription
     return unless current_user

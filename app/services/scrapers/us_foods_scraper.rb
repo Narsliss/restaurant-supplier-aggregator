@@ -28,6 +28,7 @@ module Scrapers
       @browser = Ferrum::Browser.new(
         headless: "new",
         timeout: 60,
+        process_timeout: 30,  # Allow 30 seconds for browser process to start
         window_size: [1920, 1080],
         browser_options: {
           "no-sandbox": true,
@@ -1365,7 +1366,8 @@ module Scrapers
 
             // Method 3: Fallback - if no case price found but we have unit prices,
             // the case price might not be showing. Use the largest price overall,
-            // but only if it's reasonably large (> $1) to avoid unit prices.
+            // but only if it's reasonably large (> $5) to avoid unit prices.
+            // Most food service case prices are $5+ (often $20-100+).
             if (!price) {
               var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
               var allPrices = priceMatches.map(function(p) {
@@ -1373,8 +1375,9 @@ module Scrapers
               });
               if (allPrices.length > 0) {
                 var maxPrice = Math.max.apply(null, allPrices);
-                // Only use if it looks like a case price (> $1)
-                if (maxPrice > 1) {
+                // Only use if it looks like a case price (> $5)
+                // Prices under $5 are almost always per-unit prices
+                if (maxPrice > 5) {
                   price = maxPrice;
                 }
               }
@@ -1463,7 +1466,8 @@ module Scrapers
             }
           }
 
-          // Method 3: Fallback - largest price, but only if > $1
+          // Method 3: Fallback - largest price, but only if > $5
+          // Prices under $5 are almost always per-unit prices
           if (!price) {
             var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
             var allPrices = priceMatches.map(function(p) {
@@ -1471,7 +1475,7 @@ module Scrapers
             });
             if (allPrices.length > 0) {
               var maxPrice = Math.max.apply(null, allPrices);
-              if (maxPrice > 1) price = maxPrice;
+              if (maxPrice > 5) price = maxPrice;
             }
           }
 

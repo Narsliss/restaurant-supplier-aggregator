@@ -49,6 +49,7 @@ module Scrapers
       browser_opts = {
         headless: headless_mode,
         timeout: 30,
+        process_timeout: 30,  # Allow 30 seconds for browser process to start
         window_size: [1920, 1080]
       }
 

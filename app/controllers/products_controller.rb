@@ -1,5 +1,6 @@
 class ProductsController < ApplicationController
-  before_action :set_product, only: [:show, :edit, :update]
+  before_action :require_super_admin, except: [:search]
+  before_action :set_product, only: [:show, :edit, :update, :destroy]
 
   def index
     per_page = (params[:per_page] || 50).to_i.clamp(10, 200)

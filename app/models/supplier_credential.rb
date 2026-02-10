@@ -76,7 +76,10 @@ class SupplierCredential < ApplicationRecord
   end
 
   def session_valid?
-    session_data.present? && last_login_at.present? && last_login_at > 1.hour.ago
+    # Sessions are valid for 6 hours (matching needs_refresh? scope)
+    # The actual supplier session cookies may expire sooner, but we'll
+    # attempt to restore the session and re-login if needed
+    session_data.present? && last_login_at.present? && last_login_at > 6.hours.ago
   end
 
   def trusted_device_valid?

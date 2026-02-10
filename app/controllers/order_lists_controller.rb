@@ -11,6 +11,29 @@ class OrderListsController < ApplicationController
     @items = @order_list.order_list_items
       .includes(product: { supplier_products: :supplier })
       .by_position
+
+    # Get categories for filter dropdown
+    @categories = AiProductCategorizer::CATEGORIES
+    @subcategories = params[:category].present? ? @categories.dig(params[:category], :subcategories) || [] : []
+
+    # Search products to add (when search/filter is active)
+    if params[:search].present? || params[:category].present? || params[:subcategory].present?
+      @search_results = Product.includes(supplier_products: :supplier)
+
+      if params[:search].present?
+        @search_results = @search_results.where("name ILIKE ?", "%#{params[:search]}%")
+      end
+
+      if params[:category].present?
+        @search_results = @search_results.where(category: params[:category])
+      end
+
+      if params[:subcategory].present?
+        @search_results = @search_results.where(subcategory: params[:subcategory])
+      end
+
+      @search_results = @search_results.order(:name).page(1).per(50)
+    end
   end
 
   def new

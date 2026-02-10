@@ -18,34 +18,11 @@
     </div>
   </div>
 
-  <!-- Add Item Form -->
-  <div class="bg-white shadow rounded-lg p-4 mb-6" data-controller="product-search">
-    <h3 class="text-sm font-medium text-gray-700 mb-3">Add Item</h3>
-    <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex flex-col gap-3 sm:flex-row sm:items-start", data: { turbo: false }) do %>
-      <div class="flex-1 relative">
-        <input type="text"
-               placeholder="Search products..."
-               class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm"
-               autocomplete="off"
-               data-product-search-target="input"
-               data-action="input->product-search#search blur->product-search#hideResults" />
-        <input type="hidden" name="order_list_item[product_id]" data-product-search-target="productId" />
-        <!-- Search Results Dropdown -->
-        <div data-product-search-target="results"
-             class="hidden absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 max-h-60 overflow-y-auto">
-        </div>
-      </div>
-      <div class="flex gap-3">
-        <div class="w-20 sm:w-24">
-          <input type="number" name="order_list_item[quantity]" value="1" min="1" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" placeholder="Qty" />
-        </div>
-        <button type="submit" class="bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer">Add</button>
-      </div>
-    <% end %>
-  </div>
-
-  <!-- Items List -->
-  <div id="order-list-items" class="bg-white shadow rounded-lg">
+  <!-- Items List (Order List) -->
+  <div id="order-list-items" class="bg-white shadow rounded-lg mb-6">
+    <div class="px-4 py-3 border-b border-gray-200">
+      <h3 class="text-sm font-medium text-gray-700">Order List Items (<%= @items.size %>)</h3>
+    </div>
     <% if @items.any? %>
       <!-- Mobile card layout -->
       <div class="sm:hidden divide-y divide-gray-200">
@@ -138,8 +115,95 @@
       </div>
     <% else %>
       <div class="text-center py-8">
-        <p class="text-gray-500">No items yet. Search for products to add to this list.</p>
+        <p class="text-gray-500">No items yet. Search for products below to add to this list.</p>
       </div>
     <% end %>
   </div>
+
+  <!-- Search Products to Add -->
+  <div class="bg-white shadow rounded-lg p-4 mb-6" data-controller="category-filter">
+    <h3 class="text-sm font-medium text-gray-700 mb-3">Search Products to Add</h3>
+    <%= form_with(url: order_list_path(@order_list), method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end") do |form| %>
+      <%= form.hidden_field :mode, value: "search" %>
+      <div class="flex-1 min-w-[200px]">
+        <%= form.text_field :search, value: params[:search], placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+      </div>
+      <div class="sm:w-44">
+        <%= form.select :category,
+            [["All Categories", ""]] + @categories.keys.sort.map { |c| [c, c] },
+            { selected: params[:category] || "" },
+            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+            data: { action: "change->category-filter#categoryChanged", category_filter_target: "category" } %>
+      </div>
+      <div class="sm:w-40 <%= 'hidden' if @subcategories.empty? %>" data-category-filter-target="subcategoryWrapper">
+        <%= form.select :subcategory,
+            [["All Subcategories", ""]] + @subcategories.map { |s| [s, s] },
+            { selected: params[:subcategory] || "" },
+            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+            data: { category_filter_target: "subcategory" } %>
+      </div>
+      <%= form.submit "Search", class: "bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer" %>
+      <% if params[:search].present? || params[:category].present? || params[:subcategory].present? %>
+        <%= link_to "Clear", order_list_path(@order_list), class: "text-sm text-gray-500 hover:text-gray-700 px-2 py-2" %>
+      <% end %>
+    <% end %>
+  </div>
+
+  <!-- Category data for JS -->
+  <script type="application/json" id="categories-data">
+    <%= raw @categories.to_json %>
+  </script>
+
+  <!-- Search Results Grid (Products to Add) -->
+  <% if @search_results && @search_results.any? %>
+    <div class="bg-white shadow rounded-lg mb-6">
+      <div class="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+        <h3 class="text-sm font-medium text-gray-700">Search Results (<%= @search_results.total_count %> products)</h3>
+      </div>
+      <div class="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+        <% @search_results.each do |product| %>
+          <% best_price = product.supplier_products.select { |sp| sp.current_price.present? }.min_by(&:current_price) %>
+          <% already_in_list = @order_list.order_list_items.any? { |i| i.product_id == product.id } %>
+          <div class="p-3 flex items-center justify-between gap-3 hover:bg-gray-50">
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-gray-900"><%= product.name %></p>
+              <p class="text-xs text-gray-500">
+                <%= [product.category, product.subcategory].compact.join(" > ") %>
+                <% if product.unit_size.present? %>
+                  &middot; <%= [product.unit_size, product.unit_type].compact.join(" ") %>
+                <% end %>
+              </p>
+              <% if best_price %>
+                <p class="text-xs text-green-600 mt-0.5"><%= number_to_currency(best_price.current_price) %> (<%= best_price.supplier.name %>)</p>
+              <% end %>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <% if already_in_list %>
+                <span class="text-xs text-gray-400">Already added</span>
+              <% else %>
+                <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex items-center gap-2", data: { turbo: false }) do %>
+                  <input type="hidden" name="order_list_item[product_id]" value="<%= product.id %>" />
+                  <input type="hidden" name="redirect_back" value="true" />
+                  <input type="hidden" name="search" value="<%= params[:search] %>" />
+                  <input type="hidden" name="category" value="<%= params[:category] %>" />
+                  <input type="hidden" name="subcategory" value="<%= params[:subcategory] %>" />
+                  <input type="number" name="order_list_item[quantity]" value="1" min="1" class="w-16 rounded-md border-gray-300 text-sm text-center" />
+                  <button type="submit" class="bg-brand-orange text-white px-3 py-1.5 rounded-md hover:bg-brand-orange-dark text-xs font-medium">Add</button>
+                <% end %>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+      <% if @search_results.total_pages > 1 %>
+        <div class="px-4 py-3 border-t border-gray-200 text-center">
+          <p class="text-xs text-gray-500">Showing <%= @search_results.size %> of <%= @search_results.total_count %> results. Refine your search to see more specific results.</p>
+        </div>
+      <% end %>
+    </div>
+  <% elsif params[:search].present? || params[:category].present? || params[:subcategory].present? %>
+    <div class="bg-white shadow rounded-lg mb-6 p-6 text-center">
+      <p class="text-gray-500">No products found matching your search.</p>
+    </div>
+  <% end %>
 </div>
