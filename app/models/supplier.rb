@@ -18,6 +18,13 @@ class Supplier < ApplicationRecord
   # Scopes
   scope :active, -> { where(active: true) }
   scope :by_name, -> { order(:name) }
+  scope :password_required, -> { where(password_required: true) }
+  scope :two_fa_only, -> { where(password_required: false) }
+
+  # Authentication type helpers
+  def two_fa_only?
+    !password_required?
+  end
 
   # Methods
   def scraper_klass

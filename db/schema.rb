@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_07_014350) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_10_061454) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -375,6 +375,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_07_014350) do
     t.text "notes"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "password_required", default: true, null: false
     t.index ["active"], name: "index_suppliers_on_active"
     t.index ["code"], name: "index_suppliers_on_code", unique: true
   end

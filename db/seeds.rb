@@ -12,6 +12,7 @@ suppliers_data = [
     base_url: "https://order.usfoods.com",
     login_url: "https://order.usfoods.com",
     scraper_class: "Scrapers::UsFoodsScraper",
+    password_required: false,  # 2FA only - email/phone verification
     requirements: [
       { type: "order_minimum", numeric_value: 250.00, error_message: "US Foods requires a minimum order of $250.00. Your current total is ${{current_total}}. Add ${{difference}} more to proceed." },
       { type: "cutoff_time", error_message: "Orders must be placed by 6:00 PM for next-day delivery." }
@@ -23,6 +24,7 @@ suppliers_data = [
     base_url: "https://www.chefswarehouse.com",
     login_url: "https://www.chefswarehouse.com/login",
     scraper_class: "Scrapers::ChefsWarehouseScraper",
+    password_required: true,  # Username + password
     requirements: [
       { type: "order_minimum", numeric_value: 200.00, error_message: "Chef's Warehouse requires a minimum order of $200.00. Your current total is ${{current_total}}." }
     ]
@@ -33,6 +35,7 @@ suppliers_data = [
     base_url: "https://www.whatchefswant.com",
     login_url: "https://www.whatchefswant.com/customer-login/",
     scraper_class: "Scrapers::WhatChefsWantScraper",
+    password_required: true,  # Username + password
     requirements: [
       { type: "order_minimum", numeric_value: 150.00, error_message: "What Chefs Want requires a minimum order of $150.00. Your current total is ${{current_total}}." }
     ]
@@ -43,6 +46,7 @@ suppliers_data = [
     base_url: "https://premierproduceone.pepr.app",
     login_url: "https://premierproduceone.pepr.app/",
     scraper_class: "Scrapers::PremiereProduceOneScraper",
+    password_required: false,  # 2FA only - email verification code
     requirements: [
       { type: "order_minimum", numeric_value: 100.00, error_message: "Premiere Produce One requires a minimum order of $100.00. Your current total is ${{current_total}}." }
     ]
@@ -51,16 +55,22 @@ suppliers_data = [
 
 suppliers_data.each do |supplier_data|
   requirements = supplier_data.delete(:requirements)
-  
+  password_required = supplier_data.delete(:password_required) { true }
+
   supplier = Supplier.find_or_create_by!(code: supplier_data[:code]) do |s|
     s.name = supplier_data[:name]
     s.base_url = supplier_data[:base_url]
     s.login_url = supplier_data[:login_url]
     s.scraper_class = supplier_data[:scraper_class]
+    s.password_required = password_required
     s.active = true
   end
 
-  puts "  Created supplier: #{supplier.name}"
+  # Update existing suppliers with password_required flag
+  supplier.update!(password_required: password_required) if supplier.password_required != password_required
+
+  auth_type = password_required ? "password" : "2FA only"
+  puts "  Created supplier: #{supplier.name} (#{auth_type})"
 
   # Create requirements
   requirements&.each do |req|

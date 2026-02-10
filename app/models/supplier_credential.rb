@@ -11,14 +11,19 @@ class SupplierCredential < ApplicationRecord
 
   # Validations
   validates :username, presence: true
-  validates :password, presence: true
+  validates :password, presence: true, unless: :supplier_uses_2fa_only?
   validates :supplier_id, uniqueness: {
     scope: :user_id,
     message: "credential already exists for this supplier"
   }
-  validates :status, inclusion: { 
-    in: %w[pending active expired failed hold] 
+  validates :status, inclusion: {
+    in: %w[pending active expired failed hold]
   }
+
+  # Password is optional for 2FA-only suppliers (US Foods, Premiere Produce One)
+  def supplier_uses_2fa_only?
+    supplier&.two_fa_only?
+  end
 
   # Scopes
   scope :active, -> { where(status: "active") }
