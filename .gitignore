@@ -12,3 +12,6 @@ config/master.key
 config/credentials/*.key
 /node_modules
 /vendor/bundle
+.env.docker
+.env.production
+.claude/

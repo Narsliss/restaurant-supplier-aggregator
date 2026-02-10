@@ -104,7 +104,15 @@ USER rails:rails
 # Entrypoint prepares the database
 ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
-# Default command: run the Rails server
+# Default command: run the Rails server or Sidekiq based on PROCESS_TYPE
 # Railway sets PORT env var (usually 8080), Puma reads it automatically
 EXPOSE 8080
-CMD ["./bin/rails", "server", "-b", "0.0.0.0"]
+
+# Use environment variable to determine process type
+# PROCESS_TYPE=web (default) -> Rails server
+# PROCESS_TYPE=worker -> Sidekiq
+ENV PROCESS_TYPE=web
+
+# Startup script that checks PROCESS_TYPE
+COPY --chmod=755 bin/start /rails/bin/start
+CMD ["/rails/bin/start"]

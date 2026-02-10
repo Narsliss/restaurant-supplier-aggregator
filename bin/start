@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+# Determine which process to start based on PROCESS_TYPE
+case "${PROCESS_TYPE:-web}" in
+  web)
+    echo "Starting web server..."
+    exec ./bin/rails server -b 0.0.0.0
+    ;;
+  worker)
+    echo "Starting Sidekiq worker..."
+    exec bundle exec sidekiq -C config/sidekiq.yml
+    ;;
+  *)
+    echo "Unknown PROCESS_TYPE: $PROCESS_TYPE"
+    echo "Valid options: web, worker"
+    exit 1
+    ;;
+esac
