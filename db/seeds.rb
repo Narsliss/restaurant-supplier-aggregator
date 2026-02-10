@@ -86,56 +86,8 @@ suppliers_data.each do |supplier_data|
   end
 end
 
-# Create sample products (for development/testing)
-# Also create users in production for initial setup
+# Create users for initial setup
 if Rails.env.development? || Rails.env.production?
-  puts "Creating sample products..."
-
-  products_data = [
-    { name: "Chicken Breast, Boneless Skinless", category: "Poultry", unit_size: "10 lb case" },
-    { name: "Ground Beef 80/20", category: "Meat", unit_size: "10 lb case" },
-    { name: "Atlantic Salmon Fillet", category: "Seafood", unit_size: "5 lb case" },
-    { name: "Russet Potatoes", category: "Produce", unit_size: "50 lb bag" },
-    { name: "Yellow Onions", category: "Produce", unit_size: "25 lb bag" },
-    { name: "Roma Tomatoes", category: "Produce", unit_size: "25 lb case" },
-    { name: "Mixed Greens", category: "Produce", unit_size: "3 lb case" },
-    { name: "Heavy Cream", category: "Dairy", unit_size: "1 gallon" },
-    { name: "Butter, Unsalted", category: "Dairy", unit_size: "36 lb case" },
-    { name: "Parmesan Cheese, Shredded", category: "Dairy", unit_size: "5 lb bag" },
-    { name: "Olive Oil, Extra Virgin", category: "Pantry", unit_size: "1 gallon" },
-    { name: "All-Purpose Flour", category: "Pantry", unit_size: "50 lb bag" },
-    { name: "Granulated Sugar", category: "Pantry", unit_size: "50 lb bag" },
-    { name: "Kosher Salt", category: "Pantry", unit_size: "3 lb box" },
-    { name: "Black Pepper, Ground", category: "Pantry", unit_size: "1 lb can" }
-  ]
-
-  products_data.each do |product_data|
-    product = Product.find_or_create_by!(name: product_data[:name]) do |p|
-      p.category = product_data[:category]
-      p.unit_size = product_data[:unit_size]
-    end
-
-    # Create supplier products with sample prices
-    Supplier.find_each do |supplier|
-      base_price = rand(15.0..75.0).round(2)
-      variation = rand(-5.0..5.0).round(2)
-
-      SupplierProduct.find_or_create_by!(
-        supplier: supplier,
-        supplier_sku: "#{supplier.code.upcase}-#{product.id.to_s.rjust(5, '0')}"
-      ) do |sp|
-        sp.product = product
-        sp.supplier_name = product.name
-        sp.current_price = (base_price + variation).round(2)
-        sp.in_stock = rand > 0.1 # 90% in stock
-        sp.price_updated_at = Time.current
-        sp.last_scraped_at = Time.current
-      end
-    end
-
-    puts "  Created product: #{product.name}"
-  end
-
   # Create a demo user
   puts "Creating demo user..."
   
