@@ -59,6 +59,33 @@ class SupplierProduct < ApplicationRecord
     last_scraped_at.nil? || last_scraped_at < 24.hours.ago
   end
 
+  # Pack size parsing and per-unit pricing
+
+  def parsed_pack_size
+    @parsed_pack_size ||= UnitParser.parse(pack_size)
+  end
+
+  def per_unit_price
+    return nil unless current_price && parsed_pack_size[:parseable]
+    return nil if parsed_pack_size[:normalized_quantity] <= 0
+
+    (current_price / parsed_pack_size[:normalized_quantity]).round(4)
+  end
+
+  def normalized_unit
+    parsed_pack_size[:parseable] ? parsed_pack_size[:normalized_unit] : nil
+  end
+
+  def comparable_with?(other)
+    return false unless parsed_pack_size[:parseable] && other.parsed_pack_size[:parseable]
+
+    normalized_unit == other.normalized_unit
+  end
+
+  def formatted_per_unit_price
+    UnitParser.format_per_unit(per_unit_price, normalized_unit)
+  end
+
   def line_total(quantity)
     return nil unless current_price
     current_price * quantity

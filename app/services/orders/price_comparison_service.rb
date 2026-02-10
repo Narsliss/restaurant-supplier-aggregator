@@ -55,9 +55,19 @@ module Orders
     private
 
     def build_supplier_prices(product, quantity)
-      active_suppliers.map do |supplier|
-        supplier_product = product.supplier_products.find { |sp| sp.supplier_id == supplier.id }
+      supplier_pairs = active_suppliers.map do |supplier|
+        sp = product.supplier_products.find { |sp| sp.supplier_id == supplier.id }
+        [supplier, sp]
+      end
 
+      # Determine if per-unit comparison is possible (all parseable suppliers share the same unit category)
+      parseable_units = supplier_pairs
+        .filter_map { |_, sp| sp&.normalized_unit }
+        .uniq
+      comparable = parseable_units.size == 1
+      comparison_unit = parseable_units.first if comparable
+
+      supplier_pairs.map do |supplier, supplier_product|
         if supplier_product&.current_price
           {
             supplier: {
@@ -69,6 +79,12 @@ module Orders
             supplier_sku: supplier_product.supplier_sku,
             unit_price: supplier_product.current_price,
             line_total: supplier_product.current_price * quantity,
+            pack_size: supplier_product.pack_size,
+            per_unit_price: supplier_product.per_unit_price,
+            normalized_unit: supplier_product.normalized_unit,
+            formatted_per_unit: supplier_product.formatted_per_unit_price,
+            comparable: comparable,
+            comparison_unit: comparison_unit,
             in_stock: supplier_product.in_stock?,
             last_updated: supplier_product.price_updated_at,
             price_changed: supplier_product.price_changed?,
@@ -85,6 +101,12 @@ module Orders
             supplier_sku: nil,
             unit_price: nil,
             line_total: nil,
+            pack_size: nil,
+            per_unit_price: nil,
+            normalized_unit: nil,
+            formatted_per_unit: nil,
+            comparable: false,
+            comparison_unit: nil,
             in_stock: false,
             last_updated: nil,
             unavailable: true
@@ -107,13 +129,21 @@ module Orders
     def find_best_price(supplier_prices)
       available = supplier_prices.select { |sp| sp[:in_stock] && sp[:unit_price] }
       return nil if available.empty?
-      
-      best = available.min_by { |sp| sp[:unit_price] }
+
+      # Use per-unit price when comparable, otherwise fall back to pack price
+      best = if available.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
+        available.select { |sp| sp[:per_unit_price] }.min_by { |sp| sp[:per_unit_price] }
+      else
+        available.min_by { |sp| sp[:unit_price] }
+      end
+
       {
         supplier_id: best.dig(:supplier, :id),
         supplier_name: best.dig(:supplier, :name),
         unit_price: best[:unit_price],
-        line_total: best[:line_total]
+        line_total: best[:line_total],
+        per_unit_price: best[:per_unit_price],
+        compared_by_unit: best[:comparable] && best[:per_unit_price].present?
       }
     end
 
@@ -121,19 +151,32 @@ module Orders
       available = supplier_prices.select { |sp| sp[:in_stock] && sp[:unit_price] }
       return nil if available.empty?
 
-      worst = available.max_by { |sp| sp[:unit_price] }
+      worst = if available.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
+        available.select { |sp| sp[:per_unit_price] }.max_by { |sp| sp[:per_unit_price] }
+      else
+        available.max_by { |sp| sp[:unit_price] }
+      end
+
       {
         supplier_id: worst.dig(:supplier, :id),
         supplier_name: worst.dig(:supplier, :name),
         unit_price: worst[:unit_price],
-        line_total: worst[:line_total]
+        line_total: worst[:line_total],
+        per_unit_price: worst[:per_unit_price]
       }
     end
 
     def calculate_spread(supplier_prices)
-      prices = supplier_prices.map { |sp| sp[:unit_price] }.compact
-      return 0 if prices.size < 2
-      (prices.max - prices.min).round(2)
+      # Use per-unit spread when comparable
+      if supplier_prices.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
+        per_unit_prices = supplier_prices.filter_map { |sp| sp[:per_unit_price] if sp[:comparable] }
+        return 0 if per_unit_prices.size < 2
+        (per_unit_prices.max - per_unit_prices.min).round(4)
+      else
+        prices = supplier_prices.map { |sp| sp[:unit_price] }.compact
+        return 0 if prices.size < 2
+        (prices.max - prices.min).round(2)
+      end
     end
 
     def calculate_totals(comparison)

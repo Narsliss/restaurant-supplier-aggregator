@@ -47,6 +47,12 @@
                 <% if best_price %>
                   <p class="text-sm font-medium text-gray-900"><%= number_to_currency(best_price.current_price) %></p>
                   <p class="text-xs text-gray-500"><%= best_price.supplier.name %></p>
+                  <% if best_price.pack_size.present? %>
+                    <p class="text-xs text-gray-400"><%= best_price.pack_size %></p>
+                  <% end %>
+                  <% if best_price.formatted_per_unit_price %>
+                    <p class="text-xs text-green-600"><%= best_price.formatted_per_unit_price %></p>
+                  <% end %>
                 <% else %>
                   <p class="text-sm text-gray-400">No price</p>
                 <% end %>
@@ -87,6 +93,12 @@
                   <% if best_price %>
                     <p class="text-sm text-gray-900"><%= number_to_currency(best_price.current_price) %></p>
                     <p class="text-xs text-gray-500"><%= best_price.supplier.name %></p>
+                    <% if best_price.pack_size.present? %>
+                      <p class="text-xs text-gray-400"><%= best_price.pack_size %></p>
+                    <% end %>
+                    <% if best_price.formatted_per_unit_price %>
+                      <p class="text-xs text-green-600"><%= best_price.formatted_per_unit_price %></p>
+                    <% end %>
                   <% else %>
                     <span class="text-sm text-gray-400">—</span>
                   <% end %>

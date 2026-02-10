@@ -88,24 +88,47 @@
             <span class="text-sm font-medium text-gray-900"><%= item[:product][:name] %></span>
             <span class="text-xs text-gray-500 flex-shrink-0 ml-2">Qty: <%= item[:quantity] %></span>
           </div>
+          <%# Show "compared per oz" badge when sizes differ but are comparable %>
+          <% has_different_sizes = item[:suppliers].filter_map { |sp| sp[:pack_size] }.uniq.size > 1 %>
+          <% any_comparable = item[:suppliers].any? { |sp| sp[:comparable] && sp[:per_unit_price] } %>
+          <% if has_different_sizes && any_comparable %>
+            <% unit_label = item[:suppliers].find { |sp| sp[:comparison_unit] }&.dig(:comparison_unit) %>
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-700">
+              Different sizes — compared per <%= unit_label %>
+            </span>
+          <% end %>
           <div class="space-y-1">
             <% item[:suppliers].each do |sp| %>
-              <div class="flex justify-between text-sm">
-                <span class="text-gray-500"><%= sp[:supplier][:name] %></span>
-                <span class="<%= sp[:supplier][:id] == item[:best_price]&.dig(:supplier_id) ? 'text-green-600 font-bold' : 'text-gray-900' %>">
+              <div class="flex justify-between items-start text-sm">
+                <div class="text-gray-500">
+                  <%= sp[:supplier][:name] %>
+                  <% if sp[:pack_size].present? %>
+                    <span class="block text-xs text-gray-400"><%= sp[:pack_size] %></span>
+                  <% end %>
+                </div>
+                <div class="text-right flex-shrink-0 ml-2 <%= sp[:supplier][:id] == item[:best_price]&.dig(:supplier_id) ? 'text-green-600 font-bold' : 'text-gray-900' %>">
                   <% if sp[:unit_price] && sp[:in_stock] %>
                     <%= number_to_currency(sp[:unit_price]) %>
+                    <% if sp[:formatted_per_unit] %>
+                      <span class="block text-xs font-normal <%= sp[:supplier][:id] == item[:best_price]&.dig(:supplier_id) ? 'text-green-500' : 'text-gray-400' %>">
+                        <%= sp[:formatted_per_unit] %>
+                      </span>
+                    <% end %>
                   <% elsif sp[:unit_price] && !sp[:in_stock] %>
                     <span class="text-orange-500"><%= number_to_currency(sp[:unit_price]) %> (OOS)</span>
                   <% else %>
                     <span class="text-gray-400">N/A</span>
                   <% end %>
-                </span>
+                </div>
               </div>
             <% end %>
           </div>
           <% if item[:price_spread] > 0 %>
-            <p class="text-xs text-gray-400">Price spread: <%= number_to_currency(item[:price_spread]) %></p>
+            <% if any_comparable %>
+              <p class="text-xs text-gray-400">Per-unit spread: <%= item[:suppliers].find { |sp| sp[:comparison_unit] }&.dig(:comparison_unit) ? UnitParser.format_per_unit(item[:price_spread], item[:suppliers].find { |sp| sp[:comparison_unit] }&.dig(:comparison_unit)) : number_to_currency(item[:price_spread]) %></p>
+            <% else %>
+              <p class="text-xs text-gray-400">Price spread: <%= number_to_currency(item[:price_spread]) %></p>
+            <% end %>
           <% end %>
         </div>
       <% end %>
@@ -126,25 +149,49 @@
         </thead>
         <tbody class="divide-y divide-gray-200">
           <% @comparison[:items].each do |item| %>
+            <% has_different_sizes = item[:suppliers].filter_map { |sp| sp[:pack_size] }.uniq.size > 1 %>
+            <% any_comparable = item[:suppliers].any? { |sp| sp[:comparable] && sp[:per_unit_price] } %>
             <tr>
-              <td class="px-4 py-3 text-sm text-gray-900"><%= item[:product][:name] %></td>
+              <td class="px-4 py-3 text-sm text-gray-900">
+                <%= item[:product][:name] %>
+                <% if has_different_sizes && any_comparable %>
+                  <% unit_label = item[:suppliers].find { |sp| sp[:comparison_unit] }&.dig(:comparison_unit) %>
+                  <span class="block text-xs text-blue-600">Compared per <%= unit_label %></span>
+                <% end %>
+              </td>
               <td class="px-4 py-3 text-sm text-gray-500 text-center"><%= item[:quantity] %></td>
               <% item[:suppliers].each do |sp| %>
                 <td class="px-4 py-3 text-right text-sm <%= sp[:supplier][:id] == item[:best_price]&.dig(:supplier_id) ? 'text-green-600 font-bold' : 'text-gray-900' %>">
                   <% if sp[:unit_price] && sp[:in_stock] %>
-                    <%= number_to_currency(sp[:unit_price]) %>
+                    <div><%= number_to_currency(sp[:unit_price]) %></div>
+                    <% if sp[:pack_size].present? %>
+                      <div class="text-xs font-normal text-gray-400"><%= sp[:pack_size] %></div>
+                    <% end %>
+                    <% if sp[:formatted_per_unit] %>
+                      <div class="text-xs font-normal <%= sp[:supplier][:id] == item[:best_price]&.dig(:supplier_id) ? 'text-green-500' : 'text-gray-400' %>">
+                        <%= sp[:formatted_per_unit] %>
+                      </div>
+                    <% end %>
                   <% elsif sp[:unit_price] && !sp[:in_stock] %>
                     <span class="text-orange-500" title="Out of Stock"><%= number_to_currency(sp[:unit_price]) %> *</span>
+                    <% if sp[:pack_size].present? %>
+                      <div class="text-xs font-normal text-gray-400"><%= sp[:pack_size] %></div>
+                    <% end %>
                   <% else %>
-                    <span class="text-gray-400">—</span>
+                    <span class="text-gray-400">&mdash;</span>
                   <% end %>
                 </td>
               <% end %>
               <td class="px-4 py-3 text-right text-sm text-gray-400">
                 <% if item[:price_spread] > 0 %>
-                  <%= number_to_currency(item[:price_spread]) %>
+                  <% if any_comparable %>
+                    <% unit_label = item[:suppliers].find { |sp| sp[:comparison_unit] }&.dig(:comparison_unit) %>
+                    <%= UnitParser.format_per_unit(item[:price_spread], unit_label) %>
+                  <% else %>
+                    <%= number_to_currency(item[:price_spread]) %>
+                  <% end %>
                 <% else %>
-                  —
+                  &mdash;
                 <% end %>
               </td>
             </tr>
