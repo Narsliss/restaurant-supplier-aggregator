@@ -178,6 +178,22 @@ if Rails.env.development? || Rails.env.production?
   end
 
   puts "  Created super admin user: admin@example.com (password: admin123)"
+
+  # Create primary super admin user
+  puts "Creating primary super admin..."
+
+  primary_admin = User.find_or_create_by!(email: "carmin@las-noches.com") do |u|
+    u.password = "Tres-Leches16!"
+    u.password_confirmation = "Tres-Leches16!"
+    u.first_name = "Carmin"
+    u.last_name = "Admin"
+    u.role = "super_admin"
+  end
+
+  # Ensure role is super_admin even if user already existed
+  primary_admin.update!(role: "super_admin") unless primary_admin.super_admin?
+
+  puts "  Created primary super admin: carmin@las-noches.com"
 end
 
 puts "Seeding complete!"
