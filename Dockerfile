@@ -105,5 +105,6 @@ USER rails:rails
 ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
 # Default command: run the Rails server
-EXPOSE 3000
+# Railway sets PORT env var (usually 8080), Puma reads it automatically
+EXPOSE 8080
 CMD ["./bin/rails", "server", "-b", "0.0.0.0"]
