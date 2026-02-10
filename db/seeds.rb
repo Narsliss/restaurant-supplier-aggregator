@@ -148,15 +148,15 @@ if Rails.env.development? || Rails.env.production?
 
   puts "  Created demo user: demo@example.com (password: password123)"
 
-  # Create an admin user
-  puts "Creating admin user..."
-  
+  # Create a super admin user
+  puts "Creating super admin user..."
+
   admin_user = User.find_or_create_by!(email: "admin@example.com") do |u|
     u.password = "admin123"
     u.password_confirmation = "admin123"
     u.first_name = "Admin"
     u.last_name = "User"
-    u.role = "admin"
+    u.role = "super_admin"
   end
 
   Location.find_or_create_by!(user: admin_user, name: "Admin Office") do |l|
@@ -167,7 +167,7 @@ if Rails.env.development? || Rails.env.production?
     l.is_default = true
   end
 
-  puts "  Created admin user: admin@example.com (password: admin123)"
+  puts "  Created super admin user: admin@example.com (password: admin123)"
 end
 
 puts "Seeding complete!"
