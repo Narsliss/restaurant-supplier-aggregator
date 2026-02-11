@@ -286,7 +286,7 @@ module Scrapers
     def search_supplier_catalog(term, max: 20)
       encoded = CGI.escape(term)
       navigate_to("#{BASE_URL}/search?q=#{encoded}")
-      sleep 2
+      sleep 1
 
       products = []
       items = browser.css(".product-card, .product-item, .product-tile, .search-result-item")

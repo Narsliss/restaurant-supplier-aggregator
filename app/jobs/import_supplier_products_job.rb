@@ -19,6 +19,14 @@ class ImportSupplierProductsJob < ApplicationJob
 
     Rails.logger.info "[ImportProductsJob] #{credential.supplier.name}: imported=#{results[:imported]}, updated=#{results[:updated]}, skipped=#{results[:skipped]}, errors=#{results[:errors].size}"
   ensure
-    credential&.update_columns(importing: false, last_import_at: Time.current) if credential&.persisted?
+    if credential&.persisted?
+      credential.update_columns(
+        importing: false,
+        last_import_at: Time.current,
+        import_progress: 0,
+        import_total: 0,
+        import_status_text: nil
+      )
+    end
   end
 end

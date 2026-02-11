@@ -26,6 +26,7 @@ export default class extends Controller {
     submitCodeUrl: String, // POST endpoint to submit 2FA code
     importUrl: String,     // POST endpoint to start product import
     importing: Boolean,    // true if an import is already in progress on page load
+    credentialStatus: String, // server-rendered credential status (pending, active, failed, etc.)
   }
 
   connect() {
@@ -37,6 +38,14 @@ export default class extends Controller {
     // If an import is already in progress on page load, show importing state and poll
     if (this.importingValue) {
       this.showState("importing")
+      this.startPolling()
+      return
+    }
+
+    // If the credential is pending (e.g. just created with a 2FA supplier),
+    // auto-start polling so the 2FA code input appears without a manual refresh.
+    if (this.credentialStatusValue === "pending") {
+      this.showState("validating")
       this.startPolling()
       return
     }
@@ -87,8 +96,18 @@ export default class extends Controller {
   async startImport(event) {
     event.preventDefault()
     if (this.currentState === "importing") return
+
+    // Immediately disable the button to prevent double-clicks
+    const clickedBtn = event.currentTarget || event.target.closest("button")
+    if (clickedBtn) {
+      clickedBtn.disabled = true
+      clickedBtn.style.opacity = "0.5"
+      clickedBtn.style.pointerEvents = "none"
+    }
+
     console.log(`[credential-validator] startImport for credential ${this.credentialIdValue}`)
     this.importPollCount = 0
+    this._serverConfirmedImporting = false
     this.showState("importing")
 
     try {
@@ -185,20 +204,41 @@ export default class extends Controller {
 
     // No active 2FA request — check credential status
     if (cred.importing) {
-      // Server says import is in progress — keep polling for 2FA or completion
-      this.showState("importing")
+      // Server says import is in progress — track that we've seen it
+      this._serverConfirmedImporting = true
+
+      // Show progress if available (e.g. "Importing 42%" or "Searching catalog...")
+      if (cred.import_total > 0 && cred.import_progress > 0) {
+        const pct = Math.round((cred.import_progress / cred.import_total) * 100)
+        this.showState("importing", `Importing ${pct}%`)
+      } else if (cred.import_status_text) {
+        this.showState("importing", cred.import_status_text)
+      } else {
+        this.showState("importing")
+      }
       return
     }
 
     if (cred.status === "active") {
-      // cred.importing is checked above, so reaching here means the import
-      // is truly finished (importing=false, status=active).
+      // If we're in "importing" state but server hasn't confirmed importing yet,
+      // the job may not have started — keep polling a few more cycles
+      if (this.currentState === "importing" && !this._serverConfirmedImporting) {
+        this.importPollCount = (this.importPollCount || 0) + 1
+        if (this.importPollCount < 5) {
+          // Keep showing importing state — job may not have picked up yet
+          return
+        }
+      }
+
+      // Import is truly finished (or was never started)
+      this._serverConfirmedImporting = false
       this.stopPolling()
       this.showState("success")
       return
     }
 
     if (cred.status === "failed") {
+      this._serverConfirmedImporting = false
       this.stopPolling()
       this.showState("failed", cred.last_error || "Validation failed")
       return
@@ -231,10 +271,10 @@ export default class extends Controller {
 
     switch (state) {
       case "importing":
-        this.updateBadge("Importing...", "bg-blue-100 text-blue-800")
-        this.disableValidateBtn("Importing...")
+        this.updateBadge(message || "Importing...", "bg-blue-100 text-blue-800")
+        this.disableValidateBtn(message || "Importing...")
         this.showImportBtn()
-        this.disableImportBtn()
+        this.disableImportBtn(message)
         break
 
       case "validating":
@@ -342,7 +382,7 @@ export default class extends Controller {
     }
   }
 
-  disableImportBtn() {
+  disableImportBtn(label) {
     if (!this.hasImportBtnTarget) return
     const btn = this.importBtnTarget.querySelector("button")
     if (!btn) return
@@ -353,7 +393,7 @@ export default class extends Controller {
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
       </svg>
-      Importing...
+      ${label || "Importing..."}
     `
   }
 

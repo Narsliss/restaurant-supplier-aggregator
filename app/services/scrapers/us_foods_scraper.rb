@@ -1175,12 +1175,12 @@ module Scrapers
         url = "#{BASE_URL}/desktop/search2?originSearchPage=catalog&facetFilters=ec_category:#{CGI.escape(category)}"
       end
       navigate_to(url)
-      sleep 5
+      sleep 2
 
       previous_count = 0
       stale_rounds = 0
 
-      25.times do |attempt|
+      10.times do |attempt|
         current_count = browser.evaluate("document.querySelectorAll('ion-card').length") rescue 0
         break if current_count >= max_products
 
@@ -1195,7 +1195,7 @@ module Scrapers
         # Trigger Ionic infinite scroll by scrolling the ion-content's
         # internal scroll element (inside the shadow DOM).
         trigger_ionic_infinite_scroll
-        sleep 3
+        sleep 1.5
       end
 
       final_count = browser.evaluate("document.querySelectorAll('ion-card').length") rescue 0
@@ -1262,7 +1262,7 @@ module Scrapers
 
       # Use URL-based search for more reliable results
       navigate_to("#{BASE_URL}/desktop/search2?q=#{CGI.escape(term)}")
-      sleep 5
+      sleep 2
 
       # Scroll to load more search results using Ionic infinite scroll
       previous_count = 0
@@ -1281,7 +1281,7 @@ module Scrapers
         previous_count = current_count
 
         trigger_ionic_infinite_scroll
-        sleep 3
+        sleep 1.5
       end
 
       extract_products_from_page(max)

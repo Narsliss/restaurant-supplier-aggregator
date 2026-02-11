@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_11_001548) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_11_071714) do
   create_table "billing_events", force: :cascade do |t|
     t.integer "user_id"
     t.integer "subscription_id"
@@ -422,8 +422,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_11_001548) do
     t.integer "supplier_id", null: false
     t.text "encrypted_username", null: false
     t.string "encrypted_username_iv", null: false
-    t.text "encrypted_password", null: false
-    t.string "encrypted_password_iv", null: false
+    t.text "encrypted_password"
+    t.string "encrypted_password_iv"
     t.text "encrypted_session_data"
     t.string "encrypted_session_data_iv"
     t.string "status", default: "pending"
@@ -440,6 +440,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_11_001548) do
     t.boolean "importing", default: false, null: false
     t.datetime "last_import_at"
     t.integer "organization_id"
+    t.integer "import_progress", default: 0
+    t.integer "import_total", default: 0
+    t.string "import_status_text"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"
     t.index ["status"], name: "index_supplier_credentials_on_status"
     t.index ["supplier_id"], name: "index_supplier_credentials_on_supplier_id"

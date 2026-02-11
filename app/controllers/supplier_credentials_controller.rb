@@ -51,18 +51,33 @@ class SupplierCredentialsController < ApplicationController
     if @credential.save
       Rails.logger.info "[SupplierCredentials] Created credential ##{@credential.id} for #{@credential.supplier.name} (user: #{current_user.id})"
 
-      # Run validation synchronously so user gets immediate feedback
-      result = validate_credential_now(@credential)
+      # 2FA-only suppliers (US Foods, PPO) must validate asynchronously because
+      # the scraper polls the DB waiting for the user's verification code.
+      async_scrapers = %w[
+        Scrapers::PremiereProduceOneScraper
+        Scrapers::UsFoodsScraper
+      ]
 
-      if result[:valid]
+      if async_scrapers.include?(@credential.supplier.scraper_class)
+        @credential.update!(status: "pending")
+        ValidateCredentialsJob.perform_later(@credential.id)
+
         redirect_to supplier_credentials_path,
-          notice: "#{@credential.supplier.name} credentials verified successfully."
-      elsif result[:two_fa_required]
-        redirect_to supplier_credentials_path,
-          notice: "#{@credential.supplier.name} credentials saved. A verification code is required — please enter the code sent to your phone or email."
+          notice: "#{@credential.supplier.name} credentials saved. Check your email or phone for a verification code."
       else
-        redirect_to supplier_credentials_path,
-          alert: "#{@credential.supplier.name} credentials saved but validation failed: #{result[:message]}"
+        # Password-based suppliers: validate synchronously for immediate feedback
+        result = validate_credential_now(@credential)
+
+        if result[:valid]
+          redirect_to supplier_credentials_path,
+            notice: "#{@credential.supplier.name} credentials verified successfully."
+        elsif result[:two_fa_required]
+          redirect_to supplier_credentials_path,
+            notice: "#{@credential.supplier.name} credentials saved. A verification code is required — please enter the code sent to your phone or email."
+        else
+          redirect_to supplier_credentials_path,
+            alert: "#{@credential.supplier.name} credentials saved but validation failed: #{result[:message]}"
+        end
       end
     else
       Rails.logger.warn "[SupplierCredentials] Failed to create credential: #{@credential.errors.full_messages.join(', ')}"
@@ -87,17 +102,32 @@ class SupplierCredentialsController < ApplicationController
     if @credential.update(filtered_params)
       Rails.logger.info "[SupplierCredentials] Updated credential ##{@credential.id} for #{@credential.supplier.name} (user: #{current_user.id})"
 
-      result = validate_credential_now(@credential)
+      # 2FA-only suppliers must validate asynchronously
+      async_scrapers = %w[
+        Scrapers::PremiereProduceOneScraper
+        Scrapers::UsFoodsScraper
+      ]
 
-      if result[:valid]
+      if async_scrapers.include?(@credential.supplier.scraper_class)
+        Supplier2faRequest.where(supplier_credential: @credential, status: "pending").update_all(status: "cancelled")
+        @credential.update!(status: "pending")
+        ValidateCredentialsJob.perform_later(@credential.id)
+
         redirect_to supplier_credentials_path,
-          notice: "#{@credential.supplier.name} credentials updated and verified successfully."
-      elsif result[:two_fa_required]
-        redirect_to supplier_credentials_path,
-          notice: "#{@credential.supplier.name} credentials updated. A verification code is required — please enter the code sent to your phone or email."
+          notice: "#{@credential.supplier.name} credentials updated. Check your email or phone for a verification code."
       else
-        redirect_to supplier_credentials_path,
-          alert: "#{@credential.supplier.name} credentials updated but validation failed: #{result[:message]}"
+        result = validate_credential_now(@credential)
+
+        if result[:valid]
+          redirect_to supplier_credentials_path,
+            notice: "#{@credential.supplier.name} credentials updated and verified successfully."
+        elsif result[:two_fa_required]
+          redirect_to supplier_credentials_path,
+            notice: "#{@credential.supplier.name} credentials updated. A verification code is required — please enter the code sent to your phone or email."
+        else
+          redirect_to supplier_credentials_path,
+            alert: "#{@credential.supplier.name} credentials updated but validation failed: #{result[:message]}"
+        end
       end
     else
       Rails.logger.warn "[SupplierCredentials] Failed to update credential ##{@credential.id}: #{@credential.errors.full_messages.join(', ')}"
@@ -279,7 +309,10 @@ class SupplierCredentialsController < ApplicationController
         status: @credential.status,
         last_error: @credential.last_error,
         supplier_name: @credential.supplier.name,
-        importing: @credential.importing?
+        importing: @credential.importing?,
+        import_progress: @credential.import_progress,
+        import_total: @credential.import_total,
+        import_status_text: @credential.import_status_text
       },
       two_fa_request: tfa_request ? {
         id: tfa_request.id,

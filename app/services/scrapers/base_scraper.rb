@@ -496,7 +496,7 @@ module Scrapers
     end
 
     def rate_limit_delay
-      sleep rand(1.0..2.5)
+      sleep rand(0.5..1.5)
     end
   end
 end

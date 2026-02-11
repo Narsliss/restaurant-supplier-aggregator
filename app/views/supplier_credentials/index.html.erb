@@ -15,69 +15,72 @@
              data-credential-validator-validate-url-value="<%= validate_supplier_credential_path(credential, format: :json) %>"
              data-credential-validator-submit-code-url-value="<%= submit_2fa_code_supplier_credential_path(credential, format: :json) %>"
              data-credential-validator-import-url-value="<%= import_products_supplier_credential_path(credential, format: :json) %>"
-             data-credential-validator-importing-value="<%= credential.importing? %>">
+             data-credential-validator-importing-value="<%= credential.importing? %>"
+             data-credential-validator-credential-status-value="<%= credential.status %>">
 
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <h3 class="text-lg font-medium text-gray-900"><%= credential.supplier.name %></h3>
-                <% case credential.status %>
-                <% when "active" %>
-                  <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
-                <% when "invalid" %>
-                  <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Invalid</span>
-                <% when "failed" %>
-                  <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Failed</span>
-                <% else %>
-                  <% if pending_2fa %>
-                    <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Awaiting Code</span>
-                  <% else %>
-                    <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800"><%= credential.status.titleize %></span>
-                  <% end %>
-                <% end %>
-              </div>
-              <p class="text-sm text-gray-500 mt-0.5">Username: <%= credential.username %></p>
-
-              <%# Error block — shown/hidden dynamically %>
-              <div data-credential-validator-target="errorBlock" class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 <%= 'hidden' unless credential.status == 'failed' && credential.last_error.present? %>">
-                <p class="font-medium">Validation Error:</p>
-                <p data-credential-validator-target="errorText" class="mt-0.5 break-words"><%= credential.last_error %></p>
-              </div>
-
-              <% if credential.on_hold? && credential.hold_reason.present? %>
-                <p class="text-xs text-yellow-600 mt-1">Hold reason: <%= credential.hold_reason %></p>
+          <%# Header row: supplier name + badge %>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h3 class="text-lg font-medium text-gray-900"><%= credential.supplier.name %></h3>
+            <% case credential.status %>
+            <% when "active" %>
+              <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">Active</span>
+            <% when "invalid" %>
+              <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 whitespace-nowrap">Invalid</span>
+            <% when "failed" %>
+              <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 whitespace-nowrap">Failed</span>
+            <% else %>
+              <% if pending_2fa %>
+                <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 whitespace-nowrap">Awaiting Code</span>
+              <% else %>
+                <span data-credential-validator-target="statusBadge" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 whitespace-nowrap"><%= credential.status.titleize %></span>
               <% end %>
-              <% if credential.last_login_at.present? %>
-                <p class="text-xs text-gray-400 mt-1">Last login: <%= time_ago_in_words(credential.last_login_at) %> ago</p>
-              <% end %>
-            </div>
+            <% end %>
+          </div>
 
-            <div class="flex flex-wrap gap-2 flex-shrink-0">
+          <p class="text-sm text-gray-500 mt-0.5"><%= credential.username %></p>
+
+          <%# Error block — shown/hidden dynamically %>
+          <div data-credential-validator-target="errorBlock" class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 <%= 'hidden' unless credential.status == 'failed' && credential.last_error.present? %>">
+            <p class="font-medium">Validation Error:</p>
+            <p data-credential-validator-target="errorText" class="mt-0.5 break-words"><%= credential.last_error %></p>
+          </div>
+
+          <% if credential.on_hold? && credential.hold_reason.present? %>
+            <p class="text-xs text-yellow-600 mt-1">Hold reason: <%= credential.hold_reason %></p>
+          <% end %>
+          <% if credential.last_login_at.present? %>
+            <p class="text-xs text-gray-400 mt-1">Last login: <%= time_ago_in_words(credential.last_login_at) %> ago</p>
+          <% end %>
+
+          <%# Action buttons — single row with icon-only on small screens %>
+          <div class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+            <button type="button"
+                    data-credential-validator-target="validateBtn"
+                    data-action="click->credential-validator#startValidation"
+                    class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors whitespace-nowrap">
+              <svg class="w-4 h-4 sm:mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span class="hidden sm:inline">Validate</span>
+            </button>
+            <div data-credential-validator-target="importBtn" class="<%= 'hidden' unless credential.active? || credential.importing? %>">
               <button type="button"
-                      data-credential-validator-target="validateBtn"
-                      data-action="click->credential-validator#startValidation"
-                      class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors">
-                <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                Validate
+                      data-action="click->credential-validator#startImport"
+                      <% if credential.importing? %>disabled<% end %>
+                      class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-emerald-500 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-emerald-600 whitespace-nowrap">
+                <svg class="w-4 h-4 sm:mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                <span class="hidden sm:inline"><%= credential.importing? ? "Importing..." : "Import Products" %></span>
               </button>
-              <div data-credential-validator-target="importBtn" class="<%= 'hidden' unless credential.active? || credential.importing? %>">
-                <button type="button"
-                        data-action="click->credential-validator#startImport"
-                        <% if credential.importing? %>disabled<% end %>
-                        class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-emerald-500 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-emerald-600">
-                  <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-                  <%= credential.importing? ? "Importing..." : "Import Products" %>
-                </button>
-              </div>
-              <%= link_to edit_supplier_credential_path(credential), class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" do %>
-                <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
-                Edit
-              <% end %>
-              <%= button_to supplier_credential_path(credential), method: :delete, data: { turbo_confirm: "Are you sure you want to remove these credentials?" }, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition-colors" do %>
-                <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                Delete
-              <% end %>
             </div>
+
+            <div class="flex-1"></div>
+
+            <%= link_to edit_supplier_credential_path(credential), class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors whitespace-nowrap" do %>
+              <svg class="w-4 h-4 sm:mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+              <span class="hidden sm:inline">Edit</span>
+            <% end %>
+            <%= button_to supplier_credential_path(credential), method: :delete, data: { turbo_confirm: "Are you sure you want to remove these credentials?" }, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap" do %>
+              <svg class="w-4 h-4 sm:mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+              <span class="hidden sm:inline">Delete</span>
+            <% end %>
           </div>
 
           <%# Inline 2FA code entry — hidden by default, shown dynamically by Stimulus %>

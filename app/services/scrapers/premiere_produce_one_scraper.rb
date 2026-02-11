@@ -940,7 +940,7 @@ module Scrapers
       search_input.focus
       sleep 0.3
       set_react_input_value(search_input, term)
-      sleep 3 # Wait for React to filter results
+      sleep 1.5 # Wait for React to filter results
 
       # DOM probe: scan all elements by innerText (not textContent) to handle
       # React's split-text-node rendering. Also search globally for $ prices.

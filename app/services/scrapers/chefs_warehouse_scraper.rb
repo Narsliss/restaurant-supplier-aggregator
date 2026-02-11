@@ -162,74 +162,92 @@ module Scrapers
 
         logger.info "[ChefsWarehouse] Found login form: email=##{login_result['emailId']}, password=##{login_result['passwordId']}, submit=##{login_result['submitId']}"
 
-        # Fill credentials using the discovered element IDs
+        # Fill credentials using Ferrum's native CDP keyboard input
+        # Vue 3 v-model only responds to real keyboard events from Chrome DevTools Protocol,
+        # not synthetic JS events or nativeSetter tricks
         email_id = login_result["emailId"]
         password_id = login_result["passwordId"]
         submit_id = login_result["submitId"]
-        escaped_username = credential.username.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
-        escaped_password = credential.password.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
 
-        # Fill email field
-        browser.evaluate(<<~JS)
-          (function() {
-            var el = document.getElementById('#{email_id}');
-            if (!el) return false;
-            el.focus();
-            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            nativeSetter.call(el, '#{escaped_username}');
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-          })()
-        JS
-        sleep 0.3
+        # Get Ferrum element references via their discovered IDs
+        email_el = browser.at_css("##{email_id}")
+        password_el = browser.at_css("##{password_id}")
 
-        # Fill password field
-        browser.evaluate(<<~JS)
-          (function() {
-            var el = document.getElementById('#{password_id}');
-            if (!el) return false;
-            el.focus();
-            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            nativeSetter.call(el, '#{escaped_password}');
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-          })()
-        JS
-        sleep 0.3
+        unless email_el && password_el
+          raise AuthenticationError, "Could not get element references for login fields"
+        end
+
+        # Fill email field using real keyboard input
+        logger.info "[ChefsWarehouse] Typing username into email field"
+        begin
+          email_el.click
+          sleep 0.2
+          email_el.focus
+          email_el.type(credential.username, :clear)
+        rescue Ferrum::CoordinatesNotFoundError => e
+          logger.debug "[ChefsWarehouse] Click failed for email, scrolling into view: #{e.message}"
+          email_el.evaluate("this.scrollIntoView({ block: 'center' })")
+          sleep 0.3
+          email_el.click
+          email_el.type(credential.username, :clear)
+        end
+        sleep 0.5
+
+        # Fill password field using real keyboard input
+        logger.info "[ChefsWarehouse] Typing password into password field"
+        begin
+          password_el.click
+          sleep 0.2
+          password_el.focus
+          password_el.type(credential.password, :clear)
+        rescue Ferrum::CoordinatesNotFoundError => e
+          logger.debug "[ChefsWarehouse] Click failed for password, scrolling into view: #{e.message}"
+          password_el.evaluate("this.scrollIntoView({ block: 'center' })")
+          sleep 0.3
+          password_el.click
+          password_el.type(credential.password, :clear)
+        end
+        sleep 0.5
 
         logger.info "[ChefsWarehouse] Credentials entered, clicking submit"
 
-        # Click submit button
+        # Click submit button using Ferrum element click (real mouse event via CDP)
         if submit_id
-          browser.evaluate("document.getElementById('#{submit_id}')?.click()")
+          submit_el = browser.at_css("##{submit_id}")
+          if submit_el
+            begin
+              submit_el.click
+            rescue Ferrum::CoordinatesNotFoundError => e
+              logger.debug "[ChefsWarehouse] Submit click failed, scrolling: #{e.message}"
+              submit_el.evaluate("this.scrollIntoView({ block: 'center' })")
+              sleep 0.3
+              submit_el.click
+            end
+          else
+            # Fallback: press Enter on password field
+            browser.keyboard.type(:Enter)
+          end
         else
-          # Fallback: find and click "Sign In" button by text
-          browser.evaluate(<<~JS)
-            (function() {
-              var buttons = document.querySelectorAll('button');
-              for (var btn of buttons) {
-                var text = (btn.innerText || '').trim().toLowerCase();
-                if (text === 'sign in' && btn.offsetParent !== null) {
-                  btn.click();
-                  return true;
-                }
-              }
-              // Last resort: press Enter on password field
-              var pwField = document.getElementById('#{password_id}');
-              if (pwField) {
-                pwField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-                pwField.form?.submit();
-              }
-              return false;
-            })()
-          JS
+          # No submit button found, press Enter
+          browser.keyboard.type(:Enter)
+        end
+
+        sleep 2
+
+        # If still on login page after click, try pressing Enter as fallback
+        still_on_login = browser.current_url.to_s.include?("/login") rescue false
+        if still_on_login
+          logger.info "[ChefsWarehouse] Still on login page after button click, trying Enter key"
+          password_el_retry = browser.at_css("##{password_id}") rescue nil
+          if password_el_retry
+            password_el_retry.focus rescue nil
+          end
+          browser.keyboard.type(:Enter)
         end
 
         logger.info "[ChefsWarehouse] Form submitted, waiting for response..."
         wait_for_page_load
-        sleep 4 # Extra wait for SPA navigation after login
+        sleep 5 # Extra wait for SPA navigation after login
 
         logger.info "[ChefsWarehouse] Post-login URL: #{browser.current_url}"
 
@@ -639,11 +657,14 @@ module Scrapers
 
           // Clear and set value using native setter to trigger Vue/React bindings
           var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          el.focus();
+          el.dispatchEvent(new Event('focus', { bubbles: true }));
           nativeSetter.call(el, '');
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
           nativeSetter.call(el, '#{escaped_value}');
 
-          // Dispatch events to trigger framework reactivity
-          el.dispatchEvent(new Event('input', { bubbles: true }));
+          // Vue 3 v-model listens for InputEvent, not generic Event
+          el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '#{escaped_value}', inputType: 'insertText' }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
           el.dispatchEvent(new Event('blur', { bubbles: true }));
 
@@ -689,8 +710,18 @@ module Scrapers
       if label.include?("email") || label.include?("username")
         browser.evaluate(<<~JS)
           (function() {
+            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            function fillInput(inp, val) {
+              inp.focus();
+              inp.dispatchEvent(new Event('focus', { bubbles: true }));
+              nativeSetter.call(inp, '');
+              inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+              nativeSetter.call(inp, val);
+              inp.dispatchEvent(new InputEvent('input', { bubbles: true, data: val, inputType: 'insertText' }));
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+              inp.dispatchEvent(new Event('blur', { bubbles: true }));
+            }
             // CW uses type=text for email field, not type=email
-            // Find text input that's near a password field (login context)
             var pwField = document.querySelector('input[type="password"]');
             if (pwField) {
               var container = pwField.closest('form') || pwField.parentElement?.parentElement?.parentElement;
@@ -698,10 +729,7 @@ module Scrapers
                 var textInputs = container.querySelectorAll('input[type="text"], input[type="email"]');
                 for (var inp of textInputs) {
                   if (inp.offsetParent !== null) {
-                    var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                    nativeSetter.call(inp, '#{escaped_value}');
-                    inp.dispatchEvent(new Event('input', { bubbles: true }));
-                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    fillInput(inp, '#{escaped_value}');
                     return true;
                   }
                 }
@@ -711,10 +739,7 @@ module Scrapers
             var inputs = document.querySelectorAll('input[type="email"], input[type="text"]');
             for (var inp of inputs) {
               if (inp.offsetParent !== null) {
-                var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                nativeSetter.call(inp, '#{escaped_value}');
-                inp.dispatchEvent(new Event('input', { bubbles: true }));
-                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                fillInput(inp, '#{escaped_value}');
                 return true;
               }
             }
@@ -725,13 +750,18 @@ module Scrapers
       elsif label.include?("password")
         browser.evaluate(<<~JS)
           (function() {
+            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
             var inputs = document.querySelectorAll('input[type="password"]');
             for (var inp of inputs) {
               if (inp.offsetParent !== null) {
-                var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                inp.focus();
+                inp.dispatchEvent(new Event('focus', { bubbles: true }));
+                nativeSetter.call(inp, '');
+                inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
                 nativeSetter.call(inp, '#{escaped_value}');
-                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new InputEvent('input', { bubbles: true, data: '#{escaped_value}', inputType: 'insertText' }));
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
+                inp.dispatchEvent(new Event('blur', { bubbles: true }));
                 return true;
               }
             }
@@ -824,7 +854,7 @@ module Scrapers
     def search_supplier_catalog(term, max: 20)
       encoded = CGI.escape(term)
       navigate_to("#{BASE_URL}/search?q=#{encoded}")
-      sleep 4 # SPA rendering time
+      sleep 2 # SPA rendering time
 
       # CW stores product data as JSON in hidden inputs with data-object attribute
       products = extract_products_from_data_objects(max)
