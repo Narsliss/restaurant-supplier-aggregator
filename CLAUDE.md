@@ -5,8 +5,8 @@ SupplierHub is a restaurant supplier aggregation platform that helps restaurants
 
 ## Tech Stack
 - **Backend**: Ruby on Rails 7.1.6, Ruby 3.3.6
-- **Database**: PostgreSQL
-- **Cache/Queue**: Redis + Sidekiq
+- **Database**: SQLite
+- **Cache/Queue/Cable**: Solid Stack (solid_queue, solid_cache, solid_cable) — no Redis
 - **Frontend**: Hotwire (Turbo + Stimulus), Tailwind CSS
 - **Browser Automation**: Ferrum (headless Chrome) for supplier scraping
 - **Payments**: Stripe (subscriptions)
@@ -34,20 +34,22 @@ Located in `app/services/scrapers/`:
 - `WhatChefsWantScraper` - standard login
 - `PremiereProduceOneScraper` - React SPA, passwordless auth
 
-### Background Jobs (Sidekiq)
-Scheduled jobs in `config/sidekiq.yml`:
+### Background Jobs (Solid Queue)
+Recurring jobs in `config/recurring.yml`:
 - `refresh_prices` - Daily at 4 AM
 - `refresh_sessions` - Every 6 hours
 - `scheduled_import` - Every hour
 - `expire_2fa_requests` - Every 5 minutes
 
+Queue configuration in `config/queue.yml` with priorities: critical, default, scraping, low.
+Job dashboard: Mission Control at `/jobs` (super_admin only).
+
 ## Railway Deployment
 
 ### Services
 - **web**: Rails app (Puma), PORT=8080
-- **worker**: Sidekiq (PROCESS_TYPE=worker)
-- **Postgres**: Database
-- **Redis**: Queue/cache
+- **worker**: Solid Queue (PROCESS_TYPE=worker)
+- **SQLite**: File-based database (also backs queue, cache, and cable via Solid Stack)
 
 ### Environment Variables (Railway)
 ```
@@ -55,8 +57,7 @@ RAILS_ENV=production
 RAILS_LOG_TO_STDOUT=true
 RAILS_SERVE_STATIC_FILES=true
 SECRET_KEY_BASE=<generated>
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-REDIS_URL=${{Redis.REDIS_URL}}
+DATABASE_PATH=/data/production.sqlite3
 PROCESS_TYPE=web|worker
 ```
 
@@ -94,8 +95,8 @@ bin/rails db:create db:migrate db:seed
 # Start Rails server
 bin/rails server
 
-# Start Sidekiq (separate terminal)
-bundle exec sidekiq -C config/sidekiq.yml
+# Start Solid Queue worker (separate terminal)
+bin/jobs
 
 # Or use Foreman
 foreman start
@@ -110,7 +111,8 @@ docker run -p 3000:3000 -e RAILS_ENV=production supplier-hub
 ## Important Files
 
 ### Configuration
-- `config/sidekiq.yml` - Sidekiq queues and scheduled jobs
+- `config/queue.yml` - Solid Queue workers and dispatchers
+- `config/recurring.yml` - Scheduled/recurring jobs (cron)
 - `railway.json` - Railway deployment config
 - `Dockerfile` - Multi-stage build with Chromium
 - `bin/start` - Entrypoint script (web vs worker based on PROCESS_TYPE)
@@ -155,3 +157,7 @@ Scrapers save cookies + localStorage + sessionStorage to `supplier_credentials.s
 3. Added multi-process Docker support (PROCESS_TYPE env var)
 4. Deployed to Railway with separate web and worker services
 5. All 4 scheduled cron jobs running on worker
+6. Migrated to Solid Stack (solid_queue, solid_cache, solid_cable) — removed Redis dependency
+7. Added per-unit price comparison for different pack sizes
+8. Registered credential-form Stimulus controller for 2FA supplier password field hide
+9. Migrated from PostgreSQL to SQLite — zero external service dependencies

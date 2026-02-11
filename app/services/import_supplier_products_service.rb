@@ -108,8 +108,8 @@ class ImportSupplierProductsService
     # Only check products with similar first word to avoid scanning entire table
     first_word = canonical.split.first
     if first_word.present?
-      candidates = Product.where("normalized_name ILIKE ?", "#{first_word}%").to_a
-      candidates += Product.where("normalized_name ILIKE ?", "%#{first_word}%").limit(50).to_a
+      candidates = Product.where("normalized_name LIKE ?", "#{first_word}%").to_a
+      candidates += Product.where("normalized_name LIKE ?", "%#{first_word}%").limit(50).to_a
       candidates.uniq!
 
       # Find best match above threshold (0.75 to avoid false positives on

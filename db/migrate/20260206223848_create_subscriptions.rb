@@ -35,7 +35,7 @@ class CreateSubscriptions < ActiveRecord::Migration[7.1]
       t.datetime :ended_at
 
       # Metadata
-      t.jsonb :metadata, default: {}
+      t.json :metadata, default: {}
 
       t.timestamps
     end
@@ -51,7 +51,7 @@ class CreateSubscriptions < ActiveRecord::Migration[7.1]
 
       t.string :stripe_event_id, null: false
       t.string :event_type, null: false
-      t.jsonb :data, default: {}
+      t.json :data, default: {}
       t.boolean :processed, default: false
       t.text :error_message
 

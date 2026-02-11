@@ -1,0 +1,23 @@
+refresh_prices:
+  class: ScrapePricesJob
+  queue: scraping
+  schedule: "0 4 * * *"
+  description: "Daily price refresh from all suppliers"
+
+refresh_sessions:
+  class: RefreshSessionJob
+  queue: default
+  schedule: "0 */6 * * *"
+  description: "Refresh supplier login sessions"
+
+scheduled_import:
+  class: ScheduledImportJob
+  queue: scraping
+  schedule: "0 * * * *"
+  description: "Hourly product import for all active credentials (keeps sessions alive)"
+
+expire_2fa_requests:
+  class: Expire2faRequestsJob
+  queue: low
+  schedule: "*/5 * * * *"
+  description: "Expire old 2FA requests"

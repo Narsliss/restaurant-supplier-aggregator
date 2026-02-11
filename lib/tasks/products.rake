@@ -61,7 +61,7 @@ namespace :products do
       # Try similarity match
       unless product
         first_word = canonical.split.first
-        candidates = Product.where("normalized_name ILIKE ?", "%#{first_word}%").limit(20)
+        candidates = Product.where("normalized_name LIKE ?", "%#{first_word}%").limit(20)
         best_match = nil
         best_score = 0.0
 
@@ -271,7 +271,7 @@ namespace :products do
       first_word = base.split.first
       candidates = Product
         .where.not(id: product.id)
-        .where("normalized_name ILIKE ?", "%#{first_word}%")
+        .where("normalized_name LIKE ?", "%#{first_word}%")
         .to_a
 
       candidates.each do |candidate|

@@ -5,8 +5,7 @@ class ValidateCredentialsJob < ApplicationJob
 
   # For PPO (passwordless), this job can run for up to 5 minutes while
   # the scraper polls the DB waiting for the user's verification code.
-  # Sidekiq's default timeout should be longer than 5 minutes.
-  sidekiq_options retry: 1
+  retry_on StandardError, attempts: 2, wait: 1.minute
 
   def perform(credential_id)
     credential = SupplierCredential.find(credential_id)

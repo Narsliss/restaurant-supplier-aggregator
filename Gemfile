@@ -4,7 +4,7 @@ ruby "~> 3.3.0"
 
 # Core Rails
 gem "rails", "~> 7.1.0"
-gem "pg", "~> 1.5"
+gem "sqlite3", "~> 1.7"
 gem "puma", "~> 6.4"
 gem "bootsnap", require: false
 
@@ -24,10 +24,11 @@ gem "bcrypt", "~> 3.1"
 # Payments
 gem "stripe", "~> 12.0"
 
-# Background Jobs
-gem "sidekiq", "~> 7.2"
-gem "sidekiq-scheduler", "~> 5.0"
-gem "redis", "~> 5.0"
+# Background Jobs & Solid Stack (Rails 7.1-compatible versions)
+gem "solid_queue", "~> 0.9"
+gem "solid_cache", "~> 0.7"
+gem "solid_cable", "~> 0.3"
+gem "mission_control-jobs", "~> 0.3.3"
 
 # Browser Automation
 gem "ferrum", "~> 0.14"

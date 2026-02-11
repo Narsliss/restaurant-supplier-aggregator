@@ -15,7 +15,7 @@ class CreateOrganizationsAndMemberships < ActiveRecord::Migration[7.1]
       t.string :stripe_customer_id
 
       # Settings
-      t.jsonb :settings, default: {}
+      t.json :settings, default: {}
 
       # Status
       t.boolean :active, default: true

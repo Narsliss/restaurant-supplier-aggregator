@@ -10,7 +10,7 @@ class Product < ApplicationRecord
 
   # Scopes
   scope :search, ->(query) {
-    where("name ILIKE :q OR normalized_name ILIKE :q OR upc ILIKE :q", q: "%#{query}%")
+    where("name LIKE :q OR normalized_name LIKE :q OR upc LIKE :q", q: "%#{query}%")
   }
   scope :by_category, ->(category) { where(category: category) }
   scope :with_prices, -> { joins(:supplier_products).where.not(supplier_products: { current_price: nil }) }

@@ -8,8 +8,8 @@ case "${PROCESS_TYPE:-web}" in
     exec ./bin/rails server -b 0.0.0.0
     ;;
   worker)
-    echo "Starting Sidekiq worker..."
-    exec bundle exec sidekiq -C config/sidekiq.yml
+    echo "Starting Solid Queue worker..."
+    exec bundle exec rake solid_queue:start
     ;;
   *)
     echo "Unknown PROCESS_TYPE: $PROCESS_TYPE"

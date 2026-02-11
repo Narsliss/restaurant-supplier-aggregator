@@ -27,7 +27,7 @@ class OrdersController < ApplicationController
     # Search by order ID or confirmation number
     if params[:search].present?
       search_term = "%#{params[:search]}%"
-      @orders = @orders.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number ILIKE ?", search_term, search_term)
+      @orders = @orders.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
     end
 
     @orders = @orders.page(params[:page])

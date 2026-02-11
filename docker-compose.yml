@@ -1,53 +1,18 @@
 version: "3.8"
 
 services:
-  # PostgreSQL Database
-  db:
-    image: postgres:16-alpine
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-supplier_hub}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-      POSTGRES_DB: ${POSTGRES_DB:-supplier_hub_production}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-supplier_hub}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # Redis for Sidekiq and caching
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
   # Rails Web Application
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     ports:
       - "${PORT:-3000}:3000"
     environment:
       RAILS_ENV: production
       RAILS_LOG_TO_STDOUT: "true"
       RAILS_SERVE_STATIC_FILES: "true"
-      DATABASE_URL: postgres://${POSTGRES_USER:-supplier_hub}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-supplier_hub_production}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_PATH: /rails/db/production.sqlite3
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       GROQ_API_KEY: ${GROQ_API_KEY}
       # Browser settings for Ferrum
@@ -63,26 +28,21 @@ services:
       STRIPE_MONTHLY_PRICE_ID: ${STRIPE_MONTHLY_PRICE_ID:-}
       STRIPE_TRIAL_DAYS: ${STRIPE_TRIAL_DAYS:-14}
     volumes:
+      - sqlite_data:/rails/db
       - rails_storage:/rails/storage
       - rails_tmp:/rails/tmp
     restart: unless-stopped
 
-  # Sidekiq Background Worker
-  sidekiq:
+  # Solid Queue Background Worker
+  worker:
     build:
       context: .
       dockerfile: Dockerfile
-    command: bundle exec sidekiq
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    command: bundle exec rake solid_queue:start
     environment:
       RAILS_ENV: production
       RAILS_LOG_TO_STDOUT: "true"
-      DATABASE_URL: postgres://${POSTGRES_USER:-supplier_hub}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-supplier_hub_production}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_PATH: /rails/db/production.sqlite3
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       GROQ_API_KEY: ${GROQ_API_KEY}
       # Browser settings for Ferrum (scraping runs here)
@@ -90,12 +50,12 @@ services:
       BROWSER_HEADLESS: "true"
       ATTR_ENCRYPTED_KEY: ${ATTR_ENCRYPTED_KEY}
     volumes:
+      - sqlite_data:/rails/db
       - rails_storage:/rails/storage
       - rails_tmp:/rails/tmp
     restart: unless-stopped
 
 volumes:
-  postgres_data:
-  redis_data:
+  sqlite_data:
   rails_storage:
   rails_tmp:

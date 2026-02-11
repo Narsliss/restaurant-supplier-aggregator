@@ -15,3 +15,7 @@ config/credentials/*.key
 .env.docker
 .env.production
 .claude/
+
+# SQLite databases
+/db/*.sqlite3
+/db/*.sqlite3-*

@@ -149,8 +149,8 @@ class AiProductGrouper
     first_word = canonical.split.first
     return [] if first_word.blank?
 
-    Product.where("normalized_name ILIKE ?", "#{first_word}%")
-      .or(Product.where("name ILIKE ?", "%#{first_word}%"))
+    Product.where("normalized_name LIKE ?", "#{first_word}%")
+      .or(Product.where("name LIKE ?", "%#{first_word}%"))
       .limit(20)
       .to_a
   end
@@ -196,7 +196,7 @@ class AiProductGrouper
       first_word = base.split.first
       similar_products = Product
         .where.not(id: product.id)
-        .where("normalized_name ILIKE ?", "%#{first_word}%")
+        .where("normalized_name LIKE ?", "%#{first_word}%")
         .to_a
 
       similar_products.each do |candidate|

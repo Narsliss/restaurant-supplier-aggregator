@@ -10,7 +10,7 @@ RUN apt-get update -qq && \
     curl \
     libjemalloc2 \
     libvips \
-    postgresql-client \
+    libsqlite3-0 \
     && rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Set production environment
@@ -29,7 +29,7 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y \
     build-essential \
     git \
-    libpq-dev \
+    libsqlite3-dev \
     node-gyp \
     pkg-config \
     python-is-python3 \
@@ -104,13 +104,13 @@ USER rails:rails
 # Entrypoint prepares the database
 ENTRYPOINT ["/rails/bin/docker-entrypoint"]
 
-# Default command: run the Rails server or Sidekiq based on PROCESS_TYPE
+# Default command: run the Rails server or Solid Queue based on PROCESS_TYPE
 # Railway sets PORT env var (usually 8080), Puma reads it automatically
 EXPOSE 8080
 
 # Use environment variable to determine process type
 # PROCESS_TYPE=web (default) -> Rails server
-# PROCESS_TYPE=worker -> Sidekiq
+# PROCESS_TYPE=worker -> Solid Queue
 ENV PROCESS_TYPE=web
 
 # Startup script that checks PROCESS_TYPE

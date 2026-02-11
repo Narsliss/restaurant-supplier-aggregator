@@ -24,7 +24,7 @@ module RestaurantSupplierAggregator
     end
 
     # Active Job configuration
-    config.active_job.queue_adapter = :sidekiq
+    config.active_job.queue_adapter = :solid_queue
 
     # Action Cable configuration
     config.action_cable.mount_path = "/cable"

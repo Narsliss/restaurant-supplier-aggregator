@@ -21,7 +21,7 @@ class OrderListsController < ApplicationController
       @search_results = Product.includes(supplier_products: :supplier)
 
       if params[:search].present?
-        @search_results = @search_results.where("name ILIKE ?", "%#{params[:search]}%")
+        @search_results = @search_results.where("name LIKE ?", "%#{params[:search]}%")
       end
 
       if params[:category].present?

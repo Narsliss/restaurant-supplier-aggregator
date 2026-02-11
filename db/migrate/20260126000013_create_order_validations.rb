@@ -5,7 +5,7 @@ class CreateOrderValidations < ActiveRecord::Migration[7.1]
       t.string :validation_type, null: false
       t.boolean :passed, null: false
       t.text :message
-      t.jsonb :details, default: {}
+      t.json :details, default: {}
       t.datetime :validated_at, null: false
 
       t.timestamps

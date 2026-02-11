@@ -97,9 +97,8 @@ Rails.application.routes.draw do
   # Health check
   get "up" => "rails/health#show", as: :rails_health_check
 
-  # Sidekiq Web UI (super_admin only)
-  require "sidekiq/web"
+  # Mission Control Jobs Dashboard (super_admin only)
   authenticate :user, ->(u) { u.super_admin? } do
-    mount Sidekiq::Web => "/sidekiq"
+    mount MissionControl::Jobs::Engine, at: "/jobs"
   end
 end
