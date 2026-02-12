@@ -37,7 +37,13 @@
             <% end %>
           </div>
 
-          <p class="text-sm text-gray-500 mt-0.5"><%= credential.username %></p>
+          <p class="text-sm text-gray-500 mt-0.5">
+            <% if credential.supplier.welcome_url_auth? %>
+              <span title="<%= credential.username %>">Welcome URL configured</span>
+            <% else %>
+              <%= credential.username %>
+            <% end %>
+          </p>
 
           <%# Error block — shown/hidden dynamically %>
           <div data-credential-validator-target="errorBlock" class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 <%= 'hidden' unless credential.status == 'failed' && credential.last_error.present? %>">
@@ -48,8 +54,13 @@
           <% if credential.on_hold? && credential.hold_reason.present? %>
             <p class="text-xs text-yellow-600 mt-1">Hold reason: <%= credential.hold_reason %></p>
           <% end %>
+          <% if credential.last_import_at.present? %>
+            <p class="text-xs text-gray-400 mt-1">Products updated <%= time_ago_in_words(credential.last_import_at) %> ago</p>
+          <% elsif credential.active? %>
+            <p class="text-xs text-gray-400 mt-1">Products not yet imported</p>
+          <% end %>
           <% if credential.last_login_at.present? %>
-            <p class="text-xs text-gray-400 mt-1">Last login: <%= time_ago_in_words(credential.last_login_at) %> ago</p>
+            <p class="text-xs text-gray-400 mt-0.5">Last login: <%= time_ago_in_words(credential.last_login_at) %> ago</p>
           <% end %>
 
           <%# Action buttons — single row with icon-only on small screens %>

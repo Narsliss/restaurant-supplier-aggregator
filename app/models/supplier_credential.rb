@@ -11,7 +11,7 @@ class SupplierCredential < ApplicationRecord
 
   # Validations
   validates :username, presence: true
-  validates :password, presence: true, unless: :supplier_uses_2fa_only?
+  validates :password, presence: true, unless: :supplier_no_password?
   validates :supplier_id, uniqueness: {
     scope: :user_id,
     message: "credential already exists for this supplier"
@@ -20,9 +20,18 @@ class SupplierCredential < ApplicationRecord
     in: %w[pending active expired failed hold]
   }
 
-  # Password is optional for 2FA-only suppliers (US Foods, Premiere Produce One)
+  # Password is optional for 2FA-only and welcome_url suppliers
   def supplier_uses_2fa_only?
     supplier&.two_fa_only?
+  end
+
+  def supplier_uses_welcome_url?
+    supplier&.welcome_url_auth?
+  end
+
+  # No password needed for 2FA-only or welcome_url auth
+  def supplier_no_password?
+    supplier&.no_password_required?
   end
 
   # Scopes

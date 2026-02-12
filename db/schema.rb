@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_11_071714) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_11_192238) do
   create_table "billing_events", force: :cascade do |t|
     t.integer "user_id"
     t.integer "subscription_id"
@@ -516,6 +516,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_11_071714) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.boolean "password_required", default: true, null: false
+    t.string "auth_type", default: "password", null: false
     t.index ["active"], name: "index_suppliers_on_active"
     t.index ["code"], name: "index_suppliers_on_code", unique: true
   end

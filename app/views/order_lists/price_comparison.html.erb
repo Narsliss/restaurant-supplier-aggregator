@@ -6,57 +6,68 @@
     </div>
     <div class="flex flex-wrap gap-2">
       <%= link_to "Back to List", order_list_path(@order_list), class: "text-gray-600 hover:text-gray-900 text-sm font-medium py-2" %>
-      <%= link_to split_preview_orders_path(order_list_id: @order_list.id),
-          class: "inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-green rounded-md hover:bg-brand-green-dark" do %>
-        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-        </svg>
-        Split Order (Best Prices)
-      <% end %>
     </div>
   </div>
 
   <% if @comparison[:items].any? %>
+    <% best_supplier_id = @comparison[:recommendations][:best_single_supplier]&.dig(:supplier_id) %>
+
+    <!-- Best Price Split Order Card - Primary CTA -->
+    <div class="mb-6 bg-green-50 border-2 border-green-300 rounded-lg p-5">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-green-900">Best Price Order</h2>
+          <p class="text-sm text-green-700 mt-1">
+            Each item ordered from its cheapest supplier
+            <% if @split_preview[:summary][:supplier_count] > 1 %>
+              &mdash; split across <strong><%= @split_preview[:summary][:supplier_count] %> suppliers</strong>
+            <% end %>
+          </p>
+          <p class="text-3xl font-bold text-green-700 mt-2"><%= number_to_currency(@split_preview[:summary][:total_amount]) %></p>
+          <% if @comparison[:summary][:potential_savings] > 0 %>
+            <p class="text-sm text-green-600 mt-1">Save up to <%= number_to_currency(@comparison[:summary][:potential_savings]) %> vs. worst prices</p>
+          <% end %>
+          <% if @split_preview[:warnings].any? { |w| w[:type] == "unassigned_items" } %>
+            <p class="text-sm text-yellow-700 mt-1">
+              <% unassigned = @split_preview[:warnings].find { |w| w[:type] == "unassigned_items" } %>
+              <%= unassigned[:items].size %> item(s) unavailable from any supplier
+            </p>
+          <% end %>
+        </div>
+        <div class="flex-shrink-0">
+          <%= link_to split_preview_orders_path(order_list_id: @order_list.id),
+              class: "inline-flex items-center px-6 py-3 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 shadow-sm" do %>
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"/>
+            </svg>
+            Create Orders (Best Prices)
+          <% end %>
+        </div>
+      </div>
+
+      <!-- Mini breakdown by supplier -->
+      <div class="mt-4 pt-4 border-t border-green-200">
+        <div class="flex flex-wrap gap-3">
+          <% @split_preview[:assignments].each do |assignment| %>
+            <div class="bg-white rounded-md px-3 py-2 text-sm shadow-sm">
+              <span class="font-medium text-gray-900"><%= assignment[:supplier][:name] %></span>
+              <span class="text-gray-500 ml-1"><%= assignment[:item_count] %> items</span>
+              <span class="text-green-700 font-medium ml-1"><%= number_to_currency(assignment[:subtotal]) %></span>
+              <% unless assignment[:meets_minimum] %>
+                <span class="text-yellow-600 text-xs ml-1">(min not met)</span>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+
     <!-- Recommendation Banner -->
     <% if @comparison[:recommendations][:recommendation].present? %>
       <div class="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p class="text-blue-800"><%= @comparison[:recommendations][:recommendation] %></p>
       </div>
     <% end %>
-
-    <!-- Summary Cards - Supplier Totals -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-      <% best_supplier_id = @comparison[:recommendations][:best_single_supplier]&.dig(:supplier_id) %>
-      <% @comparison[:totals_by_supplier].each do |supplier_id, totals| %>
-        <div class="bg-white shadow rounded-lg p-4 <%= supplier_id == best_supplier_id ? 'ring-2 ring-green-500' : '' %>">
-          <% if supplier_id == best_supplier_id %>
-            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 mb-2">Best Value</span>
-          <% end %>
-          <h3 class="font-medium text-gray-900"><%= totals[:supplier_name] %></h3>
-          <p class="text-2xl font-bold text-gray-900 mt-1"><%= number_to_currency(totals[:total]) %></p>
-          <p class="text-sm text-gray-500">
-            <%= totals[:available_items] %>/<%= totals[:available_items] + totals[:missing_items] %> items available
-          </p>
-          <% unless totals[:meets_minimum] %>
-            <p class="text-xs text-red-600 mt-1">
-              Need <%= number_to_currency(totals[:amount_to_minimum]) %> more to meet minimum
-            </p>
-          <% end %>
-          <div class="mt-3">
-            <% if totals[:available_items] > 0 %>
-              <%= link_to new_order_path(order_list_id: @order_list.id, supplier_id: supplier_id),
-                  class: "inline-flex items-center justify-center w-full bg-brand-orange text-white px-3 py-2 rounded-lg hover:bg-brand-orange-dark text-sm font-medium" do %>
-                Create Order
-              <% end %>
-            <% else %>
-              <span class="inline-flex items-center justify-center w-full bg-gray-100 text-gray-400 px-3 py-2 rounded-lg text-sm">
-                No items available
-              </span>
-            <% end %>
-          </div>
-        </div>
-      <% end %>
-    </div>
 
     <!-- Summary Stats -->
     <div class="bg-white shadow rounded-lg p-4 mb-6">
@@ -88,6 +99,14 @@
             <span class="text-sm font-medium text-gray-900"><%= item[:product][:name] %></span>
             <span class="text-xs text-gray-500 flex-shrink-0 ml-2">Qty: <%= item[:quantity] %></span>
           </div>
+          <% if item[:best_price] %>
+            <div class="flex items-center gap-1.5">
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                Order from: <%= item[:best_price][:supplier_name] %>
+              </span>
+              <span class="text-sm font-bold text-green-600"><%= number_to_currency(item[:best_price][:unit_price]) %></span>
+            </div>
+          <% end %>
           <%# Show "compared per oz" badge when sizes differ but are comparable %>
           <% has_different_sizes = item[:suppliers].filter_map { |sp| sp[:pack_size] }.uniq.size > 1 %>
           <% any_comparable = item[:suppliers].any? { |sp| sp[:comparable] && sp[:per_unit_price] } %>
@@ -144,7 +163,7 @@
             <% @suppliers.each do |supplier| %>
               <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase"><%= supplier.name %></th>
             <% end %>
-            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spread</th>
+            <th class="px-4 py-3 text-center text-xs font-medium text-green-700 uppercase bg-green-50">Order From</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200">
@@ -161,7 +180,7 @@
               </td>
               <td class="px-4 py-3 text-sm text-gray-500 text-center"><%= item[:quantity] %></td>
               <% item[:suppliers].each do |sp| %>
-                <td class="px-4 py-3 text-right text-sm <%= sp[:supplier][:id] == item[:best_price]&.dig(:supplier_id) ? 'text-green-600 font-bold' : 'text-gray-900' %>">
+                <td class="px-4 py-3 text-right text-sm <%= sp[:supplier][:id] == item[:best_price]&.dig(:supplier_id) ? 'text-green-600 font-bold bg-green-50' : 'text-gray-900' %>">
                   <% if sp[:unit_price] && sp[:in_stock] %>
                     <div><%= number_to_currency(sp[:unit_price]) %></div>
                     <% if sp[:pack_size].present? %>
@@ -182,16 +201,14 @@
                   <% end %>
                 </td>
               <% end %>
-              <td class="px-4 py-3 text-right text-sm text-gray-400">
-                <% if item[:price_spread] > 0 %>
-                  <% if any_comparable %>
-                    <% unit_label = item[:suppliers].find { |sp| sp[:comparison_unit] }&.dig(:comparison_unit) %>
-                    <%= UnitParser.format_per_unit(item[:price_spread], unit_label) %>
-                  <% else %>
-                    <%= number_to_currency(item[:price_spread]) %>
-                  <% end %>
+              <td class="px-4 py-3 text-center text-sm bg-green-50">
+                <% if item[:best_price] %>
+                  <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-800">
+                    <%= item[:best_price][:supplier_name] %>
+                  </span>
+                  <div class="text-green-700 font-bold mt-0.5"><%= number_to_currency(item[:best_price][:unit_price]) %></div>
                 <% else %>
-                  &mdash;
+                  <span class="text-gray-400 text-xs">Unavailable</span>
                 <% end %>
               </td>
             </tr>
@@ -202,17 +219,57 @@
             <td class="px-4 py-3 text-sm font-medium text-gray-900" colspan="2">Totals</td>
             <% @suppliers.each do |supplier| %>
               <% totals = @comparison[:totals_by_supplier][supplier.id] %>
-              <td class="px-4 py-3 text-right text-sm font-medium <%= supplier.id == best_supplier_id ? 'text-green-600' : 'text-gray-900' %>">
+              <td class="px-4 py-3 text-right text-sm font-medium text-gray-900">
                 <%= number_to_currency(totals[:total]) %>
+                <div class="text-xs font-normal text-gray-500"><%= totals[:available_items] %>/<%= totals[:available_items] + totals[:missing_items] %> items</div>
               </td>
             <% end %>
-            <td></td>
+            <td class="px-4 py-3 text-center text-sm font-bold text-green-700 bg-green-50">
+              <%= number_to_currency(@split_preview[:summary][:total_amount]) %>
+              <div class="text-xs font-normal text-green-600">Best prices</div>
+            </td>
           </tr>
         </tfoot>
       </table>
     </div>
 
     <p class="mt-2 text-xs text-gray-400">* = Out of Stock</p>
+
+    <!-- Supplier-specific ordering (secondary) -->
+    <div class="mt-8">
+      <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wider mb-3">Or order everything from one supplier</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <% @comparison[:totals_by_supplier].each do |supplier_id, totals| %>
+          <div class="bg-white shadow rounded-lg p-4 <%= supplier_id == best_supplier_id ? 'ring-2 ring-blue-400' : '' %>">
+            <% if supplier_id == best_supplier_id %>
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 mb-2">Best Single Supplier</span>
+            <% end %>
+            <h3 class="font-medium text-gray-900"><%= totals[:supplier_name] %></h3>
+            <p class="text-2xl font-bold text-gray-900 mt-1"><%= number_to_currency(totals[:total]) %></p>
+            <p class="text-sm text-gray-500">
+              <%= totals[:available_items] %>/<%= totals[:available_items] + totals[:missing_items] %> items available
+            </p>
+            <% unless totals[:meets_minimum] %>
+              <p class="text-xs text-red-600 mt-1">
+                Need <%= number_to_currency(totals[:amount_to_minimum]) %> more to meet minimum
+              </p>
+            <% end %>
+            <div class="mt-3">
+              <% if totals[:available_items] > 0 %>
+                <%= link_to new_order_path(order_list_id: @order_list.id, supplier_id: supplier_id),
+                    class: "inline-flex items-center justify-center w-full bg-gray-200 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-300 text-sm font-medium" do %>
+                  Order from <%= totals[:supplier_name] %>
+                <% end %>
+              <% else %>
+                <span class="inline-flex items-center justify-center w-full bg-gray-100 text-gray-400 px-3 py-2 rounded-lg text-sm">
+                  No items available
+                </span>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </div>
   <% else %>
     <div class="text-center py-12 bg-white rounded-lg shadow">
       <p class="text-gray-500">No items in this order list. Add products to compare prices.</p>

@@ -1,42 +1,159 @@
 module Scrapers
   class WhatChefsWantScraper < BaseScraper
     BASE_URL = "https://www.whatchefswant.com".freeze
+    PLATFORM_URL = "https://whatchefswant.cutanddry.com".freeze
     LOGIN_URL = "#{BASE_URL}/customer-login/".freeze
     ORDER_MINIMUM = 150.00
 
     def login
       with_browser do
         navigate_to(BASE_URL)
-        
+
         if restore_session
           browser.refresh
           return true if logged_in?
         end
 
-        navigate_to(LOGIN_URL)
-        wait_for_selector("input[name='email'], #email, input[type='email']")
-
-        fill_field("input[name='email'], #email", credential.username)
-        fill_field("input[name='password'], #password", credential.password)
-        click("button[type='submit'], .login-button, .btn-login")
-
-        wait_for_page_load
-        sleep 2
-
-        if logged_in?
-          save_session
-          credential.mark_active!
-          true
+        # What Chefs Want uses a welcome URL for authentication —
+        # the user pastes a long encoded link from their supplier email
+        # that logs them in directly without username/password.
+        welcome_url = credential.username
+        if welcome_url.present? && welcome_url.start_with?("http")
+          login_via_welcome_url(welcome_url)
         else
-          error_msg = extract_text(".error, .alert-error, .login-error") || "Login failed"
-          credential.mark_failed!(error_msg)
-          raise AuthenticationError, error_msg
+          login_via_credentials
         end
       end
     end
 
+    private
+
+    def login_via_welcome_url(url)
+      logger.info "[WhatChefsWant] Logging in via welcome URL: #{url.truncate(80)}"
+      navigate_to(url)
+      wait_for_page_load
+
+      # The welcome URL (email.cutanddry.com/c/...) redirects to
+      # whatchefswant.cutanddry.com (a React SPA white-label platform).
+      # We need to wait for: 1) redirects to complete, 2) React to hydrate/render.
+      # The page body initially shows just "Home" until React mounts.
+      logger.info "[WhatChefsWant] Waiting for SPA to load..."
+      wait_for_spa_load
+
+      # Check login state after SPA has loaded
+      5.times do |i|
+        current_url = browser.current_url rescue "unknown"
+        page_title = browser.evaluate("document.title") rescue "unknown"
+        body_length = browser.evaluate("document.body ? document.body.innerText.length : 0") rescue 0
+        link_count = browser.evaluate("document.querySelectorAll('a').length") rescue 0
+        logger.info "[WhatChefsWant] Check #{i + 1}: URL=#{current_url}, Title=#{page_title}, body_length=#{body_length}, links=#{link_count}"
+
+        break if logged_in?
+
+        # Wait for additional JS rendering
+        sleep 3
+      end
+
+      if logged_in?
+        save_session
+        credential.mark_active!
+        true
+      else
+        # Log the page content for debugging
+        current_url = browser.current_url rescue "unknown"
+        page_title = browser.evaluate("document.title") rescue "unknown"
+        body_snippet = browser.evaluate("document.body ? document.body.innerText.substring(0, 500) : 'no body'") rescue "could not read"
+        logger.error "[WhatChefsWant] Welcome URL login failed. URL: #{current_url}, Title: #{page_title}"
+        logger.error "[WhatChefsWant] Page content: #{body_snippet}"
+
+        error_msg = "Welcome URL did not log in. The link may have expired — check for a newer email from What Chefs Want."
+        credential.mark_failed!(error_msg)
+        raise AuthenticationError, error_msg
+      end
+    end
+
+    def login_via_credentials
+      navigate_to(LOGIN_URL)
+      wait_for_selector("input[name='email'], #email, input[type='email']")
+
+      fill_field("input[name='email'], #email", credential.username)
+      fill_field("input[name='password'], #password", credential.password)
+      click("button[type='submit'], .login-button, .btn-login")
+
+      wait_for_page_load
+      sleep 2
+
+      if logged_in?
+        save_session
+        credential.mark_active!
+        true
+      else
+        error_msg = extract_text(".error, .alert-error, .login-error") || "Login failed"
+        credential.mark_failed!(error_msg)
+        raise AuthenticationError, error_msg
+      end
+    end
+
+    public
+
     def logged_in?
-      browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in]").present?
+      # The WCW platform lives on whatchefswant.cutanddry.com (React SPA).
+      # After welcome URL login, the browser ends up there.
+
+      # 1. Look for common logged-in UI elements
+      has_user_element = browser.at_css(
+        ".user-menu, .account-dropdown, .logged-in, [data-user-logged-in], " \
+        ".my-account, .account-menu, .user-info, .user-name, .welcome-message, " \
+        "a[href*='logout'], a[href*='sign-out'], a[href*='signout'], " \
+        "a[href*='my-account'], a[href*='account'], " \
+        ".cart, .shopping-cart, [data-cart], .header-cart, " \
+        "nav a, .navbar a, header a[href*='order']"
+      ).present?
+
+      return true if has_user_element
+
+      # 2. Check via JavaScript — look for React-rendered auth state or nav elements
+      js_logged_in = browser.evaluate(<<~JS) rescue false
+        (function() {
+          // Check for any navigation links (React SPA renders these when logged in)
+          var navLinks = document.querySelectorAll('nav a, header a, [class*="nav"] a');
+          if (navLinks.length > 2) return true;
+
+          // Check for user-related text content
+          var body = document.body ? document.body.innerText : '';
+          if (body.match(/my account|log ?out|sign ?out|order|cart/i)) return true;
+
+          // Check for auth tokens in localStorage
+          var keys = Object.keys(localStorage || {});
+          for (var i = 0; i < keys.length; i++) {
+            if (keys[i].match(/token|auth|session|user/i)) return true;
+          }
+
+          return false;
+        })()
+      JS
+
+      return true if js_logged_in
+
+      # 3. Check if we're on the platform (cutanddry.com) and NOT on a login page
+      current_url = browser.current_url rescue ""
+      on_platform = current_url.present? && (
+        current_url.include?("whatchefswant.com") ||
+        current_url.include?("whatchefswant.cutanddry.com")
+      )
+      not_on_login = on_platform &&
+        !current_url.include?("login") &&
+        !current_url.include?("sign-in") &&
+        !current_url.include?("signin")
+
+      if not_on_login
+        has_login_form = browser.at_css(
+          "input[type='password'], form[action*='login'], .login-form"
+        ).present?
+        return true unless has_login_form
+      end
+
+      false
     end
 
     def scrape_prices(product_skus)
@@ -100,7 +217,7 @@ module Scrapers
 
     def add_single_item_to_cart(item)
       # Try direct product page first
-      navigate_to("#{BASE_URL}/products/#{item[:sku]}")
+      navigate_to("#{PLATFORM_URL}/products/#{item[:sku]}")
       sleep 2
 
       # Check if product page loaded
@@ -122,7 +239,7 @@ module Scrapers
       unless product_found
         # Try searching for the product
         encoded_sku = CGI.escape(item[:sku].to_s)
-        navigate_to("#{BASE_URL}/search?q=#{encoded_sku}")
+        navigate_to("#{PLATFORM_URL}/search?q=#{encoded_sku}")
         sleep 2
 
         # Click on first matching product
@@ -228,7 +345,7 @@ module Scrapers
 
     def checkout
       with_browser do
-        navigate_to("#{BASE_URL}/cart")
+        navigate_to("#{PLATFORM_URL}/cart")
         wait_for_selector(".cart-container, .shopping-cart, .cart-page")
 
         validate_cart_before_checkout
@@ -270,66 +387,196 @@ module Scrapers
     protected
 
     def perform_login_steps
-      navigate_to(LOGIN_URL)
-      wait_for_selector("input[name='email'], #email")
+      welcome_url = credential.username
+      if welcome_url.present? && welcome_url.start_with?("http")
+        # Welcome URL auth — navigate and wait for SPA
+        logger.info "[WhatChefsWant] perform_login_steps via welcome URL"
+        navigate_to(welcome_url)
+        wait_for_page_load
+        wait_for_spa_load
 
-      fill_field("input[name='email'], #email", credential.username)
-      fill_field("input[name='password'], #password", credential.password)
-      click("button[type='submit'], .login-button")
+        5.times do |i|
+          break if logged_in?
+          sleep 3
+        end
+      else
+        # Password-based login
+        navigate_to(LOGIN_URL)
+        wait_for_selector("input[name='email'], #email")
 
-      wait_for_page_load
-      sleep 2
+        fill_field("input[name='email'], #email", credential.username)
+        fill_field("input[name='password'], #password", credential.password)
+        click("button[type='submit'], .login-button")
+
+        wait_for_page_load
+        sleep 2
+      end
     end
 
     private
 
+    # Wait for the Cut+Dry React SPA to fully hydrate.
+    # The page initially renders as just "Home" until React mounts and renders the full UI.
+    def wait_for_spa_load(timeout: 15)
+      start_time = Time.current
+      loop do
+        # Check if the SPA has rendered meaningful content
+        ready = browser.evaluate(<<~JS) rescue false
+          (function() {
+            var body = document.body ? document.body.innerText : '';
+            // SPA is loaded when there's more than just the title text
+            if (body.trim().length > 50) return true;
+            // Or if there are multiple nav/anchor elements (rendered UI)
+            var links = document.querySelectorAll('a');
+            if (links.length > 3) return true;
+            return false;
+          })()
+        JS
+
+        return true if ready
+        return false if Time.current - start_time > timeout
+
+        sleep 1
+      end
+    end
+
     def search_supplier_catalog(term, max: 20)
-      encoded = CGI.escape(term)
-      navigate_to("#{BASE_URL}/search?q=#{encoded}")
-      sleep 1
+      # The Cut+Dry platform uses an in-page search on the /place-order page.
+      # Navigate there on first search, then reuse for subsequent searches.
+      ensure_on_order_page
 
+      # Find the search input and type the search term + Enter
+      search_input = browser.at_css("input[placeholder*='Search']")
+      unless search_input
+        logger.warn "[WhatChefsWant] Search input not found on order page"
+        return []
+      end
+
+      logger.info "[WhatChefsWant] Searching for: #{term}"
+      search_input.focus
+      search_input.type(term, :clear)
+      sleep 0.5
+      browser.keyboard.type(:enter)
+      sleep 4
+
+      # The catalog results appear as text in the page. DOM elements may be
+      # inside an iframe or shadow DOM, so we parse from document.body.innerText.
+      page_text = browser.evaluate("document.body ? document.body.innerText : ''") rescue ""
+
+      # Extract products from the "Catalog Results" section
+      products = parse_catalog_results(page_text, max: max)
+      logger.info "[WhatChefsWant] Found #{products.size} products for '#{term}'"
+
+      # Clear search for next term
+      begin
+        search_input.focus
+        browser.keyboard.type([:control, "a"])
+        browser.keyboard.type(:backspace)
+        sleep 0.5
+      rescue => e
+        logger.debug "[WhatChefsWant] Could not clear search: #{e.message}"
+      end
+
+      products
+    end
+
+    def ensure_on_order_page
+      current = browser.current_url rescue ""
+      return if current.include?("place-order")
+
+      logger.info "[WhatChefsWant] Navigating to order page"
+      navigate_to("#{PLATFORM_URL}/place-order")
+      wait_for_spa_load(timeout: 10)
+      sleep 2
+    end
+
+    # Parse product data from the page text output of Cut+Dry catalog search.
+    # Format for each product block:
+    #   Product Name
+    #   Brand (optional)
+    #   Pack Size | #ItemCode
+    #   Unit Type (Case/Each/Pound)
+    #   $Price
+    #   Add to Cart
+    def parse_catalog_results(text, max: 20)
       products = []
-      items = browser.css(".product-card, .product-item, .product-tile, .search-result-item")
 
-      items.first(max).each do |item|
-        name = item.at_css(".product-title, .product-name, h3, h4")&.text&.strip
-        next if name.blank?
+      # Only parse from "Catalog Results" section onwards
+      catalog_section = text.split("Catalog Results").last
+      return products unless catalog_section
 
-        price_text = item.at_css(".price, .product-price, .current-price")&.text
-        price = extract_price(price_text) if price_text
+      # Stop at "Don't Forget to Order" if present (recommended items section)
+      catalog_section = catalog_section.split("Don't Forget to Order").first || catalog_section
 
-        href = item.at_css("a[href*='/products/']")&.attribute("href").to_s
-        sku = item.attribute("data-sku").to_s.presence
-        sku ||= item.at_css("[data-sku]")&.attribute("data-sku").to_s.presence
-        sku ||= href.scan(%r{/products/([^/?#]+)}).flatten.first
-        sku ||= name.parameterize
-        next if sku.blank?
+      # Split by "Add to Cart" to get individual product blocks
+      blocks = catalog_section.split("Add to Cart")
 
-        pack_size = item.at_css(".pack-size, .product-unit")&.text&.strip
+      blocks.first(max).each do |block|
+        lines = block.strip.split("\n").map(&:strip).reject(&:blank?)
+        next if lines.size < 3
 
-        product_url = href.presence
-        product_url = "#{BASE_URL}#{product_url}" if product_url && !product_url.start_with?("http")
-        product_url ||= "#{BASE_URL}/products/#{sku}" if sku.present?
+        # Find the line with item code: contains "| #" pattern
+        code_line_idx = lines.index { |l| l.include?("| #") || l.match?(/#\d{3,}/) }
+        next unless code_line_idx
+
+        code_line = lines[code_line_idx]
+        # Extract item code from "2/5LB CS | #33354" or just "#33354"
+        sku_match = code_line.match(/#(\d+)/)
+        next unless sku_match
+
+        sku = sku_match[1]
+
+        # Product name is above the code line
+        name = lines[0..([code_line_idx - 1, 0].max)].first
+        next if name.blank? || name.length < 3
+
+        # Brand might be the line between name and code
+        brand = nil
+        if code_line_idx >= 2
+          brand = lines[code_line_idx - 1]
+        end
+
+        # Pack size from the code line (everything before | #)
+        pack_size = code_line.split("|").first&.strip
+
+        # Find price line: starts with $ or contains $/
+        price_line = lines.find { |l| l.match?(/\$[\d,.]+/) }
+        price = nil
+        if price_line
+          # Handle "$7.50/lb ($195.00/cs)" - take the per-unit price
+          price_match = price_line.match(/\$([\d,.]+)/)
+          price = price_match[1].gsub(",", "").to_f if price_match
+        end
+
+        # Find unit type (Case, Each, Pound)
+        unit_line = lines.find { |l| l.match?(/^(Case|Each|Pound|Gallon|Bag|Box)$/i) }
+        unit = unit_line&.strip
+
+        # Check if product is available
+        in_stock = !block.include?("Currently not available")
+
+        # Full name with brand
+        full_name = brand.present? ? "#{name} #{brand}".truncate(255) : name.truncate(255)
 
         products << {
           supplier_sku: sku,
-          supplier_name: name.truncate(255),
+          supplier_name: full_name,
           current_price: price,
-          pack_size: pack_size,
-          supplier_url: product_url,
-          in_stock: item.at_css(".out-of-stock, .unavailable, .sold-out").nil?,
+          pack_size: [pack_size, unit].compact.join(" - "),
+          supplier_url: nil,
+          in_stock: in_stock,
           category: nil,
           scraped_at: Time.current
         }
       rescue => e
-        logger.debug "[WhatChefsWant] Failed to extract catalog item: #{e.message}"
+        logger.debug "[WhatChefsWant] Failed to parse product block: #{e.message}"
       end
 
       products
     end
 
     def scrape_product(sku)
-      navigate_to("#{BASE_URL}/products/#{sku}")
+      navigate_to("#{PLATFORM_URL}/products/#{sku}")
 
       return nil unless browser.at_css(".product-page, .product-detail")
 

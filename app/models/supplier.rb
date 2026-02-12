@@ -21,9 +21,28 @@ class Supplier < ApplicationRecord
   scope :password_required, -> { where(password_required: true) }
   scope :two_fa_only, -> { where(password_required: false) }
 
+  # Authentication type constants
+  AUTH_TYPES = %w[password two_fa welcome_url].freeze
+
+  validates :auth_type, inclusion: { in: AUTH_TYPES }
+
   # Authentication type helpers
   def two_fa_only?
-    !password_required?
+    auth_type == "two_fa"
+  end
+
+  def welcome_url_auth?
+    auth_type == "welcome_url"
+  end
+
+  def password_auth?
+    auth_type == "password"
+  end
+
+  # Returns true if this supplier does NOT need a password
+  # (2FA-only or welcome URL auth)
+  def no_password_required?
+    !password_auth?
   end
 
   # Methods

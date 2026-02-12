@@ -74,10 +74,19 @@ class ProductNormalizer
     ready previously fresh-to-frozen iqf ivp
     random
     prints print
+    the a an and or of for with by
   ].freeze
 
   # Grade/size letters to preserve (these distinguish products)
   PRESERVE_GRADES = %w[a b c size].freeze
+
+  # Words that should NOT be singularized (they look plural but aren't)
+  SINGULAR_EXCEPTIONS = %w[
+    asparagus hummus couscous bass buss
+    swiss dress process moss floss
+    fries grits grains oats
+    sous jus
+  ].freeze
 
   # Processing/preparation descriptors - keep these as they affect identity
   # (boneless chicken is different from bone-in chicken)
@@ -196,6 +205,9 @@ class ProductNormalizer
     # Reorder common patterns: "Sugar, Brown Light" → "Light Brown Sugar"
     name = reorder_inverted_name(name)
 
+    # Singularize words to merge "sticks" with "stick", "breasts" with "breast", etc.
+    name = singularize_words(name)
+
     name
   end
 
@@ -232,6 +244,34 @@ class ProductNormalizer
     attrs[:antibiotic_free] = true if @original_name.downcase.match?(/antibiotic.?free/)
 
     attrs
+  end
+
+  # Singularize all words in a name to normalize plurals
+  def singularize_words(name)
+    name.split.map { |word| singularize_word(word) }.join(" ")
+  end
+
+  # Simple suffix-based singularization to avoid false positives
+  def singularize_word(word)
+    return word if word.length <= 3
+    return word if SINGULAR_EXCEPTIONS.include?(word)
+
+    case word
+    when /sses$/  then word                       # "dresses", "grasses" → keep as-is
+    when /ies$/   then word.sub(/ies$/, "y")      # "berries" → "berry"
+    when /ves$/   then word.sub(/ves$/, "f")      # "loaves" → "loaf"
+    when /oes$/   then word.sub(/es$/, "")         # "potatoes" → "potato", "tomatoes" → "tomato"
+    when /ches$/  then word.sub(/es$/, "")         # "peaches" → "peach"
+    when /shes$/  then word.sub(/es$/, "")         # "dishes" → "dish"
+    when /ses$/   then word.sub(/es$/, "")         # "sauces" → "sauce"
+    when /xes$/   then word.sub(/es$/, "")         # "boxes" → "box"
+    when /zzes$/  then word.sub(/es$/, "")         # "fizzes" → "fizz"
+    when /zes$/   then word.sub(/s$/, "")          # "glazes" → "glaze", "sizes" → "size"
+    when /us$/    then word                        # "asparagus" → keep
+    when /ss$/    then word                        # "bass", "cross" → keep
+    when /s$/     then word.sub(/s$/, "")          # "sticks" → "stick"
+    else word
+    end
   end
 
   # Handle inverted names like "Chicken, Breast Boneless" → "Boneless Chicken Breast"

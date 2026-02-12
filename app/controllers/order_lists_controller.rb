@@ -80,6 +80,10 @@ class OrderListsController < ApplicationController
       id: current_user.supplier_credentials.active.select(:supplier_id)
     )
 
+    # Pre-compute split order preview for the best-price summary
+    split_service = Orders::SplitOrderService.new(@order_list, location: current_location)
+    @split_preview = split_service.preview
+
     respond_to do |format|
       format.html
       format.json { render json: @comparison }
