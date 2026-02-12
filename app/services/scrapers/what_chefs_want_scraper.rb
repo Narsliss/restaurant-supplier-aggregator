@@ -180,207 +180,244 @@ module Scrapers
     def add_to_cart(items, delivery_date: nil)
       @target_delivery_date = delivery_date
 
-      with_browser do
-        unless restore_session && logged_in?
-          perform_login_steps
-          save_session
+      # On the Cut+Dry platform, cart state does NOT persist across browser
+      # sessions (it uses in-memory draft orders). So we keep the browser open
+      # for checkout to reuse via @order_browser.
+      ensure_order_browser!
+
+      ensure_on_order_page
+      sleep 2
+
+      added_items = []
+      failed_items = []
+
+      items.each do |item|
+        begin
+          add_single_item_to_cart(item)
+          added_items << item
+          logger.info "[WhatChefsWant] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
+        rescue => e
+          logger.warn "[WhatChefsWant] Failed to add SKU #{item[:sku]}: #{e.message}"
+          failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
         end
 
-        added_items = []
-        failed_items = []
-
-        items.each do |item|
-          begin
-            add_single_item_to_cart(item)
-            added_items << item
-            logger.info "[WhatChefsWant] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
-          rescue => e
-            logger.warn "[WhatChefsWant] Failed to add SKU #{item[:sku]}: #{e.message}"
-            failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
-          end
-
-          rate_limit_delay
-        end
-
-        if failed_items.any?
-          raise ItemUnavailableError.new(
-            "#{failed_items.count} item(s) could not be added",
-            items: failed_items
-          )
-        end
-
-        { added: added_items.count }
+        rate_limit_delay
       end
+
+      if failed_items.any?
+        close_order_browser!
+        raise ItemUnavailableError.new(
+          "#{failed_items.count} item(s) could not be added",
+          items: failed_items
+        )
+      end
+
+      { added: added_items.count }
     end
 
     private
 
+    # Add a single item by searching for its SKU on the Order Guide,
+    # then setting the quantity via the React-compatible nativeSetter pattern.
     def add_single_item_to_cart(item)
-      # Try direct product page first
-      navigate_to("#{PLATFORM_URL}/products/#{item[:sku]}")
+      sku = item[:sku].to_s
+      qty = item[:quantity].to_i
+      raise ScrapingError, "Invalid quantity for SKU #{sku}" if qty <= 0
+
+      ensure_on_order_page
+
+      # Search for the item by SKU code on the Order Guide
+      perform_order_page_search(sku)
+
+      # Verify the item appears in results
+      page_text = browser.evaluate("document.body ? document.body.innerText : ''") rescue ""
+      unless page_text.include?(sku)
+        raise ScrapingError, "Product SKU #{sku} not found in search results"
+      end
+
+      # Check if item is available
+      if page_text.include?("Currently not available")
+        # Check if this specific item is unavailable
+        sku_idx = page_text.index(sku)
+        nearby_text = page_text[[sku_idx - 200, 0].max..[sku_idx + 200, page_text.length - 1].min] if sku_idx
+        if nearby_text&.include?("Currently not available")
+          raise ScrapingError, "Product SKU #{sku} is currently not available"
+        end
+      end
+
+      # Find number inputs - should be one per Order Guide search result
+      # Set quantity using the React nativeSetter pattern
+      set_result = browser.evaluate(<<~JS)
+        (function() {
+          var inputs = document.querySelectorAll('input[type=number]');
+          if (inputs.length === 0) return 'no_inputs';
+
+          // If there's only one input, use it (single search result)
+          var targetInput = null;
+          if (inputs.length === 1) {
+            targetInput = inputs[0];
+          } else {
+            // Multiple inputs — try to find the one nearest to our SKU text
+            // Walk through all inputs and check nearby text for our SKU
+            for (var i = 0; i < inputs.length; i++) {
+              var row = inputs[i].closest('tr, [class*="row"], [class*="item"]');
+              if (row && row.innerText.includes('#{sku}')) {
+                targetInput = inputs[i];
+                break;
+              }
+            }
+            // Fallback: first input
+            if (!targetInput) targetInput = inputs[0];
+          }
+
+          var nativeSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value'
+          ).set;
+          nativeSetter.call(targetInput, '#{qty}');
+          targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+          targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+          targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
+          return 'set_qty';
+        })()
+      JS
+
+      if set_result == "no_inputs"
+        raise ScrapingError, "No quantity input found for SKU #{sku}"
+      end
+
       sleep 2
 
-      # Check if product page loaded
-      product_found = false
-      begin
-        wait_for_any_selector(
-          ".product-page",
-          ".product-detail",
-          ".product-info",
-          ".pdp-container",
-          timeout: 5
-        )
-        product_found = true
-      rescue ScrapingError
-        # Product page not found, try search
-        logger.debug "[WhatChefsWant] Direct product page not found, trying search"
-      end
+      # Verify cart total updated (should be > $0.00)
+      cart_total = browser.evaluate(<<~JS) rescue 0.0
+        (function() {
+          var buttons = document.querySelectorAll('button');
+          for (var i = 0; i < buttons.length; i++) {
+            var match = buttons[i].innerText.trim().match(/^\\$([\\d,.]+)$/);
+            if (match) return parseFloat(match[1].replace(',', ''));
+          }
+          return 0;
+        })()
+      JS
 
-      unless product_found
-        # Try searching for the product
-        encoded_sku = CGI.escape(item[:sku].to_s)
-        navigate_to("#{PLATFORM_URL}/search?q=#{encoded_sku}")
-        sleep 2
-
-        # Click on first matching product
-        product_link = browser.at_css(".product-card a, .product-item a, .search-result a")
-        if product_link
-          product_link.click
-          sleep 2
-          wait_for_any_selector(".product-page", ".product-detail", timeout: 10)
-        else
-          raise ScrapingError, "Product not found for SKU #{item[:sku]}"
-        end
-      end
-
-      # Set quantity
-      qty_selectors = [
-        "input[name='quantity']",
-        ".quantity-field",
-        "#quantity",
-        "input[type='number']",
-        ".qty-input"
-      ]
-
-      qty_field = nil
-      qty_selectors.each do |sel|
-        qty_field = browser.at_css(sel)
-        break if qty_field
-      end
-
-      if qty_field && item[:quantity].to_i > 1
-        qty_field.focus
-        qty_field.type(item[:quantity].to_s, :clear)
-        sleep 0.5
-      end
-
-      # Click add to cart
-      add_btn_selectors = [
-        ".add-to-cart",
-        ".btn-add-cart",
-        "[data-action='add-to-cart']",
-        "button.add-to-cart",
-        "#add-to-cart",
-        ".product-add-to-cart"
-      ]
-
-      add_btn = nil
-      add_btn_selectors.each do |sel|
-        add_btn = browser.at_css(sel)
-        break if add_btn
-      end
-
-      if add_btn
-        click_element(add_btn)
-      else
-        raise ScrapingError, "Add to cart button not found for SKU #{item[:sku]}"
-      end
-
-      # Wait for confirmation
-      wait_for_cart_confirmation
-    end
-
-    def click_element(element)
-      begin
-        element.click
-      rescue => e
-        logger.debug "[WhatChefsWant] Native click failed: #{e.message}, trying JS click"
-        element.evaluate("this.click()")
-      end
-    end
-
-    def wait_for_cart_confirmation
-      begin
-        wait_for_any_selector(
-          ".cart-added",
-          ".success-message",
-          ".cart-updated",
-          ".cart-notification",
-          ".added-to-cart",
-          timeout: 5
-        )
-        sleep 1
-      rescue ScrapingError
-        logger.debug "[WhatChefsWant] No confirmation modal, checking cart state"
-        sleep 1
-      end
-    end
-
-    def wait_for_any_selector(*selectors, timeout: 10)
-      options = selectors.last.is_a?(Hash) ? selectors.pop : {}
-      timeout_val = options[:timeout] || timeout
-
-      start_time = Time.current
-      while Time.current - start_time < timeout_val
-        selectors.each do |sel|
-          return true if browser.at_css(sel)
-        end
-        sleep 0.3
-      end
-
-      raise ScrapingError, "None of selectors found: #{selectors.join(', ')}"
+      logger.info "[WhatChefsWant] Cart total after adding SKU #{sku}: $#{cart_total}"
     end
 
     public
 
     def checkout
-      with_browser do
-        navigate_to("#{PLATFORM_URL}/cart")
-        wait_for_selector(".cart-container, .shopping-cart, .cart-page")
+      # Reuse the browser from add_to_cart (cart doesn't persist across sessions)
+      ensure_order_browser!
 
-        validate_cart_before_checkout
+      begin
+        ensure_on_order_page
+        sleep 2
 
-        minimum_check = check_order_minimum_at_checkout
-        unless minimum_check[:met]
-          raise OrderMinimumError.new(
-            "Order minimum not met",
-            minimum: minimum_check[:minimum],
-            current_total: minimum_check[:current]
-          )
+        # Check cart total before proceeding
+        cart_total = get_cart_total
+        if cart_total <= 0
+          raise ScrapingError, "Cart is empty — no items to checkout"
         end
 
-        unavailable = detect_unavailable_items_in_cart
-        if unavailable.any?
-          raise ItemUnavailableError.new(
-            "#{unavailable.count} item(s) are unavailable",
-            items: unavailable
-          )
+        logger.info "[WhatChefsWant] Cart total: $#{cart_total}, proceeding to review"
+
+        # Click the cart total button (cdbutton with price) to navigate to review page.
+        # Wait up to 10s for the button to appear (page may still be rendering after add_to_cart).
+        click_result = "not_found"
+        5.times do |attempt|
+          click_result = browser.evaluate(<<~JS)
+            (function() {
+              var btns = document.querySelectorAll('button.cdbutton, .cdbutton');
+              for (var i = 0; i < btns.length; i++) {
+                var text = btns[i].innerText.trim();
+                if (text.match(/^\\$[\\d,.]+$/) && text !== '$0.00') {
+                  btns[i].click();
+                  return 'clicked';
+                }
+              }
+              return 'not_found';
+            })()
+          JS
+          break if click_result == "clicked"
+          logger.debug "[WhatChefsWant] Cart button not found, retry #{attempt + 1}..."
+          sleep 2
         end
 
-        click(".checkout, .btn-checkout, [data-action='checkout']")
-        wait_for_selector(".checkout-page, .order-review")
+        if click_result == "not_found"
+          raise ScrapingError, "Cart total button not found — cart may be empty"
+        end
+        sleep 5
 
-        # Select delivery date if required
-        select_delivery_date_if_needed
+        # Wait for review page SPA render
+        wait_for_spa_load(timeout: 10)
+        sleep 2
 
-        click(".place-order, .btn-submit-order, [data-action='place-order']")
-        wait_for_confirmation_or_error
+        # Verify we're on the review page
+        page_text = browser.evaluate("document.body ? document.body.innerText : ''") rescue ""
+        unless page_text.include?("Review Order") || page_text.include?("Submit Order")
+          raise ScrapingError, "Failed to navigate to order review page"
+        end
+
+        # Parse order details from the review page
+        order_total = parse_review_total(page_text)
+        delivery_info = parse_delivery_info(page_text)
+        item_count = parse_item_count(page_text)
+
+        logger.info "[WhatChefsWant] Review: #{item_count} items, total: $#{order_total}, delivery: #{delivery_info}"
+
+        # Check for unavailable items
+        if page_text.include?("Currently not available")
+          logger.warn "[WhatChefsWant] Some items may be unavailable"
+        end
+
+        # Click "Submit Order" button
+        submit_result = browser.evaluate(<<~JS)
+          (function() {
+            var buttons = document.querySelectorAll('button');
+            for (var i = 0; i < buttons.length; i++) {
+              if (buttons[i].innerText.trim() === 'Submit Order') {
+                buttons[i].click();
+                return 'submitted';
+              }
+            }
+            return 'not_found';
+          })()
+        JS
+
+        if submit_result == "not_found"
+          raise ScrapingError, "Submit Order button not found on review page"
+        end
+
+        logger.info "[WhatChefsWant] Order submitted, waiting for confirmation..."
+        sleep 5
+
+        # Check for confirmation or error
+        post_submit_text = browser.evaluate("document.body ? document.body.innerText : ''") rescue ""
+        post_submit_url = browser.current_url rescue ""
+
+        # Look for confirmation indicators
+        confirmation_number = nil
+        if post_submit_text.match?(/order.*(confirm|submitted|placed|received|#\d+)/i)
+          conf_match = post_submit_text.match(/#(\d+)/) ||
+                       post_submit_text.match(/order\s*(?:number|#|id)[:\s]*(\w+)/i)
+          confirmation_number = conf_match[1] if conf_match
+        end
+
+        # Check for error messages
+        if post_submit_text.match?(/error|failed|could not|unable/i) &&
+           !post_submit_text.match?(/confirm|success|submitted/i)
+          error_snippet = post_submit_text[0..500]
+          raise ScrapingError, "Order submission may have failed: #{error_snippet.truncate(200)}"
+        end
+
+        logger.info "[WhatChefsWant] Order placed. Confirmation: #{confirmation_number || 'pending'}"
 
         {
-          confirmation_number: extract_text(".order-id, .confirmation-number, .order-ref"),
-          total: extract_price(extract_text(".total, .order-total")),
-          delivery_date: extract_text(".delivery-date, .expected-delivery")
+          confirmation_number: confirmation_number,
+          total: order_total,
+          delivery_date: delivery_info
         }
+      ensure
+        close_order_browser!
       end
     end
 
@@ -415,6 +452,54 @@ module Scrapers
 
     private
 
+    # Manage a persistent browser for the order flow (add_to_cart + checkout).
+    # The Cut+Dry platform does NOT persist cart state across sessions,
+    # so we keep a single browser alive between add_to_cart and checkout.
+    def ensure_order_browser!
+      return if @browser # Already have an open browser
+
+      headless_mode = ENV.fetch("BROWSER_HEADLESS", "true") == "true"
+      browser_opts = { timeout: 30, headless: headless_mode }
+
+      if headless_mode
+        browser_opts[:browser_options] = {
+          "no-sandbox": true,
+          "disable-gpu": true,
+          "disable-dev-shm-usage": true
+        }
+      else
+        browser_opts[:browser_options] = {
+          "no-sandbox": true,
+          "start-maximized": true
+        }
+        browser_opts[:headless] = false
+      end
+
+      if ENV["BROWSER_PATH"].present?
+        browser_opts[:browser_path] = ENV["BROWSER_PATH"]
+      end
+
+      logger.info "[WhatChefsWant] Starting order browser (headless=#{headless_mode})"
+      @browser = Ferrum::Browser.new(**browser_opts)
+
+      # Login
+      perform_login_steps
+      sleep 2
+      unless logged_in?
+        close_order_browser!
+        raise AuthenticationError, "Could not log in for ordering"
+      end
+      save_session
+    end
+
+    def close_order_browser!
+      @browser&.quit
+      @browser = nil
+    rescue => e
+      logger.debug "[WhatChefsWant] Error closing order browser: #{e.message}"
+      @browser = nil
+    end
+
     # Wait for the Cut+Dry React SPA to fully hydrate.
     # The page initially renders as just "Home" until React mounts and renders the full UI.
     def wait_for_spa_load(timeout: 15)
@@ -440,24 +525,13 @@ module Scrapers
       end
     end
 
-    def search_supplier_catalog(term, max: 20)
+    def search_supplier_catalog(term, max: 50)
       # The Cut+Dry platform uses an in-page search on the /place-order page.
       # Navigate there on first search, then reuse for subsequent searches.
       ensure_on_order_page
 
-      # Find the search input and type the search term + Enter
-      search_input = browser.at_css("input[placeholder*='Search']")
-      unless search_input
-        logger.warn "[WhatChefsWant] Search input not found on order page"
-        return []
-      end
-
       logger.info "[WhatChefsWant] Searching for: #{term}"
-      search_input.focus
-      search_input.type(term, :clear)
-      sleep 0.5
-      browser.keyboard.type(:enter)
-      sleep 4
+      perform_order_page_search(term)
 
       # The catalog results appear as text in the page. DOM elements may be
       # inside an iframe or shadow DOM, so we parse from document.body.innerText.
@@ -467,17 +541,45 @@ module Scrapers
       products = parse_catalog_results(page_text, max: max)
       logger.info "[WhatChefsWant] Found #{products.size} products for '#{term}'"
 
-      # Clear search for next term
-      begin
-        search_input.focus
-        browser.keyboard.type([:control, "a"])
-        browser.keyboard.type(:backspace)
-        sleep 0.5
-      rescue => e
-        logger.debug "[WhatChefsWant] Could not clear search: #{e.message}"
-      end
-
       products
+    end
+
+    # Search on the Cut+Dry order page using real keyboard events.
+    # The React SPA ignores nativeSetter for subsequent searches — it only
+    # responds to actual keyboard input events. So we:
+    #   1. Click the input to focus it
+    #   2. Select all + Backspace to clear previous search
+    #   3. Type the new term via keyboard
+    #   4. Press Enter via keyboard
+    def perform_order_page_search(term)
+      search_el = browser.at_css("#order_flow_search") || browser.at_css("input[placeholder*='Search']")
+      raise ScrapingError, "Search input not found on order page" unless search_el
+
+      # Click and focus the input
+      search_el.click
+      sleep 0.3
+
+      # Select all existing text and delete it
+      browser.evaluate(<<~JS)
+        (function() {
+          var input = document.getElementById('order_flow_search') ||
+                      document.querySelector("input[placeholder*='Search']");
+          if (input) { input.focus(); input.select(); }
+        })()
+      JS
+      sleep 0.2
+      browser.keyboard.type([:control, "a"])
+      sleep 0.2
+      browser.keyboard.type(:backspace)
+      sleep 0.5
+
+      # Type the search term using real keyboard events
+      browser.keyboard.type(term)
+      sleep 0.5
+
+      # Submit with Enter
+      browser.keyboard.type(:enter)
+      sleep 4
     end
 
     def ensure_on_order_page
@@ -590,76 +692,43 @@ module Scrapers
       }
     end
 
-    def check_order_minimum_at_checkout
-      subtotal_text = extract_text(".subtotal, .cart-total")
-      current_total = extract_price(subtotal_text) || 0
-
-      minimum_msg = extract_text(".minimum-order-message, .order-minimum")
-      minimum = if minimum_msg
-        extract_price(minimum_msg) || ORDER_MINIMUM
-      else
-        ORDER_MINIMUM
-      end
-
-      {
-        met: current_total >= minimum,
-        minimum: minimum,
-        current: current_total
-      }
-    end
-
-    def detect_unavailable_items_in_cart
-      unavailable = []
-
-      browser.css(".cart-item, .cart-product").each do |item|
-        if item.at_css(".out-of-stock, .not-available")
-          unavailable << {
-            sku: item.at_css("[data-sku], [data-product]")&.attribute("data-sku"),
-            name: item.at_css(".item-name, .product-title")&.text&.strip,
-            message: item.at_css(".availability-msg")&.text&.strip
+    # Get the current cart total from the cart button on the order page.
+    # The cart button is a cdbutton with btn-primary showing just "$XX.XX".
+    def get_cart_total
+      browser.evaluate(<<~JS) rescue 0.0
+        (function() {
+          // Target the specific cart total button (cdbutton with price)
+          var btns = document.querySelectorAll('button.cdbutton, .cdbutton');
+          for (var i = 0; i < btns.length; i++) {
+            var text = btns[i].innerText.trim();
+            var match = text.match(/^\\$([\\d,.]+)$/);
+            if (match) return parseFloat(match[1].replace(',', ''));
           }
-        end
-      end
-
-      unavailable
+          return 0;
+        })()
+      JS
     end
 
-    def validate_cart_before_checkout
-      detect_error_conditions
-
-      if browser.at_css(".empty-cart, .cart-empty, .no-items")
-        raise ScrapingError, "Cart is empty"
-      end
+    # Parse the order total from the review page text
+    def parse_review_total(text)
+      # Look for "Total:\t$XX.XX" pattern
+      match = text.match(/Total:\s*\$?([\d,.]+)/)
+      match ? match[1].gsub(",", "").to_f : 0.0
     end
 
-    def select_delivery_date_if_needed
-      date_selector = browser.at_css(".delivery-date-select, select[name='delivery_date']")
-      return unless date_selector
-
-      # Select first available date
-      first_option = browser.at_css(".delivery-date-select option:not([disabled]):not([value='']), select[name='delivery_date'] option:not([disabled]):not([value=''])")
-      if first_option
-        date_selector.select(first_option.text)
-      else
-        raise DeliveryUnavailableError, "No delivery dates available"
+    # Parse delivery info from the review page text
+    def parse_delivery_info(text)
+      # Look for "Delivery Date:" followed by a date or "Order Cutoff:"
+      if text.match?(/Delivery Date:\s*\n?\s*(.+)/)
+        date_match = text.match(/Order Cutoff:\s*\n?\s*(.+)/)
+        date_match ? date_match[1].strip : nil
       end
     end
 
-    def wait_for_confirmation_or_error
-      start_time = Time.current
-      timeout = 30
-
-      loop do
-        return true if browser.at_css(".order-confirmation, .success, .thank-you-page")
-
-        error_msg = browser.at_css(".error-message, .checkout-error, .alert-danger")&.text&.strip
-        if error_msg
-          raise ScrapingError, "Checkout failed: #{error_msg}"
-        end
-
-        raise ScrapingError, "Checkout timeout" if Time.current - start_time > timeout
-        sleep 0.5
-      end
+    # Parse item count from the review page text
+    def parse_item_count(text)
+      match = text.match(/Total Line Items:\s*(\d+)/)
+      match ? match[1].to_i : 0
     end
   end
 end
