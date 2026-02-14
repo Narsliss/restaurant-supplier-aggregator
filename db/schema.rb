@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_11_192238) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   create_table "billing_events", force: :cascade do |t|
     t.integer "user_id"
     t.integer "subscription_id"
