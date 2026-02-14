@@ -1,23 +1,27 @@
-refresh_prices:
-  class: ScrapePricesJob
+# Two-tier scraping strategy:
+# - Quick updates every 30 min: Price-only updates for all suppliers using top search terms (fast)
+# - Full import daily at 4 AM: Complete catalog with category browsing (comprehensive)
+
+quick_price_update:
+  class: QuickPriceUpdateJob
+  queue: scraping
+  schedule: "*/30 * * * *"
+  description: "Quick price updates every 30 minutes (all suppliers, top products)"
+
+full_catalog_import:
+  class: ScheduledImportJob
   queue: scraping
   schedule: "0 4 * * *"
-  description: "Daily price refresh from all suppliers"
+  description: "Daily full catalog import at 4 AM (categories + search)"
 
 refresh_sessions:
   class: RefreshSessionJob
   queue: default
   schedule: "0 */6 * * *"
-  description: "Refresh supplier login sessions"
-
-scheduled_import:
-  class: ScheduledImportJob
-  queue: scraping
-  schedule: "0 * * * *"
-  description: "Hourly product import for all active credentials (keeps sessions alive)"
+  description: "Refresh supplier login sessions every 6 hours"
 
 expire_2fa_requests:
   class: Expire2faRequestsJob
   queue: low
   schedule: "*/5 * * * *"
-  description: "Expire old 2FA requests"
+  description: "Expire old 2FA requests every 5 minutes"

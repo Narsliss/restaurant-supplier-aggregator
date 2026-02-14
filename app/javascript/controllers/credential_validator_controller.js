@@ -10,7 +10,6 @@ export default class extends Controller {
     "errorBlock",        // the red error box
     "errorText",         // the text inside the error box
     "validateBtn",       // the Validate button
-    "importBtn",         // the Import Products button (hidden until active)
     "tfaBlock",          // 2FA inline form container (hidden by default)
     "tfaPrompt",         // prompt text from the server
     "tfaCodeInput",      // the code <input>
@@ -24,8 +23,6 @@ export default class extends Controller {
     statusUrl: String,     // GET endpoint for polling status
     validateUrl: String,   // POST endpoint to start validation
     submitCodeUrl: String, // POST endpoint to submit 2FA code
-    importUrl: String,     // POST endpoint to start product import
-    importing: Boolean,    // true if an import is already in progress on page load
     credentialStatus: String, // server-rendered credential status (pending, active, failed, etc.)
   }
 
@@ -34,13 +31,6 @@ export default class extends Controller {
     this.timerInterval = null
     this.currentState = "idle"
     console.log(`[credential-validator] connected for credential ${this.credentialIdValue}`)
-
-    // If an import is already in progress on page load, show importing state and poll
-    if (this.importingValue) {
-      this.showState("importing")
-      this.startPolling()
-      return
-    }
 
     // If the credential is pending (e.g. just created with a 2FA supplier),
     // auto-start polling so the 2FA code input appears without a manual refresh.
@@ -87,37 +77,6 @@ export default class extends Controller {
     } catch (err) {
       console.error(`[credential-validator] validate error:`, err)
       this.showState("failed", err.message || "Request failed")
-    }
-  }
-
-  // ── Import Products clicked ─────────────────────────────────────
-  // POST to enqueue the background import job, then start polling so we
-  // can show a 2FA prompt if the job needs a verification code.
-  async startImport(event) {
-    event.preventDefault()
-    if (this.currentState === "importing") return
-
-    // Immediately disable the button to prevent double-clicks
-    const clickedBtn = event.currentTarget || event.target.closest("button")
-    if (clickedBtn) {
-      clickedBtn.disabled = true
-      clickedBtn.style.opacity = "0.5"
-      clickedBtn.style.pointerEvents = "none"
-    }
-
-    console.log(`[credential-validator] startImport for credential ${this.credentialIdValue}`)
-    this.importPollCount = 0
-    this._serverConfirmedImporting = false
-    this.showState("importing")
-
-    try {
-      const resp = await this.postImport(this.importUrlValue)
-      console.log(`[credential-validator] import response:`, resp)
-      // Job is queued — start polling for 2FA requests or completion
-      this.startPolling()
-    } catch (err) {
-      console.error(`[credential-validator] import error:`, err)
-      this.showState("failed", err.message || "Import failed")
     }
   }
 
@@ -544,30 +503,6 @@ export default class extends Controller {
       },
       body: JSON.stringify(body),
     })
-    if (!resp.ok) {
-      const data = await resp.json().catch(() => ({}))
-      throw new Error(data.message || `HTTP ${resp.status}`)
-    }
-    return resp.json()
-  }
-
-  // POST to start an import. Treats 409 Conflict as "already importing" (not an error)
-  // so the UI stays in the importing state and starts polling.
-  async postImport(url) {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "X-CSRF-Token": this.csrfToken,
-      },
-      body: JSON.stringify({}),
-    })
-    if (resp.status === 409) {
-      // Server says import already in progress — treat as success (keep polling)
-      console.log(`[credential-validator] import already in progress (409), will poll`)
-      return { status: "importing" }
-    }
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}))
       throw new Error(data.message || `HTTP ${resp.status}`)

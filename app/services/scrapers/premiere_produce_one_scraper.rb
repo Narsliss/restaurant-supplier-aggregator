@@ -1,8 +1,22 @@
 module Scrapers
   class PremiereProduceOneScraper < BaseScraper
-    BASE_URL = "https://premierproduceone.pepr.app".freeze
+    BASE_URL = 'https://premierproduceone.pepr.app'.freeze
     LOGIN_URL = "#{BASE_URL}/".freeze
     ORDER_MINIMUM = 0.00
+
+    # PPO categories for catalog browsing
+    # Categories are browsed via URL pattern with category parameter
+    PPO_CATEGORIES = [
+      { name: 'Produce', slug: 'produce' },
+      { name: 'Fresh Fruits', slug: 'fresh-fruits' },
+      { name: 'Fresh Vegetables', slug: 'fresh-vegetables' },
+      { name: 'Herbs', slug: 'herbs' },
+      { name: 'Organic', slug: 'organic' },
+      { name: 'Specialty Items', slug: 'specialty' },
+      { name: 'Beverages', slug: 'beverages' },
+      { name: 'Dairy', slug: 'dairy' },
+      { name: 'Dry Goods', slug: 'dry-goods' }
+    ].freeze
 
     # PPO uses passwordless auth: email → code → logged in.
     # Because the verification page is a React SPA with no URL change and no cookies,
@@ -20,6 +34,7 @@ module Scrapers
           wait_for_react_render(timeout: 15)
           logger.info "[PremiereProduceOne] After session restore, logged_in?=#{logged_in?}, url=#{browser.current_url}"
           return true if logged_in?
+
           logger.info "[PremiereProduceOne] Session restore didn't produce logged-in state, proceeding to full login"
         end
 
@@ -35,7 +50,7 @@ module Scrapers
 
           if resent
             logger.info "[PremiereProduceOne] Code attempt ##{attempt}: clicking Resend code"
-            click_button_by_text("resend code")
+            click_button_by_text('resend code')
             sleep 2
           end
 
@@ -52,18 +67,22 @@ module Scrapers
               credential.mark_active!
               save_trusted_device
               mark_2fa_request_verified!
-              logger.info "[PremiereProduceOne] Verification successful — logged in!"
-              TwoFactorChannel.broadcast_to(credential.user, { type: "code_result", success: true })
+              logger.info '[PremiereProduceOne] Verification successful — logged in!'
+              TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
               return true
             end
 
             # Still on code page — code was likely expired or invalid
-            body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
+            body_text = begin
+              browser.evaluate('document.body?.innerText?.substring(0, 2000)')
+            rescue StandardError
+              ''
+            end
             logger.warn "[PremiereProduceOne] Code attempt #{attempt} failed. Page: #{body_text[0..200]}"
 
             if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
               rate_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first
-              error_msg = rate_msg&.strip || "Too many login attempts. Please wait and try again."
+              error_msg = rate_msg&.strip || 'Too many login attempts. Please wait and try again.'
               credential.mark_failed!(error_msg)
               raise AuthenticationError, error_msg
             end
@@ -73,12 +92,13 @@ module Scrapers
               mark_2fa_request_failed!
               TwoFactorChannel.broadcast_to(
                 credential.user,
-                { type: "code_result", success: false, error: "Code expired or invalid. A new code is being sent — please enter the new code.", can_retry: true }
+                { type: 'code_result', success: false,
+                  error: 'Code expired or invalid. A new code is being sent — please enter the new code.', can_retry: true }
               )
             end
           else
-            credential.mark_failed!("Verification timed out. No code was entered.")
-            raise AuthenticationError, "Verification timed out"
+            credential.mark_failed!('Verification timed out. No code was entered.')
+            raise AuthenticationError, 'Verification timed out'
           end
         end
 
@@ -93,7 +113,7 @@ module Scrapers
           credential.mark_failed!(error_msg)
           TwoFactorChannel.broadcast_to(
             credential.user,
-            { type: "code_result", success: false, error: error_msg, can_retry: false }
+            { type: 'code_result', success: false, error: error_msg, can_retry: false }
           )
           raise AuthenticationError, error_msg
         end
@@ -102,8 +122,8 @@ module Scrapers
 
     # Not used for PPO — the login method handles code entry inline.
     # Kept for interface compatibility with TwoFactorChannel.
-    def login_with_code(code)
-      { success: false, error: "Use the inline verification form instead. Click Validate to start a new login." }
+    def login_with_code(_code)
+      { success: false, error: 'Use the inline verification form instead. Click Validate to start a new login.' }
     end
 
     # Override save_session to also capture localStorage.
@@ -113,16 +133,20 @@ module Scrapers
       cookies = browser.cookies.all.transform_values(&:to_h)
 
       # Capture localStorage (contains Pepper auth tokens)
-      local_storage = browser.evaluate(<<~JS) rescue {}
-        (function() {
-          var data = {};
-          for (var i = 0; i < localStorage.length; i++) {
-            var key = localStorage.key(i);
-            data[key] = localStorage.getItem(key);
-          }
-          return data;
-        })()
-      JS
+      local_storage = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var data = {};
+            for (var i = 0; i < localStorage.length; i++) {
+              var key = localStorage.key(i);
+              data[key] = localStorage.getItem(key);
+            }
+            return data;
+          })()
+        JS
+      rescue StandardError
+        {}
+      end
 
       session_payload = {
         cookies: cookies,
@@ -132,7 +156,7 @@ module Scrapers
       credential.update!(
         session_data: session_payload,
         last_login_at: Time.current,
-        status: "active"
+        status: 'active'
       )
 
       ls_keys = local_storage.is_a?(Hash) ? local_storage.keys : []
@@ -152,9 +176,9 @@ module Scrapers
         data = JSON.parse(credential.session_data)
 
         # Support both old format (flat cookie hash) and new format (with local_storage)
-        if data.key?("cookies")
-          cookies = data["cookies"]
-          local_storage = data["local_storage"] || {}
+        if data.key?('cookies')
+          cookies = data['cookies']
+          local_storage = data['local_storage'] || {}
         else
           # Legacy format: entire session_data is cookies
           cookies = data
@@ -163,19 +187,17 @@ module Scrapers
 
         # Restore cookies
         cookies.each do |_name, cookie|
-          next unless cookie.is_a?(Hash) && cookie["name"].present? && cookie["value"].present?
+          next unless cookie.is_a?(Hash) && cookie['name'].present? && cookie['value'].present?
 
           params = {
-            name: cookie["name"].to_s,
-            value: cookie["value"].to_s,
-            domain: cookie["domain"].to_s,
-            path: cookie["path"].present? ? cookie["path"].to_s : "/"
+            name: cookie['name'].to_s,
+            value: cookie['value'].to_s,
+            domain: cookie['domain'].to_s,
+            path: cookie['path'].present? ? cookie['path'].to_s : '/'
           }
-          params[:secure] = !!cookie["secure"] unless cookie["secure"].nil?
-          params[:httponly] = !!cookie["httponly"] unless cookie["httponly"].nil?
-          if cookie["expires"].is_a?(Numeric) && cookie["expires"] > 0
-            params[:expires] = cookie["expires"].to_i
-          end
+          params[:secure] = !!cookie['secure'] unless cookie['secure'].nil?
+          params[:httponly] = !!cookie['httponly'] unless cookie['httponly'].nil?
+          params[:expires] = cookie['expires'].to_i if cookie['expires'].is_a?(Numeric) && cookie['expires'] > 0
 
           begin
             browser.cookies.set(**params)
@@ -211,7 +233,9 @@ module Scrapers
 
     def logged_in?
       # Check for common logged-in UI elements
-      return true if browser.at_css(".user-menu, .account-dropdown, .logged-in, [data-user-logged-in], .my-account, .account-nav").present?
+      if browser.at_css('.user-menu, .account-dropdown, .logged-in, [data-user-logged-in], .my-account, .account-nav').present?
+        return true
+      end
 
       # Definitely NOT logged in if we're on the verification code page
       return false if two_fa_page?
@@ -219,13 +243,23 @@ module Scrapers
       # PPO-specific: check for buttons/links that only appear when logged in.
       # "Log out" is in the footer/menu and won't appear in the first 3000 chars of body text
       # because PPO shows dozens of product listings first.
-      has_logout = browser.evaluate("!!document.querySelector('button') && Array.from(document.querySelectorAll('button')).some(function(b) { return b.innerText.trim().toLowerCase() === 'log out'; })") rescue false
+      has_logout = begin
+        browser.evaluate("!!document.querySelector('button') && Array.from(document.querySelectorAll('button')).some(function(b) { return b.innerText.trim().toLowerCase() === 'log out'; })")
+      rescue StandardError
+        false
+      end
       return true if has_logout
 
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
+      body_text = begin
+        browser.evaluate('document.body?.innerText?.substring(0, 3000)')
+      rescue StandardError
+        ''
+      end
 
       # Definitely NOT logged in if we're on the landing page
-      return false if body_text.match?(/become a customer/i) && body_text.match?(/explore catalog/i) && !body_text.match?(/order guide|add to cart|my orders/i)
+      if body_text.match?(/become a customer/i) && body_text.match?(/explore catalog/i) && !body_text.match?(/order guide|add to cart|my orders/i)
+        return false
+      end
 
       # Standard logged-in indicators
       return true if body_text.match?(/my account|sign out|log ?out|my orders|order guide|dashboard/i)
@@ -276,7 +310,7 @@ module Scrapers
 
               if resent
                 logger.info "[PremiereProduceOne] Import login: resending code (attempt #{attempt})"
-                click_button_by_text("resend code")
+                click_button_by_text('resend code')
                 sleep 2
               end
 
@@ -292,8 +326,8 @@ module Scrapers
                   credential.mark_active!
                   save_trusted_device
                   mark_2fa_request_verified!
-                  logger.info "[PremiereProduceOne] Import login: verified!"
-                  TwoFactorChannel.broadcast_to(credential.user, { type: "code_result", success: true })
+                  logger.info '[PremiereProduceOne] Import login: verified!'
+                  TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
                   break
                 end
 
@@ -301,19 +335,20 @@ module Scrapers
                   mark_2fa_request_failed!
                   TwoFactorChannel.broadcast_to(
                     credential.user,
-                    { type: "code_result", success: false, error: "Code expired or invalid. A new code is being sent.", can_retry: true }
+                    { type: 'code_result', success: false, error: 'Code expired or invalid. A new code is being sent.',
+                      can_retry: true }
                   )
                 end
               else
-                credential.mark_failed!("Verification timed out during import. No code was entered.")
-                raise AuthenticationError, "Verification timed out during catalog import"
+                credential.mark_failed!('Verification timed out during import. No code was entered.')
+                raise AuthenticationError, 'Verification timed out during catalog import'
               end
             end
           end
 
           unless logged_in?
-            credential.mark_failed!("Could not log in for catalog import")
-            raise AuthenticationError, "Could not log in for catalog import"
+            credential.mark_failed!('Could not log in for catalog import')
+            raise AuthenticationError, 'Could not log in for catalog import'
           end
 
           save_session
@@ -323,16 +358,42 @@ module Scrapers
         # When logged in, PPO shows the catalog directly. If not, click "Explore catalog".
         ensure_catalog_page_loaded
 
-        # Now scrape the catalog
-        search_terms.each do |term|
+        # Phase 1: Browse categories for broad coverage
+        logger.info "[PremiereProduceOne] Phase 1: Browsing #{PPO_CATEGORIES.size} categories"
+        PPO_CATEGORIES.each do |category|
+          begin
+            products = browse_category(category[:slug], max: max_per_term)
+            products.each { |p| p[:category] ||= category[:name] }
+            results.concat(products)
+            logger.info "[PremiereProduceOne] Category '#{category[:name]}': #{products.size} products (total: #{results.size})"
+          rescue StandardError => e
+            logger.warn "[PremiereProduceOne] Category browse failed for '#{category[:name]}': #{e.class}: #{e.message}"
+          end
+          rate_limit_delay
+        end
+
+        # Optimization: If categories yielded enough products, limit search phase
+        category_target = 300
+        search_phase_limit = nil
+        if results.size >= category_target
+          search_phase_limit = 10
+          logger.info "[PremiereProduceOne] Categories yielded #{results.size} products (target: #{category_target}). Limiting search phase to #{search_phase_limit} terms."
+        else
+          logger.info "[PremiereProduceOne] Categories yielded #{results.size} products (below target #{category_target}). Running full search phase."
+        end
+
+        # Phase 2: Search terms for items missed in categories
+        terms_to_search = search_phase_limit ? search_terms.first(search_phase_limit) : search_terms
+        logger.info "[PremiereProduceOne] Phase 2: Searching with #{terms_to_search.size} terms"
+        terms_to_search.each do |term|
           begin
             products = search_supplier_catalog(term, max: max_per_term)
             results.concat(products)
-            logger.info "[Scraper] Found #{products.size} products for '#{term}' at #{credential.supplier.name}"
+            logger.info "[PremiereProduceOne] Search '#{term}': #{products.size} products"
           rescue ScrapingError => e
-            logger.warn "[Scraper] Catalog search failed for '#{term}': #{e.message}"
-          rescue => e
-            logger.warn "[Scraper] Unexpected error searching '#{term}': #{e.class}: #{e.message}"
+            logger.warn "[PremiereProduceOne] Search failed for '#{term}': #{e.message}"
+          rescue StandardError => e
+            logger.warn "[PremiereProduceOne] Unexpected error searching '#{term}': #{e.class}: #{e.message}"
           end
 
           rate_limit_delay
@@ -340,7 +401,9 @@ module Scrapers
       end
 
       # De-duplicate by SKU
-      results.uniq { |r| r[:supplier_sku] }
+      deduped = results.uniq { |r| r[:supplier_sku] }
+      logger.info "[PremiereProduceOne] Total unique products: #{deduped.size} (from #{results.size} raw)"
+      deduped
     end
 
     def scrape_prices(product_skus)
@@ -382,22 +445,19 @@ module Scrapers
           if two_fa_page?
             # Need verification code
             code = wait_for_user_code(attempt: 1, resent: false)
-            if code
-              type_code_and_submit(code)
-              sleep 5
-              wait_for_page_load
+            raise AuthenticationError, 'Verification timed out' unless code
 
-              if logged_in?
-                save_session
-                credential.mark_active!
-                mark_2fa_request_verified!
-                TwoFactorChannel.broadcast_to(credential.user, { type: "code_result", success: true })
-              else
-                raise AuthenticationError, "Login failed after 2FA"
-              end
-            else
-              raise AuthenticationError, "Verification timed out"
-            end
+            type_code_and_submit(code)
+            sleep 5
+            wait_for_page_load
+
+            raise AuthenticationError, 'Login failed after 2FA' unless logged_in?
+
+            save_session
+            credential.mark_active!
+            mark_2fa_request_verified!
+            TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
+
           end
 
           save_session unless logged_in?
@@ -414,7 +474,7 @@ module Scrapers
             add_single_item_to_cart(item)
             added_items << item
             logger.info "[PremiereProduceOne] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
-          rescue => e
+          rescue StandardError => e
             logger.warn "[PremiereProduceOne] Failed to add SKU #{item[:sku]}: #{e.message}"
             failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
           end
@@ -445,9 +505,7 @@ module Scrapers
         search_input = browser.at_css("input[placeholder='Search']")
       end
 
-      unless search_input
-        raise ScrapingError, "Search input not found"
-      end
+      raise ScrapingError, 'Search input not found' unless search_input
 
       # Search for the product by SKU
       search_input.focus
@@ -517,13 +575,12 @@ module Scrapers
           })()
         JS
 
-        unless clicked && clicked["clicked"]
-          if i == 0
-            raise ScrapingError, "Product not found or could not click add button for SKU #{item[:sku]}"
-          else
-            logger.warn "[PremiereProduceOne] Could only add #{i} of #{quantity_to_add} for SKU #{item[:sku]}"
-            break
-          end
+        unless clicked && clicked['clicked']
+          raise ScrapingError, "Product not found or could not click add button for SKU #{item[:sku]}" if i == 0
+
+          logger.warn "[PremiereProduceOne] Could only add #{i} of #{quantity_to_add} for SKU #{item[:sku]}"
+          break
+
         end
 
         # Small delay between clicks for quantity > 1
@@ -558,21 +615,19 @@ module Scrapers
     end
 
     def wait_for_cart_confirmation
-      begin
-        wait_for_any_selector(
-          ".cart-added",
-          ".success-message",
-          ".cart-updated",
-          ".cart-notification",
-          ".toast",
-          "[class*='success']",
-          timeout: 5
-        )
-        sleep 1
-      rescue ScrapingError
-        logger.debug "[PremiereProduceOne] No confirmation modal, checking cart state"
-        sleep 1
-      end
+      wait_for_any_selector(
+        '.cart-added',
+        '.success-message',
+        '.cart-updated',
+        '.cart-notification',
+        '.toast',
+        "[class*='success']",
+        timeout: 5
+      )
+      sleep 1
+    rescue ScrapingError
+      logger.debug '[PremiereProduceOne] No confirmation modal, checking cart state'
+      sleep 1
     end
 
     def wait_for_any_selector(*selectors, timeout: 10)
@@ -595,7 +650,7 @@ module Scrapers
     def checkout
       with_browser do
         navigate_to("#{BASE_URL}/cart")
-        wait_for_selector(".cart-container, .shopping-cart, .cart-page")
+        wait_for_selector('.cart-container, .shopping-cart, .cart-page')
 
         validate_cart_before_checkout
 
@@ -608,15 +663,15 @@ module Scrapers
         end
 
         click(".checkout, .btn-checkout, [data-action='checkout']")
-        wait_for_selector(".checkout-page, .order-review")
+        wait_for_selector('.checkout-page, .order-review')
 
         click(".place-order, .btn-submit-order, [data-action='place-order']")
         wait_for_confirmation_or_error
 
         {
-          confirmation_number: extract_text(".order-id, .confirmation-number, .order-ref"),
-          total: extract_price(extract_text(".total, .order-total")),
-          delivery_date: extract_text(".delivery-date, .expected-delivery")
+          confirmation_number: extract_text('.order-id, .confirmation-number, .order-ref'),
+          total: extract_price(extract_text('.total, .order-total')),
+          delivery_date: extract_text('.delivery-date, .expected-delivery')
         }
       end
     end
@@ -631,11 +686,15 @@ module Scrapers
       sleep 3
 
       # Step 1: Click "Sign in" on the landing page
-      click_button_by_text("sign in")
+      click_button_by_text('sign in')
       sleep 2
 
       # Step 2: Switch to email tab (PPO defaults to phone number)
-      browser.evaluate('(function() { var tabs = document.querySelectorAll("[aria-selected]"); for (var i = 0; i < tabs.length; i++) { if (tabs[i].getAttribute("aria-selected") === "false") { tabs[i].click(); return true; } } return false; })()') rescue nil
+      begin
+        browser.evaluate('(function() { var tabs = document.querySelectorAll("[aria-selected]"); for (var i = 0; i < tabs.length; i++) { if (tabs[i].getAttribute("aria-selected") === "false") { tabs[i].click(); return true; } } return false; })()')
+      rescue StandardError
+        nil
+      end
       sleep 1
 
       # Step 3: Enter email in the email input (using React-compatible setter)
@@ -644,25 +703,29 @@ module Scrapers
         email_input.focus
         set_react_input_value(email_input, credential.username)
       else
-        logger.warn "[PremiereProduceOne] Email input not found on login page"
-        raise AuthenticationError, "Could not find email input on login page"
+        logger.warn '[PremiereProduceOne] Email input not found on login page'
+        raise AuthenticationError, 'Could not find email input on login page'
       end
 
       sleep 1
 
       # Step 4: Click Continue to submit email and trigger verification code
-      click_button_by_text("continue")
+      click_button_by_text('continue')
       sleep 3
       wait_for_page_load
 
       # Check for rate limiting
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
-      if body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
-        rate_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first
-        error_msg = rate_msg&.strip || "Too many login attempts. Please wait and try again."
-        credential.mark_failed!(error_msg)
-        raise AuthenticationError, error_msg
+      body_text = begin
+        browser.evaluate('document.body?.innerText?.substring(0, 2000)')
+      rescue StandardError
+        ''
       end
+      return unless body_text.match?(/maximum.*attempts|too many.*attempts|try again.*minutes|rate.?limit/i)
+
+      rate_msg = body_text.scan(/maximum.*?minutes\.?|too many.*?minutes\.?|try again.*?minutes\.?/i).first
+      error_msg = rate_msg&.strip || 'Too many login attempts. Please wait and try again.'
+      credential.mark_failed!(error_msg)
+      raise AuthenticationError, error_msg
     end
 
     # Set a value on a React controlled input using the native HTMLInputElement
@@ -671,7 +734,7 @@ module Scrapers
     # setter from HTMLInputElement.prototype, we bypass React's override, then dispatch
     # the proper events so React picks up the change.
     def set_react_input_value(input_node, value)
-      escaped = value.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
+      escaped = value.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
 
       js = <<~JS
         (function(el) {
@@ -694,13 +757,13 @@ module Scrapers
       result = input_node.evaluate(js)
       logger.info "[PremiereProduceOne] React input value set, confirmed: '#{result}'"
       result
-    rescue => e
+    rescue StandardError => e
       logger.warn "[PremiereProduceOne] React setter failed (#{e.message}), falling back to character-by-character typing"
       # Fallback: type character by character which generates real keyboard events
       begin
         input_node.focus
         # Triple-click to select all, then delete
-        input_node.evaluate("this.select()")
+        input_node.evaluate('this.select()')
         browser.keyboard.type(:Backspace)
         sleep 0.2
         # Type each character individually to trigger React key events
@@ -708,7 +771,7 @@ module Scrapers
           browser.keyboard.type(char)
           sleep 0.05
         end
-      rescue => e2
+      rescue StandardError => e2
         logger.error "[PremiereProduceOne] Character typing also failed: #{e2.message}"
         raise
       end
@@ -722,7 +785,11 @@ module Scrapers
       start = Time.current
       loop do
         # Check if React has rendered meaningful content
-        body_text = browser.evaluate("document.body?.innerText?.substring(0, 2000)") rescue ""
+        body_text = begin
+          browser.evaluate('document.body?.innerText?.substring(0, 2000)')
+        rescue StandardError
+          ''
+        end
         has_content = body_text.length > 100
         has_logged_in_indicators = body_text.match?(/order guide|add to cart|my orders|explore catalog|log out|become a customer/i)
         has_2fa_indicators = body_text.match?(/enter.*code|verification.*code|one.?time/i)
@@ -748,12 +815,12 @@ module Scrapers
     def ensure_catalog_page_loaded
       # Check if we already have the search input
       if browser.at_css("input[placeholder='Search']")
-        logger.info "[PremiereProduceOne] Catalog page already loaded (search input found)"
+        logger.info '[PremiereProduceOne] Catalog page already loaded (search input found)'
         return
       end
 
       # Try clicking "Explore catalog" button (visible when not logged in or on landing)
-      clicked = click_button_by_text("explore catalog")
+      clicked = click_button_by_text('explore catalog')
       if clicked
         logger.info "[PremiereProduceOne] Clicked 'Explore catalog'"
         sleep 5
@@ -762,6 +829,7 @@ module Scrapers
       # Wait for the search input to appear (catalog page is loaded)
       10.times do
         break if browser.at_css("input[placeholder='Search']")
+
         sleep 1
       end
 
@@ -769,7 +837,7 @@ module Scrapers
         # Last resort: refresh and try again
         navigate_to(BASE_URL)
         sleep 3
-        click_button_by_text("explore catalog")
+        click_button_by_text('explore catalog')
         sleep 5
       end
 
@@ -780,32 +848,36 @@ module Scrapers
     # The browser stays open on the verification page while we wait.
     # Returns the code string when the user submits it, or nil on timeout.
     def wait_for_user_code(attempt: 1, resent: false)
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 1000)") rescue ""
-      prompt = body_text.scan(/your code.*?\./i).first || "A verification code has been sent to your email."
+      body_text = begin
+        browser.evaluate('document.body?.innerText?.substring(0, 1000)')
+      rescue StandardError
+        ''
+      end
+      prompt = body_text.scan(/your code.*?\./i).first || 'A verification code has been sent to your email.'
       prompt = "NEW CODE SENT: #{prompt} (previous code expired)" if resent
 
       # Create the 2FA request record
       request = Supplier2faRequest.create!(
         user: credential.user,
         supplier_credential: credential,
-        request_type: "login",
-        two_fa_type: "email",
+        request_type: 'login',
+        two_fa_type: 'email',
         prompt_message: prompt,
-        status: "pending",
+        status: 'pending',
         expires_at: 3.minutes.from_now
       )
 
-      credential.update!(two_fa_enabled: true, two_fa_type: "email")
+      credential.update!(two_fa_enabled: true, two_fa_type: 'email')
 
       # Broadcast to ActionCable (may not be received, but try)
       TwoFactorChannel.broadcast_to(
         credential.user,
         {
-          type: "two_fa_required",
+          type: 'two_fa_required',
           request_id: request.id,
           session_token: request.session_token,
           supplier_name: credential.supplier.name,
-          two_fa_type: "email",
+          two_fa_type: 'email',
           prompt_message: prompt,
           expires_at: request.expires_at.iso8601
         }
@@ -822,21 +894,21 @@ module Scrapers
       loop do
         if Time.current - started_at > timeout
           request.mark_expired! if request.reload.pending?
-          logger.warn "[PremiereProduceOne] Timed out waiting for code"
+          logger.warn '[PremiereProduceOne] Timed out waiting for code'
           return nil
         end
 
         request.reload
 
         case request.status
-        when "submitted"
+        when 'submitted'
           # User submitted a code — return it
-          logger.info "[PremiereProduceOne] Code received from user"
+          logger.info '[PremiereProduceOne] Code received from user'
           return request.code_submitted
-        when "cancelled"
-          logger.info "[PremiereProduceOne] User cancelled 2FA"
+        when 'cancelled'
+          logger.info '[PremiereProduceOne] User cancelled 2FA'
           return nil
-        when "failed", "expired"
+        when 'failed', 'expired'
           logger.info "[PremiereProduceOne] 2FA request #{request.status}"
           return nil
         end
@@ -850,17 +922,17 @@ module Scrapers
     def type_code_and_submit(code)
       code_input = find_2fa_code_input
       unless code_input
-        credential.mark_failed!("Could not find verification code input")
-        raise AuthenticationError, "Could not find verification code input"
+        credential.mark_failed!('Could not find verification code input')
+        raise AuthenticationError, 'Could not find verification code input'
       end
 
-      logger.info "[PremiereProduceOne] Typing verification code into input"
+      logger.info '[PremiereProduceOne] Typing verification code into input'
 
       # Type character-by-character (generates real key events React responds to)
       begin
         code_input.focus
         sleep 0.2
-        browser.keyboard.type([:control, "a"])
+        browser.keyboard.type([:control, 'a'])
         sleep 0.1
         browser.keyboard.type(:Backspace)
         sleep 0.2
@@ -868,7 +940,11 @@ module Scrapers
           browser.keyboard.type(char)
           sleep 0.05
         end
-        actual = code_input.evaluate("this.value") rescue "unknown"
+        actual = begin
+          code_input.evaluate('this.value')
+        rescue StandardError
+          'unknown'
+        end
         logger.info "[PremiereProduceOne] Input value after typing: '#{actual}'"
 
         # If typing didn't stick, use React native setter
@@ -876,7 +952,7 @@ module Scrapers
           logger.warn "[PremiereProduceOne] Typing gave '#{actual}', using nativeInputValueSetter"
           set_react_input_value(code_input, code)
         end
-      rescue => e
+      rescue StandardError => e
         logger.warn "[PremiereProduceOne] Typing failed: #{e.message}, using nativeInputValueSetter"
         set_react_input_value(code_input, code)
       end
@@ -884,31 +960,213 @@ module Scrapers
       sleep 1
 
       # Click the LAST Continue button (PPO SPA may have multiple in the DOM)
-      continue_clicked = click_last_button_by_text("continue")
+      continue_clicked = click_last_button_by_text('continue')
       logger.info "[PremiereProduceOne] Continue clicked: #{continue_clicked}"
 
-      unless continue_clicked
-        # Fallback: press Enter
-        begin
-          code_input.focus
-          browser.keyboard.type(:Enter)
-          logger.info "[PremiereProduceOne] Pressed Enter as fallback"
-        rescue => e
-          logger.warn "[PremiereProduceOne] Enter fallback failed: #{e.message}"
-        end
+      return if continue_clicked
+
+      # Fallback: press Enter
+      begin
+        code_input.focus
+        browser.keyboard.type(:Enter)
+        logger.info '[PremiereProduceOne] Pressed Enter as fallback'
+      rescue StandardError => e
+        logger.warn "[PremiereProduceOne] Enter fallback failed: #{e.message}"
       end
     end
 
     # Helper to mark the latest submitted 2FA request as verified
     def mark_2fa_request_verified!
-      Supplier2faRequest.where(supplier_credential: credential, status: "submitted")
-        .order(created_at: :desc).first&.mark_verified!
+      Supplier2faRequest.where(supplier_credential: credential, status: 'submitted')
+                        .order(created_at: :desc).first&.mark_verified!
     end
 
     # Helper to mark the latest submitted 2FA request as failed
     def mark_2fa_request_failed!
-      Supplier2faRequest.where(supplier_credential: credential, status: "submitted")
-        .order(created_at: :desc).first&.mark_failed!
+      Supplier2faRequest.where(supplier_credential: credential, status: 'submitted')
+                        .order(created_at: :desc).first&.mark_failed!
+    end
+
+    # Browse a category by clicking on the category filter/sidebar
+    # PPO uses a sidebar with category buttons/filters
+    def browse_category(category_slug, max: 50)
+      ensure_catalog_page_loaded
+
+      # Try to find and click the category filter
+      # PPO categories are typically shown as buttons or links in the sidebar
+      category_clicked = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var targetCategory = '#{category_slug}';
+
+            // Look for category buttons/links by text or data attribute
+            var elements = document.querySelectorAll('button, a, [role="button"]');
+            for (var el of elements) {
+              var text = (el.innerText || '').toLowerCase();
+              var ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+
+              // Match by category name (case insensitive)
+              if (text.includes(targetCategory) || ariaLabel.includes(targetCategory)) {
+                el.click();
+                return true;
+              }
+            }
+
+            // Try to find category in any clickable element
+            var allClickable = document.querySelectorAll('[class*="category"], [class*="filter"]');
+            for (var el of allClickable) {
+              if (el.innerText.toLowerCase().includes(targetCategory)) {
+                el.click();
+                return true;
+              }
+            }
+
+            return false;
+          })()
+        JS
+      rescue StandardError
+        false
+      end
+
+      if category_clicked
+        logger.info "[PremiereProduceOne] Clicked category: #{category_slug}"
+        sleep 3 # Wait for React to filter products
+      else
+        logger.debug "[PremiereProduceOne] Could not click category '#{category_slug}', using search fallback"
+        # Fallback: search for the category name as a term
+        search_input = browser.at_css("input[placeholder='Search']")
+        if search_input
+          search_input.focus
+          set_react_input_value(search_input, category_slug.to_s.titleize)
+          sleep 2
+        end
+      end
+
+      # Extract products from the filtered view
+      extract_products_from_catalog(max)
+    end
+
+    # Extract products from the current catalog view
+    # Shared method used by both browse_category and search_supplier_catalog
+    def extract_products_from_catalog(max = 50)
+      # Use the existing search result parsing logic
+      page_text = begin
+        browser.evaluate("document.body ? document.body.innerText : ''")
+      rescue StandardError
+        ''
+      end
+
+      # Parse products from the page text
+      products = []
+      lines = page_text.split("\n").map(&:strip).reject(&:blank?)
+
+      lines.each_with_index do |line, i|
+        # Look for "Case • NNNNN" pattern which marks the end of a product block
+        sku_match = line.match(/^(?:Case|Each|Piece)\s*[•·]\s*(\d{3,})$/)
+        next unless sku_match
+
+        sku = sku_match[1]
+
+        # Walk backwards to find the product name
+        name = nil
+        description = nil
+        price = nil
+        pack_size = nil
+        brand = nil
+        unit = line.match(/^(Case|Each|Piece)/)[1]
+
+        # Look backwards for product details
+        (i - 1).downto([i - 6, 0].max) do |j|
+          prev_line = lines[j]
+
+          # Skip category headers and irrelevant lines
+          if prev_line.match?(/^(All|BAKERY|BEVERAGE|DAIRY|FFV|FOODSERVICE|PANTRY|PRODUCE|PROTEIN|SPECIALTY|Sort:)/)
+            next
+          end
+          next if prev_line.match?(/^See all \d+ products/)
+          next if prev_line.match?(/^\d+$/)
+          next if prev_line.match?(/^".*"$/)
+          next if prev_line.match?(/^\d+\s+fulfilled\s+on\s+/i)
+          next if prev_line.match?(/^Add to cart$/i)
+          next if prev_line.match?(/^\d+\s*[-+]$/)
+
+          # Description line with Brand/Pack Size
+          if prev_line.include?('Brand:') || prev_line.include?('Pack Size:')
+            description = prev_line
+            brand_match = prev_line.match(/Brand:\s*([^|]+)/)
+            brand = brand_match[1].strip if brand_match
+            pack_match = prev_line.match(/Pack Size:\s*([^|]+)/)
+            pack_size = pack_match[1].strip if pack_match
+            # Price might be on this same line
+            price_match = prev_line.match(/\$([\d,.]+)/)
+            price = price_match[1].gsub(',', '').to_f if price_match
+            next
+          end
+
+          # Standalone price line
+          if !price && /^\$[\d,.]+$/.match?(prev_line)
+            price = prev_line.gsub(/[$,]/, '').to_f
+            next
+          end
+
+          # Price with label
+          unless price
+            p_match = prev_line.match(/\$([\d,.]+)/)
+            if p_match && prev_line.length < 30
+              price = p_match[1].gsub(',', '').to_f
+              next
+            end
+          end
+
+          # Product name — typically ALL CAPS or mixed case
+          next unless !name && prev_line.length > 2 && prev_line.length < 120 && !prev_line.include?('|') &&
+                      !prev_line.start_with?('Storage') && !prev_line.start_with?('An ') &&
+                      !prev_line.start_with?('A ') && !prev_line.start_with?('The ') &&
+                      !prev_line.start_with?('Tender ') && !prev_line.start_with?('Made ') &&
+                      !prev_line.start_with?('Pre-Order') && !prev_line.start_with?('Variable') &&
+                      !/^[a-z]/.match?(prev_line) && !/fulfilled on/i.match?(prev_line) &&
+                      !/^\d+\s+(fulfilled|ordered|delivered)/i.match?(prev_line)
+
+          name = prev_line
+          break
+        end
+
+        # Skip if no valid name found
+        next unless name && sku
+        next if /^\d+\s+fulfilled/i.match?(name) || /fulfilled on/i.match?(name)
+
+        # Look forward for price if not found yet
+        unless price
+          ((i + 1)..[i + 3, lines.length - 1].min).each do |k|
+            fwd_line = lines[k]
+            if /^\$[\d,.]+$/.match?(fwd_line)
+              price = fwd_line.gsub(/[$,]/, '').to_f
+              break
+            end
+            fwd_match = fwd_line.match(/^\$([\d,.]+)/)
+            if fwd_match
+              price = fwd_match[1].gsub(',', '').to_f
+              break
+            end
+            break if /^Add note$/i.match?(fwd_line) || /^(?:Case|Each|Piece)\s*[•·]/.match?(fwd_line)
+          end
+        end
+
+        products << {
+          supplier_sku: sku,
+          supplier_name: brand.present? ? "#{name} #{brand}".truncate(255) : name.truncate(255),
+          current_price: price,
+          pack_size: pack_size.present? ? "#{unit} - #{pack_size}" : unit,
+          supplier_url: "#{BASE_URL}/products/#{sku}",
+          in_stock: !(description || '').include?('Special Order Item'),
+          category: nil,
+          scraped_at: Time.current
+        }
+
+        break if products.length >= max
+      end
+
+      products
     end
 
     # PPO is a React SPA (Pepper platform) with no semantic CSS classes.
@@ -932,7 +1190,7 @@ module Scrapers
       # Find and use the in-page search input
       search_input = browser.at_css("input[placeholder='Search']")
       unless search_input
-        logger.warn "[PremiereProduceOne] Search input not found"
+        logger.warn '[PremiereProduceOne] Search input not found'
         return []
       end
 
@@ -944,97 +1202,107 @@ module Scrapers
 
       # DOM probe: scan all elements by innerText (not textContent) to handle
       # React's split-text-node rendering. Also search globally for $ prices.
-      dom_probe = browser.evaluate(<<~JS) rescue nil
-        (function() {
-          var url = window.location.href;
+      dom_probe = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var url = window.location.href;
 
-          // Find elements whose innerText matches SKU pattern
-          var allEls = document.querySelectorAll("*");
-          var skuEl = null;
-          for (var i = 0; i < allEls.length; i++) {
-            var el = allEls[i];
-            if (el.children.length > 3) continue;
-            var t = (el.innerText || "").trim();
-            if (/^(?:Case|Each|Piece)\\s*[•·]\\s*\\d{3,}$/.test(t)) {
-              skuEl = el;
-              break;
+            // Find elements whose innerText matches SKU pattern
+            var allEls = document.querySelectorAll("*");
+            var skuEl = null;
+            for (var i = 0; i < allEls.length; i++) {
+              var el = allEls[i];
+              if (el.children.length > 3) continue;
+              var t = (el.innerText || "").trim();
+              if (/^(?:Case|Each|Piece)\\s*[•·]\\s*\\d{3,}$/.test(t)) {
+                skuEl = el;
+                break;
+              }
             }
-          }
 
-          // Search for ANY dollar amounts anywhere on the page (leaf nodes)
-          var dollarElements = [];
-          for (var i = 0; i < allEls.length; i++) {
-            var el = allEls[i];
-            if (el.children.length > 0) continue;
-            var t = (el.textContent || "").trim();
-            if (/^\\$[\\d,.]+$/.test(t) && dollarElements.length < 15) {
-              dollarElements.push({
-                text: t,
-                tag: el.tagName,
-                classes: (el.className || "").substring(0, 80),
-                parentClasses: el.parentElement ? (el.parentElement.className || "").substring(0, 80) : ""
+            // Search for ANY dollar amounts anywhere on the page (leaf nodes)
+            var dollarElements = [];
+            for (var i = 0; i < allEls.length; i++) {
+              var el = allEls[i];
+              if (el.children.length > 0) continue;
+              var t = (el.textContent || "").trim();
+              if (/^\\$[\\d,.]+$/.test(t) && dollarElements.length < 15) {
+                dollarElements.push({
+                  text: t,
+                  tag: el.tagName,
+                  classes: (el.className || "").substring(0, 80),
+                  parentClasses: el.parentElement ? (el.parentElement.className || "").substring(0, 80) : ""
+                });
+              }
+            }
+
+            // Also search for $ in innerText of elements (price might span nodes)
+            var dollarInnerText = [];
+            for (var i = 0; i < allEls.length; i++) {
+              var el = allEls[i];
+              if (el.children.length > 2) continue;
+              var t = (el.innerText || "").trim();
+              if (/^\\$[\\d,.]+$/.test(t) && dollarInnerText.length < 10) {
+                dollarInnerText.push({text: t, tag: el.tagName, classes: (el.className || "").substring(0, 80)});
+              }
+            }
+
+            if (!skuEl) {
+              return JSON.stringify({found: false, url: url, dollarElements: dollarElements, dollarInnerText: dollarInnerText});
+            }
+
+            // Walk up from SKU, find product card
+            var ancestors = [];
+            var productCard = skuEl;
+            var card = skuEl.parentElement;
+            for (var i = 0; i < 10 && card && card !== document.body; i++) {
+              var ct = card.innerText || "";
+              ancestors.push({
+                level: i, tag: card.tagName,
+                classes: (card.className || "").substring(0, 120),
+                textLen: ct.length, hasDollar: /\\$\\d/.test(ct), hasBrand: /Brand:/.test(ct)
               });
+              if (ct.length > 50 && /Brand:|Pack Size:/.test(ct)) { productCard = card; break; }
+              card = card.parentElement;
             }
-          }
 
-          // Also search for $ in innerText of elements (price might span nodes)
-          var dollarInnerText = [];
-          for (var i = 0; i < allEls.length; i++) {
-            var el = allEls[i];
-            if (el.children.length > 2) continue;
-            var t = (el.innerText || "").trim();
-            if (/^\\$[\\d,.]+$/.test(t) && dollarInnerText.length < 10) {
-              dollarInnerText.push({text: t, tag: el.tagName, classes: (el.className || "").substring(0, 80)});
-            }
-          }
-
-          if (!skuEl) {
-            return JSON.stringify({found: false, url: url, dollarElements: dollarElements, dollarInnerText: dollarInnerText});
-          }
-
-          // Walk up from SKU, find product card
-          var ancestors = [];
-          var productCard = skuEl;
-          var card = skuEl.parentElement;
-          for (var i = 0; i < 10 && card && card !== document.body; i++) {
-            var ct = card.innerText || "";
-            ancestors.push({
-              level: i, tag: card.tagName,
-              classes: (card.className || "").substring(0, 120),
-              textLen: ct.length, hasDollar: /\\$\\d/.test(ct), hasBrand: /Brand:/.test(ct)
+            return JSON.stringify({
+              found: true, url: url,
+              ancestors: ancestors,
+              cardText: (productCard.innerText || "").substring(0, 1500),
+              cardHtml: productCard.outerHTML.substring(0, 4000),
+              dollarElements: dollarElements,
+              dollarInnerText: dollarInnerText
             });
-            if (ct.length > 50 && /Brand:|Pack Size:/.test(ct)) { productCard = card; break; }
-            card = card.parentElement;
-          }
-
-          return JSON.stringify({
-            found: true, url: url,
-            ancestors: ancestors,
-            cardText: (productCard.innerText || "").substring(0, 1500),
-            cardHtml: productCard.outerHTML.substring(0, 4000),
-            dollarElements: dollarElements,
-            dollarInnerText: dollarInnerText
-          });
-        })()
-      JS
+          })()
+        JS
+      rescue StandardError
+        nil
+      end
 
       if dom_probe
-        probe = JSON.parse(dom_probe) rescue {}
+        probe = begin
+          JSON.parse(dom_probe)
+        rescue StandardError
+          {}
+        end
         logger.info "[PremiereProduceOne] DOM probe URL: #{probe['url']}"
         logger.info "[PremiereProduceOne] DOM probe $ leaf nodes: #{probe['dollarElements']&.inspect}"
         logger.info "[PremiereProduceOne] DOM probe $ innerText: #{probe['dollarInnerText']&.inspect}"
-        if probe["found"]
-          logger.info "[PremiereProduceOne] DOM probe SKU found! ancestors: #{probe['ancestors']&.map { |a| "#{a['tag']}(#{a['textLen']}ch,$=#{a['hasDollar']})" }&.join(' > ')}"
+        if probe['found']
+          logger.info "[PremiereProduceOne] DOM probe SKU found! ancestors: #{probe['ancestors']&.map do |a|
+            "#{a['tag']}(#{a['textLen']}ch,$=#{a['hasDollar']})"
+          end&.join(' > ')}"
           logger.info "[PremiereProduceOne] DOM probe card text: #{probe['cardText']&.gsub("\n", ' | ')&.truncate(500)}"
-          html = probe["cardHtml"] || ""
-          if html.include?("$")
+          html = probe['cardHtml'] || ''
+          if html.include?('$')
             price_html = html.scan(/.{0,80}\$[\d,.]+.{0,40}/)
             logger.info "[PremiereProduceOne] DOM probe price HTML: #{price_html.first(3).inspect}"
           else
-            logger.info "[PremiereProduceOne] DOM probe: NO $ in card HTML"
+            logger.info '[PremiereProduceOne] DOM probe: NO $ in card HTML'
           end
         else
-          logger.warn "[PremiereProduceOne] DOM probe: no SKU element found via innerText scan"
+          logger.warn '[PremiereProduceOne] DOM probe: no SKU element found via innerText scan'
         end
       end
 
@@ -1168,11 +1436,15 @@ module Scrapers
         })()
       JS
 
-      parsed = JSON.parse(products_json) rescue {}
-      items = parsed["products"] || []
-      debug = parsed["debug"] || []
+      parsed = begin
+        JSON.parse(products_json)
+      rescue StandardError
+        {}
+      end
+      items = parsed['products'] || []
+      debug = parsed['debug'] || []
 
-      items_with_price = items.count { |i| i["price"].present? }
+      items_with_price = items.count { |i| i['price'].present? }
       logger.info "[PremiereProduceOne] Parsed #{items.size} products for '#{term}' (#{items_with_price} with prices)"
       debug.each do |d|
         logger.info "[PremiereProduceOne] DEBUG product: sku=#{d['sku']} name=#{d['name']} price=#{d['price']} lines=#{d['lines'].inspect}"
@@ -1180,17 +1452,17 @@ module Scrapers
 
       items.map do |item|
         {
-          supplier_sku: item["sku"],
-          supplier_name: item["name"].to_s.truncate(255),
-          current_price: item["price"],
-          pack_size: item["pack_size"],
-          supplier_url: "#{BASE_URL}/products/#{item["sku"]}",
-          in_stock: item["in_stock"] != false,
+          supplier_sku: item['sku'],
+          supplier_name: item['name'].to_s.truncate(255),
+          current_price: item['price'],
+          pack_size: item['pack_size'],
+          supplier_url: "#{BASE_URL}/products/#{item['sku']}",
+          in_stock: item['in_stock'] != false,
           category: nil,
           scraped_at: Time.current
         }
       end
-    rescue => e
+    rescue StandardError => e
       logger.warn "[PremiereProduceOne] search_supplier_catalog error for '#{term}': #{e.message}"
       []
     end
@@ -1198,14 +1470,14 @@ module Scrapers
     def scrape_product(sku)
       navigate_to("#{BASE_URL}/products/#{sku}")
 
-      return nil unless browser.at_css(".product-page, .product-detail")
+      return nil unless browser.at_css('.product-page, .product-detail')
 
       {
         supplier_sku: sku,
-        supplier_name: extract_text(".product-title, .product-name, h1"),
-        current_price: extract_price(extract_text(".price, .product-price, .current-price")),
-        pack_size: extract_text(".pack-size, .product-unit"),
-        in_stock: browser.at_css(".out-of-stock, .unavailable, .sold-out").nil?,
+        supplier_name: extract_text('.product-title, .product-name, h1'),
+        current_price: extract_price(extract_text('.price, .product-price, .current-price')),
+        pack_size: extract_text('.pack-size, .product-unit'),
+        in_stock: browser.at_css('.out-of-stock, .unavailable, .sold-out').nil?,
         scraped_at: Time.current
       }
     end
@@ -1213,14 +1485,14 @@ module Scrapers
     def detect_unavailable_items_in_cart
       unavailable = []
 
-      browser.css(".cart-item, .cart-product").each do |item|
-        if item.at_css(".out-of-stock, .not-available")
-          unavailable << {
-            sku: item.at_css("[data-sku], [data-product]")&.attribute("data-sku"),
-            name: item.at_css(".item-name, .product-title")&.text&.strip,
-            message: item.at_css(".availability-msg")&.text&.strip
-          }
-        end
+      browser.css('.cart-item, .cart-product').each do |item|
+        next unless item.at_css('.out-of-stock, .not-available')
+
+        unavailable << {
+          sku: item.at_css('[data-sku], [data-product]')&.attribute('data-sku'),
+          name: item.at_css('.item-name, .product-title')&.text&.strip,
+          message: item.at_css('.availability-msg')&.text&.strip
+        }
       end
 
       unavailable
@@ -1229,9 +1501,9 @@ module Scrapers
     def validate_cart_before_checkout
       detect_error_conditions
 
-      if browser.at_css(".empty-cart, .cart-empty, .no-items")
-        raise ScrapingError, "Cart is empty"
-      end
+      return unless browser.at_css('.empty-cart, .cart-empty, .no-items')
+
+      raise ScrapingError, 'Cart is empty'
     end
 
     def wait_for_confirmation_or_error
@@ -1239,14 +1511,13 @@ module Scrapers
       timeout = 30
 
       loop do
-        return true if browser.at_css(".order-confirmation, .success, .thank-you-page")
+        return true if browser.at_css('.order-confirmation, .success, .thank-you-page')
 
-        error_msg = browser.at_css(".error-message, .checkout-error, .alert-danger")&.text&.strip
-        if error_msg
-          raise ScrapingError, "Checkout failed: #{error_msg}"
-        end
+        error_msg = browser.at_css('.error-message, .checkout-error, .alert-danger')&.text&.strip
+        raise ScrapingError, "Checkout failed: #{error_msg}" if error_msg
 
-        raise ScrapingError, "Checkout timeout" if Time.current - start_time > timeout
+        raise ScrapingError, 'Checkout timeout' if Time.current - start_time > timeout
+
         sleep 0.5
       end
     end
@@ -1254,8 +1525,12 @@ module Scrapers
     def two_fa_page?
       return true if browser.at_css("input[placeholder='Code']")
 
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
-      return true if body_text.include?("Verification code")
+      body_text = begin
+        browser.evaluate('document.body?.innerText?.substring(0, 3000)')
+      rescue StandardError
+        ''
+      end
+      return true if body_text.include?('Verification code')
       return true if body_text.match?(/code.*been sent|enter.*code|verification.*code/i)
       return true if body_text.match?(/we.?(?:sent|texted|emailed).*code/i)
       return true if body_text.match?(/check your (?:phone|email|text)/i)
@@ -1265,8 +1540,8 @@ module Scrapers
         "input[name*='verification']",
         "input[name*='otp']",
         "input[autocomplete='one-time-code']",
-        ".verification-code-input",
-        ".otp-input"
+        '.verification-code-input',
+        '.otp-input'
       ]
 
       code_selectors.each do |selector|
@@ -1285,9 +1560,9 @@ module Scrapers
         "input[name*='verification']",
         "input[name*='otp']",
         "input[autocomplete='one-time-code']",
-        ".verification-code-input input",
-        ".otp-input input",
-        "#verificationCode"
+        '.verification-code-input input',
+        '.otp-input input',
+        '#verificationCode'
       ]
 
       specific_selectors.each do |selector|
@@ -1296,7 +1571,11 @@ module Scrapers
       end
 
       browser.css("input[type='text'], input[type='tel'], input[type='number']").each do |input|
-        placeholder = input.evaluate("this.placeholder || ''") rescue ""
+        placeholder = begin
+          input.evaluate("this.placeholder || ''")
+        rescue StandardError
+          ''
+        end
         next if placeholder.match?(/email|password|search|phone/i)
         return input if placeholder.match?(/code|otp|verify|token/i)
       end
@@ -1308,10 +1587,12 @@ module Scrapers
     # Clicks the FIRST matching button.
     def click_button_by_text(text)
       js = "(function() { var btns = document.querySelectorAll('button, [role=\"button\"]'); for (var i = 0; i < btns.length; i++) { if (btns[i].innerText.trim().toLowerCase() === '#{text.downcase}') { btns[i].click(); return true; } } return false; })()"
-      result = browser.evaluate(js) rescue false
-      unless result
-        logger.debug "[PremiereProduceOne] Button '#{text}' not found"
+      result = begin
+        browser.evaluate(js)
+      rescue StandardError
+        false
       end
+      logger.debug "[PremiereProduceOne] Button '#{text}' not found" unless result
       result
     end
 
@@ -1319,10 +1600,12 @@ module Scrapers
     # Useful in React SPAs where previous views may still be in the DOM.
     def click_last_button_by_text(text)
       js = "(function() { var btns = document.querySelectorAll('button, [role=\"button\"]'); var last = null; for (var i = 0; i < btns.length; i++) { if (btns[i].innerText.trim().toLowerCase() === '#{text.downcase}') { last = btns[i]; } } if (last) { last.click(); return true; } return false; })()"
-      result = browser.evaluate(js) rescue false
-      unless result
-        logger.debug "[PremiereProduceOne] Button '#{text}' (last) not found"
+      result = begin
+        browser.evaluate(js)
+      rescue StandardError
+        false
       end
+      logger.debug "[PremiereProduceOne] Button '#{text}' (last) not found" unless result
       result
     end
 
@@ -1330,7 +1613,7 @@ module Scrapers
       remember_selectors = [
         "input[name*='remember']",
         "input[name*='trust']",
-        "#rememberDevice",
+        '#rememberDevice',
         ".trust-device input[type='checkbox']",
         "input[name*='dont_ask']",
         "label[for*='remember'] input",
@@ -1339,18 +1622,22 @@ module Scrapers
 
       remember_selectors.each do |selector|
         checkbox = browser.at_css(selector)
-        if checkbox
-          begin
-            checked = checkbox.evaluate("this.checked") rescue false
-            unless checked
-              checkbox.evaluate("this.click()")
-              logger.info "[PremiereProduceOne] Checked 'remember device' checkbox"
-            end
-          rescue => e
-            logger.debug "[PremiereProduceOne] Could not check remember device: #{e.message}"
+        next unless checkbox
+
+        begin
+          checked = begin
+            checkbox.evaluate('this.checked')
+          rescue StandardError
+            false
           end
-          break
+          unless checked
+            checkbox.evaluate('this.click()')
+            logger.info "[PremiereProduceOne] Checked 'remember device' checkbox"
+          end
+        rescue StandardError => e
+          logger.debug "[PremiereProduceOne] Could not check remember device: #{e.message}"
         end
+        break
       end
 
       button_selectors = [
@@ -1362,17 +1649,17 @@ module Scrapers
 
       button_selectors.each do |selector|
         btn = browser.at_css(selector)
-        if btn
-          begin
-            btn.evaluate("this.click()")
-            logger.info "[PremiereProduceOne] Clicked 'trust device' button"
-          rescue => e
-            logger.debug "[PremiereProduceOne] Could not click trust button: #{e.message}"
-          end
-          break
+        next unless btn
+
+        begin
+          btn.evaluate('this.click()')
+          logger.info "[PremiereProduceOne] Clicked 'trust device' button"
+        rescue StandardError => e
+          logger.debug "[PremiereProduceOne] Could not click trust button: #{e.message}"
         end
+        break
       end
-    rescue => e
+    rescue StandardError => e
       logger.debug "[PremiereProduceOne] save_trusted_device error: #{e.message}"
     end
   end

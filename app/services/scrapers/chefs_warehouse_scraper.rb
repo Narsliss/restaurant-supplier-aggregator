@@ -1,13 +1,33 @@
 module Scrapers
   class ChefsWarehouseScraper < BaseScraper
-    BASE_URL = "https://www.chefswarehouse.com".freeze
-    ORDER_URL = "https://order.chefswarehouse.com".freeze
+    BASE_URL = 'https://www.chefswarehouse.com'.freeze
+    ORDER_URL = 'https://order.chefswarehouse.com'.freeze
     ORDER_MINIMUM = 200.00
+
+    # Chef's Warehouse categories for catalog browsing
+    # Categories are browsed via URL pattern: /shop/category-slug
+    CW_CATEGORIES = %w[
+      beef
+      poultry
+      pork
+      seafood
+      lamb-veal-game
+      cheese
+      dairy
+      produce
+      dry-goods
+      beverages
+      specialty-foods
+      frozen
+      equipment
+      paper-goods
+      cleaning-supplies
+    ].freeze
 
     # Broad selectors — the site is a JS SPA with dynamically generated IDs
     # The login form uses type=text for email (not type=email) and has uid-* IDs
     EMAIL_SELECTORS = [
-      "#email", "#username", "#loginEmail", "#userEmail",
+      '#email', '#username', '#loginEmail', '#userEmail',
       "input[name='email']", "input[name='username']", "input[name='loginId']",
       "input[type='email']",
       # CW uses dynamic uid-* IDs, so we need to find input by context
@@ -17,29 +37,29 @@ module Scrapers
     ].freeze
 
     PASSWORD_SELECTORS = [
-      "#password", "#loginPassword", "#userPassword",
+      '#password', '#loginPassword', '#userPassword',
       "input[name='password']", "input[type='password']",
       "input[id^='uid-'][type='password']",
       "input[placeholder*='password' i]", "input[aria-label*='password' i]"
     ].freeze
 
     SUBMIT_SELECTORS = [
-      ".btn-sign-in",
-      "button.btn-sign-in",
+      '.btn-sign-in',
+      'button.btn-sign-in',
       "button[type='submit'].btn-secondary",
-      ".login-btn", ".sign-in-button", ".btn-login", ".login-button",
+      '.login-btn', '.sign-in-button', '.btn-login', '.login-button',
       "button[data-testid*='login' i]", "button[data-testid*='sign' i]",
       # CW has multiple submit buttons - look for Sign In text
       "button[type='submit']"
     ].freeze
 
     LOGGED_IN_SELECTORS = [
-      ".account-menu", ".user-nav", ".my-account-link", ".account-dropdown",
-      ".user-menu", ".logged-in", ".user-greeting",
+      '.account-menu', '.user-nav', '.my-account-link', '.account-dropdown',
+      '.user-menu', '.logged-in', '.user-greeting',
       "[data-testid='account']", "[data-testid='user-menu']",
       "a[href*='my-account']", "a[href*='dashboard']",
       "a[href*='logout']", "a[href*='sign-out']", "button[aria-label*='account' i]",
-      ".header-account", "#account-menu", "#user-nav"
+      '.header-account', '#account-menu', '#user-nav'
     ].freeze
 
     def login
@@ -55,10 +75,10 @@ module Scrapers
           navigate_to(BASE_URL)
           sleep 2 # Allow SPA to render
           if logged_in?
-            logger.info "[ChefsWarehouse] Restored session successfully"
+            logger.info '[ChefsWarehouse] Restored session successfully'
             return true
           end
-          logger.info "[ChefsWarehouse] Session restore failed, proceeding with fresh login"
+          logger.info '[ChefsWarehouse] Session restore failed, proceeding with fresh login'
         end
 
         # Navigate to login page
@@ -67,9 +87,7 @@ module Scrapers
         logger.info "[ChefsWarehouse] On login page: #{browser.current_url}"
 
         # Check if we got redirected
-        if browser.current_url != login_url
-          logger.info "[ChefsWarehouse] Redirected to: #{browser.current_url}"
-        end
+        logger.info "[ChefsWarehouse] Redirected to: #{browser.current_url}" if browser.current_url != login_url
 
         # Use JavaScript to find and fill the login form
         # CW has multiple forms/inputs on the page, we need to find the login-specific ones
@@ -154,9 +172,9 @@ module Scrapers
           })()
         JS
 
-        unless login_result && login_result["found"]
+        unless login_result && login_result['found']
           dump = capture_page_diagnostics
-          error_detail = login_result&.dig("error") || "unknown"
+          error_detail = login_result&.dig('error') || 'unknown'
           raise AuthenticationError, "Login form not found (#{error_detail}). #{dump}"
         end
 
@@ -165,20 +183,18 @@ module Scrapers
         # Fill credentials using Ferrum's native CDP keyboard input
         # Vue 3 v-model only responds to real keyboard events from Chrome DevTools Protocol,
         # not synthetic JS events or nativeSetter tricks
-        email_id = login_result["emailId"]
-        password_id = login_result["passwordId"]
-        submit_id = login_result["submitId"]
+        email_id = login_result['emailId']
+        password_id = login_result['passwordId']
+        submit_id = login_result['submitId']
 
         # Get Ferrum element references via their discovered IDs
         email_el = browser.at_css("##{email_id}")
         password_el = browser.at_css("##{password_id}")
 
-        unless email_el && password_el
-          raise AuthenticationError, "Could not get element references for login fields"
-        end
+        raise AuthenticationError, 'Could not get element references for login fields' unless email_el && password_el
 
         # Fill email field using real keyboard input
-        logger.info "[ChefsWarehouse] Typing username into email field"
+        logger.info '[ChefsWarehouse] Typing username into email field'
         begin
           email_el.click
           sleep 0.2
@@ -194,7 +210,7 @@ module Scrapers
         sleep 0.5
 
         # Fill password field using real keyboard input
-        logger.info "[ChefsWarehouse] Typing password into password field"
+        logger.info '[ChefsWarehouse] Typing password into password field'
         begin
           password_el.click
           sleep 0.2
@@ -209,7 +225,7 @@ module Scrapers
         end
         sleep 0.5
 
-        logger.info "[ChefsWarehouse] Credentials entered, clicking submit"
+        logger.info '[ChefsWarehouse] Credentials entered, clicking submit'
 
         # Click submit button using Ferrum element click (real mouse event via CDP)
         if submit_id
@@ -235,17 +251,29 @@ module Scrapers
         sleep 2
 
         # If still on login page after click, try pressing Enter as fallback
-        still_on_login = browser.current_url.to_s.include?("/login") rescue false
+        still_on_login = begin
+          browser.current_url.to_s.include?('/login')
+        rescue StandardError
+          false
+        end
         if still_on_login
-          logger.info "[ChefsWarehouse] Still on login page after button click, trying Enter key"
-          password_el_retry = browser.at_css("##{password_id}") rescue nil
+          logger.info '[ChefsWarehouse] Still on login page after button click, trying Enter key'
+          password_el_retry = begin
+            browser.at_css("##{password_id}")
+          rescue StandardError
+            nil
+          end
           if password_el_retry
-            password_el_retry.focus rescue nil
+            begin
+              password_el_retry.focus
+            rescue StandardError
+              nil
+            end
           end
           browser.keyboard.type(:Enter)
         end
 
-        logger.info "[ChefsWarehouse] Form submitted, waiting for response..."
+        logger.info '[ChefsWarehouse] Form submitted, waiting for response...'
         wait_for_page_load
         sleep 5 # Extra wait for SPA navigation after login
 
@@ -255,12 +283,12 @@ module Scrapers
         if logged_in?
           save_session
           credential.mark_active!
-          logger.info "[ChefsWarehouse] Login successful"
+          logger.info '[ChefsWarehouse] Login successful'
           true
         elsif url_indicates_login_success?
           save_session
           credential.mark_active!
-          logger.info "[ChefsWarehouse] Login successful (detected via URL change)"
+          logger.info '[ChefsWarehouse] Login successful (detected via URL change)'
           true
         else
           full_error = diagnose_login_failure
@@ -280,12 +308,16 @@ module Scrapers
       has_login_link = browser.at_css("a.log-in, a.sign-in, a[href*='/login']")
       has_signup_link = browser.at_css("a.sign-up, a[href*='/sign-up']")
       if has_login_link || has_signup_link
-        logger.debug "[ChefsWarehouse] Login/signup links found — not logged in"
+        logger.debug '[ChefsWarehouse] Login/signup links found — not logged in'
         return false
       end
 
       # Check page text for logged-in indicators (exclude the login page itself)
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 3000)") rescue ""
+      body_text = begin
+        browser.evaluate('document.body?.innerText?.substring(0, 3000)')
+      rescue StandardError
+        ''
+      end
       is_login_page = body_text.match?(/forgot password|create an account|sign in|stay signed in/i)
       return false if is_login_page
 
@@ -333,7 +365,7 @@ module Scrapers
             add_single_item_to_cart(item)
             added_items << item
             logger.info "[ChefsWarehouse] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
-          rescue => e
+          rescue StandardError => e
             logger.warn "[ChefsWarehouse] Failed to add SKU #{item[:sku]}: #{e.message}"
             failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
           end
@@ -355,14 +387,14 @@ module Scrapers
     def checkout
       with_browser do
         navigate_to("#{BASE_URL}/cart")
-        wait_for_selector(".cart-page, .shopping-cart")
+        wait_for_selector('.cart-page, .shopping-cart')
 
         validate_cart_before_checkout
 
         minimum_check = check_order_minimum_at_checkout
         unless minimum_check[:met]
           raise OrderMinimumError.new(
-            "Order minimum not met",
+            'Order minimum not met',
             minimum: minimum_check[:minimum],
             current_total: minimum_check[:current]
           )
@@ -376,16 +408,16 @@ module Scrapers
           )
         end
 
-        click(".checkout-btn, .proceed-checkout")
-        wait_for_selector(".checkout-page, .order-summary")
+        click('.checkout-btn, .proceed-checkout')
+        wait_for_selector('.checkout-page, .order-summary')
 
-        click(".place-order, .submit-order")
+        click('.place-order, .submit-order')
         wait_for_confirmation_or_error
 
         {
-          confirmation_number: extract_text(".order-number, .confirmation-id"),
-          total: extract_price(extract_text(".order-total, .grand-total")),
-          delivery_date: extract_text(".delivery-date, .ship-date")
+          confirmation_number: extract_text('.order-number, .confirmation-id'),
+          total: extract_price(extract_text('.order-total, .grand-total')),
+          delivery_date: extract_text('.delivery-date, .ship-date')
         }
       end
     end
@@ -430,11 +462,10 @@ module Scrapers
           })()
         JS
 
-        if clicked
-          sleep 3
-        else
-          raise ScrapingError, "Product not found for SKU #{item[:sku]}"
-        end
+        raise ScrapingError, "Product not found for SKU #{item[:sku]}" unless clicked
+
+        sleep 3
+
       end
 
       # Now we should be on the product detail page
@@ -501,30 +532,26 @@ module Scrapers
         })()
       JS
 
-      unless clicked && clicked["clicked"]
-        raise ScrapingError, "Add to cart button not found for SKU #{item[:sku]}"
-      end
+      raise ScrapingError, "Add to cart button not found for SKU #{item[:sku]}" unless clicked && clicked['clicked']
 
       logger.debug "[ChefsWarehouse] Clicked add-to-cart: #{clicked.inspect}"
       wait_for_cart_confirmation
     end
 
     def wait_for_cart_confirmation
-      begin
-        wait_for_any_selector(
-          ".cart-notification",
-          ".added-message",
-          ".cart-popup",
-          ".cart-updated",
-          ".success-message",
-          timeout: 5
-        )
-        sleep 1 # Brief pause before next item
-      rescue ScrapingError
-        # Check if cart count changed instead
-        logger.debug "[ChefsWarehouse] No confirmation modal, checking cart state"
-        sleep 1
-      end
+      wait_for_any_selector(
+        '.cart-notification',
+        '.added-message',
+        '.cart-popup',
+        '.cart-updated',
+        '.success-message',
+        timeout: 5
+      )
+      sleep 1 # Brief pause before next item
+    rescue ScrapingError
+      # Check if cart count changed instead
+      logger.debug '[ChefsWarehouse] No confirmation modal, checking cart state'
+      sleep 1
     end
 
     def wait_for_any_selector(*selectors, timeout: 10)
@@ -549,16 +576,20 @@ module Scrapers
       navigate_to(login_url)
       sleep 3
 
-      email_field = discover_field(EMAIL_SELECTORS, "email/username")
-      password_field = discover_field(PASSWORD_SELECTORS, "password")
+      email_field = discover_field(EMAIL_SELECTORS, 'email/username')
+      password_field = discover_field(PASSWORD_SELECTORS, 'password')
 
       if email_field && password_field
-        fill_element(email_field, credential.username, "email")
-        fill_element(password_field, credential.password, "password")
+        fill_element(email_field, credential.username, 'email')
+        fill_element(password_field, credential.password, 'password')
 
-        submit_btn = discover_field(SUBMIT_SELECTORS, "submit button")
+        submit_btn = discover_field(SUBMIT_SELECTORS, 'submit button')
         if submit_btn
-          submit_btn.click rescue submit_btn.evaluate("this.click()")
+          begin
+            submit_btn.click
+          rescue StandardError
+            submit_btn.evaluate('this.click()')
+          end
         else
           browser.keyboard.type(:Enter)
         end
@@ -568,70 +599,146 @@ module Scrapers
       sleep 3
     end
 
+    public
+
+    # Override scrape_catalog to use hybrid category browsing + search
+    # Optimization: Skip search phase if categories yield sufficient products
+    def scrape_catalog(search_terms, max_per_term: 50)
+      results = []
+      # Target: if we get 500+ products from categories, only do 10 strategic searches
+      # Otherwise, do all searches to ensure coverage
+      category_target = 500
+      search_phase_limit = nil
+
+      with_browser do
+        # Login if needed
+        unless restore_session && (navigate_to(BASE_URL) || true) && logged_in?
+          perform_login_steps
+          sleep 2
+          raise AuthenticationError, 'Could not log in for catalog import' unless logged_in?
+
+          save_session
+        end
+
+        # Phase 1: Browse categories for broad coverage
+        logger.info "[ChefsWarehouse] Phase 1: Browsing #{CW_CATEGORIES.size} categories"
+        CW_CATEGORIES.each do |category|
+          begin
+            products = browse_category(category, max: max_per_term)
+            products.each { |p| p[:category] ||= category.to_s.titleize }
+            results.concat(products)
+            logger.info "[ChefsWarehouse] Category '#{category}': #{products.size} products (total: #{results.size})"
+          rescue StandardError => e
+            logger.warn "[ChefsWarehouse] Category browse failed for '#{category}': #{e.class}: #{e.message}"
+          end
+          rate_limit_delay
+        end
+
+        # Decide how many searches to run based on category results
+        if results.size >= category_target
+          # Good coverage from categories, only do strategic searches
+          search_phase_limit = 10
+          logger.info "[ChefsWarehouse] Categories yielded #{results.size} products (target: #{category_target}). Limiting search phase to #{search_phase_limit} terms."
+        else
+          logger.info "[ChefsWarehouse] Categories yielded #{results.size} products (below target #{category_target}). Running full search phase."
+        end
+
+        # Phase 2: Search terms for items missed in categories
+        terms_to_search = search_phase_limit ? search_terms.first(search_phase_limit) : search_terms
+        logger.info "[ChefsWarehouse] Phase 2: Searching with #{terms_to_search.size} terms"
+
+        terms_to_search.each do |term|
+          begin
+            products = search_supplier_catalog(term, max: max_per_term)
+            results.concat(products)
+            logger.info "[ChefsWarehouse] Search '#{term}': #{products.size} products"
+          rescue StandardError => e
+            logger.warn "[ChefsWarehouse] Search failed for '#{term}': #{e.class}: #{e.message}"
+          end
+          rate_limit_delay
+        end
+      end
+
+      # De-duplicate by SKU
+      deduped = results.uniq { |r| r[:supplier_sku] }
+      logger.info "[ChefsWarehouse] Total unique products: #{deduped.size} (from #{results.size} raw)"
+      deduped
+    end
+
     private
 
     # ── Field discovery ─────────────────────────────────────────────
     # Iterates an array of CSS selectors, returns the first visible element found
     def discover_field(selectors, label)
       selectors.each do |sel|
-        begin
-          elements = browser.css(sel)
-          elements.each do |el|
-            visible = el.evaluate(<<~JS) rescue false
+        elements = browser.css(sel)
+        elements.each do |el|
+          visible = begin
+            el.evaluate(<<~JS)
               var s = window.getComputedStyle(this);
               s.display !== 'none' && s.visibility !== 'hidden' &&
               s.opacity !== '0' && this.offsetWidth > 0 && this.offsetHeight > 0
             JS
-
-            if visible
-              logger.info "[ChefsWarehouse] Found #{label} field via '#{sel}'"
-              return el
-            end
+          rescue StandardError
+            false
           end
-        rescue => e
-          logger.debug "[ChefsWarehouse] Selector '#{sel}' raised: #{e.message}"
+
+          if visible
+            logger.info "[ChefsWarehouse] Found #{label} field via '#{sel}'"
+            return el
+          end
         end
+      rescue StandardError => e
+        logger.debug "[ChefsWarehouse] Selector '#{sel}' raised: #{e.message}"
       end
 
       # Fallback: try to find ANY input by scanning all inputs on page
-      if label.include?("email") || label.include?("username")
-        fallback = browser.evaluate(<<~JS) rescue nil
-          (function() {
-            var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"])');
-            for (var i = 0; i < inputs.length; i++) {
-              var inp = inputs[i];
-              var t = (inp.type || '').toLowerCase();
-              var n = (inp.name || '').toLowerCase();
-              var p = (inp.placeholder || '').toLowerCase();
-              if (t === 'email' || n.includes('email') || n.includes('user') || p.includes('email') || p.includes('user')) {
-                return { found: true, index: i, type: t, name: inp.name, placeholder: inp.placeholder };
+      if label.include?('email') || label.include?('username')
+        fallback = begin
+          browser.evaluate(<<~JS)
+            (function() {
+              var inputs = document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"])');
+              for (var i = 0; i < inputs.length; i++) {
+                var inp = inputs[i];
+                var t = (inp.type || '').toLowerCase();
+                var n = (inp.name || '').toLowerCase();
+                var p = (inp.placeholder || '').toLowerCase();
+                if (t === 'email' || n.includes('email') || n.includes('user') || p.includes('email') || p.includes('user')) {
+                  return { found: true, index: i, type: t, name: inp.name, placeholder: inp.placeholder };
+                }
               }
-            }
-            // If no match, return info about the first text/email input
-            for (var i = 0; i < inputs.length; i++) {
-              var t = (inputs[i].type || '').toLowerCase();
-              if (t === 'text' || t === 'email' || t === '') {
-                return { found: true, index: i, type: t, name: inputs[i].name, isGuess: true };
+              // If no match, return info about the first text/email input
+              for (var i = 0; i < inputs.length; i++) {
+                var t = (inputs[i].type || '').toLowerCase();
+                if (t === 'text' || t === 'email' || t === '') {
+                  return { found: true, index: i, type: t, name: inputs[i].name, isGuess: true };
+                }
               }
-            }
-            return { found: false, inputCount: inputs.length };
-          })()
-        JS
+              return { found: false, inputCount: inputs.length };
+            })()
+          JS
+        rescue StandardError
+          nil
+        end
 
-        if fallback && fallback["found"]
+        if fallback && fallback['found']
           all_inputs = browser.css('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"])')
-          idx = fallback["index"]
+          idx = fallback['index']
           if idx && idx < all_inputs.length
             el = all_inputs[idx]
-            guess_note = fallback["isGuess"] ? " (best guess)" : ""
+            guess_note = fallback['isGuess'] ? ' (best guess)' : ''
             logger.info "[ChefsWarehouse] Found #{label} field via JS scan: type=#{fallback['type']}, name=#{fallback['name']}#{guess_note}"
             return el
           end
         end
       end
 
-      if label.include?("password")
-        pw_el = browser.at_css("input[type='password']") rescue nil
+      if label.include?('password')
+        pw_el = begin
+          browser.at_css("input[type='password']")
+        rescue StandardError
+          nil
+        end
         if pw_el
           logger.info "[ChefsWarehouse] Found password field via type='password' fallback"
           return pw_el
@@ -647,30 +754,34 @@ module Scrapers
     def fill_element(element, value, label)
       # First try to get a stable selector for the element
       selector = get_element_selector(element)
-      escaped_value = value.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
+      escaped_value = value.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
 
       # Use JavaScript to fill the field - more robust for SPAs
-      filled = browser.evaluate(<<~JS) rescue false
-        (function() {
-          var el = document.querySelector('#{selector}');
-          if (!el) return false;
+      filled = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var el = document.querySelector('#{selector}');
+            if (!el) return false;
 
-          // Clear and set value using native setter to trigger Vue/React bindings
-          var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-          el.focus();
-          el.dispatchEvent(new Event('focus', { bubbles: true }));
-          nativeSetter.call(el, '');
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
-          nativeSetter.call(el, '#{escaped_value}');
+            // Clear and set value using native setter to trigger Vue/React bindings
+            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            el.focus();
+            el.dispatchEvent(new Event('focus', { bubbles: true }));
+            nativeSetter.call(el, '');
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+            nativeSetter.call(el, '#{escaped_value}');
 
-          // Vue 3 v-model listens for InputEvent, not generic Event
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '#{escaped_value}', inputType: 'insertText' }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          el.dispatchEvent(new Event('blur', { bubbles: true }));
+            // Vue 3 v-model listens for InputEvent, not generic Event
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '#{escaped_value}', inputType: 'insertText' }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new Event('blur', { bubbles: true }));
 
-          return el.value === '#{escaped_value}';
-        })()
-      JS
+            return el.value === '#{escaped_value}';
+          })()
+        JS
+      rescue StandardError
+        false
+      end
 
       if filled
         logger.info "[ChefsWarehouse] Filled #{label} via JS (selector: #{selector})"
@@ -691,23 +802,27 @@ module Scrapers
 
     # Get a CSS selector that can identify this element
     def get_element_selector(element)
-      selector = element.evaluate(<<~JS) rescue nil
-        (function() {
-          var el = this;
-          if (el.id) return '#' + el.id;
-          if (el.name) return el.tagName.toLowerCase() + '[name="' + el.name + '"]';
-          if (el.type) return el.tagName.toLowerCase() + '[type="' + el.type + '"]';
-          return el.tagName.toLowerCase();
-        })()
-      JS
-      selector || "input"
+      selector = begin
+        element.evaluate(<<~JS)
+          (function() {
+            var el = this;
+            if (el.id) return '#' + el.id;
+            if (el.name) return el.tagName.toLowerCase() + '[name="' + el.name + '"]';
+            if (el.type) return el.tagName.toLowerCase() + '[type="' + el.type + '"]';
+            return el.tagName.toLowerCase();
+          })()
+        JS
+      rescue StandardError
+        nil
+      end
+      selector || 'input'
     end
 
     # Retry filling a field by searching for it again
     def retry_fill_by_label(label, value)
-      escaped_value = value.gsub("\\", "\\\\\\\\").gsub("'", "\\\\'")
+      escaped_value = value.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
 
-      if label.include?("email") || label.include?("username")
+      if label.include?('email') || label.include?('username')
         browser.evaluate(<<~JS)
           (function() {
             var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -747,7 +862,7 @@ module Scrapers
           })()
         JS
         logger.info "[ChefsWarehouse] Filled #{label} via retry JS scan"
-      elsif label.include?("password")
+      elsif label.include?('password')
         browser.evaluate(<<~JS)
           (function() {
             var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -774,7 +889,11 @@ module Scrapers
 
     # ── URL-based login detection ───────────────────────────────────
     def url_indicates_login_success?
-      current = browser.current_url.to_s.downcase rescue ""
+      current = begin
+        browser.current_url.to_s.downcase
+      rescue StandardError
+        ''
+      end
       # Only count as success if we're on a known authenticated-only page
       success_patterns = %w[/dashboard /account /my-account /orders /order-guide]
       success_patterns.any? { |p| current.include?(p) }
@@ -782,46 +901,66 @@ module Scrapers
 
     # ── Full page diagnostic dump ───────────────────────────────────
     def capture_page_diagnostics
-      url = browser.current_url rescue "unknown"
-      title = browser.evaluate("document.title") rescue "unknown"
+      url = begin
+        browser.current_url
+      rescue StandardError
+        'unknown'
+      end
+      title = begin
+        browser.evaluate('document.title')
+      rescue StandardError
+        'unknown'
+      end
 
       # Get all input fields on the page for debugging
-      inputs_info = browser.evaluate(<<~JS) rescue "could not enumerate inputs"
-        (function() {
-          var inputs = document.querySelectorAll('input, select, textarea, button');
-          var info = [];
-          for (var i = 0; i < inputs.length && i < 20; i++) {
-            var el = inputs[i];
-            var s = window.getComputedStyle(el);
-            var visible = s.display !== 'none' && s.visibility !== 'hidden' && el.offsetWidth > 0;
-            info.push({
-              tag: el.tagName,
-              type: el.type || '',
-              name: el.name || '',
-              id: el.id || '',
-              placeholder: el.placeholder || '',
-              className: (el.className || '').toString().substring(0, 60),
-              visible: visible
-            });
-          }
-          return JSON.stringify(info);
-        })()
-      JS
+      inputs_info = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var inputs = document.querySelectorAll('input, select, textarea, button');
+            var info = [];
+            for (var i = 0; i < inputs.length && i < 20; i++) {
+              var el = inputs[i];
+              var s = window.getComputedStyle(el);
+              var visible = s.display !== 'none' && s.visibility !== 'hidden' && el.offsetWidth > 0;
+              info.push({
+                tag: el.tagName,
+                type: el.type || '',
+                name: el.name || '',
+                id: el.id || '',
+                placeholder: el.placeholder || '',
+                className: (el.className || '').toString().substring(0, 60),
+                visible: visible
+              });
+            }
+            return JSON.stringify(info);
+          })()
+        JS
+      rescue StandardError
+        'could not enumerate inputs'
+      end
 
       # Get page body text snippet
-      body_text = browser.evaluate("document.body?.innerText?.substring(0, 500)") rescue ""
+      body_text = begin
+        browser.evaluate('document.body?.innerText?.substring(0, 500)')
+      rescue StandardError
+        ''
+      end
 
       # Get all iframes (login might be in an iframe)
-      iframes_info = browser.evaluate(<<~JS) rescue "none"
-        (function() {
-          var frames = document.querySelectorAll('iframe');
-          var info = [];
-          for (var i = 0; i < frames.length; i++) {
-            info.push({ src: frames[i].src || '', id: frames[i].id || '', name: frames[i].name || '' });
-          }
-          return JSON.stringify(info);
-        })()
-      JS
+      iframes_info = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var frames = document.querySelectorAll('iframe');
+            var info = [];
+            for (var i = 0; i < frames.length; i++) {
+              info.push({ src: frames[i].src || '', id: frames[i].id || '', name: frames[i].name || '' });
+            }
+            return JSON.stringify(info);
+          })()
+        JS
+      rescue StandardError
+        'none'
+      end
 
       parts = [
         "URL: #{url}",
@@ -831,21 +970,21 @@ module Scrapers
         "Page text: #{body_text.to_s.strip.truncate(300)}"
       ]
 
-      parts.join(" | ")
+      parts.join(' | ')
     end
 
     # ── Product scraping ────────────────────────────────────────────
     def scrape_product(sku)
       navigate_to("#{BASE_URL}/product/#{sku}")
 
-      return nil unless browser.at_css(".product-detail, .pdp-container")
+      return nil unless browser.at_css('.product-detail, .pdp-container')
 
       {
         supplier_sku: sku,
-        supplier_name: extract_text(".product-name, h1.title"),
-        current_price: extract_price(extract_text(".price, .product-price")),
-        pack_size: extract_text(".pack-info, .unit-size"),
-        in_stock: browser.at_css(".out-of-stock, .sold-out").nil?,
+        supplier_name: extract_text('.product-name, h1.title'),
+        current_price: extract_price(extract_text('.price, .product-price')),
+        pack_size: extract_text('.pack-info, .unit-size'),
+        in_stock: browser.at_css('.out-of-stock, .sold-out').nil?,
         scraped_at: Time.current
       }
     end
@@ -860,50 +999,52 @@ module Scrapers
       products = extract_products_from_data_objects(max)
 
       # Fallback: parse visible .product-item elements
-      if products.empty?
-        products = extract_products_from_items(max)
-      end
+      products = extract_products_from_items(max) if products.empty?
 
       products
     end
 
     # Primary extraction: CW embeds JSON in hidden input[data-sku][data-object]
     def extract_products_from_data_objects(max)
-      raw = browser.evaluate(<<~JS) rescue []
-        (function() {
-          var results = [];
-          var inputs = document.querySelectorAll("input[data-sku][data-object]");
-          for (var i = 0; i < inputs.length && results.length < #{max}; i++) {
-            try {
-              var obj = JSON.parse(inputs[i].getAttribute("data-object"));
-              if (obj && obj.sku && obj.name) {
-                results.push({
-                  sku: obj.sku,
-                  name: (obj.brand ? obj.name + " - " + obj.brand : obj.name).substring(0, 255),
-                  price: obj.price || null,
-                  pack_size: obj.pack_size || "",
-                  unit_of_measure: obj.unit_of_measure || "",
-                  url: obj.url || "",
-                  in_stock: true
-                });
-              }
-            } catch(e) {}
-          }
-          return results;
-        })()
-      JS
+      raw = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var results = [];
+            var inputs = document.querySelectorAll("input[data-sku][data-object]");
+            for (var i = 0; i < inputs.length && results.length < #{max}; i++) {
+              try {
+                var obj = JSON.parse(inputs[i].getAttribute("data-object"));
+                if (obj && obj.sku && obj.name) {
+                  results.push({
+                    sku: obj.sku,
+                    name: (obj.brand ? obj.name + " - " + obj.brand : obj.name).substring(0, 255),
+                    price: obj.price || null,
+                    pack_size: obj.pack_size || "",
+                    unit_of_measure: obj.unit_of_measure || "",
+                    url: obj.url || "",
+                    in_stock: true
+                  });
+                }
+              } catch(e) {}
+            }
+            return results;
+          })()
+        JS
+      rescue StandardError
+        []
+      end
 
       (raw || []).map do |item|
-        pack = item["pack_size"].to_s.strip.presence
-        product_url = item["url"].to_s.presence
-        product_url = "#{BASE_URL}#{product_url}" if product_url && !product_url.start_with?("http")
+        pack = item['pack_size'].to_s.strip.presence
+        product_url = item['url'].to_s.presence
+        product_url = "#{BASE_URL}#{product_url}" if product_url && !product_url.start_with?('http')
         {
-          supplier_sku: item["sku"],
-          supplier_name: item["name"],
-          current_price: item["price"].is_a?(Numeric) ? item["price"] : nil,
+          supplier_sku: item['sku'],
+          supplier_name: item['name'],
+          current_price: item['price'].is_a?(Numeric) ? item['price'] : nil,
           pack_size: pack,
           supplier_url: product_url,
-          in_stock: item["in_stock"] != false,
+          in_stock: item['in_stock'] != false,
           category: nil,
           scraped_at: Time.current
         }
@@ -912,49 +1053,53 @@ module Scrapers
 
     # Fallback: parse visible .product-item divs
     def extract_products_from_items(max)
-      raw = browser.evaluate(<<~JS) rescue []
-        (function() {
-          var results = [];
-          var items = document.querySelectorAll(".product-item");
-          for (var i = 0; i < items.length && results.length < #{max}; i++) {
-            var text = items[i].innerText.trim();
-            var lines = text.split("\\n").map(function(l) { return l.trim(); }).filter(Boolean);
-            if (lines.length < 3) continue;
+      raw = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var results = [];
+            var items = document.querySelectorAll(".product-item");
+            for (var i = 0; i < items.length && results.length < #{max}; i++) {
+              var text = items[i].innerText.trim();
+              var lines = text.split("\\n").map(function(l) { return l.trim(); }).filter(Boolean);
+              if (lines.length < 3) continue;
 
-            var name = lines[0] || "";
-            var brand = lines.length > 2 ? lines[1] : "";
-            var sku = "";
-            var price = null;
-            var pack = "";
+              var name = lines[0] || "";
+              var brand = lines.length > 2 ? lines[1] : "";
+              var sku = "";
+              var price = null;
+              var pack = "";
 
-            for (var j = 0; j < lines.length; j++) {
-              var line = lines[j];
-              if (line.match(/^[A-Z0-9]{2,}$/i) && !line.match(/add to cart/i)) sku = line;
-              if (line.match(/^\\$/)) {
-                var m = line.match(/[\\d,.]+/);
-                if (m) price = parseFloat(m[0].replace(/,/g, ""));
+              for (var j = 0; j < lines.length; j++) {
+                var line = lines[j];
+                if (line.match(/^[A-Z0-9]{2,}$/i) && !line.match(/add to cart/i)) sku = line;
+                if (line.match(/^\\$/)) {
+                  var m = line.match(/[\\d,.]+/);
+                  if (m) price = parseFloat(m[0].replace(/,/g, ""));
+                }
+                if (line.match(/\\d+x\\d+|LB|OZ|CS|EA|CT|GAL/i) && !line.match(/^\\$/)) pack = line;
               }
-              if (line.match(/\\d+x\\d+|LB|OZ|CS|EA|CT|GAL/i) && !line.match(/^\\$/)) pack = line;
-            }
 
-            if (name && name.length > 2) {
-              var fullName = brand ? name + " - " + brand : name;
-              results.push({sku: sku || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name: fullName.substring(0, 255), price: price, pack: pack, in_stock: true});
+              if (name && name.length > 2) {
+                var fullName = brand ? name + " - " + brand : name;
+                results.push({sku: sku || name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name: fullName.substring(0, 255), price: price, pack: pack, in_stock: true});
+              }
             }
-          }
-          return results;
-        })()
-      JS
+            return results;
+          })()
+        JS
+      rescue StandardError
+        []
+      end
 
       (raw || []).map do |item|
-        sku = item["sku"]
+        sku = item['sku']
         {
           supplier_sku: sku,
-          supplier_name: item["name"],
-          current_price: item["price"].is_a?(Numeric) ? item["price"] : nil,
-          pack_size: item["pack"].presence,
+          supplier_name: item['name'],
+          current_price: item['price'].is_a?(Numeric) ? item['price'] : nil,
+          pack_size: item['pack'].presence,
           supplier_url: sku.present? ? "#{BASE_URL}/products/#{sku}/" : nil,
-          in_stock: item["in_stock"] != false,
+          in_stock: item['in_stock'] != false,
           category: nil,
           scraped_at: Time.current
         }
@@ -963,7 +1108,7 @@ module Scrapers
 
     # ── Checkout helpers ────────────────────────────────────────────
     def check_order_minimum_at_checkout
-      subtotal_text = extract_text(".subtotal, .cart-subtotal")
+      subtotal_text = extract_text('.subtotal, .cart-subtotal')
       current_total = extract_price(subtotal_text) || 0
 
       {
@@ -976,14 +1121,14 @@ module Scrapers
     def detect_unavailable_items_in_cart
       unavailable = []
 
-      browser.css(".cart-item, .line-item").each do |item|
-        if item.at_css(".out-of-stock, .unavailable")
-          unavailable << {
-            sku: item.at_css("[data-sku], [data-product-id]")&.attribute("data-sku"),
-            name: item.at_css(".product-name, .item-title")&.text&.strip,
-            message: item.at_css(".stock-message")&.text&.strip
-          }
-        end
+      browser.css('.cart-item, .line-item').each do |item|
+        next unless item.at_css('.out-of-stock, .unavailable')
+
+        unavailable << {
+          sku: item.at_css('[data-sku], [data-product-id]')&.attribute('data-sku'),
+          name: item.at_css('.product-name, .item-title')&.text&.strip,
+          message: item.at_css('.stock-message')&.text&.strip
+        }
       end
 
       unavailable
@@ -992,9 +1137,9 @@ module Scrapers
     def validate_cart_before_checkout
       detect_error_conditions
 
-      if browser.at_css(".empty-cart, .no-items")
-        raise ScrapingError, "Cart is empty"
-      end
+      return unless browser.at_css('.empty-cart, .no-items')
+
+      raise ScrapingError, 'Cart is empty'
     end
 
     def wait_for_confirmation_or_error
@@ -1002,14 +1147,13 @@ module Scrapers
       timeout = 30
 
       loop do
-        return true if browser.at_css(".confirmation, .order-success, .thank-you")
+        return true if browser.at_css('.confirmation, .order-success, .thank-you')
 
-        error_msg = browser.at_css(".error, .checkout-error")&.text&.strip
-        if error_msg
-          raise ScrapingError, "Checkout failed: #{error_msg}"
-        end
+        error_msg = browser.at_css('.error, .checkout-error')&.text&.strip
+        raise ScrapingError, "Checkout failed: #{error_msg}" if error_msg
 
-        raise ScrapingError, "Checkout timeout" if Time.current - start_time > timeout
+        raise ScrapingError, 'Checkout timeout' if Time.current - start_time > timeout
+
         sleep 0.5
       end
     end
