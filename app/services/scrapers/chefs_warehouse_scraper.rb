@@ -4,6 +4,35 @@ module Scrapers
     ORDER_URL = 'https://order.chefswarehouse.com'.freeze
     ORDER_MINIMUM = 200.00
 
+    # Override with_browser to use longer timeout and stealth options
+    # CW's Vue.js SPA needs more time and may trigger bot detection
+    def with_browser
+      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
+
+      browser_opts = {
+        headless: headless_mode,
+        timeout: 60,
+        process_timeout: 30,
+        window_size: [1920, 1080]
+      }
+
+      browser_opts[:browser_options] = {
+        "no-sandbox": true,
+        "disable-gpu": true,
+        "disable-dev-shm-usage": true,
+        "disable-blink-features": 'AutomationControlled'
+      }
+
+      # Allow custom Chrome/Chromium path via environment variable
+      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
+
+      logger.info "[ChefsWarehouse] Starting browser (headless=#{headless_mode}, timeout=60)"
+      @browser = Ferrum::Browser.new(**browser_opts)
+      yield(browser)
+    ensure
+      browser&.quit
+    end
+
     # Chef's Warehouse categories for catalog browsing
     # Categories are browsed via URL pattern: /shop/category-slug
     CW_CATEGORIES = %w[
