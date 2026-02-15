@@ -5,7 +5,7 @@ set -e
 case "${PROCESS_TYPE:-web}" in
   web)
     echo "Starting web server..."
-    exec ./bin/rails server -b 0.0.0.0
+    exec ./bin/rails server -b 0.0.0.0 -p ${PORT:-8080}
     ;;
   worker)
     echo "Starting Solid Queue worker..."
