@@ -5,42 +5,42 @@
 
 Rails.application.config.after_initialize do
   # Skip during asset precompilation or when database isn't available
-  next if ENV["SECRET_KEY_BASE_DUMMY"].present?
+  next if ENV['SECRET_KEY_BASE_DUMMY'].present?
 
   begin
-    next unless ActiveRecord::Base.connection.table_exists?("suppliers")
-  rescue ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad
+    next unless ActiveRecord::Base.connection.table_exists?('suppliers')
+  rescue ActiveRecord::ConnectionNotEstablished
     next
   end
 
   suppliers = [
     {
-      code: "usfoods",
-      name: "US Foods",
-      base_url: "https://order.usfoods.com",
-      login_url: "https://order.usfoods.com",
-      scraper_class: "Scrapers::UsFoodsScraper"
+      code: 'usfoods',
+      name: 'US Foods',
+      base_url: 'https://order.usfoods.com',
+      login_url: 'https://order.usfoods.com',
+      scraper_class: 'Scrapers::UsFoodsScraper'
     },
     {
-      code: "chefswarehouse",
+      code: 'chefswarehouse',
       name: "Chef's Warehouse",
-      base_url: "https://www.chefswarehouse.com",
-      login_url: "https://www.chefswarehouse.com/login",
-      scraper_class: "Scrapers::ChefsWarehouseScraper"
+      base_url: 'https://www.chefswarehouse.com',
+      login_url: 'https://www.chefswarehouse.com/login',
+      scraper_class: 'Scrapers::ChefsWarehouseScraper'
     },
     {
-      code: "whatchefswant",
-      name: "What Chefs Want",
-      base_url: "https://www.whatchefswant.com",
-      login_url: "https://www.whatchefswant.com/customer-login/",
-      scraper_class: "Scrapers::WhatChefsWantScraper"
+      code: 'whatchefswant',
+      name: 'What Chefs Want',
+      base_url: 'https://www.whatchefswant.com',
+      login_url: 'https://www.whatchefswant.com/customer-login/',
+      scraper_class: 'Scrapers::WhatChefsWantScraper'
     },
     {
-      code: "premiereproduceone",
-      name: "Premiere Produce One",
-      base_url: "https://premierproduceone.pepr.app",
-      login_url: "https://premierproduceone.pepr.app/",
-      scraper_class: "Scrapers::PremiereProduceOneScraper"
+      code: 'premiereproduceone',
+      name: 'Premiere Produce One',
+      base_url: 'https://premierproduceone.pepr.app',
+      login_url: 'https://premierproduceone.pepr.app/',
+      scraper_class: 'Scrapers::PremiereProduceOneScraper'
     }
   ]
 
