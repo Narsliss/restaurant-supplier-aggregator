@@ -5,20 +5,10 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
+    "startCommand": "PROCESS_TYPE=web ./bin/start",
+    "healthcheckPath": "/up",
+    "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
-    "multiRegionEnabled": false
-  },
-  "services": {
-    "web": {
-      "startCommand": "PROCESS_TYPE=web ./bin/start",
-      "healthcheckPath": "/up",
-      "healthcheckTimeout": 100,
-      "sleepApplication": false
-    },
-    "worker": {
-      "startCommand": "PROCESS_TYPE=worker ./bin/start",
-      "healthcheckDisabled": true,
-      "sleepApplication": false
-    }
+    "sleepApplication": false
   }
 }
