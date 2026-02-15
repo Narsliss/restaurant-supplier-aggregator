@@ -1,7 +1,6 @@
 #!/bin/bash -e
 
 # Prepare the database (create + migrate if needed)
-# With SQLite, both web and worker share the same file, so always prepare
 echo "Preparing database..."
 ./bin/rails db:prepare
 

@@ -10,7 +10,7 @@ RUN apt-get update -qq && \
     curl \
     libjemalloc2 \
     libvips \
-    libsqlite3-0 \
+    libpq5 \
     && rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Set production environment
@@ -29,7 +29,7 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y \
     build-essential \
     git \
-    libsqlite3-dev \
+    libpq-dev \
     node-gyp \
     pkg-config \
     python-is-python3 \
