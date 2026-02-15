@@ -120,11 +120,10 @@ module Scrapers
       end
     end
 
-    # Not used for PPO — the login method handles code entry inline.
-    # Kept for interface compatibility with TwoFactorChannel.
-    def login_with_code(_code)
-      { success: false, error: 'Use the inline verification form instead. Click Validate to start a new login.' }
-    end
+    # PPO uses inline verification — the login method polls the database for codes.
+    # We intentionally do NOT implement login_with_code so that TwoFactorChannel
+    # falls back to just saving the code to the database (see TwoFactorChannel line 83-87).
+    # The background job (running login) polls for the code via wait_for_user_code.
 
     # Override save_session to also capture localStorage.
     # PPO's Pepper React SPA stores auth tokens in localStorage, not just cookies.

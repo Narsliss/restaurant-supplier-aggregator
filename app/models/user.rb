@@ -7,7 +7,7 @@ class User < ApplicationRecord
   # Organization memberships
   has_many :memberships, dependent: :destroy
   has_many :organizations, through: :memberships
-  belongs_to :current_organization, class_name: "Organization", optional: true
+  belongs_to :current_organization, class_name: 'Organization', optional: true
 
   # Personal resources (legacy - will be moved to organization)
   has_many :locations, dependent: :destroy
@@ -21,23 +21,27 @@ class User < ApplicationRecord
   has_many :billing_events, dependent: :nullify
 
   # Invitations sent by this user
-  has_many :sent_invitations, class_name: "OrganizationInvitation", foreign_key: :invited_by_id
+  has_many :sent_invitations, class_name: 'OrganizationInvitation', foreign_key: :invited_by_id
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :role, inclusion: { in: %w[user super_admin] }
+  validate :only_one_super_admin, if: :super_admin?
+
+  # Callbacks
+  before_save :check_super_admin_change, if: :will_save_change_to_role?
 
   # System-level roles (different from organization roles):
   # - user: Regular user, access determined by organization membership
   # - super_admin: Platform owner/support staff, can access any organization for support
 
   # Scopes
-  scope :super_admins, -> { where(role: "super_admin") }
+  scope :super_admins, -> { where(role: 'super_admin') }
   scope :active, -> { where(locked_at: nil) }
 
   # System-level role checks (platform-wide, not organization-specific)
   def super_admin?
-    role == "super_admin"
+    role == 'super_admin'
   end
 
   # Alias for backwards compatibility and clarity
@@ -46,7 +50,7 @@ class User < ApplicationRecord
   end
 
   def full_name
-    [first_name, last_name].compact.join(" ").presence || email
+    [first_name, last_name].compact.join(' ').presence || email
   end
 
   def default_location
@@ -54,11 +58,21 @@ class User < ApplicationRecord
   end
 
   def active_credentials
-    supplier_credentials.where(status: "active")
+    supplier_credentials.where(status: 'active')
   end
 
   def credential_for(supplier)
     supplier_credentials.find_by(supplier: supplier)
+  end
+
+  # Get supplier IDs for which user has active credentials
+  def validated_supplier_ids
+    supplier_credentials.active.pluck(:supplier_id)
+  end
+
+  # Check if user can order from a specific supplier
+  def can_order_from?(supplier)
+    supplier_credentials.active.exists?(supplier: supplier)
   end
 
   # Organization methods
@@ -79,7 +93,7 @@ class User < ApplicationRecord
   end
 
   def owner_of?(org)
-    role_in(org) == "owner"
+    role_in(org) == 'owner'
   end
 
   def admin_of?(org)
@@ -101,7 +115,7 @@ class User < ApplicationRecord
 
   # For support: access an organization without being a member
   def impersonate_organization!(org)
-    raise "Not authorized" unless super_admin?
+    raise 'Not authorized' unless super_admin?
 
     update!(current_organization: org)
   end
@@ -110,7 +124,7 @@ class User < ApplicationRecord
   def create_organization!(name:, **attributes)
     transaction do
       org = Organization.create!(name: name, **attributes)
-      memberships.create!(organization: org, role: "owner")
+      memberships.create!(organization: org, role: 'owner')
       update!(current_organization: org) if current_organization.nil?
       org
     end
@@ -118,7 +132,7 @@ class User < ApplicationRecord
 
   # Switch to a different organization
   def switch_organization!(org)
-    raise "Not a member of this organization" unless member_of?(org)
+    raise 'Not a member of this organization' unless member_of?(org)
 
     update!(current_organization: org)
   end
@@ -135,7 +149,7 @@ class User < ApplicationRecord
   end
 
   def subscription_status
-    current_subscription&.status || "none"
+    current_subscription&.status || 'none'
   end
 
   def trialing?
@@ -173,12 +187,12 @@ class User < ApplicationRecord
 
     Stripe::Checkout::Session.create(
       customer: customer.id,
-      payment_method_types: ["card"],
+      payment_method_types: ['card'],
       line_items: [{
         price: config[:monthly_price_id],
         quantity: 1
       }],
-      mode: "subscription",
+      mode: 'subscription',
       subscription_data: {
         trial_period_days: config[:trial_days],
         metadata: {
@@ -193,11 +207,38 @@ class User < ApplicationRecord
 
   # Create billing portal session
   def create_billing_portal_session(return_url:)
-    raise "No Stripe customer" unless stripe_customer_id
+    raise 'No Stripe customer' unless stripe_customer_id
 
     Stripe::BillingPortal::Session.create(
       customer: stripe_customer_id,
       return_url: return_url
     )
+  end
+
+  # Class method to get the single super admin
+  def self.super_admin
+    find_by(role: 'super_admin')
+  end
+
+  private
+
+  def only_one_super_admin
+    # Check if another super_admin already exists (and it's not this record being updated)
+    existing_super_admin = User.super_admins.where.not(id: id).first
+
+    return unless existing_super_admin
+
+    errors.add(:role, "already has a super_admin (#{existing_super_admin.email}). Only one super_admin is allowed.")
+  end
+
+  def check_super_admin_change
+    # If changing TO super_admin, validate no other exists
+    return unless role == 'super_admin' && role_was != 'super_admin'
+
+    existing = User.super_admins.where.not(id: id).first
+    return unless existing
+
+    errors.add(:role, "cannot be changed to super_admin - #{existing.email} is already the super_admin")
+    throw(:abort)
   end
 end

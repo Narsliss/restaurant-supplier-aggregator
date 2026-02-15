@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+    <style>
+      body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+      .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+      .header { background-color: #dc3545; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+      .content { background-color: #f8f9fa; padding: 20px; border: 1px solid #dee2e6; }
+      .details { background-color: white; padding: 15px; margin: 15px 0; border-left: 4px solid #dc3545; }
+      .button { display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+      .footer { margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6; font-size: 12px; color: #6c757d; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>⚠️ Product Import Failed</h1>
+      </div>
+      
+      <div class="content">
+        <p>Hello,</p>
+        
+        <p>The automated product import for <strong><%= @supplier.name %></strong> has failed and requires your immediate attention.</p>
+        
+        <div class="details">
+          <h3>Error Details:</h3>
+          <ul>
+            <li><strong>Supplier:</strong> <%= @supplier.name %></li>
+            <li><strong>Error Type:</strong> <%= @error.class.name %></li>
+            <li><strong>Error Message:</strong> <%= @error.message %></li>
+            <li><strong>Time:</strong> <%= Time.current.strftime('%Y-%m-%d %H:%M:%S %Z') %></li>
+            <% if @credential %>
+              <li><strong>Credential Status:</strong> <%= @credential.status %></li>
+              <li><strong>Last Login:</strong> <%= @credential.last_login_at&.strftime('%Y-%m-%d %H:%M:%S') || 'Never' %></li>
+            <% end %>
+          </ul>
+        </div>
+        
+        <p><strong>What you should do:</strong></p>
+        <ol>
+          <li>Log in to the admin dashboard</li>
+          <li>Navigate to Suppliers > <%= @supplier.name %></li>
+          <li>Re-validate your credentials if necessary</li>
+          <li>Check the supplier website for any maintenance or login issues</li>
+        </ol>
+        
+        <p><strong>Note:</strong> No automatic retries will be attempted to prevent excessive 2FA notifications. Once you fix the issue, imports will resume on the next scheduled cycle.</p>
+        
+        <div class="footer">
+          <p>This is an automated message from SupplierHub.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

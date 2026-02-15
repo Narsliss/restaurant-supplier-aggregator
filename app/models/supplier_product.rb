@@ -16,8 +16,12 @@ class SupplierProduct < ApplicationRecord
   scope :in_stock, -> { where(in_stock: true) }
   scope :out_of_stock, -> { where(in_stock: false) }
   scope :with_price, -> { where.not(current_price: nil) }
-  scope :stale, -> { where("last_scraped_at < ? OR last_scraped_at IS NULL", 24.hours.ago) }
-  scope :price_changed, -> { where.not(previous_price: nil).where("current_price != previous_price") }
+  scope :stale, -> { where('last_scraped_at < ? OR last_scraped_at IS NULL', 24.hours.ago) }
+  scope :price_changed, -> { where.not(previous_price: nil).where('current_price != previous_price') }
+
+  # Scope products by user's validated suppliers
+  scope :for_user, ->(user) { where(supplier_id: user.validated_supplier_ids) }
+  scope :for_suppliers, ->(supplier_ids) { where(supplier_id: supplier_ids) }
 
   # Methods
   def in_stock?
@@ -34,6 +38,7 @@ class SupplierProduct < ApplicationRecord
 
   def price_change_percent
     return nil unless price_changed? && previous_price.to_f > 0
+
     ((current_price - previous_price) / previous_price * 100).round(2)
   end
 
@@ -88,6 +93,7 @@ class SupplierProduct < ApplicationRecord
 
   def line_total(quantity)
     return nil unless current_price
+
     current_price * quantity
   end
 

@@ -229,6 +229,27 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.index ["upc"], name: "index_products_on_upc"
   end
 
+  create_table "scraping_logs", force: :cascade do |t|
+    t.integer "supplier_id", null: false
+    t.integer "supplier_credential_id"
+    t.string "job_id"
+    t.string "status", default: "pending", null: false
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.integer "products_imported", default: 0
+    t.integer "products_updated", default: 0
+    t.text "error_message"
+    t.json "error_details"
+    t.json "metadata"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["job_id"], name: "index_scraping_logs_on_job_id", unique: true
+    t.index ["started_at"], name: "index_scraping_logs_on_started_at"
+    t.index ["status"], name: "index_scraping_logs_on_status"
+    t.index ["supplier_credential_id"], name: "index_scraping_logs_on_supplier_credential_id"
+    t.index ["supplier_id"], name: "index_scraping_logs_on_supplier_id"
+  end
+
   create_table "solid_cable_messages", force: :cascade do |t|
     t.text "channel"
     t.text "payload"
@@ -546,6 +567,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.index ["current_organization_id"], name: "index_users_on_current_organization_id"
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
+    t.index ["role"], name: "index_users_on_super_admin_role", unique: true, where: "role = 'super_admin'"
     t.index ["stripe_customer_id"], name: "index_users_on_stripe_customer_id", unique: true
     t.index ["unlock_token"], name: "index_users_on_unlock_token", unique: true
   end
@@ -573,6 +595,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   add_foreign_key "orders", "users", on_delete: :cascade
   add_foreign_key "organization_invitations", "organizations"
   add_foreign_key "organization_invitations", "users", column: "invited_by_id"
+  add_foreign_key "scraping_logs", "supplier_credentials"
+  add_foreign_key "scraping_logs", "suppliers"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade

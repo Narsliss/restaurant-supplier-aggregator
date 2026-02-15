@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+    <style>
+      body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+      .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+      .header { background-color: #dc3545; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+      .content { background-color: #f8f9fa; padding: 20px; border: 1px solid #dee2e6; }
+      .footer { margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6; font-size: 12px; color: #6c757d; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🚨 Critical System Alert</h1>
+      </div>
+      
+      <div class="content">
+        <p>This is a critical system alert.</p>
+        
+        <p>No super admin user exists in the system. Product imports and many administrative functions require a super admin to be configured.</p>
+        
+        <p><strong>Action Required:</strong></p>
+        
+        <p>Please create a super admin user immediately by running the following command:</p>
+        
+        <pre style="background: #f4f4f4; padding: 10px; border-radius: 3px; overflow-x: auto;">
+Rails.application.credentials.super_admin_email = "your-email@example.com"
+        </pre>
+        
+        <p>Or use the Rails console to designate an existing user as super admin:</p>
+        
+        <pre style="background: #f4f4f4; padding: 10px; border-radius: 3px; overflow-x: auto;">
+user = User.find_by(email: "your-email@example.com")
+user.update!(role: "super_admin")
+        </pre>
+        
+        <div class="footer">
+          <p>This is an automated message from SupplierHub.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
