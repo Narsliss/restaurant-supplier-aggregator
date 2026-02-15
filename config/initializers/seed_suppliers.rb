@@ -19,34 +19,40 @@ Rails.application.config.after_initialize do
       name: 'US Foods',
       base_url: 'https://order.usfoods.com',
       login_url: 'https://order.usfoods.com',
-      scraper_class: 'Scrapers::UsFoodsScraper'
+      scraper_class: 'Scrapers::UsFoodsScraper',
+      auth_type: 'two_fa'
     },
     {
       code: 'chefswarehouse',
       name: "Chef's Warehouse",
       base_url: 'https://www.chefswarehouse.com',
       login_url: 'https://www.chefswarehouse.com/login',
-      scraper_class: 'Scrapers::ChefsWarehouseScraper'
+      scraper_class: 'Scrapers::ChefsWarehouseScraper',
+      auth_type: 'password'
     },
     {
       code: 'whatchefswant',
       name: 'What Chefs Want',
       base_url: 'https://www.whatchefswant.com',
       login_url: 'https://www.whatchefswant.com/customer-login/',
-      scraper_class: 'Scrapers::WhatChefsWantScraper'
+      scraper_class: 'Scrapers::WhatChefsWantScraper',
+      auth_type: 'welcome_url'
     },
     {
       code: 'premiereproduceone',
       name: 'Premiere Produce One',
       base_url: 'https://premierproduceone.pepr.app',
       login_url: 'https://premierproduceone.pepr.app/',
-      scraper_class: 'Scrapers::PremiereProduceOneScraper'
+      scraper_class: 'Scrapers::PremiereProduceOneScraper',
+      auth_type: 'two_fa'
     }
   ]
 
   suppliers.each do |attrs|
     supplier = Supplier.find_or_initialize_by(code: attrs[:code])
-    supplier.assign_attributes(attrs.merge(active: true))
+    # Derive password_required from auth_type
+    password_required = attrs[:auth_type] == 'password'
+    supplier.assign_attributes(attrs.merge(active: true, password_required: password_required))
     supplier.save! if supplier.new_record? || supplier.changed?
   end
 rescue ActiveRecord::NoDatabaseError, ActiveRecord::StatementInvalid => e

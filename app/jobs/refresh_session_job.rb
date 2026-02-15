@@ -21,10 +21,31 @@ class RefreshSessionJob < ApplicationJob
   private
 
   def refresh_credential(credential)
-    return unless credential.needs_refresh?
-    return unless credential.active? || credential.expired?
+    # Skip credentials that don't need refresh or aren't in a refreshable state
+    unless credential.needs_refresh?
+      Rails.logger.debug "[RefreshSessionJob] #{credential.supplier.name} doesn't need refresh yet"
+      return
+    end
 
-    Rails.logger.info "[RefreshSessionJob] Refreshing session for #{credential.supplier.name} (user: #{credential.user_id})"
+    # Active and expired credentials get normal session refresh
+    if credential.active? || credential.expired?
+      perform_session_refresh(credential)
+    elsif credential.failed?
+      # For failed credentials, attempt re-validation if they have valid-looking session data
+      # This helps recover from transient failures
+      if credential.session_data.present?
+        Rails.logger.info "[RefreshSessionJob] Attempting to recover failed credential #{credential.supplier.name}"
+        perform_session_refresh(credential)
+      else
+        Rails.logger.debug "[RefreshSessionJob] Skipping failed credential #{credential.supplier.name} - no session data to recover"
+      end
+    else
+      Rails.logger.debug "[RefreshSessionJob] Skipping #{credential.supplier.name} - status: #{credential.status}"
+    end
+  end
+
+  def perform_session_refresh(credential)
+    Rails.logger.info "[RefreshSessionJob] Refreshing session for #{credential.supplier.name} (user: #{credential.user_id}, status: #{credential.status})"
 
     manager = Authentication::SessionManager.new(credential)
 

@@ -1,24 +1,24 @@
 default: &default
   dispatchers:
-    - polling_interval: 1
-      batch_size: 500
+    - polling_interval: 5
+      batch_size: 100
   workers:
     - queues: [critical]
-      threads: 2
-      processes: 1
-      polling_interval: 0.1
-    - queues: [default]
-      threads: 2
-      processes: 1
-      polling_interval: 0.1
-    - queues: [scraping]
-      threads: 2
+      threads: 1
       processes: 1
       polling_interval: 1
-    - queues: [low]
+    - queues: [default]
+      threads: 1
+      processes: 1
+      polling_interval: 2
+    - queues: [scraping]
       threads: 1
       processes: 1
       polling_interval: 5
+    - queues: [low]
+      threads: 1
+      processes: 1
+      polling_interval: 10
 
 development:
   <<: *default

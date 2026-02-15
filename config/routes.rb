@@ -1,17 +1,17 @@
 Rails.application.routes.draw do
   devise_for :users, controllers: {
-    registrations: "users/registrations"
+    registrations: 'users/registrations'
   }
 
-  root "dashboard#index"
+  root 'dashboard#index'
 
   # Stripe Webhooks
   namespace :webhooks do
-    post "stripe", to: "stripe#create"
+    post 'stripe', to: 'stripe#create'
   end
 
   # Subscription & Billing
-  resource :subscription, only: [:show, :new, :create] do
+  resource :subscription, only: %i[show new create] do
     get :success
     get :cancel
     post :billing_portal
@@ -20,16 +20,16 @@ Rails.application.routes.draw do
   end
 
   # Organizations & Team Management
-  resource :organization, only: [:show, :new, :create, :edit, :update] do
+  resource :organization, only: %i[show new create edit update] do
     post :switch, on: :member
-    resources :memberships, only: [:update, :destroy], module: :organizations
-    resources :invitations, only: [:create, :destroy], module: :organizations do
+    resources :memberships, only: %i[update destroy], module: :organizations
+    resources :invitations, only: %i[create destroy], module: :organizations do
       post :resend, on: :member
     end
   end
 
   # Accept invitation (public route)
-  get "invitations/:token/accept", to: "organizations/invitations#accept", as: :accept_invitation
+  get 'invitations/:token/accept', to: 'organizations/invitations#accept', as: :accept_invitation
 
   # Locations
   resources :locations
@@ -58,7 +58,7 @@ Rails.application.routes.draw do
       post :duplicate
       get :price_comparison
     end
-    resources :order_list_items, only: [:create, :update, :destroy]
+    resources :order_list_items, only: %i[create update destroy]
   end
 
   # Price Comparisons
@@ -84,7 +84,7 @@ Rails.application.routes.draw do
   # API namespace
   namespace :api do
     namespace :v1 do
-      resources :products, only: [:index, :show]
+      resources :products, only: %i[index show]
       resources :prices, only: [:index]
       resources :order_lists do
         member do
@@ -95,10 +95,13 @@ Rails.application.routes.draw do
   end
 
   # Health check
-  get "up" => "rails/health#show", as: :rails_health_check
+  get 'up' => 'rails/health#show', as: :rails_health_check
+
+  # Admin endpoints (temporary)
+  get '/admin/clear_jobs', to: 'admin#clear_jobs'
 
   # Mission Control Jobs Dashboard (super_admin only)
   authenticate :user, ->(u) { u.super_admin? } do
-    mount MissionControl::Jobs::Engine, at: "/jobs"
+    mount MissionControl::Jobs::Engine, at: '/jobs'
   end
 end

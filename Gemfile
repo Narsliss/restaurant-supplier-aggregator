@@ -4,7 +4,7 @@ ruby "~> 3.3.0"
 
 # Core Rails
 gem "rails", "~> 7.1.0"
-gem "sqlite3", "~> 1.7"
+gem "pg", "~> 1.1"
 gem "puma", "~> 6.4"
 gem "bootsnap", require: false
 

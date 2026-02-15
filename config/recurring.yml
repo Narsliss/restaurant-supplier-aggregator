@@ -1,30 +1,28 @@
 # Product Scraping Refactor - Recurring Jobs
-# Super admin scrapes for all users, staggered imports, aggressive session keep-alive
+# TEMPORARILY DISABLED for credential validation testing
 
-# Staggered supplier imports - each supplier every 15 minutes (rotating schedule)
-# Supplier 1: :00, Supplier 2: :15, Supplier 3: :30, Supplier 4: :45
-staggered_supplier_import:
-  class: StaggeredSupplierImportJob
-  queue: scraping
-  schedule: "*/15 * * * *"
-  description: "Staggered supplier imports - each supplier every 15 minutes (rotating schedule)"
+# Staggered supplier imports - DISABLED
+# staggered_supplier_import:
+#   class: StaggeredSupplierImportJob
+#   queue: scraping
+#   schedule: "*/15 * * * *"
+#   description: "Staggered supplier imports - each supplier every 15 minutes (rotating schedule)"
 
-# Aggressive session keep-alive - every 2 hours with staggered execution
-# Minimally intrusive to supplier sites (uses soft_refresh, spread over 90 min)
-session_refresh:
-  class: SessionRefreshSchedulerJob
-  queue: default
-  schedule: "0 */2 * * *"
-  description: "Keep all user sessions alive every 2 hours (staggered, minimally intrusive)"
+# Session keep-alive - DISABLED
+# session_refresh:
+#   class: SessionRefreshSchedulerJob
+#   queue: default
+#   schedule: "0 */2 * * *"
+#   description: "Keep all user sessions alive every 2 hours (staggered, minimally intrusive)"
 
-# Daily supplier health check - proactive monitoring
-supplier_health_check:
-  class: SupplierHealthCheckJob
-  queue: low
-  schedule: "0 9 * * *"
-  description: "Daily supplier health check at 9 AM (emails super admin with summary)"
+# Daily supplier health check - DISABLED
+# supplier_health_check:
+#   class: SupplierHealthCheckJob
+#   queue: low
+#   schedule: "0 9 * * *"
+#   description: "Daily supplier health check at 9 AM (emails super admin with summary)"
 
-# Expire old 2FA requests (keep existing)
+# Expire old 2FA requests (keep this one - needed for cleanup)
 expire_2fa_requests:
   class: Expire2faRequestsJob
   queue: low
