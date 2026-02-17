@@ -6,12 +6,12 @@ development: {}
 test: {}
 
 production:
-  # Staggered supplier imports - every 15 minutes (rotating schedule)
+  # Staggered supplier imports - every hour (rotating schedule)
   staggered_supplier_import:
     class: StaggeredSupplierImportJob
     queue: scraping
-    schedule: "*/15 * * * *"
-    description: "Staggered supplier imports - each supplier every 15 minutes (rotating schedule)"
+    schedule: "0 * * * *"
+    description: "Staggered supplier imports - each supplier every hour (rotating schedule)"
 
   # Expire old 2FA requests every 5 minutes
   expire_2fa_requests:
