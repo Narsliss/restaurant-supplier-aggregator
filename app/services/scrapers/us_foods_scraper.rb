@@ -208,7 +208,11 @@ module Scrapers
         end
 
         # Navigate to the site so we have a JS context for storage injection
-        browser.goto(BASE_URL)
+        begin
+          browser.goto(BASE_URL, wait: 0)
+        rescue Ferrum::PendingConnectionsError
+          # Expected for US Foods SPA
+        end
         sleep 2
         apply_stealth
 
@@ -840,6 +844,20 @@ module Scrapers
     end
 
     protected
+
+    # Override navigate_to for US Foods — the Ionic SPA makes continuous
+    # background API calls (analytics, product prefetch, images) that
+    # prevent Ferrum's default network-idle detection from ever resolving.
+    # Use goto with wait: 0 and manually wait for DOM readiness instead.
+    def navigate_to(url)
+      logger.debug "[UsFoods] Navigating to: #{url}"
+      browser.goto(url, wait: 0)
+      # Wait for DOMContentLoaded rather than full network idle
+      sleep 2
+    rescue Ferrum::PendingConnectionsError => e
+      # This is expected for SPAs with long-running connections
+      logger.debug "[UsFoods] Pending connections (expected for SPA): #{e.message.truncate(200)}"
+    end
 
     def perform_login_steps
       # US Foods uses Azure AD B2C with a multi-step flow:
