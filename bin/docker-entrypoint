@@ -1,13 +1,18 @@
-#!/bin/bash -e
+#!/bin/bash
 
-echo "Entrypoint starting (PROCESS_TYPE=${PROCESS_TYPE:-web})..."
+echo "=== Entrypoint starting ==="
+echo "PROCESS_TYPE=${PROCESS_TYPE:-web}"
+echo "RAILS_ENV=${RAILS_ENV:-not set}"
+echo "PORT=${PORT:-not set}"
+echo "DATABASE_URL is $([ -n "$DATABASE_URL" ] && echo 'set' || echo 'NOT SET')"
+echo "SECRET_KEY_BASE is $([ -n "$SECRET_KEY_BASE" ] && echo 'set' || echo 'NOT SET')"
 
-# Run db:migrate (not db:prepare) — faster, and database already exists on Railway
+# Run db:migrate only for web process
 if [ "${PROCESS_TYPE:-web}" = "web" ]; then
   echo "Running database migrations..."
-  ./bin/rails db:migrate 2>&1 || echo "Migration failed or skipped"
-  echo "Migrations complete."
+  ./bin/rails db:migrate 2>&1 || echo "WARNING: Migration failed (exit code $?)"
+  echo "Migrations done."
 fi
 
-echo "Starting application..."
+echo "Executing: $@"
 exec "${@}"
