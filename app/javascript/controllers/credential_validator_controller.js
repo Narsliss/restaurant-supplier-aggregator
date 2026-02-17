@@ -121,6 +121,7 @@ export default class extends Controller {
   startPolling() {
     if (this.polling) return
     this.polling = true
+    this.pollingStartedAt = Date.now()
     this.poll()
   }
 
@@ -130,6 +131,15 @@ export default class extends Controller {
 
   async poll() {
     if (!this.polling) return
+
+    // Stop polling after 10 minutes to avoid infinite loops on stuck credentials
+    const elapsed = Date.now() - this.pollingStartedAt
+    if (elapsed > 10 * 60 * 1000) {
+      console.log(`[credential-validator] Polling timed out after 10 minutes`)
+      this.stopPolling()
+      this.showState("failed", "Validation timed out. Please try again.")
+      return
+    }
 
     try {
       const data = await this.getJSON(this.statusUrlValue)
