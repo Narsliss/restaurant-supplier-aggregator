@@ -19,4 +19,11 @@ Rails.application.configure do
   config.active_support.deprecation = :notify
   config.active_support.disallowed_deprecation = :log
   config.active_record.dump_schema_after_migration = false
+
+  # ActionCable
+  config.action_cable.url = 'wss://web-production-0bed.up.railway.app/cable'
+  config.action_cable.allowed_request_origins = [
+    'https://web-production-0bed.up.railway.app',
+    %r{https://.*\.up\.railway\.app}
+  ]
 end

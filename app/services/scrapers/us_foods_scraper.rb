@@ -24,29 +24,103 @@ module Scrapers
 
     # US Foods uses CloudFront WAF that blocks standard headless Chrome.
     # Override with stealth browser options to avoid bot detection.
+    # The user-agent must match the actual platform (Linux in Docker, Mac locally).
     def with_browser
-      @browser = Ferrum::Browser.new(
+      ua = if ENV['BROWSER_PATH'].present? || Rails.env.production?
+             # Docker/Railway: Debian Chromium on Linux — UA must match platform
+             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+           else
+             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+           end
+
+      browser_opts = {
         headless: 'new',
         timeout: 60,
-        process_timeout: 30, # Allow 30 seconds for browser process to start
+        process_timeout: 30,
         window_size: [1920, 1080],
         browser_options: {
           "no-sandbox": true,
           "disable-gpu": true,
           "disable-dev-shm-usage": true,
           "disable-blink-features": 'AutomationControlled',
-          "user-agent": 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+          "user-agent": ua,
+          # Additional stealth flags to reduce bot fingerprint
+          "disable-features": 'AutomationControlled,TranslateUI',
+          "excludeSwitches": 'enable-automation',
+          "disable-ipc-flooding-protection": true,
+          "disable-background-networking": false,
+          "enable-features": 'NetworkService,NetworkServiceInProcess'
         }
-      )
+      }
+
+      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
+
+      @browser = Ferrum::Browser.new(**browser_opts)
+
+      # Inject stealth scripts via CDP so they run BEFORE any page JS on every navigation.
+      # This is critical — WAFs check navigator.webdriver on initial page load,
+      # before our post-load apply_stealth can run.
+      begin
+        stealth_js = <<~JS
+          // Hide webdriver flag
+          Object.defineProperty(navigator, 'webdriver', {get: () => false});
+          // Fix plugins (empty = headless signal)
+          Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+          // Fix languages
+          Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+          // Add chrome.runtime
+          if (!window.chrome) window.chrome = {};
+          if (!window.chrome.runtime) window.chrome.runtime = {};
+        JS
+        browser.command('Page.addScriptToEvaluateOnNewDocument', source: stealth_js)
+      rescue StandardError => e
+        logger.warn "[UsFoods] CDP stealth injection failed: #{e.message}"
+      end
+
       yield(browser)
     ensure
       browser&.quit
     end
 
-    # Hide webdriver flag after each page navigation to avoid bot detection.
+    # Apply comprehensive stealth patches after each page navigation.
     # Must be called after a page loads (needs JS context).
+    # Covers the most common WAF fingerprinting checks beyond just webdriver.
     def apply_stealth
-      browser.evaluate('Object.defineProperty(navigator, "webdriver", {get: () => false})')
+      browser.evaluate(<<~JS)
+        (function() {
+          // Hide webdriver flag
+          Object.defineProperty(navigator, 'webdriver', {get: () => false});
+
+          // Fix navigator.plugins (headless Chrome has empty plugins array)
+          Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5]
+          });
+
+          // Fix navigator.languages
+          Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en']
+          });
+
+          // Add chrome.runtime to mimic real Chrome
+          if (!window.chrome) window.chrome = {};
+          if (!window.chrome.runtime) window.chrome.runtime = {};
+
+          // Fix permissions query for notifications
+          const originalQuery = window.navigator.permissions.query;
+          window.navigator.permissions.query = (parameters) =>
+            parameters.name === 'notifications'
+              ? Promise.resolve({state: Notification.permission})
+              : originalQuery(parameters);
+
+          // Spoof WebGL vendor and renderer to avoid "SwiftShader" headless signal
+          var getParameter = WebGLRenderingContext.prototype.getParameter;
+          WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            if (parameter === 37445) return 'Intel Inc.';
+            if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+            return getParameter.call(this, parameter);
+          };
+        })()
+      JS
     rescue StandardError
       nil
     end
@@ -781,6 +855,21 @@ module Scrapers
       sleep 3
       apply_stealth
 
+      # Log the page state for diagnostics (helps debug WAF blocks)
+      current_url = begin
+        browser.current_url
+      rescue StandardError
+        'unknown'
+      end
+
+      page_title = begin
+        browser.evaluate('document.title')
+      rescue StandardError
+        'unknown'
+      end
+
+      logger.info "[UsFoods] Page loaded — URL: #{current_url}, Title: #{page_title}"
+
       # Try clicking "Log In" button with retries
       clicked = false
       3.times do |attempt|
@@ -814,7 +903,34 @@ module Scrapers
         logger.debug "[UsFoods] Login button not found, retrying (attempt #{attempt + 1})"
         sleep 2
       end
-      raise ScrapingError, 'Could not find Log In button on order.usfoods.com' unless clicked
+
+      unless clicked
+        # Dump page content to logs so we can see what CloudFront/WAF returned
+        body_snippet = begin
+          browser.evaluate('document.body?.innerText?.substring(0, 800)')
+        rescue StandardError
+          'could not read body'
+        end
+        all_buttons = begin
+          browser.evaluate(<<~JS)
+            (function() {
+              var els = document.querySelectorAll('button, a, ion-button, [role="button"]');
+              var info = [];
+              for (var i = 0; i < els.length && i < 20; i++) {
+                info.push(els[i].tagName + ':' + (els[i].innerText || '').trim().substring(0, 40));
+              }
+              return info.join(' | ');
+            })()
+          JS
+        rescue StandardError
+          'could not read buttons'
+        end
+        logger.error "[UsFoods] Login button not found after 3 attempts. URL: #{current_url}"
+        logger.error "[UsFoods] Page title: #{page_title}"
+        logger.error "[UsFoods] Page body: #{body_snippet}"
+        logger.error "[UsFoods] Buttons on page: #{all_buttons}"
+        raise ScrapingError, 'Could not find Log In button on order.usfoods.com'
+      end
 
       # Wait for the Azure B2C login page to load
       logger.info '[UsFoods] Waiting for Azure B2C login page...'
