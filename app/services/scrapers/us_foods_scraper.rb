@@ -35,8 +35,8 @@ module Scrapers
 
       browser_opts = {
         headless: 'new',
-        timeout: 60,
-        process_timeout: 30,
+        timeout: 90,
+        process_timeout: 60,
         window_size: [1280, 720],
         browser_options: {
           "no-sandbox": true,
@@ -44,14 +44,10 @@ module Scrapers
           "disable-dev-shm-usage": true,
           "disable-blink-features": 'AutomationControlled',
           "user-agent": ua,
-          # Additional stealth flags to reduce bot fingerprint
+          # Stealth flags
           "disable-features": 'AutomationControlled,TranslateUI',
           "excludeSwitches": 'enable-automation',
-          "disable-ipc-flooding-protection": true,
-          "disable-background-networking": false,
-          "enable-features": 'NetworkService,NetworkServiceInProcess',
-          # Memory optimization flags for constrained environments (Railway 1GB)
-          "single-process": true,
+          # Memory optimization for Railway 1GB container
           "disable-extensions": true,
           "disable-default-apps": true,
           "disable-translate": true,
@@ -59,14 +55,36 @@ module Scrapers
           "disable-background-timer-throttling": true,
           "disable-renderer-backgrounding": true,
           "disable-backgrounding-occluded-windows": true,
-          "js-flags": '--max-old-space-size=256',
-          "renderer-process-limit": 1
+          "js-flags": '--max-old-space-size=256 --lite-mode',
+          "renderer-process-limit": 1,
+          "disable-software-rasterizer": true,
+          "disable-image-loading": false
         }
       }
 
       browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
 
       @browser = Ferrum::Browser.new(**browser_opts)
+
+      # Block images, fonts, and analytics to reduce memory usage on Railway.
+      # The scraper only needs HTML/CSS/JS — not product images or tracking pixels.
+      begin
+        browser.network.intercept
+        browser.on(:request) do |request|
+          url = request.url
+          if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
+             url.include?('adobedtm.com') ||
+             url.include?('analytics') ||
+             url.include?('google-analytics') ||
+             url.include?('googletagmanager')
+            request.abort
+          else
+            request.continue
+          end
+        end
+      rescue StandardError => e
+        logger.warn "[UsFoods] Network interception setup failed: #{e.message}"
+      end
 
       # Inject stealth scripts via CDP so they run BEFORE any page JS on every navigation.
       # This is critical — WAFs check navigator.webdriver on initial page load,
