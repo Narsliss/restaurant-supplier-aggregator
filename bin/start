@@ -4,6 +4,21 @@ set -e
 # Determine which process to start based on PROCESS_TYPE
 case "${PROCESS_TYPE:-web}" in
   web)
+    echo "Starting web server..."
+    ./bin/rails server -b 0.0.0.0 -p ${PORT:-8080} &
+    WEB_PID=$!
+
+    # Wait for Puma to bind to the port before starting Solid Queue.
+    # This ensures Railway's healthcheck passes quickly.
+    echo "Waiting for web server to be ready..."
+    for i in $(seq 1 60); do
+      if curl -sf http://localhost:${PORT:-8080}/up > /dev/null 2>&1; then
+        echo "Web server ready."
+        break
+      fi
+      sleep 1
+    done
+
     echo "Starting Solid Queue worker in background..."
     bundle exec rake solid_queue:start &
     SOLID_QUEUE_PID=$!
@@ -11,17 +26,16 @@ case "${PROCESS_TYPE:-web}" in
 
     # Shut down both processes on exit signals
     cleanup() {
-      echo "Stopping Solid Queue (PID: $SOLID_QUEUE_PID)..."
+      echo "Shutting down..."
       kill $SOLID_QUEUE_PID 2>/dev/null
+      kill $WEB_PID 2>/dev/null
       wait $SOLID_QUEUE_PID 2>/dev/null
+      wait $WEB_PID 2>/dev/null
     }
     trap cleanup EXIT INT TERM
 
-    echo "Starting web server..."
-    # Do NOT use exec — we need this shell to stay alive to manage
-    # the background Solid Queue process. If we exec, the backgrounded
-    # process gets orphaned and may be killed by the container runtime.
-    ./bin/rails server -b 0.0.0.0 -p ${PORT:-8080}
+    # Wait for the web server process — if it exits, the script exits
+    wait $WEB_PID
     ;;
   worker)
     echo "Starting Solid Queue worker..."
