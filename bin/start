@@ -9,11 +9,19 @@ case "${PROCESS_TYPE:-web}" in
     SOLID_QUEUE_PID=$!
     echo "Solid Queue started (PID: $SOLID_QUEUE_PID)"
 
-    # Shut down Solid Queue when the web server exits
-    trap "echo 'Stopping Solid Queue...'; kill $SOLID_QUEUE_PID 2>/dev/null; wait $SOLID_QUEUE_PID 2>/dev/null" EXIT
+    # Shut down both processes on exit signals
+    cleanup() {
+      echo "Stopping Solid Queue (PID: $SOLID_QUEUE_PID)..."
+      kill $SOLID_QUEUE_PID 2>/dev/null
+      wait $SOLID_QUEUE_PID 2>/dev/null
+    }
+    trap cleanup EXIT INT TERM
 
     echo "Starting web server..."
-    exec ./bin/rails server -b 0.0.0.0 -p ${PORT:-8080}
+    # Do NOT use exec — we need this shell to stay alive to manage
+    # the background Solid Queue process. If we exec, the backgrounded
+    # process gets orphaned and may be killed by the container runtime.
+    ./bin/rails server -b 0.0.0.0 -p ${PORT:-8080}
     ;;
   worker)
     echo "Starting Solid Queue worker..."
