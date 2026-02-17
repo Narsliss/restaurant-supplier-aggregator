@@ -72,7 +72,7 @@ module Scrapers
           if (!window.chrome) window.chrome = {};
           if (!window.chrome.runtime) window.chrome.runtime = {};
         JS
-        browser.command('Page.addScriptToEvaluateOnNewDocument', source: stealth_js)
+        browser.evaluate_on_new_document(stealth_js)
       rescue StandardError => e
         logger.warn "[UsFoods] CDP stealth injection failed: #{e.message}"
       end
