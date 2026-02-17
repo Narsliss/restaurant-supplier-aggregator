@@ -12,6 +12,6 @@ pidfile ENV.fetch('PIDFILE') { 'tmp/pids/server.pid' }
 
 plugin :tmp_restart
 
-# Run Solid Queue worker threads inside the Puma process
-# so background jobs execute without a separate worker service.
-plugin :solid_queue
+# Solid Queue runs as a separate background process via bin/start.
+# Do NOT use plugin :solid_queue here — it forks, which can fail
+# silently in containerized environments (Railway, Docker).

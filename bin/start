@@ -4,6 +4,14 @@ set -e
 # Determine which process to start based on PROCESS_TYPE
 case "${PROCESS_TYPE:-web}" in
   web)
+    echo "Starting Solid Queue worker in background..."
+    bundle exec rake solid_queue:start &
+    SOLID_QUEUE_PID=$!
+    echo "Solid Queue started (PID: $SOLID_QUEUE_PID)"
+
+    # Shut down Solid Queue when the web server exits
+    trap "echo 'Stopping Solid Queue...'; kill $SOLID_QUEUE_PID 2>/dev/null; wait $SOLID_QUEUE_PID 2>/dev/null" EXIT
+
     echo "Starting web server..."
     exec ./bin/rails server -b 0.0.0.0 -p ${PORT:-8080}
     ;;
