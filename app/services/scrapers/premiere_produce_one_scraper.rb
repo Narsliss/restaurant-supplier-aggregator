@@ -22,6 +22,42 @@ module Scrapers
     # Because the verification page is a React SPA with no URL change and no cookies,
     # we MUST keep the browser alive while waiting for the user's code.
     # This method is designed to run inside a Sidekiq job.
+
+    # Override with_browser to use a longer timeout for 2FA wait.
+    # The base class uses 30s, but we need 7 minutes (5 min code wait + buffer).
+    def with_browser
+      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
+
+      browser_opts = {
+        headless: headless_mode,
+        timeout: 420, # 7 minutes to allow for 5-minute 2FA wait + buffer
+        process_timeout: 60, # Allow 60 seconds for browser process to start
+        window_size: [1920, 1080]
+      }
+
+      if headless_mode
+        browser_opts[:browser_options] = {
+          "no-sandbox": true,
+          "disable-gpu": true,
+          "disable-dev-shm-usage": true
+        }
+      else
+        browser_opts[:browser_options] = {
+          "no-sandbox": true,
+          "start-maximized": true
+        }
+        browser_opts[:headless] = false
+      end
+
+      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
+
+      logger.info "[Scraper] Starting browser (headless=#{headless_mode}, timeout=7min)"
+      @browser = Ferrum::Browser.new(**browser_opts)
+      yield(browser)
+    ensure
+      browser&.quit
+    end
+
     def login
       max_code_attempts = 3
 
@@ -852,8 +888,8 @@ module Scrapers
       rescue StandardError
         ''
       end
-      prompt = body_text.scan(/your code.*?\./i).first || 'A verification code has been sent to your email.'
-      prompt = "NEW CODE SENT: #{prompt} (previous code expired)" if resent
+      prompt = body_text.scan(/your code.*?\./i).first || 'Premiere Produce One has sent a verification code to your email. Please check your inbox and enter the code below.'
+      prompt = "A new code has been sent — the previous one expired. #{prompt}" if resent
 
       # Create the 2FA request record
       request = Supplier2faRequest.create!(
@@ -900,9 +936,10 @@ module Scrapers
         request.reload
 
         case request.status
-        when 'submitted'
+        when 'submitted', 'verified'
           # User submitted a code — return it
-          logger.info '[PremiereProduceOne] Code received from user'
+          # Note: 'verified' status is set by ActionCable/Turbo, but we still need the code
+          logger.info "[PremiereProduceOne] Code received from user (status: #{request.status})"
           return request.code_submitted
         when 'cancelled'
           logger.info '[PremiereProduceOne] User cancelled 2FA'
@@ -975,15 +1012,19 @@ module Scrapers
     end
 
     # Helper to mark the latest submitted 2FA request as verified
+    # Also checks for already-verified requests (in case TwoFactorChannel already marked it)
     def mark_2fa_request_verified!
-      Supplier2faRequest.where(supplier_credential: credential, status: 'submitted')
-                        .order(created_at: :desc).first&.mark_verified!
+      request = Supplier2faRequest.where(supplier_credential: credential, status: %w[submitted verified])
+                                  .order(created_at: :desc).first
+      request&.mark_verified! unless request&.verified?
     end
 
     # Helper to mark the latest submitted 2FA request as failed
+    # Also checks for verified requests (in case TwoFactorChannel marked it verified but login failed after)
     def mark_2fa_request_failed!
-      Supplier2faRequest.where(supplier_credential: credential, status: 'submitted')
-                        .order(created_at: :desc).first&.mark_failed!
+      request = Supplier2faRequest.where(supplier_credential: credential, status: %w[submitted verified])
+                                  .order(created_at: :desc).first
+      request&.mark_failed! unless request&.failed?
     end
 
     # Browse a category by clicking on the category filter/sidebar

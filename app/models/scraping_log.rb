@@ -55,12 +55,14 @@ class ScrapingLog < ApplicationRecord
     end
   end
 
-  def mark_completed!(product_count: nil)
-    update!(
+  def mark_completed!(product_count: nil, products_updated: nil)
+    attrs = {
       status: 'completed',
       completed_at: Time.current,
       products_imported: product_count || products_imported
-    )
+    }
+    attrs[:products_updated] = products_updated if products_updated
+    update!(attrs)
   end
 
   def mark_failed!(error_message, error_details = nil)

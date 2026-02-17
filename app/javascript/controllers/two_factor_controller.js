@@ -40,7 +40,7 @@ export default class extends Controller {
     this.sessionTokenValue = data.session_token
     this.expiresAtValue = data.expires_at
 
-    this.messageTarget.textContent = `${data.supplier_name}: ${data.prompt_message}`
+    this.messageTarget.textContent = data.prompt_message
     this.modalTarget.classList.remove("hidden")
     this.codeInputTarget.value = ""
     this.codeInputTarget.focus()

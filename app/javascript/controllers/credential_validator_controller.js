@@ -7,6 +7,10 @@ import { Controller } from "@hotwired/stimulus"
 export default class extends Controller {
   static targets = [
     "statusBadge",       // the badge span (Active / Pending / Failed / etc.)
+    "statusBlock",       // the blue status message container
+    "statusSpinner",     // spinner icon in status block
+    "statusTitle",       // bold title in status block
+    "statusDetail",      // detail text in status block
     "errorBlock",        // the red error box
     "errorText",         // the text inside the error box
     "validateBtn",       // the Validate button
@@ -32,18 +36,17 @@ export default class extends Controller {
     this.currentState = "idle"
     console.log(`[credential-validator] connected for credential ${this.credentialIdValue}`)
 
-    // If the credential is pending (e.g. just created with a 2FA supplier),
-    // auto-start polling so the 2FA code input appears without a manual refresh.
-    if (this.credentialStatusValue === "pending") {
-      this.showState("validating")
-      this.startPolling()
-      return
-    }
-
-    // If the 2FA block is already visible on page load (server-rendered pending state),
-    // auto-start polling so updates appear without a manual refresh.
+    // Auto-start polling if:
+    // 1. There's an active 2FA request (2FA block visible from server rendering), OR
+    // 2. The credential is pending (background job running but 2FA request not created yet)
     if (this.hasTfaBlockTarget && !this.tfaBlockTarget.classList.contains("hidden")) {
       this.currentState = "awaiting_code"
+      this.startPolling()
+    } else if (this.credentialStatusValue === "pending") {
+      // Credential is pending - background job is running but 2FA request may not exist yet
+      // Start polling so the 2FA form appears as soon as the scraper creates the request
+      console.log(`[credential-validator] Credential is pending, starting polling for 2FA request`)
+      this.currentState = "validating"
       this.startPolling()
     }
   }
@@ -60,6 +63,7 @@ export default class extends Controller {
     this.showState("validating")
 
     try {
+      console.log(`[credential-validator] POSTing to:`, this.validateUrlValue)
       const resp = await this.postJSON(this.validateUrlValue)
       console.log(`[credential-validator] validate response:`, resp)
       if (resp.status === "already_active") {
@@ -68,10 +72,12 @@ export default class extends Controller {
         this.showAlreadyActiveFlash(resp.message)
       } else if (resp.status === "validating" || resp.status === "two_fa_required") {
         // Async validation (PPO) — start polling for the 2FA request
+        console.log(`[credential-validator] Starting polling for 2FA...`)
         this.startPolling()
       } else if (resp.status === "active") {
         this.showState("success")
       } else {
+        console.log(`[credential-validator] Unexpected status:`, resp.status)
         this.showState("failed", resp.message || "Validation failed")
       }
     } catch (err) {
@@ -140,7 +146,7 @@ export default class extends Controller {
   handlePollResult(data) {
     const cred = data.credential
     const tfa = data.two_fa_request
-    console.log(`[credential-validator] poll result: cred=${cred.status}, tfa=${tfa ? tfa.status : 'none'}, currentState=${this.currentState}`)
+    console.log(`[credential-validator] poll result:`, { credential: cred.status, two_fa: tfa ? tfa.status : 'none', currentState: this.currentState, two_fa_data: tfa })
 
     // When there's an active 2FA request, always handle it first —
     // the credential may still be "active" while the background job waits for a code
@@ -219,6 +225,7 @@ export default class extends Controller {
     // (avoid resetting the code input while user is typing)
     if (state !== prevState) {
       this.hideError()
+      this.hideStatusBlock()
       if (state !== "awaiting_code" && state !== "verifying") {
         this.hideTfaBlock()
       }
@@ -232,6 +239,10 @@ export default class extends Controller {
       case "importing":
         this.updateBadge(message || "Importing...", "bg-blue-100 text-blue-800")
         this.disableValidateBtn(message || "Importing...")
+        this.showStatusBlock(
+          message || "Importing products...",
+          "We're pulling in your product catalog from this supplier. This may take a minute or two."
+        )
         this.showImportBtn()
         this.disableImportBtn(message)
         break
@@ -239,11 +250,16 @@ export default class extends Controller {
       case "validating":
         this.updateBadge("Validating...", "bg-blue-100 text-blue-800")
         this.disableValidateBtn("Validating...")
+        this.showStatusBlock(
+          "Connecting to your supplier account...",
+          "We've submitted your credentials and are waiting for a response. If this supplier requires two-factor authentication, a code will be sent to your email or phone. A verification input will appear here shortly."
+        )
         break
 
       case "awaiting_code":
         this.updateBadge("Awaiting Code", "bg-amber-100 text-amber-800")
         this.disableValidateBtn("Waiting for code...")
+        this.hideStatusBlock()
         // Only initialize the 2FA form if we weren't already showing it
         if (prevState !== "awaiting_code") {
           this.showTfaBlock(tfa)
@@ -256,12 +272,14 @@ export default class extends Controller {
       case "verifying":
         this.updateBadge("Verifying...", "bg-blue-100 text-blue-800")
         this.disableValidateBtn("Verifying...")
+        this.hideStatusBlock()
         this.showTfaVerifying()
         break
 
       case "success":
         this.updateBadge("Active", "bg-green-100 text-green-800")
         this.hideTfaBlock()
+        this.hideStatusBlock()
         this.enableValidateBtn()
         this.showImportBtn()
         this.enableImportBtn()
@@ -271,6 +289,7 @@ export default class extends Controller {
       case "failed":
         this.updateBadge("Failed", "bg-red-100 text-red-800")
         this.hideTfaBlock()
+        this.hideStatusBlock()
         this.enableValidateBtn()
         if (message) this.showError(message)
         break
@@ -287,6 +306,18 @@ export default class extends Controller {
       "inline-flex", "items-center", "px-2", "py-0.5",
       "rounded-full", "text-xs", "font-medium")
     badge.textContent = text
+  }
+
+  // ── Status message block ──────────────────────────────────────────
+  showStatusBlock(title, detail) {
+    if (!this.hasStatusBlockTarget) return
+    this.statusBlockTarget.classList.remove("hidden")
+    if (this.hasStatusTitleTarget) this.statusTitleTarget.textContent = title
+    if (this.hasStatusDetailTarget) this.statusDetailTarget.textContent = detail
+  }
+
+  hideStatusBlock() {
+    if (this.hasStatusBlockTarget) this.statusBlockTarget.classList.add("hidden")
   }
 
   // ── Error block ──────────────────────────────────────────────────

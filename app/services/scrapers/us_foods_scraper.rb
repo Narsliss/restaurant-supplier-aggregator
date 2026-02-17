@@ -927,10 +927,10 @@ module Scrapers
       # Prefer email over text for verification
       if email_btn
         mfa_method = 'Email'
-        prompt_msg = "US Foods verification code sent to #{email_addr}"
+        prompt_msg = "US Foods has sent a verification code to #{email_addr}. Please check your email inbox and enter the code below."
       elsif text_btn
         mfa_method = 'Text'
-        prompt_msg = "US Foods verification code sent via text to #{text_phone}"
+        prompt_msg = "US Foods has sent a verification code via text to #{text_phone}. Please check your messages and enter the code below."
       else
         raise ScrapingError, 'No MFA options found on page'
       end
@@ -954,6 +954,20 @@ module Scrapers
       )
       logger.info "[UsFoods] Created 2FA request ##{tfa_request.id}, waiting for code..."
       credential.update!(two_fa_enabled: true, status: 'pending')
+
+      # Broadcast to ActionCable so the global 2FA modal appears instantly
+      TwoFactorChannel.broadcast_to(
+        credential.user,
+        {
+          type: 'two_fa_required',
+          request_id: tfa_request.id,
+          session_token: tfa_request.session_token,
+          supplier_name: credential.supplier.name,
+          two_fa_type: 'email',
+          prompt_message: prompt_msg,
+          expires_at: tfa_request.expires_at.iso8601
+        }
+      )
 
       # Poll for user to enter the code via the web UI
       code = poll_for_2fa_code(tfa_request, timeout: 300)
@@ -1231,8 +1245,13 @@ module Scrapers
       start_time = Time.current
       loop do
         tfa_request.reload
-        return tfa_request.code_submitted if tfa_request.status == 'submitted' && tfa_request.code_submitted.present?
+        # Check for both 'submitted' and 'verified' status (ActionCable may mark as verified)
+        if %w[submitted verified].include?(tfa_request.status) && tfa_request.code_submitted.present?
+          return tfa_request.code_submitted
+        end
         return nil if tfa_request.status == 'cancelled'
+        return nil if tfa_request.status == 'failed'
+        return nil if tfa_request.status == 'expired'
         return nil if Time.current - start_time > timeout
 
         sleep 2
@@ -1271,12 +1290,26 @@ module Scrapers
         url = "#{BASE_URL}/desktop/search2?originSearchPage=catalog&facetFilters=ec_category:#{CGI.escape(category)}"
       end
       navigate_to(url)
-      sleep 2
 
-      previous_count = 0
+      # Wait for the Ionic SPA to render product cards (API call + render can take several seconds)
+      begin
+        wait_for_selector('ion-card', timeout: 15)
+      rescue StandardError
+        logger.warn "[UsFoods] No ion-card elements appeared for category '#{category}' after 15s"
+        return []
+      end
+
+      initial_count = begin
+        browser.evaluate("document.querySelectorAll('ion-card').length")
+      rescue StandardError
+        0
+      end
+      logger.info "[UsFoods] Category '#{category}': #{initial_count} cards on initial load"
+
+      previous_count = initial_count
       stale_rounds = 0
 
-      10.times do |_attempt|
+      20.times do |attempt|
         current_count = begin
           browser.evaluate("document.querySelectorAll('ion-card').length")
         rescue StandardError
@@ -1286,16 +1319,18 @@ module Scrapers
 
         if current_count == previous_count
           stale_rounds += 1
-          break if stale_rounds >= 3 # No new products after 3 consecutive attempts
+          break if stale_rounds >= 5 # No new products after 5 consecutive attempts
         else
           stale_rounds = 0
         end
         previous_count = current_count
 
+        logger.debug "[UsFoods] Category '#{category}' scroll attempt #{attempt + 1}: #{current_count} cards, #{stale_rounds} stale rounds"
+
         # Trigger Ionic infinite scroll by scrolling the ion-content's
         # internal scroll element (inside the shadow DOM).
         trigger_ionic_infinite_scroll
-        sleep 1.5
+        sleep 3
       end
 
       final_count = begin
@@ -1303,7 +1338,7 @@ module Scrapers
       rescue StandardError
         0
       end
-      logger.info "[UsFoods] Category '#{category}': #{final_count} cards loaded after scrolling"
+      logger.info "[UsFoods] Category '#{category}': #{final_count} cards loaded after scrolling (started with #{initial_count})"
 
       extract_products_from_page(max_products)
     end
@@ -1312,11 +1347,17 @@ module Scrapers
     # ion-content uses a shadow root with an internal .inner-scroll div.
     # ion-infinite-scroll listens for scroll events on that container and fires
     # ionInfinite when the user nears the bottom (threshold ~15%).
+    #
+    # Uses evaluate_async so Ferrum properly awaits the async Ionic API calls
+    # (getScrollElement, scrollToBottom, complete) instead of returning an
+    # unresolved Promise.
     def trigger_ionic_infinite_scroll
-      browser.evaluate(<<~JS)
-        (async function() {
-          // Method 1: Use Ionic's getScrollElement() API to get the real scrollable element
+      browser.evaluate_async(<<~JS, 5)
+        var done = arguments[arguments.length - 1];
+        try {
           var ionContent = document.querySelector('ion-content');
+
+          // Method 1: Use Ionic's getScrollElement() API to get the real scrollable element
           if (ionContent && typeof ionContent.getScrollElement === 'function') {
             try {
               var scrollEl = await ionContent.getScrollElement();
@@ -1344,7 +1385,6 @@ module Scrapers
           // Method 4: Trigger ionInfinite event directly on the infinite scroll element
           var infiniteScroll = document.querySelector('ion-infinite-scroll');
           if (infiniteScroll) {
-            // Reset the infinite scroll's internal state so it can fire again
             if (typeof infiniteScroll.complete === 'function') {
               try { await infiniteScroll.complete(); } catch(e) {}
             }
@@ -1355,9 +1395,14 @@ module Scrapers
 
           // Method 5: Standard window scroll as a fallback
           window.scrollTo(0, document.body.scrollHeight);
-        })()
+
+          done(true);
+        } catch(e) {
+          done(false);
+        }
       JS
-    rescue StandardError
+    rescue StandardError => e
+      logger.debug "[UsFoods] trigger_ionic_infinite_scroll error: #{e.message}"
       nil
     end
 
@@ -1368,13 +1413,27 @@ module Scrapers
 
       # Use URL-based search for more reliable results
       navigate_to("#{BASE_URL}/desktop/search2?q=#{CGI.escape(term)}")
-      sleep 2
+
+      # Wait for the SPA to render at least one product card
+      begin
+        wait_for_selector('ion-card', timeout: 15)
+      rescue StandardError
+        logger.warn "[UsFoods] No ion-card elements appeared for search '#{term}' after 15s"
+        return []
+      end
+
+      initial_count = begin
+        browser.evaluate("document.querySelectorAll('ion-card').length")
+      rescue StandardError
+        0
+      end
+      logger.info "[UsFoods] Search '#{term}': #{initial_count} cards on initial load"
 
       # Scroll to load more search results using Ionic infinite scroll
-      previous_count = 0
+      previous_count = initial_count
       stale_rounds = 0
 
-      10.times do |_attempt|
+      15.times do |attempt|
         current_count = begin
           browser.evaluate("document.querySelectorAll('ion-card').length")
         rescue StandardError
@@ -1384,15 +1443,24 @@ module Scrapers
 
         if current_count == previous_count
           stale_rounds += 1
-          break if stale_rounds >= 2
+          break if stale_rounds >= 4
         else
           stale_rounds = 0
         end
         previous_count = current_count
 
+        logger.debug "[UsFoods] Search '#{term}' scroll attempt #{attempt + 1}: #{current_count} cards, #{stale_rounds} stale rounds"
+
         trigger_ionic_infinite_scroll
-        sleep 1.5
+        sleep 3
       end
+
+      final_count = begin
+        browser.evaluate("document.querySelectorAll('ion-card').length")
+      rescue StandardError
+        0
+      end
+      logger.info "[UsFoods] Search '#{term}': #{final_count} cards loaded after scrolling (started with #{initial_count})"
 
       extract_products_from_page(max)
     end

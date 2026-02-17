@@ -9,6 +9,8 @@ Rails.application.config.after_initialize do
 
   begin
     next unless ActiveRecord::Base.connection.table_exists?('suppliers')
+    # Skip if auth_type column doesn't exist yet (migration pending)
+    next unless ActiveRecord::Base.connection.column_exists?(:suppliers, :auth_type)
   rescue ActiveRecord::ConnectionNotEstablished
     next
   end

@@ -3,8 +3,9 @@ class ValidateCredentialsJob < ApplicationJob
 
   discard_on ActiveRecord::RecordNotFound
 
-  # For PPO (passwordless), this job can run for up to 5 minutes while
+  # For PPO (passwordless), this job can run for up to 7 minutes while
   # the scraper polls the DB waiting for the user's verification code.
+  # The browser timeout is set to 7 minutes to accommodate the 5-minute code wait.
   retry_on StandardError, attempts: 2, wait: 1.minute
 
   def perform(credential_id)

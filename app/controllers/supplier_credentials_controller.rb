@@ -336,10 +336,19 @@ class SupplierCredentialsController < ApplicationController
                   .order(created_at: :desc)
                   .first
 
+    # Handle race condition: if 2FA was just verified but credential hasn't been
+    # marked active yet (background job still running), report as active to prevent
+    # UI from reverting to "pending" state
+    credential_status = @credential.status
+    if credential_status == 'pending' && tfa_request&.verified? && tfa_request.verified_at.present? && tfa_request.verified_at > 5.minutes.ago
+      # Check if verification happened recently (within last 5 minutes)
+      credential_status = 'active'
+    end
+
     render json: {
       credential: {
         id: @credential.id,
-        status: @credential.status,
+        status: credential_status,
         last_error: @credential.last_error,
         supplier_name: @credential.supplier.name,
         importing: @credential.importing?,

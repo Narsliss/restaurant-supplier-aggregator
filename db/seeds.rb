@@ -96,27 +96,6 @@ if Rails.env.development? || Rails.env.production?
   # Check if a super admin already exists
   existing_super_admin = User.find_by(role: 'super_admin')
 
-  # Create demo user (regular user)
-  puts 'Creating demo user...'
-
-  demo_user = User.find_or_create_by!(email: 'demo@example.com') do |u|
-    u.password = 'password123'
-    u.password_confirmation = 'password123'
-    u.first_name = 'Demo'
-    u.last_name = 'User'
-    u.role = 'user'
-  end
-
-  Location.find_or_create_by!(user: demo_user, name: 'Main Restaurant') do |l|
-    l.address = '123 Main Street'
-    l.city = 'New York'
-    l.state = 'NY'
-    l.zip_code = '10001'
-    l.is_default = true
-  end
-
-  puts '  Created demo user: demo@example.com (password: password123)'
-
   # Create super admin only if one doesn't exist
   if existing_super_admin
     puts "  Super admin already exists: #{existing_super_admin.email}"

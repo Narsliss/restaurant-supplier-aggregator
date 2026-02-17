@@ -11,12 +11,15 @@
 # It's strongly recommended that you check this file into your version control system.
 
 ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
+  # These are extensions that must be enabled in order to support this database
+  enable_extension "plpgsql"
+
   create_table "billing_events", force: :cascade do |t|
-    t.integer "user_id"
-    t.integer "subscription_id"
+    t.bigint "user_id"
+    t.bigint "subscription_id"
     t.string "stripe_event_id", null: false
     t.string "event_type", null: false
-    t.json "data", default: {}
+    t.jsonb "data", default: {}
     t.boolean "processed", default: false
     t.text "error_message"
     t.datetime "created_at", null: false
@@ -29,8 +32,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "invoices", force: :cascade do |t|
-    t.integer "user_id", null: false
-    t.integer "subscription_id"
+    t.bigint "user_id", null: false
+    t.bigint "subscription_id"
     t.string "stripe_invoice_id", null: false
     t.string "status", null: false
     t.integer "amount_due_cents"
@@ -43,7 +46,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.datetime "paid_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.integer "organization_id"
+    t.bigint "organization_id"
     t.index ["organization_id"], name: "index_invoices_on_organization_id"
     t.index ["status"], name: "index_invoices_on_status"
     t.index ["stripe_invoice_id"], name: "index_invoices_on_stripe_invoice_id", unique: true
@@ -52,7 +55,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "locations", force: :cascade do |t|
-    t.integer "user_id", null: false
+    t.bigint "user_id", null: false
     t.string "name", null: false
     t.text "address"
     t.string "city"
@@ -62,15 +65,15 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.boolean "is_default", default: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.integer "organization_id"
+    t.bigint "organization_id"
     t.index ["organization_id"], name: "index_locations_on_organization_id"
     t.index ["user_id", "is_default"], name: "index_locations_on_user_id_and_is_default"
     t.index ["user_id"], name: "index_locations_on_user_id"
   end
 
   create_table "memberships", force: :cascade do |t|
-    t.integer "user_id", null: false
-    t.integer "organization_id", null: false
+    t.bigint "user_id", null: false
+    t.bigint "organization_id", null: false
     t.string "role", default: "member", null: false
     t.string "invitation_token"
     t.datetime "invitation_sent_at"
@@ -88,8 +91,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "order_items", force: :cascade do |t|
-    t.integer "order_id", null: false
-    t.integer "supplier_product_id", null: false
+    t.bigint "order_id", null: false
+    t.bigint "supplier_product_id", null: false
     t.decimal "quantity", precision: 10, scale: 2, null: false
     t.decimal "unit_price", precision: 10, scale: 2, null: false
     t.decimal "line_total", precision: 10, scale: 2, null: false
@@ -103,8 +106,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "order_list_items", force: :cascade do |t|
-    t.integer "order_list_id", null: false
-    t.integer "product_id", null: false
+    t.bigint "order_list_id", null: false
+    t.bigint "product_id", null: false
     t.decimal "quantity", precision: 10, scale: 2, default: "1.0", null: false
     t.text "notes"
     t.integer "position", default: 0
@@ -117,14 +120,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "order_lists", force: :cascade do |t|
-    t.integer "user_id", null: false
+    t.bigint "user_id", null: false
     t.string "name", null: false
     t.text "description"
     t.boolean "is_favorite", default: false
     t.datetime "last_used_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.integer "organization_id"
+    t.bigint "organization_id"
     t.index ["organization_id"], name: "index_order_lists_on_organization_id"
     t.index ["user_id", "is_favorite"], name: "index_order_lists_on_user_id_and_is_favorite"
     t.index ["user_id", "last_used_at"], name: "index_order_lists_on_user_id_and_last_used_at"
@@ -132,11 +135,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "order_validations", force: :cascade do |t|
-    t.integer "order_id", null: false
+    t.bigint "order_id", null: false
     t.string "validation_type", null: false
     t.boolean "passed", null: false
     t.text "message"
-    t.json "details", default: {}
+    t.jsonb "details", default: {}
     t.datetime "validated_at", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
@@ -146,10 +149,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "orders", force: :cascade do |t|
-    t.integer "user_id", null: false
-    t.integer "location_id"
-    t.integer "supplier_id", null: false
-    t.integer "order_list_id"
+    t.bigint "user_id", null: false
+    t.bigint "location_id"
+    t.bigint "supplier_id", null: false
+    t.bigint "order_list_id"
     t.string "status", default: "pending", null: false
     t.string "confirmation_number"
     t.decimal "subtotal", precision: 10, scale: 2
@@ -162,7 +165,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.datetime "confirmed_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.integer "organization_id"
+    t.bigint "organization_id"
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"
     t.index ["order_list_id"], name: "index_orders_on_order_list_id"
@@ -176,8 +179,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "organization_invitations", force: :cascade do |t|
-    t.integer "organization_id", null: false
-    t.integer "invited_by_id", null: false
+    t.bigint "organization_id", null: false
+    t.bigint "invited_by_id", null: false
     t.string "email", null: false
     t.string "role", default: "member", null: false
     t.string "token", null: false
@@ -201,7 +204,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.string "zip_code"
     t.string "timezone", default: "America/New_York"
     t.string "stripe_customer_id"
-    t.json "settings", default: {}
+    t.jsonb "settings", default: {}
     t.boolean "active", default: true
     t.datetime "suspended_at"
     t.datetime "created_at", null: false
@@ -230,8 +233,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "scraping_logs", force: :cascade do |t|
-    t.integer "supplier_id", null: false
-    t.integer "supplier_credential_id"
+    t.bigint "supplier_id", null: false
+    t.bigint "supplier_credential_id"
     t.string "job_id"
     t.string "status", default: "pending", null: false
     t.datetime "started_at"
@@ -259,11 +262,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "solid_cache_entries", force: :cascade do |t|
-    t.binary "key", limit: 1024, null: false
-    t.binary "value", limit: 536870912, null: false
+    t.binary "key", null: false
+    t.binary "value", null: false
     t.datetime "created_at", null: false
-    t.integer "key_hash", limit: 8, null: false
-    t.integer "byte_size", limit: 4, null: false
+    t.bigint "key_hash", null: false
+    t.integer "byte_size", null: false
     t.index ["byte_size"], name: "index_solid_cache_entries_on_byte_size"
     t.index ["key_hash", "byte_size"], name: "index_solid_cache_entries_on_key_hash_and_byte_size"
     t.index ["key_hash"], name: "index_solid_cache_entries_on_key_hash", unique: true
@@ -391,7 +394,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "subscriptions", force: :cascade do |t|
-    t.integer "user_id", null: false
+    t.bigint "user_id", null: false
     t.string "stripe_subscription_id", null: false
     t.string "stripe_price_id"
     t.string "status", default: "incomplete", null: false
@@ -406,10 +409,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.boolean "cancel_at_period_end", default: false
     t.datetime "canceled_at"
     t.datetime "ended_at"
-    t.json "metadata", default: {}
+    t.jsonb "metadata", default: {}
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.integer "organization_id"
+    t.bigint "organization_id"
     t.index ["organization_id"], name: "index_subscriptions_on_organization_id"
     t.index ["status"], name: "index_subscriptions_on_status"
     t.index ["stripe_subscription_id"], name: "index_subscriptions_on_stripe_subscription_id", unique: true
@@ -418,8 +421,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "supplier_2fa_requests", force: :cascade do |t|
-    t.integer "user_id", null: false
-    t.integer "supplier_credential_id", null: false
+    t.bigint "user_id", null: false
+    t.bigint "supplier_credential_id", null: false
     t.string "session_token", null: false
     t.string "request_type", null: false
     t.string "two_fa_type"
@@ -439,8 +442,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "supplier_credentials", force: :cascade do |t|
-    t.integer "user_id", null: false
-    t.integer "supplier_id", null: false
+    t.bigint "user_id", null: false
+    t.bigint "supplier_id", null: false
     t.text "encrypted_username", null: false
     t.string "encrypted_username_iv", null: false
     t.text "encrypted_password"
@@ -460,7 +463,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.datetime "updated_at", null: false
     t.boolean "importing", default: false, null: false
     t.datetime "last_import_at"
-    t.integer "organization_id"
+    t.bigint "organization_id"
     t.integer "import_progress", default: 0
     t.integer "import_total", default: 0
     t.string "import_status_text"
@@ -472,8 +475,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "supplier_delivery_schedules", force: :cascade do |t|
-    t.integer "supplier_id", null: false
-    t.integer "location_id"
+    t.bigint "supplier_id", null: false
+    t.bigint "location_id"
     t.integer "day_of_week", null: false
     t.integer "cutoff_day", null: false
     t.time "cutoff_time", null: false
@@ -488,8 +491,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "supplier_products", force: :cascade do |t|
-    t.integer "product_id"
-    t.integer "supplier_id", null: false
+    t.bigint "product_id"
+    t.bigint "supplier_id", null: false
     t.string "supplier_sku", null: false
     t.string "supplier_name", null: false
     t.string "supplier_url"
@@ -511,7 +514,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
   end
 
   create_table "supplier_requirements", force: :cascade do |t|
-    t.integer "supplier_id", null: false
+    t.bigint "supplier_id", null: false
     t.string "requirement_type", null: false
     t.string "value"
     t.decimal "numeric_value", precision: 10, scale: 2
@@ -563,11 +566,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "stripe_customer_id"
-    t.integer "current_organization_id"
+    t.bigint "current_organization_id"
     t.index ["current_organization_id"], name: "index_users_on_current_organization_id"
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
-    t.index ["role"], name: "index_users_on_super_admin_role", unique: true, where: "role = 'super_admin'"
+    t.index ["role"], name: "index_users_on_super_admin_role", unique: true, where: "((role)::text = 'super_admin'::text)"
     t.index ["stripe_customer_id"], name: "index_users_on_stripe_customer_id", unique: true
     t.index ["unlock_token"], name: "index_users_on_unlock_token", unique: true
   end

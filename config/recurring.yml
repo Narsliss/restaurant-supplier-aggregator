@@ -1,51 +1,21 @@
-# Product Scraping Refactor - Recurring Jobs
-# TEMPORARILY DISABLED for credential validation testing
+# Recurring jobs — only run in production (Railway worker)
+# Solid Queue checks for an environment key first; if found, only those jobs run.
 
-# Staggered supplier imports - DISABLED
-# staggered_supplier_import:
-#   class: StaggeredSupplierImportJob
-#   queue: scraping
-#   schedule: "*/15 * * * *"
-#   description: "Staggered supplier imports - each supplier every 15 minutes (rotating schedule)"
+development: {}
 
-# Session keep-alive - DISABLED
-# session_refresh:
-#   class: SessionRefreshSchedulerJob
-#   queue: default
-#   schedule: "0 */2 * * *"
-#   description: "Keep all user sessions alive every 2 hours (staggered, minimally intrusive)"
+test: {}
 
-# Daily supplier health check - DISABLED
-# supplier_health_check:
-#   class: SupplierHealthCheckJob
-#   queue: low
-#   schedule: "0 9 * * *"
-#   description: "Daily supplier health check at 9 AM (emails super admin with summary)"
+production:
+  # Staggered supplier imports - every 15 minutes (rotating schedule)
+  staggered_supplier_import:
+    class: StaggeredSupplierImportJob
+    queue: scraping
+    schedule: "*/15 * * * *"
+    description: "Staggered supplier imports - each supplier every 15 minutes (rotating schedule)"
 
-# Expire old 2FA requests (keep this one - needed for cleanup)
-expire_2fa_requests:
-  class: Expire2faRequestsJob
-  queue: low
-  schedule: "*/5 * * * *"
-  description: "Expire old 2FA requests every 5 minutes"
-
-# DEPRECATED - Replaced by staggered_supplier_import above
-# quick_price_update:
-#   class: QuickPriceUpdateJob
-#   queue: scraping
-#   schedule: "*/30 * * * *"
-#   description: "DEPRECATED - Replaced by staggered supplier imports"
-
-# DEPRECATED - Replaced by staggered_supplier_import above
-# full_catalog_import:
-#   class: ScheduledImportJob
-#   queue: scraping
-#   schedule: "0 4 * * *"
-#   description: "DEPRECATED - Replaced by staggered supplier imports"
-
-# DEPRECATED - Replaced by session_refresh above with SessionRefreshSchedulerJob
-# refresh_sessions:
-#   class: RefreshSessionJob
-#   queue: default
-#   schedule: "0 */6 * * *"
-#   description: "DEPRECATED - Replaced by session_refresh scheduler"
+  # Expire old 2FA requests every 5 minutes
+  expire_2fa_requests:
+    class: Expire2faRequestsJob
+    queue: low
+    schedule: "*/5 * * * *"
+    description: "Expire old 2FA requests every 5 minutes"
