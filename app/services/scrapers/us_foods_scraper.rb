@@ -37,7 +37,7 @@ module Scrapers
         headless: 'new',
         timeout: 60,
         process_timeout: 30,
-        window_size: [1920, 1080],
+        window_size: [1280, 720],
         browser_options: {
           "no-sandbox": true,
           "disable-gpu": true,
@@ -49,7 +49,18 @@ module Scrapers
           "excludeSwitches": 'enable-automation',
           "disable-ipc-flooding-protection": true,
           "disable-background-networking": false,
-          "enable-features": 'NetworkService,NetworkServiceInProcess'
+          "enable-features": 'NetworkService,NetworkServiceInProcess',
+          # Memory optimization flags for constrained environments (Railway 1GB)
+          "single-process": true,
+          "disable-extensions": true,
+          "disable-default-apps": true,
+          "disable-translate": true,
+          "disable-sync": true,
+          "disable-background-timer-throttling": true,
+          "disable-renderer-backgrounding": true,
+          "disable-backgrounding-occluded-windows": true,
+          "js-flags": '--max-old-space-size=256',
+          "renderer-process-limit": 1
         }
       }
 
