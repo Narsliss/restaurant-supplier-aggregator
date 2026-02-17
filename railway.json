@@ -5,7 +5,6 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "sh -c 'bin/rails db:migrate && PROCESS_TYPE=web ./bin/start'",
     "restartPolicyType": "ON_FAILURE",
     "sleepApplication": false
   }
