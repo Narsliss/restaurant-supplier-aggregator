@@ -209,7 +209,7 @@ module Scrapers
 
         # Navigate to the site so we have a JS context for storage injection
         begin
-          browser.goto(BASE_URL, wait: 0)
+          browser.goto(BASE_URL)
         rescue Ferrum::PendingConnectionsError
           # Expected for US Foods SPA
         end
@@ -848,15 +848,15 @@ module Scrapers
     # Override navigate_to for US Foods — the Ionic SPA makes continuous
     # background API calls (analytics, product prefetch, images) that
     # prevent Ferrum's default network-idle detection from ever resolving.
-    # Use goto with wait: 0 and manually wait for DOM readiness instead.
+    # Rescue the PendingConnectionsError since the page is usable even
+    # with background requests still in flight.
     def navigate_to(url)
       logger.debug "[UsFoods] Navigating to: #{url}"
-      browser.goto(url, wait: 0)
-      # Wait for DOMContentLoaded rather than full network idle
-      sleep 2
+      browser.goto(url)
+      sleep 1
     rescue Ferrum::PendingConnectionsError => e
-      # This is expected for SPAs with long-running connections
       logger.debug "[UsFoods] Pending connections (expected for SPA): #{e.message.truncate(200)}"
+      sleep 1
     end
 
     def perform_login_steps
