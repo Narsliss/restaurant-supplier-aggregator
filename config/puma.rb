@@ -12,6 +12,6 @@ pidfile ENV.fetch('PIDFILE') { 'tmp/pids/server.pid' }
 
 plugin :tmp_restart
 
-# Solid Queue runs as a separate background process via bin/start.
-# Do NOT use plugin :solid_queue here — it forks, which can fail
-# silently in containerized environments (Railway, Docker).
+# Run Solid Queue inside Puma via fork.
+# This worked in the original Railway deployment.
+plugin :solid_queue
