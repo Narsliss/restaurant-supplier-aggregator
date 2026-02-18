@@ -71,14 +71,8 @@ class SupplierCredentialsController < ApplicationController
         result = validate_credential_now(@credential)
 
         if result[:valid]
-          # Auto-import products after successful validation (same as async path)
-          unless @credential.importing?
-            @credential.update_columns(importing: true)
-            ImportSupplierProductsJob.perform_later(@credential.supplier_id)
-          end
-
           redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} credentials verified successfully. Product import started."
+                      notice: "#{@credential.supplier.name} credentials verified successfully."
         elsif result[:two_fa_required]
           redirect_to supplier_credentials_path,
                       notice: "#{@credential.supplier.name} credentials saved. A verification code is required — please enter the code sent to your phone or email."
@@ -375,6 +369,19 @@ class SupplierCredentialsController < ApplicationController
   end
 
   def import_products
+    unless current_user.super_admin?
+      respond_to do |format|
+        format.html do
+          redirect_to supplier_credentials_path,
+                      alert: 'Only the system administrator can trigger product imports.'
+        end
+        format.json do
+          render json: { status: 'error', message: 'Not authorized' }, status: :forbidden
+        end
+      end
+      return
+    end
+
     unless @credential.active?
       respond_to do |format|
         format.html do

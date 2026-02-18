@@ -19,12 +19,6 @@ class ValidateCredentialsJob < ApplicationJob
     if result[:valid]
       Rails.logger.info "[ValidateCredentialsJob] Credentials valid for #{credential.supplier.name}"
       credential.mark_active!
-
-      # Automatically import products after successful validation
-      unless credential.importing?
-        Rails.logger.info "[ValidateCredentialsJob] Queueing product import for #{credential.supplier.name}"
-        ImportSupplierProductsJob.perform_later(credential.supplier_id)
-      end
     elsif result[:two_fa_required]
       # For non-polling scrapers, 2FA was requested but handled via exception
       Rails.logger.info "[ValidateCredentialsJob] 2FA required for #{credential.supplier.name}"
