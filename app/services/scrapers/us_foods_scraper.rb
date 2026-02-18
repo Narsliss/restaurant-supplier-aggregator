@@ -1736,22 +1736,37 @@ module Scrapers
               // Validate it looks like a pack size
               if (!packSize.match(/\\d/)) packSize = '';
 
-              // Case price: find "$XX.XX CS" pattern
+              // Case price extraction (3 methods, matching scrape_product logic)
               var price = null;
-              var csMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*CS/i);
+
+              // Method 1: "$XX.XX CS" or "$XX.XX/CS" pattern (with optional slash/space)
+              var csMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*[\\/]?\\s*CS/i);
               if (csMatch) {
                 price = parseFloat(csMatch[1].replace(',', ''));
               }
 
-              // Fallback: largest non-unit price
+              // Method 2: data-cy case price element (Angular data attributes)
               if (!price) {
-                var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(?!\\s*\\/|\\s*CS)/g;
-                var pm;
-                var prices = [];
-                while ((pm = priceRegex.exec(text)) !== null) {
-                  prices.push(parseFloat(pm[1].replace(',', '')));
+                var casePriceEl = card.querySelector('[data-cy*="case-price"], [data-cy*="product-price"]:not([data-cy*="unit"])');
+                if (casePriceEl) {
+                  var cpm = casePriceEl.innerText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+                  if (cpm) price = parseFloat(cpm[1].replace(',', ''));
                 }
-                if (prices.length > 0) price = Math.max.apply(null, prices);
+              }
+
+              // Method 3: Find prices excluding per-unit prices (which have /unit suffix)
+              if (!price) {
+                var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(\\/[a-zA-Z]+)?/g;
+                var pm;
+                var casePrices = [];
+                while ((pm = priceRegex.exec(text)) !== null) {
+                  // Only include prices that DON'T have a per-unit suffix like /LB, /OZ
+                  // but DO include /CS (case) prices
+                  if (!pm[2] || pm[2].match(/\\/CS/i)) {
+                    casePrices.push(parseFloat(pm[1].replace(',', '')));
+                  }
+                }
+                if (casePrices.length > 0) price = Math.max.apply(null, casePrices);
               }
 
               var inStock = !text.toLowerCase().includes('out of stock') &&
@@ -1779,6 +1794,11 @@ module Scrapers
         JSON.parse(products_json)
       rescue StandardError
         []
+      end
+
+      priceless_count = products.count { |p| p['price'].nil? }
+      if priceless_count > 0 && products.any?
+        logger.warn "[UsFoods] #{priceless_count}/#{products.size} products extracted without a price"
       end
 
       products.map do |p|
