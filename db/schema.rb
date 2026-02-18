@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_18_004845) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_18_150721) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -507,6 +507,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_18_004845) do
     t.datetime "last_scraped_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "discontinued", default: false, null: false
+    t.integer "consecutive_misses", default: 0, null: false
+    t.datetime "discontinued_at"
+    t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
+    t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["in_stock"], name: "index_supplier_products_on_in_stock"
     t.index ["product_id"], name: "index_supplier_products_on_product_id"
     t.index ["supplier_id", "supplier_sku"], name: "index_supplier_products_on_supplier_id_and_supplier_sku", unique: true

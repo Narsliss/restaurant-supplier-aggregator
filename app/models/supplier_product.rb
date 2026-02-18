@@ -12,12 +12,20 @@ class SupplierProduct < ApplicationRecord
   validates :minimum_quantity, numericality: { greater_than: 0 }, allow_nil: true
   validates :maximum_quantity, numericality: { greater_than: 0 }, allow_nil: true
 
+  # Configurable threshold: a product must be missing from this many consecutive
+  # full imports before it is marked as discontinued. This prevents false positives
+  # from partial scrapes, network failures, or paginated search results.
+  DISCONTINUE_AFTER_MISSES = 3
+
   # Scopes
   scope :in_stock, -> { where(in_stock: true) }
   scope :out_of_stock, -> { where(in_stock: false) }
   scope :with_price, -> { where.not(current_price: nil) }
   scope :stale, -> { where('last_scraped_at < ? OR last_scraped_at IS NULL', 24.hours.ago) }
   scope :price_changed, -> { where.not(previous_price: nil).where('current_price != previous_price') }
+  scope :available, -> { where(discontinued: false) }
+  scope :discontinued, -> { where(discontinued: true) }
+  scope :at_risk, -> { where('consecutive_misses > 0 AND discontinued = ?', false) }
 
   # Scope products by user's validated suppliers
   scope :for_user, ->(user) { where(supplier_id: user.validated_supplier_ids) }
@@ -62,6 +70,40 @@ class SupplierProduct < ApplicationRecord
 
   def stale?
     last_scraped_at.nil? || last_scraped_at < 24.hours.ago
+  end
+
+  def discontinued?
+    discontinued
+  end
+
+  # Record that this product was NOT found in a supplier catalog scrape.
+  # Increments the miss counter; marks as discontinued once the threshold is reached.
+  def record_miss!
+    new_misses = consecutive_misses + 1
+    attrs = { consecutive_misses: new_misses }
+
+    if new_misses >= DISCONTINUE_AFTER_MISSES && !discontinued
+      attrs[:discontinued] = true
+      attrs[:discontinued_at] = Time.current
+      attrs[:in_stock] = false
+      Rails.logger.info "[SupplierProduct] Discontinued #{supplier_name} (SKU: #{supplier_sku}) after #{new_misses} consecutive misses"
+    end
+
+    update!(attrs)
+  end
+
+  # Product reappeared in a scrape — reset discontinuation state.
+  def record_seen!
+    return if consecutive_misses.zero? && !discontinued
+
+    attrs = { consecutive_misses: 0 }
+    if discontinued
+      attrs[:discontinued] = false
+      attrs[:discontinued_at] = nil
+      Rails.logger.info "[SupplierProduct] Reinstated #{supplier_name} (SKU: #{supplier_sku}) — product reappeared in catalog"
+    end
+
+    update!(attrs)
   end
 
   # Pack size parsing and per-unit pricing

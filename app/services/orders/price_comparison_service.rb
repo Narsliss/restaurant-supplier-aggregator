@@ -56,14 +56,14 @@ module Orders
 
     def build_supplier_prices(product, quantity)
       supplier_pairs = active_suppliers.map do |supplier|
-        sp = product.supplier_products.find { |sp| sp.supplier_id == supplier.id }
+        sp = product.supplier_products.find { |sp| sp.supplier_id == supplier.id && !sp.discontinued? }
         [supplier, sp]
       end
 
       # Determine if per-unit comparison is possible (all parseable suppliers share the same unit category)
       parseable_units = supplier_pairs
-        .filter_map { |_, sp| sp&.normalized_unit }
-        .uniq
+                        .filter_map { |_, sp| sp&.normalized_unit }
+                        .uniq
       comparable = parseable_units.size == 1
       comparison_unit = parseable_units.first if comparable
 
@@ -119,9 +119,9 @@ module Orders
       @active_suppliers ||= begin
         # Get suppliers where user has active credentials
         user_supplier_ids = user.supplier_credentials
-          .where(status: "active")
-          .pluck(:supplier_id)
-        
+                                .where(status: 'active')
+                                .pluck(:supplier_id)
+
         Supplier.active.where(id: user_supplier_ids).order(:name)
       end
     end
@@ -132,10 +132,10 @@ module Orders
 
       # Use per-unit price when comparable, otherwise fall back to pack price
       best = if available.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
-        available.select { |sp| sp[:per_unit_price] }.min_by { |sp| sp[:per_unit_price] }
-      else
-        available.min_by { |sp| sp[:unit_price] }
-      end
+               available.select { |sp| sp[:per_unit_price] }.min_by { |sp| sp[:per_unit_price] }
+             else
+               available.min_by { |sp| sp[:unit_price] }
+             end
 
       {
         supplier_id: best.dig(:supplier, :id),
@@ -152,10 +152,10 @@ module Orders
       return nil if available.empty?
 
       worst = if available.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
-        available.select { |sp| sp[:per_unit_price] }.max_by { |sp| sp[:per_unit_price] }
-      else
-        available.max_by { |sp| sp[:unit_price] }
-      end
+                available.select { |sp| sp[:per_unit_price] }.max_by { |sp| sp[:per_unit_price] }
+              else
+                available.max_by { |sp| sp[:unit_price] }
+              end
 
       {
         supplier_id: worst.dig(:supplier, :id),
@@ -171,17 +171,19 @@ module Orders
       if supplier_prices.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
         per_unit_prices = supplier_prices.filter_map { |sp| sp[:per_unit_price] if sp[:comparable] }
         return 0 if per_unit_prices.size < 2
+
         (per_unit_prices.max - per_unit_prices.min).round(4)
       else
         prices = supplier_prices.map { |sp| sp[:unit_price] }.compact
         return 0 if prices.size < 2
+
         (prices.max - prices.min).round(2)
       end
     end
 
     def calculate_totals(comparison)
       totals = {}
-      
+
       active_suppliers.each do |supplier|
         totals[supplier.id] = {
           supplier_id: supplier.id,
@@ -221,7 +223,7 @@ module Orders
 
     def generate_summary(comparison)
       total_items = comparison.size
-      
+
       {
         total_items: total_items,
         total_quantity: comparison.sum { |c| c[:quantity] },
@@ -241,15 +243,13 @@ module Orders
       end
 
       best_single = if complete_suppliers.any?
-        best = complete_suppliers.min_by { |_id, data| data[:total] }
-        {
-          supplier_id: best[0],
-          supplier_name: best[1][:supplier_name],
-          total: best[1][:total]
-        }
-      else
-        nil
-      end
+                      best = complete_suppliers.min_by { |_id, data| data[:total] }
+                      {
+                        supplier_id: best[0],
+                        supplier_name: best[1][:supplier_name],
+                        total: best[1][:total]
+                      }
+                    end
 
       # Calculate split order savings
       split_savings = calculate_split_savings(comparison, totals)
@@ -265,7 +265,7 @@ module Orders
       # Savings if you ordered each item from cheapest vs most expensive
       total_best = comparison.sum { |c| c[:best_price]&.dig(:line_total) || 0 }
       total_worst = comparison.sum { |c| c[:worst_price]&.dig(:line_total) || 0 }
-      
+
       (total_worst - total_best).round(2)
     end
 
@@ -286,9 +286,9 @@ module Orders
       if best_single.nil?
         incomplete = totals.values.select { |t| t[:missing_items] > 0 }
         if incomplete.any?
-          "No single supplier has all items available. Consider splitting your order or finding alternative products."
+          'No single supplier has all items available. Consider splitting your order or finding alternative products.'
         else
-          "No suppliers meet their order minimums. Add more items to your order."
+          'No suppliers meet their order minimums. Add more items to your order.'
         end
       elsif split_savings > 10
         "You could save #{format_currency(split_savings)} by splitting your order across multiple suppliers. However, #{best_single[:supplier_name]} has all items for #{format_currency(best_single[:total])}."

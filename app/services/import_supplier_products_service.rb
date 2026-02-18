@@ -1,10 +1,15 @@
 class ImportSupplierProductsService
   attr_reader :supplier, :credential, :results
 
+  # Minimum number of products a scrape must return before we trust it enough
+  # to record misses for unseen products. This prevents a failed/partial scrape
+  # from incorrectly incrementing miss counters on the entire catalog.
+  MINIMUM_SCRAPE_THRESHOLD = 50
+
   def initialize(credential)
     @credential = credential
     @supplier = credential.supplier
-    @results = { imported: 0, updated: 0, skipped: 0, errors: [] }
+    @results = { imported: 0, updated: 0, skipped: 0, errors: [], discontinued: 0, reinstated: 0 }
   end
 
   # Import products from the supplier's catalog by searching for common food categories.
@@ -57,7 +62,15 @@ class ImportSupplierProductsService
       # Don't return early — we may have already imported products incrementally
     end
 
-    Rails.logger.info "[ImportProducts] #{supplier.name} import complete: #{results[:imported]} imported, #{results[:updated]} updated, #{results[:skipped]} skipped"
+    # After scraping, identify products that were NOT seen in this import.
+    # Only do this if we scraped enough products to trust the results —
+    # a partial/failed scrape shouldn't penalize the entire catalog.
+    record_misses_for_unseen_products
+
+    Rails.logger.info "[ImportProducts] #{supplier.name} import complete: " \
+                      "#{results[:imported]} imported, #{results[:updated]} updated, " \
+                      "#{results[:skipped]} skipped, #{results[:discontinued]} discontinued, " \
+                      "#{results[:reinstated]} reinstated"
     results
   end
 
@@ -131,6 +144,17 @@ class ImportSupplierProductsService
       end
 
       attrs[:in_stock] = item[:in_stock] unless item[:in_stock].nil?
+
+      # Reset discontinuation tracking — product is still in the catalog
+      if supplier_product.consecutive_misses > 0 || supplier_product.discontinued?
+        attrs[:consecutive_misses] = 0
+        if supplier_product.discontinued?
+          attrs[:discontinued] = false
+          attrs[:discontinued_at] = nil
+          results[:reinstated] += 1
+          Rails.logger.info "[ImportProducts] Reinstated #{item[:supplier_name]} (SKU: #{item[:supplier_sku]}) — reappeared in catalog"
+        end
+      end
 
       supplier_product.update!(attrs)
       results[:updated] += 1
@@ -229,6 +253,41 @@ class ImportSupplierProductsService
     product_index[:by_first_word][fw] << new_product if fw
 
     new_product
+  end
+
+  # After a full catalog import, diff seen SKUs against existing DB records.
+  # Products that were in the DB but NOT seen in this scrape get their
+  # consecutive_misses counter incremented. Once the threshold is reached,
+  # the product is marked as discontinued.
+  #
+  # Safety: we skip this entirely if the scrape returned too few products,
+  # which suggests a partial failure rather than genuine catalog changes.
+  def record_misses_for_unseen_products
+    total_seen = @seen_skus.size
+
+    if total_seen < MINIMUM_SCRAPE_THRESHOLD
+      Rails.logger.info "[ImportProducts] Skipping miss tracking for #{supplier.name} — " \
+                        "only #{total_seen} products seen (threshold: #{MINIMUM_SCRAPE_THRESHOLD})"
+      return
+    end
+
+    unseen_skus = @existing_by_sku.keys - @seen_skus.to_a
+
+    if unseen_skus.empty?
+      Rails.logger.info "[ImportProducts] All #{@existing_by_sku.size} existing products were seen in scrape for #{supplier.name}"
+      return
+    end
+
+    Rails.logger.info "[ImportProducts] #{supplier.name}: #{unseen_skus.size} existing products not seen in this scrape (#{total_seen} seen)"
+
+    # Batch update for efficiency — increment consecutive_misses for all unseen products
+    unseen_skus.each do |sku|
+      product = @existing_by_sku[sku]
+      next unless product
+
+      product.record_miss!
+      results[:discontinued] += 1 if product.discontinued?
+    end
   end
 
   def default_search_terms

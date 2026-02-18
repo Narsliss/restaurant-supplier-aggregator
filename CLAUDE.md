@@ -36,9 +36,10 @@ Located in `app/services/scrapers/`:
 
 ### Background Jobs (Solid Queue)
 Recurring jobs in `config/recurring.yml`:
-- `refresh_prices` - Daily at 4 AM
-- `refresh_sessions` - Every 6 hours
-- `scheduled_import` - Every hour
+- `staggered_supplier_import` - Every hour (rotating supplier imports)
+- `deep_catalog_import` - Daily at 2 AM (US Foods deep category browsing)
+- `refresh_sessions` - Every 2 hours (proactive session keepalive)
+- `discontinue_stale_products` - Daily at 3 AM (discontinue products missing from 3+ consecutive imports)
 - `expire_2fa_requests` - Every 5 minutes
 
 Queue configuration in `config/queue.yml` with priorities: critical, default, scraping, low.

@@ -133,6 +133,12 @@ module Orders
       product = item.supplier_product
       return unless product
 
+      if product.discontinued?
+        add_error(:discontinued,
+                  "#{product.supplier_name} has been discontinued and is no longer available from this supplier", item: item)
+        return
+      end
+
       return unless product.out_of_stock?
 
       add_error(:stock, "#{product.supplier_name} is out of stock (cached data)", item: item)

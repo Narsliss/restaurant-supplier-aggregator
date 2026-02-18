@@ -13,7 +13,7 @@ module Orders
       assignments = assign_items_to_suppliers
 
       {
-        strategy: "best_price",
+        strategy: 'best_price',
         assignments: assignments.map do |supplier_id, items|
           supplier = suppliers_by_id[supplier_id]
           subtotal = items.sum { |i| i[:line_total] }
@@ -45,14 +45,14 @@ module Orders
         supplier = suppliers_by_id[supplier_id]
         subtotal = items.sum { |i| i[:line_total] }
 
-        unless meets_minimum?(supplier, subtotal)
-          raise OrderMinimumError.new(
-            "#{supplier.name} order minimum not met",
-            supplier: supplier,
-            minimum: supplier.order_minimum,
-            current: subtotal
-          )
-        end
+        next if meets_minimum?(supplier, subtotal)
+
+        raise OrderMinimumError.new(
+          "#{supplier.name} order minimum not met",
+          supplier: supplier,
+          minimum: supplier.order_minimum,
+          current: subtotal
+        )
       end
 
       orders = []
@@ -65,9 +65,9 @@ module Orders
             supplier: supplier,
             location: location,
             order_list: order_list,
-            status: "pending",
+            status: 'pending',
             delivery_date: delivery_date,
-            notes: "Split order - best price per item"
+            notes: 'Split order - best price per item'
           )
 
           items.each do |item|
@@ -76,7 +76,7 @@ module Orders
               quantity: item[:quantity],
               unit_price: item[:unit_price],
               line_total: item[:line_total],
-              status: "pending"
+              status: 'pending'
             )
           end
 
@@ -95,16 +95,14 @@ module Orders
       results = []
 
       orders.each do |order|
-        begin
-          PlaceOrderJob.perform_later(
-            order.id,
-            accept_price_changes: accept_price_changes
-          )
-          order.update!(status: "processing")
-          results << { order: order, status: "submitted" }
-        rescue => e
-          results << { order: order, status: "failed", error: e.message }
-        end
+        PlaceOrderJob.perform_later(
+          order.id,
+          accept_price_changes: accept_price_changes
+        )
+        order.update!(status: 'processing')
+        results << { order: order, status: 'submitted' }
+      rescue StandardError => e
+        results << { order: order, status: 'failed', error: e.message }
       end
 
       results
@@ -137,7 +135,7 @@ module Orders
             product_id: product.id,
             product_name: product.name,
             quantity: list_item.quantity,
-            reason: "No supplier has this item in stock"
+            reason: 'No supplier has this item in stock'
           }
         end
       end
@@ -152,6 +150,7 @@ module Orders
       options = []
 
       product.supplier_products.each do |sp|
+        next if sp.discontinued?
         next unless sp.in_stock? && sp.current_price.present?
         next unless active_supplier_ids.include?(sp.supplier_id)
 
@@ -171,8 +170,8 @@ module Orders
 
     def active_supplier_ids
       @active_supplier_ids ||= user.supplier_credentials
-        .where(status: "active")
-        .pluck(:supplier_id)
+                                   .where(status: 'active')
+                                   .pluck(:supplier_id)
     end
 
     def suppliers_by_id
@@ -185,12 +184,13 @@ module Orders
 
     def amount_to_minimum(supplier, subtotal)
       return 0 if supplier.order_minimum.nil?
+
       [supplier.order_minimum - subtotal, 0].max
     end
 
     def build_summary(assignments)
       total_items = assignments.values.sum(&:size)
-      total_amount = assignments.sum do |supplier_id, items|
+      total_amount = assignments.sum do |_supplier_id, items|
         items.sum { |i| i[:line_total] }
       end
 
@@ -208,7 +208,7 @@ module Orders
       # Check for unassigned items
       if @unassigned_items&.any?
         warnings << {
-          type: "unassigned_items",
+          type: 'unassigned_items',
           message: "#{@unassigned_items.size} item(s) could not be assigned to any supplier",
           items: @unassigned_items
         }
@@ -219,17 +219,17 @@ module Orders
         supplier = suppliers_by_id[supplier_id]
         subtotal = items.sum { |i| i[:line_total] }
 
-        unless meets_minimum?(supplier, subtotal)
-          warnings << {
-            type: "minimum_not_met",
-            message: "#{supplier.name} requires a minimum order of $#{'%.2f' % supplier.order_minimum}",
-            supplier_id: supplier_id,
-            supplier_name: supplier.name,
-            current_total: subtotal,
-            minimum: supplier.order_minimum,
-            shortfall: amount_to_minimum(supplier, subtotal)
-          }
-        end
+        next if meets_minimum?(supplier, subtotal)
+
+        warnings << {
+          type: 'minimum_not_met',
+          message: "#{supplier.name} requires a minimum order of $#{'%.2f' % supplier.order_minimum}",
+          supplier_id: supplier_id,
+          supplier_name: supplier.name,
+          current_total: subtotal,
+          minimum: supplier.order_minimum,
+          shortfall: amount_to_minimum(supplier, subtotal)
+        }
       end
 
       warnings

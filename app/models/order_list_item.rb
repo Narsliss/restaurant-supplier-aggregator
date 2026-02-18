@@ -33,9 +33,10 @@ class OrderListItem < ApplicationRecord
 
   def best_price
     product.supplier_products
-      .where(in_stock: true)
-      .where.not(current_price: nil)
-      .minimum(:current_price)
+           .available
+           .where(in_stock: true)
+           .where.not(current_price: nil)
+           .minimum(:current_price)
   end
 
   def best_line_total
@@ -47,12 +48,12 @@ class OrderListItem < ApplicationRecord
     transaction do
       if new_position < position
         order_list.order_list_items
-          .where(position: new_position...position)
-          .update_all("position = position + 1")
+                  .where(position: new_position...position)
+                  .update_all('position = position + 1')
       else
         order_list.order_list_items
-          .where(position: (position + 1)..new_position)
-          .update_all("position = position - 1")
+                  .where(position: (position + 1)..new_position)
+                  .update_all('position = position - 1')
       end
       update!(position: new_position)
     end
