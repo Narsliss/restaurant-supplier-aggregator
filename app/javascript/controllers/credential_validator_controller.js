@@ -34,7 +34,6 @@ export default class extends Controller {
     this.polling = false
     this.timerInterval = null
     this.currentState = "idle"
-    console.log(`[credential-validator] connected for credential ${this.credentialIdValue}`)
 
     // Auto-start polling if:
     // 1. There's an active 2FA request (2FA block visible from server rendering), OR
@@ -45,7 +44,6 @@ export default class extends Controller {
     } else if (this.credentialStatusValue === "pending") {
       // Credential is pending - background job is running but 2FA request may not exist yet
       // Start polling so the 2FA form appears as soon as the scraper creates the request
-      console.log(`[credential-validator] Credential is pending, starting polling for 2FA request`)
       this.currentState = "validating"
       this.startPolling()
     }
@@ -59,25 +57,20 @@ export default class extends Controller {
   // ── Validate button clicked ──────────────────────────────────────
   async startValidation(event) {
     event.preventDefault()
-    console.log(`[credential-validator] startValidation for credential ${this.credentialIdValue}`)
     this.showState("validating")
 
     try {
-      console.log(`[credential-validator] POSTing to:`, this.validateUrlValue)
       const resp = await this.postJSON(this.validateUrlValue)
-      console.log(`[credential-validator] validate response:`, resp)
       if (resp.status === "already_active") {
         // Already validated — show flash and reset to idle state
         this.showState("success")
         this.showAlreadyActiveFlash(resp.message)
       } else if (resp.status === "validating" || resp.status === "two_fa_required") {
         // Async validation (PPO) — start polling for the 2FA request
-        console.log(`[credential-validator] Starting polling for 2FA...`)
         this.startPolling()
       } else if (resp.status === "active") {
         this.showState("success")
       } else {
-        console.log(`[credential-validator] Unexpected status:`, resp.status)
         this.showState("failed", resp.message || "Validation failed")
       }
     } catch (err) {
@@ -92,12 +85,10 @@ export default class extends Controller {
     const code = this.tfaCodeInputTarget.value.trim()
     if (!code) return
 
-    console.log(`[credential-validator] submitting code: ${code}`)
     this.showState("verifying")
 
     try {
       const resp = await this.postJSON(this.submitCodeUrlValue, { code })
-      console.log(`[credential-validator] submitCode response:`, resp)
       if (resp.status === "submitted") {
         // Code written to DB — scraper will pick it up. Keep polling.
         this.startPolling()
@@ -135,7 +126,6 @@ export default class extends Controller {
     // Stop polling after 10 minutes to avoid infinite loops on stuck credentials
     const elapsed = Date.now() - this.pollingStartedAt
     if (elapsed > 10 * 60 * 1000) {
-      console.log(`[credential-validator] Polling timed out after 10 minutes`)
       this.stopPolling()
       this.showState("failed", "Validation timed out. Please try again.")
       return
@@ -156,7 +146,6 @@ export default class extends Controller {
   handlePollResult(data) {
     const cred = data.credential
     const tfa = data.two_fa_request
-    console.log(`[credential-validator] poll result:`, { credential: cred.status, two_fa: tfa ? tfa.status : 'none', currentState: this.currentState, two_fa_data: tfa })
 
     // When there's an active 2FA request, always handle it first —
     // the credential may still be "active" while the background job waits for a code
@@ -229,7 +218,6 @@ export default class extends Controller {
   showState(state, message, tfa) {
     const prevState = this.currentState
     this.currentState = state
-    console.log(`[credential-validator] showState: ${prevState} → ${state}`, message || "", tfa || "")
 
     // Hide everything first — unless staying in the same state
     // (avoid resetting the code input while user is typing)
@@ -409,10 +397,8 @@ export default class extends Controller {
 
   // ── 2FA block ────────────────────────────────────────────────────
   showTfaBlock(tfa) {
-    console.log(`[credential-validator] showTfaBlock called, hasTfaBlockTarget=${this.hasTfaBlockTarget}`, tfa)
     if (!this.hasTfaBlockTarget) return
     this.tfaBlockTarget.classList.remove("hidden")
-    console.log(`[credential-validator] tfaBlock hidden class removed, classList:`, this.tfaBlockTarget.classList.toString())
 
     if (tfa && this.hasTfaPromptTarget) {
       this.tfaPromptTarget.textContent = tfa.prompt_message || "A verification code has been sent."

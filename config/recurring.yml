@@ -13,6 +13,13 @@ production:
     schedule: "0 * * * *"
     description: "Staggered supplier imports - each supplier every hour (rotating schedule)"
 
+  # Deep US Foods catalog import - daily at 2 AM (browses all categories)
+  deep_catalog_import:
+    class: DeepCatalogImportJob
+    queue: scraping
+    schedule: "0 2 * * *"
+    description: "Deep US Foods catalog import - browses all food categories and subcategories"
+
   # Expire old 2FA requests every 5 minutes
   expire_2fa_requests:
     class: Expire2faRequestsJob

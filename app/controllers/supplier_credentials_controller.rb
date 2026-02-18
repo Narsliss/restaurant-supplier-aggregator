@@ -71,8 +71,14 @@ class SupplierCredentialsController < ApplicationController
         result = validate_credential_now(@credential)
 
         if result[:valid]
+          # Auto-import products after successful validation (same as async path)
+          unless @credential.importing?
+            @credential.update_columns(importing: true)
+            ImportSupplierProductsJob.perform_later(@credential.supplier_id)
+          end
+
           redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} credentials verified successfully."
+                      notice: "#{@credential.supplier.name} credentials verified successfully. Product import started."
         elsif result[:two_fa_required]
           redirect_to supplier_credentials_path,
                       notice: "#{@credential.supplier.name} credentials saved. A verification code is required — please enter the code sent to your phone or email."
@@ -397,7 +403,7 @@ class SupplierCredentialsController < ApplicationController
     # reflects the import-in-progress state. Without this, there's a race window
     # where polling sees importing=false + status=active and re-enables the button.
     @credential.update_columns(importing: true)
-    ImportSupplierProductsJob.perform_later(@credential.id)
+    ImportSupplierProductsJob.perform_later(@credential.supplier_id)
     Rails.logger.info "[SupplierCredentials] Product import queued for credential ##{@credential.id} — #{@credential.supplier.name} (user: #{current_user.id})"
 
     respond_to do |format|

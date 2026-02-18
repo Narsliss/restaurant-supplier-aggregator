@@ -13,8 +13,7 @@ class RefreshSessionJob < ApplicationJob
       credential = SupplierCredential.find(credential_id)
       refresh_credential(credential)
     else
-      # This shouldn't happen anymore - use SessionRefreshSchedulerJob instead
-      Rails.logger.warn '[RefreshSessionJob] Called without credential_id - use SessionRefreshSchedulerJob instead'
+      Rails.logger.warn '[RefreshSessionJob] Called without credential_id'
     end
   end
 

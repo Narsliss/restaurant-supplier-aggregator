@@ -16,19 +16,5 @@ class TwoFactorNotificationJob < ApplicationJob
 
     # Send email notification
     TwoFactorMailer.code_required(request).deliver_later
-
-    # Could also send SMS or push notification here
-    # send_sms_notification(user, request) if user.phone.present?
-    # send_push_notification(user, request)
-  end
-
-  private
-
-  def send_sms_notification(user, request)
-    # Implement SMS notification if needed
-    # TwilioService.send_sms(
-    #   to: user.phone,
-    #   body: "#{request.supplier.name} requires verification. Open the app to enter your code. Expires in #{request.time_remaining / 60} minutes."
-    # )
   end
 end

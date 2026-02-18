@@ -7,20 +7,20 @@
 #
 # Set GROQ_API_KEY in your environment or credentials.
 class AiProductGrouper
-  GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions".freeze
-  MODEL = "llama-3.3-70b-versatile".freeze  # Fast and capable
+  GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'.freeze
+  MODEL = 'llama-3.3-70b-versatile'.freeze # Fast and capable
 
   attr_reader :results
 
   def initialize
-    @api_key = ENV["GROQ_API_KEY"] || Rails.application.credentials.dig(:groq, :api_key)
+    @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
     @results = { matched: 0, created: 0, skipped: 0, errors: [] }
   end
 
   # Find unlinked supplier products and try to match them to existing products
   def group_unlinked_products(limit: 100)
     unless @api_key.present?
-      @results[:errors] << "GROQ_API_KEY not configured"
+      @results[:errors] << 'GROQ_API_KEY not configured'
       return @results
     end
 
@@ -30,7 +30,7 @@ class AiProductGrouper
 
     unlinked.each do |sp|
       process_supplier_product(sp)
-      sleep 0.1  # Rate limiting (30 req/min = ~2 req/sec max)
+      sleep 0.1 # Rate limiting (30 req/min = ~2 req/sec max)
     end
 
     @results
@@ -40,7 +40,7 @@ class AiProductGrouper
   # Uses rule-based similarity to find candidates, then AI to validate
   def find_duplicate_products(limit: 50)
     unless @api_key.present?
-      @results[:errors] << "GROQ_API_KEY not configured"
+      @results[:errors] << 'GROQ_API_KEY not configured'
       return []
     end
 
@@ -53,13 +53,9 @@ class AiProductGrouper
     candidates.first(limit * 2).each do |candidate|
       break if validated.size >= limit
 
-      if validate_duplicate_with_ai(candidate[:product1], candidate[:product2])
-        validated << candidate
-        print "."
-      end
-      sleep 0.1  # Rate limiting
+      validated << candidate if validate_duplicate_with_ai(candidate[:product1], candidate[:product2])
+      sleep 0.1 # Rate limiting
     end
-    puts "" if validated.any?
 
     validated
   end
@@ -79,7 +75,7 @@ class AiProductGrouper
 
     Rails.logger.info "[AiGrouper] Merged '#{duplicate.name}' into '#{primary.name}'"
     true
-  rescue => e
+  rescue StandardError => e
     Rails.logger.error "[AiGrouper] Failed to merge #{duplicate_id} into #{primary_id}: #{e.message}"
     false
   end
@@ -124,8 +120,8 @@ class AiProductGrouper
     canonical = suggest_canonical_name([sp.supplier_name])
     if canonical.present?
       product = Product.create!(
-        name: canonical.split.map(&:capitalize).join(" "),
-        normalized_name: canonical.downcase.gsub(/[^a-z0-9\s]/, "").squish,
+        name: canonical.split.map(&:capitalize).join(' '),
+        normalized_name: canonical.downcase.gsub(/[^a-z0-9\s]/, '').squish,
         category: guess_category_with_ai(sp.supplier_name)
       )
       sp.update!(product_id: product.id)
@@ -134,7 +130,7 @@ class AiProductGrouper
     else
       @results[:skipped] += 1
     end
-  rescue => e
+  rescue StandardError => e
     @results[:errors] << "#{sp.supplier_name}: #{e.message}"
     Rails.logger.warn "[AiGrouper] Error processing #{sp.id}: #{e.message}"
   end
@@ -149,10 +145,10 @@ class AiProductGrouper
     first_word = canonical.split.first
     return [] if first_word.blank?
 
-    Product.where("normalized_name LIKE ?", "#{first_word}%")
-      .or(Product.where("name LIKE ?", "%#{first_word}%"))
-      .limit(20)
-      .to_a
+    Product.where('normalized_name LIKE ?', "#{first_word}%")
+           .or(Product.where('name LIKE ?', "%#{first_word}%"))
+           .limit(20)
+           .to_a
   end
 
   def find_best_match_with_ai(supplier_name, candidates)
@@ -172,7 +168,7 @@ class AiProductGrouper
     PROMPT
 
     response = call_groq(prompt)
-    return nil if response.blank? || response.upcase.include?("NONE")
+    return nil if response.blank? || response.upcase.include?('NONE')
 
     # Extract number from response
     match_num = response.scan(/\d+/).first&.to_i
@@ -195,22 +191,22 @@ class AiProductGrouper
 
       first_word = base.split.first
       similar_products = Product
-        .where.not(id: product.id)
-        .where("normalized_name LIKE ?", "%#{first_word}%")
-        .to_a
+                         .where.not(id: product.id)
+                         .where('normalized_name LIKE ?', "%#{first_word}%")
+                         .to_a
 
       similar_products.each do |candidate|
         next if checked.include?(candidate.id)
 
         score = ProductNormalizer.similarity(product.name, candidate.name)
-        if score >= 0.65 && score < 1.0
-          candidates << {
-            product1: product,
-            product2: candidate,
-            score: score
-          }
-          checked << candidate.id
-        end
+        next unless score >= 0.65 && score < 1.0
+
+        candidates << {
+          product1: product,
+          product2: candidate,
+          score: score
+        }
+        checked << candidate.id
       end
 
       checked << product.id
@@ -233,7 +229,7 @@ class AiProductGrouper
     PROMPT
 
     response = call_groq(prompt, max_tokens: 10)
-    response&.strip&.upcase&.start_with?("YES")
+    response&.strip&.upcase&.start_with?('YES')
   end
 
   def find_similar_pairs_with_ai(product_names)
@@ -253,7 +249,7 @@ class AiProductGrouper
     PROMPT
 
     response = call_groq(prompt)
-    return [] if response.blank? || response.upcase.include?("NONE")
+    return [] if response.blank? || response.upcase.include?('NONE')
 
     # Parse pairs from response
     pairs = []
@@ -273,7 +269,7 @@ class AiProductGrouper
       What category does this food product belong to?
       Product: #{product_name}
 
-      Choose from: #{categories.join(", ")}
+      Choose from: #{categories.join(', ')}
 
       Reply with ONLY the category name, nothing else.
     PROMPT
@@ -295,21 +291,22 @@ class AiProductGrouper
     end
 
     response = conn.post do |req|
-      req.headers["Authorization"] = "Bearer #{@api_key}"
-      req.headers["Content-Type"] = "application/json"
+      req.headers['Authorization'] = "Bearer #{@api_key}"
+      req.headers['Content-Type'] = 'application/json'
       req.body = {
         model: MODEL,
         messages: [
-          { role: "system", content: "You are a helpful assistant that categorizes and matches food products for a restaurant supply platform. Be concise and precise." },
-          { role: "user", content: prompt }
+          { role: 'system',
+            content: 'You are a helpful assistant that categorizes and matches food products for a restaurant supply platform. Be concise and precise.' },
+          { role: 'user', content: prompt }
         ],
         max_tokens: max_tokens,
-        temperature: 0.1  # Low temperature for consistent responses
+        temperature: 0.1 # Low temperature for consistent responses
       }.to_json
     end
 
     if response.success?
-      response.body.dig("choices", 0, "message", "content")
+      response.body.dig('choices', 0, 'message', 'content')
     else
       Rails.logger.error "[AiGrouper] Groq API error: #{response.status} - #{response.body}"
       nil

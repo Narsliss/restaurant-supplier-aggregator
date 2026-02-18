@@ -97,9 +97,6 @@ Rails.application.routes.draw do
   # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check
 
-  # Admin endpoints (temporary)
-  get '/admin/clear_jobs', to: 'admin#clear_jobs'
-
   # Mission Control Jobs Dashboard (super_admin only)
   authenticate :user, ->(u) { u.super_admin? } do
     mount MissionControl::Jobs::Engine, at: '/jobs'

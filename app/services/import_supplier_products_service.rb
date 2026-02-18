@@ -7,62 +7,81 @@ class ImportSupplierProductsService
     @results = { imported: 0, updated: 0, skipped: 0, errors: [] }
   end
 
-  # Import products from the supplier's catalog by searching for common food categories
+  # Import products from the supplier's catalog by searching for common food categories.
+  #
+  # Products are written to the DB incrementally as they're scraped (not all at the end).
+  # This means:
+  #   - Users see products appearing in real-time in the UI
+  #   - If the scraper crashes halfway, everything scraped so far is kept
+  #   - Memory stays flat (no giant array accumulating thousands of products)
   def import_catalog(search_terms: nil)
     search_terms ||= default_search_terms
 
     Rails.logger.info "[ImportProducts] Starting catalog import for #{supplier.name} with #{search_terms.size} search terms"
 
-    # Phase 1: Scraping — report status so the UI shows activity
+    # Pre-load indexes BEFORE scraping starts so we can write incrementally
+    @existing_by_sku = SupplierProduct
+                       .where(supplier: supplier)
+                       .index_by(&:supplier_sku)
+    all_products = Product.select(:id, :name, :normalized_name).to_a
+    @product_index = build_product_index(all_products)
+    @items_processed = 0
+    @seen_skus = Set.new
+
     credential.update_columns(import_status_text: "Searching #{supplier.name} catalog...")
 
     begin
       scraper = supplier.scraper_klass.new(credential)
-      catalog_items = scraper.scrape_catalog(search_terms)
+
+      # Pass a block for incremental DB writes — the scraper yields batches
+      # as each page/search is scraped instead of accumulating everything.
+      # Scrapers that support &on_batch will yield and return [].
+      # Scrapers that don't will ignore the block and return the full array.
+      catalog_items = scraper.scrape_catalog(search_terms) do |batch|
+        import_batch(batch)
+      end
+
+      # If the scraper returned items (doesn't support incremental yields),
+      # fall back to batch processing
+      if catalog_items.is_a?(Array) && catalog_items.any?
+        Rails.logger.info "[ImportProducts] Batch mode: processing #{catalog_items.size} items from #{supplier.name}"
+        import_batch(catalog_items)
+      end
     rescue Scrapers::BaseScraper::AuthenticationError => e
       credential.mark_failed!(e.message)
       results[:errors] << "Authentication failed: #{e.message}"
       return results
-    rescue => e
+    rescue StandardError => e
       results[:errors] << "Scraping failed: #{e.class.name} — #{e.message}"
       Rails.logger.error "[ImportProducts] Scraping failed for #{supplier.name}: #{e.message}"
-      return results
-    end
-
-    Rails.logger.info "[ImportProducts] Found #{catalog_items.size} items from #{supplier.name}"
-
-    # Phase 2: DB processing — pre-load data and report progress
-    credential.update_columns(
-      import_total: catalog_items.size,
-      import_progress: 0,
-      import_status_text: "Processing products..."
-    )
-
-    # Pre-load all existing supplier products for this supplier in one query.
-    # This eliminates per-item find_or_initialize_by (N DB roundtrips → 1).
-    existing_by_sku = SupplierProduct
-      .where(supplier: supplier)
-      .index_by(&:supplier_sku)
-
-    # Pre-load all products for matching (eliminates per-item LIKE queries).
-    # Build an in-memory index keyed by first word of normalized_name for fast lookup.
-    all_products = Product.select(:id, :name, :normalized_name).to_a
-    product_index = build_product_index(all_products)
-
-    catalog_items.each_with_index do |item, idx|
-      import_item(item, existing_by_sku, product_index)
-
-      # Update progress every 10 items (avoid hammering DB on every single item)
-      if (idx + 1) % 10 == 0 || idx == catalog_items.size - 1
-        credential.update_columns(
-          import_progress: idx + 1,
-          import_status_text: "Processing #{idx + 1} of #{catalog_items.size} products..."
-        )
-      end
+      # Don't return early — we may have already imported products incrementally
     end
 
     Rails.logger.info "[ImportProducts] #{supplier.name} import complete: #{results[:imported]} imported, #{results[:updated]} updated, #{results[:skipped]} skipped"
     results
+  end
+
+  # Import a batch of scraped items into the DB immediately.
+  # Called by the scraper via the block passed to scrape_catalog.
+  def import_batch(items)
+    items.each do |item|
+      next if item[:supplier_sku].blank?
+      next if @seen_skus.include?(item[:supplier_sku]) # Dedup within this import run
+
+      @seen_skus.add(item[:supplier_sku])
+      import_item(item, @existing_by_sku, @product_index)
+      @items_processed += 1
+
+      # Update progress every 25 items
+      next unless (@items_processed % 25).zero?
+
+      credential.update_columns(
+        import_progress: @items_processed,
+        import_total: @items_processed, # Best estimate — total unknown during streaming
+        import_status_text: "Imported #{@items_processed} products so far..."
+      )
+      Rails.logger.info "[ImportProducts] #{supplier.name}: #{@items_processed} products processed (#{results[:imported]} new, #{results[:updated]} updated)"
+    end
   end
 
   # Import a single scraped item into the database.
@@ -111,14 +130,12 @@ class ImportSupplierProductsService
         attrs[:price_updated_at] = Time.current
       end
 
-      if item[:in_stock] != nil
-        attrs[:in_stock] = item[:in_stock]
-      end
+      attrs[:in_stock] = item[:in_stock] unless item[:in_stock].nil?
 
       supplier_product.update!(attrs)
       results[:updated] += 1
     end
-  rescue => e
+  rescue StandardError => e
     results[:errors] << "#{item[:supplier_name]}: #{e.message}"
     Rails.logger.warn "[ImportProducts] Error importing #{item[:supplier_sku]}: #{e.message}"
   end
@@ -133,6 +150,7 @@ class ImportSupplierProductsService
 
     products.each do |product|
       next if product.normalized_name.blank?
+
       by_name[product.normalized_name.downcase] = product
 
       first_word = product.normalized_name.split.first&.downcase
@@ -164,9 +182,7 @@ class ImportSupplierProductsService
       # (equivalent to the old "%first_word%" LIKE query but in-memory)
       all_candidates = candidates.dup
       product_index[:by_first_word].each do |word, products|
-        if word != first_word && word.include?(first_word)
-          all_candidates.concat(products)
-        end
+        all_candidates.concat(products) if word != first_word && word.include?(first_word)
       end
       all_candidates.uniq!
 
@@ -190,20 +206,18 @@ class ImportSupplierProductsService
         base = ProductNormalizer.new(item[:supplier_name]).base_name.downcase
         all_candidates.each do |candidate|
           candidate_base = ProductNormalizer.new(candidate.name).base_name.downcase
-          if base == candidate_base
-            return candidate
-          end
+          return candidate if base == candidate_base
         end
       end
     end
 
     # No match found - create a new canonical product
-    display_name = canonical.split.map(&:capitalize).join(" ")
+    display_name = canonical.split.map(&:capitalize).join(' ')
     categorization = AiProductCategorizer.rule_based_categorize(item[:supplier_name])
 
     new_product = Product.create!(
       name: display_name,
-      normalized_name: canonical.downcase.gsub(/[^a-z0-9\s]/, "").squish,
+      normalized_name: canonical.downcase.gsub(/[^a-z0-9\s]/, '').squish,
       category: item[:category] || categorization[:category],
       subcategory: item[:subcategory] || categorization[:subcategory]
     )
@@ -217,21 +231,9 @@ class ImportSupplierProductsService
     new_product
   end
 
-  # Use AI-powered categorizer for better accuracy
-  def guess_category(name)
-    result = AiProductCategorizer.rule_based_categorize(name)
-    result[:category]
-  end
-
-  def guess_subcategory(name)
-    result = AiProductCategorizer.rule_based_categorize(name)
-    result[:subcategory]
-  end
-
   def default_search_terms
-    # 55 terms chosen to maximize product coverage across all suppliers.
+    # Search terms chosen to maximize product coverage across all suppliers.
     # Each term targets a distinct product category or common ingredient.
-    # Coverage: ~90%+ of typical restaurant supplier catalogs.
     %w[
       chicken beef pork salmon shrimp
       lettuce tomato onion potato
@@ -254,6 +256,18 @@ class ImportSupplierProductsService
       strawberry blueberry raspberry
       walnut pecan almond
       wrap napkin glove container
+      mozzarella parmesan cheddar provolone
+      olive capers anchovy
+      ham prosciutto salami pepperoni
+      scallop oyster clam mussel
+      catfish halibut mahi swordfish
+      wing thigh breast tender
+      waffle fries chips
+      dough pizza crust
+      syrup jam jelly
+      plate bowl cup lid
+      foil pan tray liner
+      soap sanitizer cleaner towel
     ]
   end
 end

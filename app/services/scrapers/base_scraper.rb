@@ -4,32 +4,35 @@ module Scrapers
     class AuthenticationError < StandardError; end
     class ScrapingError < StandardError; end
     class SessionExpiredError < StandardError; end
-    
+
     class OrderMinimumError < StandardError
       attr_reader :minimum, :current_total
+
       def initialize(message, minimum:, current_total:)
         @minimum = minimum
         @current_total = current_total
         super(message)
       end
     end
-    
+
     class ItemUnavailableError < StandardError
       attr_reader :items
+
       def initialize(message, items:)
         @items = items
         super(message)
       end
     end
-    
+
     class PriceChangedError < StandardError
       attr_reader :changes
+
       def initialize(message, changes:)
         @changes = changes
         super(message)
       end
     end
-    
+
     class CaptchaDetectedError < StandardError; end
     class AccountHoldError < StandardError; end
     class DeliveryUnavailableError < StandardError; end
@@ -43,13 +46,13 @@ module Scrapers
       @logger = Rails.logger
     end
 
-    def with_browser(&block)
-      headless_mode = ENV.fetch("BROWSER_HEADLESS", "true") == "true"
+    def with_browser
+      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
 
       browser_opts = {
         headless: headless_mode,
         timeout: 30,
-        process_timeout: 30,  # Allow 30 seconds for browser process to start
+        process_timeout: 30, # Allow 30 seconds for browser process to start
         window_size: [1920, 1080]
       }
 
@@ -71,9 +74,7 @@ module Scrapers
       end
 
       # Allow custom Chrome/Chromium path via environment variable
-      if ENV["BROWSER_PATH"].present?
-        browser_opts[:browser_path] = ENV["BROWSER_PATH"]
-      end
+      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
 
       logger.info "[Scraper] Starting browser (headless=#{headless_mode})"
       @browser = Ferrum::Browser.new(**browser_opts)
@@ -83,47 +84,20 @@ module Scrapers
     end
 
     def login
-      raise NotImplementedError, "Subclass must implement #login"
-    end
-
-    def login_with_2fa_support
-      with_browser do
-        # Try to use trusted device token first
-        if restore_trusted_device
-          navigate_to(supplier_base_url)
-          return true if logged_in?
-        end
-
-        # Try to restore existing session
-        if restore_session
-          navigate_to(supplier_base_url)
-          return true if logged_in?
-        end
-
-        # Perform fresh login
-        perform_login_steps
-
-        # Check if 2FA is required
-        two_fa_handler = Authentication::TwoFactorHandler.new(
-          credential, browser, operation_type: "login"
-        )
-
-        if two_fa_handler.two_fa_required?
-          two_fa_handler.initiate_2fa_flow
-        end
-
-        finalize_login
-      end
+      raise NotImplementedError, 'Subclass must implement #login'
     end
 
     def scrape_prices(product_skus)
-      raise NotImplementedError, "Subclass must implement #scrape_prices"
+      raise NotImplementedError, 'Subclass must implement #scrape_prices'
     end
 
     # Scrape the supplier's catalog by searching for terms.
     # Returns an array of hashes: { supplier_sku, supplier_name, current_price, pack_size, in_stock, category }
     # Default implementation searches the supplier site for each term.
-    def scrape_catalog(search_terms, max_per_term: 20)
+    #
+    # If a block is given, yields each batch of products as they're scraped
+    # so the caller can write them to the DB incrementally.
+    def scrape_catalog(search_terms, max_per_term: 20, &on_batch)
       results = []
 
       with_browser do
@@ -132,20 +106,23 @@ module Scrapers
         unless restore_session && (navigate_to(supplier_base_url) || true) && logged_in?
           perform_login_steps
           sleep 2
-          unless logged_in?
-            raise AuthenticationError, "Could not log in for catalog import"
-          end
+          raise AuthenticationError, 'Could not log in for catalog import' unless logged_in?
+
           save_session
         end
 
         search_terms.each do |term|
           begin
             products = search_supplier_catalog(term, max: max_per_term)
-            results.concat(products)
+            if on_batch
+              on_batch.call(products)
+            else
+              results.concat(products)
+            end
             logger.info "[Scraper] Found #{products.size} products for '#{term}' at #{credential.supplier.name}"
           rescue ScrapingError => e
             logger.warn "[Scraper] Catalog search failed for '#{term}': #{e.message}"
-          rescue => e
+          rescue StandardError => e
             logger.warn "[Scraper] Unexpected error searching '#{term}': #{e.class}: #{e.message}"
           end
 
@@ -153,35 +130,33 @@ module Scrapers
         end
       end
 
+      return [] if on_batch
+
       # De-duplicate by SKU
       results.uniq { |r| r[:supplier_sku] }
     end
 
     # Override in subclasses to implement supplier-specific catalog search
     def search_supplier_catalog(term, max: 20)
-      raise NotImplementedError, "Subclass must implement #search_supplier_catalog"
+      raise NotImplementedError, 'Subclass must implement #search_supplier_catalog'
     end
 
     def add_to_cart(items, delivery_date: nil)
-      raise NotImplementedError, "Subclass must implement #add_to_cart"
+      raise NotImplementedError, 'Subclass must implement #add_to_cart'
     end
 
     def checkout
-      raise NotImplementedError, "Subclass must implement #checkout"
+      raise NotImplementedError, 'Subclass must implement #checkout'
     end
 
     def logged_in?
-      raise NotImplementedError, "Subclass must implement #logged_in?"
+      raise NotImplementedError, 'Subclass must implement #logged_in?'
     end
 
     protected
 
     def supplier_base_url
       credential.supplier.base_url
-    end
-
-    def supplier_login_url
-      credential.supplier.login_url
     end
 
     def navigate_to(url)
@@ -203,7 +178,7 @@ module Scrapers
         begin
           element.click
           element.type(value, :clear)
-        rescue => retry_error
+        rescue StandardError => retry_error
           # Last resort: use JavaScript to set value directly
           logger.debug "[Scraper] click+type failed, using JS: #{retry_error.message}"
           element.evaluate("this.value = ''")
@@ -222,7 +197,7 @@ module Scrapers
         element.click
       rescue Ferrum::CoordinatesNotFoundError, Ferrum::NodeNotFoundError, Ferrum::BrowserError => e
         logger.debug "[Scraper] click failed for '#{selector}', using JS: #{e.message}"
-        element.evaluate("this.click()")
+        element.evaluate('this.click()')
       end
     end
 
@@ -234,9 +209,8 @@ module Scrapers
       start_time = Time.current
       loop do
         return browser.at_css(selector) if browser.at_css(selector)
-        if Time.current - start_time > timeout
-          raise ScrapingError, "Timeout waiting for #{selector}"
-        end
+        raise ScrapingError, "Timeout waiting for #{selector}" if Time.current - start_time > timeout
+
         sleep 0.1
       end
     end
@@ -251,25 +225,30 @@ module Scrapers
         if Time.current - start_time > timeout
           raise ScrapingError, "Timeout waiting for any of: #{selectors.join(', ')}"
         end
+
         sleep 0.1
       end
     end
 
     def find_first_visible(selector)
       # Try each selector individually to find a visible, interactable element
-      selectors = selector.split(",").map(&:strip)
+      selectors = selector.split(',').map(&:strip)
 
       selectors.each do |sel|
         elements = browser.css(sel)
         elements.each do |el|
-          visible = el.evaluate(<<~JS) rescue false
-            var s = window.getComputedStyle(this);
-            s.display !== 'none' &&
-            s.visibility !== 'hidden' &&
-            s.opacity !== '0' &&
-            this.offsetWidth > 0 &&
-            this.offsetHeight > 0
-          JS
+          visible = begin
+            el.evaluate(<<~JS)
+              var s = window.getComputedStyle(this);
+              s.display !== 'none' &&
+              s.visibility !== 'hidden' &&
+              s.opacity !== '0' &&
+              this.offsetWidth > 0 &&
+              this.offsetHeight > 0
+            JS
+          rescue StandardError
+            false
+          end
 
           return el if visible
         end
@@ -285,10 +264,12 @@ module Scrapers
 
     def extract_price(text)
       return nil unless text
+
       # Extract numeric price from text like "$25.99" or "25.99"
       match = text.match(/[\d,]+\.?\d*/)
       return nil unless match
-      match[0].gsub(",", "").to_f
+
+      match[0].gsub(',', '').to_f
     end
 
     def save_session
@@ -296,7 +277,7 @@ module Scrapers
       credential.update!(
         session_data: cookies.to_json,
         last_login_at: Time.current,
-        status: "active"
+        status: 'active'
       )
       logger.info "[Scraper] Session saved for #{credential.supplier.name}"
     end
@@ -308,20 +289,18 @@ module Scrapers
       begin
         cookies = JSON.parse(credential.session_data)
         cookies.each do |_name, cookie|
-          next unless cookie.is_a?(Hash) && cookie["name"].present? && cookie["value"].present?
+          next unless cookie.is_a?(Hash) && cookie['name'].present? && cookie['value'].present?
 
           params = {
-            name: cookie["name"].to_s,
-            value: cookie["value"].to_s,
-            domain: cookie["domain"].to_s,
-            path: cookie["path"].present? ? cookie["path"].to_s : "/"
+            name: cookie['name'].to_s,
+            value: cookie['value'].to_s,
+            domain: cookie['domain'].to_s,
+            path: cookie['path'].present? ? cookie['path'].to_s : '/'
           }
           # Only include optional params if they have valid values
-          params[:secure] = !!cookie["secure"] unless cookie["secure"].nil?
-          params[:httponly] = !!cookie["httponly"] unless cookie["httponly"].nil?
-          if cookie["expires"].is_a?(Numeric) && cookie["expires"] > 0
-            params[:expires] = cookie["expires"].to_i
-          end
+          params[:secure] = !!cookie['secure'] unless cookie['secure'].nil?
+          params[:httponly] = !!cookie['httponly'] unless cookie['httponly'].nil?
+          params[:expires] = cookie['expires'].to_i if cookie['expires'].is_a?(Numeric) && cookie['expires'] > 0
 
           begin
             browser.cookies.set(**params)
@@ -339,12 +318,13 @@ module Scrapers
 
     def restore_trusted_device
       return false unless credential.trusted_device_valid?
+
       # Override in subclasses to implement trusted device restoration
       false
     end
 
     def perform_login_steps
-      raise NotImplementedError, "Subclass must implement #perform_login_steps"
+      raise NotImplementedError, 'Subclass must implement #perform_login_steps'
     end
 
     def finalize_login
@@ -363,54 +343,66 @@ module Scrapers
 
     def diagnose_login_failure
       supplier_name = credential.supplier.name
-      current_url = browser.current_url rescue "unknown"
-      page_title = browser.evaluate("document.title") rescue "unknown"
+      current_url = begin
+        browser.current_url
+      rescue StandardError
+        'unknown'
+      end
+      page_title = begin
+        browser.evaluate('document.title')
+      rescue StandardError
+        'unknown'
+      end
 
       # Try many error selectors
       error_selectors = [
-        ".error-message", ".login-error", ".alert-danger", ".alert-error",
-        ".error", ".form-error", ".validation-error", ".invalid-feedback",
-        "[role='alert']", ".notification-error", ".toast-error",
-        ".field-error", ".input-error", ".message-error", ".flash-error",
-        ".snackbar-error", ".toast-message", ".notice-error",
-        "p.error", "span.error", "div.error",
+        '.error-message', '.login-error', '.alert-danger', '.alert-error',
+        '.error', '.form-error', '.validation-error', '.invalid-feedback',
+        "[role='alert']", '.notification-error', '.toast-error',
+        '.field-error', '.input-error', '.message-error', '.flash-error',
+        '.snackbar-error', '.toast-message', '.notice-error',
+        'p.error', 'span.error', 'div.error',
         "[data-testid*='error']", "[data-testid*='alert']",
-        ".MuiAlert-root", ".ant-alert-error", ".chakra-alert"
+        '.MuiAlert-root', '.ant-alert-error', '.chakra-alert'
       ]
 
       site_error = nil
       matched_selector = nil
       error_selectors.each do |sel|
         text = extract_text(sel)
-        if text.present?
-          site_error = text
-          matched_selector = sel
-          break
-        end
+        next unless text.present?
+
+        site_error = text
+        matched_selector = sel
+        break
       end
 
       # Also scan for error-like text via JavaScript (some SPAs use custom elements)
       if site_error.nil?
-        js_error = browser.evaluate(<<~JS) rescue nil
-          (function() {
-            // Look for elements with error-related attributes
-            var errorEls = document.querySelectorAll('[class*="error" i], [class*="alert" i], [class*="invalid" i], [class*="fail" i]');
-            for (var i = 0; i < errorEls.length; i++) {
-              var text = errorEls[i].innerText?.trim();
-              if (text && text.length > 3 && text.length < 500) return text;
-            }
-            // Check for aria-live regions (used for dynamic error messages)
-            var liveEls = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
-            for (var i = 0; i < liveEls.length; i++) {
-              var text = liveEls[i].innerText?.trim();
-              if (text && text.length > 3 && text.length < 500) return text;
-            }
-            return null;
-          })()
-        JS
+        js_error = begin
+          browser.evaluate(<<~JS)
+            (function() {
+              // Look for elements with error-related attributes
+              var errorEls = document.querySelectorAll('[class*="error" i], [class*="alert" i], [class*="invalid" i], [class*="fail" i]');
+              for (var i = 0; i < errorEls.length; i++) {
+                var text = errorEls[i].innerText?.trim();
+                if (text && text.length > 3 && text.length < 500) return text;
+              }
+              // Check for aria-live regions (used for dynamic error messages)
+              var liveEls = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
+              for (var i = 0; i < liveEls.length; i++) {
+                var text = liveEls[i].innerText?.trim();
+                if (text && text.length > 3 && text.length < 500) return text;
+              }
+              return null;
+            })()
+          JS
+        rescue StandardError
+          nil
+        end
         if js_error.present?
           site_error = js_error
-          matched_selector = "JS scan (class*=error/alert/invalid)"
+          matched_selector = 'JS scan (class*=error/alert/invalid)'
         end
       end
 
@@ -423,25 +415,33 @@ module Scrapers
         details << "Site error (#{matched_selector}): #{site_error}"
         logger.info "[Scraper] Error found via '#{matched_selector}': #{site_error}"
       else
-        body_text = browser.evaluate("document.body?.innerText?.substring(0, 500)") rescue ""
+        body_text = begin
+          browser.evaluate('document.body?.innerText?.substring(0, 500)')
+        rescue StandardError
+          ''
+        end
         snippet = body_text.to_s.strip.truncate(300)
-        details << "No error message found on page"
+        details << 'No error message found on page'
         details << "Page content: #{snippet}" if snippet.present?
 
         # List all visible inputs for debugging
-        inputs_dump = browser.evaluate(<<~JS) rescue ""
-          (function() {
-            var inputs = document.querySelectorAll('input, button, [role="button"]');
-            var info = [];
-            for (var i = 0; i < inputs.length && i < 15; i++) {
-              var el = inputs[i];
-              var s = window.getComputedStyle(el);
-              if (s.display === 'none') continue;
-              info.push(el.tagName + '[type=' + (el.type||'') + ',name=' + (el.name||'') + ',id=' + (el.id||'') + ']');
-            }
-            return info.join(', ');
-          })()
-        JS
+        inputs_dump = begin
+          browser.evaluate(<<~JS)
+            (function() {
+              var inputs = document.querySelectorAll('input, button, [role="button"]');
+              var info = [];
+              for (var i = 0; i < inputs.length && i < 15; i++) {
+                var el = inputs[i];
+                var s = window.getComputedStyle(el);
+                if (s.display === 'none') continue;
+                info.push(el.tagName + '[type=' + (el.type||'') + ',name=' + (el.name||'') + ',id=' + (el.id||'') + ']');
+              }
+              return info.join(', ');
+            })()
+          JS
+        rescue StandardError
+          ''
+        end
         details << "Visible inputs: #{inputs_dump}" if inputs_dump.present?
       end
 
@@ -457,36 +457,36 @@ module Scrapers
 
     def detect_captcha
       captcha_indicators = [
-        "#captcha",
-        ".captcha-container",
+        '#captcha',
+        '.captcha-container',
         "iframe[src*='recaptcha']",
-        ".g-recaptcha",
-        "#challenge-form",
+        '.g-recaptcha',
+        '#challenge-form',
         "[data-testid='captcha']"
       ]
 
       captcha_indicators.each do |selector|
         if browser.at_css(selector)
-          logger.warn "[Scraper] CAPTCHA detected"
-          raise CaptchaDetectedError, "CAPTCHA detected. Manual intervention required."
+          logger.warn '[Scraper] CAPTCHA detected'
+          raise CaptchaDetectedError, 'CAPTCHA detected. Manual intervention required.'
         end
       end
     end
 
     def detect_maintenance
-      page_text = browser.body&.text&.downcase || ""
+      page_text = browser.body&.text&.downcase || ''
       maintenance_indicators = [
-        "maintenance",
-        "temporarily unavailable",
-        "scheduled downtime",
-        "under construction",
-        "be right back"
+        'maintenance',
+        'temporarily unavailable',
+        'scheduled downtime',
+        'under construction',
+        'be right back'
       ]
 
       maintenance_indicators.each do |indicator|
         if page_text.include?(indicator)
-          logger.warn "[Scraper] Site maintenance detected"
-          raise MaintenanceError, "Supplier site is under maintenance. Please try again later."
+          logger.warn '[Scraper] Site maintenance detected'
+          raise MaintenanceError, 'Supplier site is under maintenance. Please try again later.'
         end
       end
     end

@@ -33,8 +33,10 @@ module Scrapers
              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
            end
 
+      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
+
       browser_opts = {
-        headless: 'new',
+        headless: headless_mode ? 'new' : false,
         timeout: 90,
         process_timeout: 60,
         window_size: [1280, 720],
@@ -47,6 +49,11 @@ module Scrapers
           # Stealth flags
           "disable-features": 'AutomationControlled,TranslateUI',
           "excludeSwitches": 'enable-automation',
+          # Prevent Chromium from restoring previous tabs or opening default pages
+          "no-first-run": true,
+          "no-default-browser-check": true,
+          "disable-component-update": true,
+          "disable-session-crashed-bubble": true,
           # Memory optimization for Railway 1GB container
           "disable-extensions": true,
           "disable-default-apps": true,
@@ -354,55 +361,37 @@ module Scrapers
       results
     end
 
-    # US Foods catalog import strategy:
-    # 1. Browse each product category via search2?facetFilters=ec_category:X
-    # 2. Scroll to load more products within each category page
-    # 3. Also run keyword searches for additional coverage
-    # This gives much better coverage than keyword search alone.
-    # Top-level categories plus key subcategories for deeper coverage.
-    # Subcategories are separated by | in the US Foods facet hierarchy.
-    USFOODS_CATEGORIES = [
-      'Beef',
-      'Beverages',
-      'Dairy and Eggs',
-      'Dry Storage',
-      'Fresh Produce',
-      'Frozen Foods',
-      'Pork',
-      'Poultry',
-      'Prepared Foods and Deli',
-      'Seafood',
-      'Specialty Meats',
-      # Key subcategories that may not load fully from top-level browsing
-      'Beef|Ground Beef',
-      'Beef|Steaks',
-      'Fresh Produce|Vegetables',
-      'Fresh Produce|Fruits',
-      'Seafood|Shellfish',
-      'Seafood|Fin Fish',
-      'Frozen Foods|Frozen Vegetables',
-      'Frozen Foods|Frozen Fruits',
-      'Frozen Foods|Frozen Desserts',
-      'Dairy and Eggs|Cheese',
-      'Dairy and Eggs|Milk and Cream',
-      'Dairy and Eggs|Eggs',
-      'Dairy and Eggs|Butter and Margarine',
-      'Dry Storage|Canned Goods',
-      'Dry Storage|Pasta and Grains',
-      'Dry Storage|Sauces and Condiments',
-      'Dry Storage|Spices and Seasonings',
-      'Specialty Meats|Veal',
-      'Specialty Meats|Lamb',
-      'Specialty Meats|Game',
-      'Prepared Foods and Deli|Soups',
-      'Prepared Foods and Deli|Salads',
-      'Poultry|Turkey',
-      'Poultry|Chicken',
-      'Poultry|Duck'
+    # US Foods catalog import — hybrid strategy (2025 site redesign):
+    #
+    # FAST (scrape_catalog): Empty search (searchText=) returns ~2,000 products
+    # available to this customer in ~8.5 minutes. Used for regular imports.
+    #
+    # DEEP (scrape_catalog_deep): Browses all 11 food categories and their
+    # subcategories for comprehensive coverage. Takes 1-3 hours but finds
+    # tens of thousands of products. Run as a separate daily background job.
+
+    # Top-level food categories on the US Foods browse page.
+    # Excludes non-food categories (Equipment & Supplies, Disposables,
+    # Chemicals & Cleaning) to keep import focused on food products.
+    FOOD_CATEGORIES = %w[
+      beef
+      beverages
+      dairy-and-eggs
+      dry-storage
+      fresh-produce
+      frozen-foods
+      pork
+      poultry
+      prepared-foods-and-deli
+      seafood
+      specialty-meats
     ].freeze
 
-    def scrape_catalog(search_terms, max_per_term: 50)
+    # Fast catalog import: empty search returns the customer's available products.
+    # Gets ~2,000 products in ~8.5 minutes — good enough for regular imports.
+    def scrape_catalog(_search_terms, max_per_term: 100, &on_batch)
       results = []
+      total_yielded = 0
 
       with_browser do
         # Try restoring session first to avoid MFA on every import
@@ -426,58 +415,198 @@ module Scrapers
 
         save_session
 
-        # Phase 1: Browse each category and subcategory for broad coverage
-        logger.info "[UsFoods] Phase 1: Browsing #{USFOODS_CATEGORIES.size} categories"
-        USFOODS_CATEGORIES.each do |category|
-          begin
-            products = browse_category(category)
-            # Tag products with their category for better classification
-            display_name = category.include?('|') ? category.split('|').last : category
-            products.each { |p| p[:category] ||= display_name }
-            results.concat(products)
-            logger.info "[UsFoods] Category '#{category}': #{products.size} products (total: #{results.size})"
-          rescue StandardError => e
-            logger.warn "[UsFoods] Category browse failed for '#{category}': #{e.class}: #{e.message}"
-          end
-          rate_limit_delay
-        end
+        # Use empty search to get the full "available to this customer" catalog
+        import_start = Time.current
+        products = search_and_scroll_all('')
+        logger.info "[UsFoods] Empty search returned #{products.size} products"
 
-        # Optimization: If categories yielded enough products, limit search phase
-        category_target = 800
-        search_phase_limit = nil
-        if results.size >= category_target
-          search_phase_limit = 15
-          logger.info "[UsFoods] Categories yielded #{results.size} products (target: #{category_target}). Limiting search phase to #{search_phase_limit} terms."
+        if on_batch && products.any?
+          on_batch.call(products)
+          total_yielded += products.size
         else
-          logger.info "[UsFoods] Categories yielded #{results.size} products (below target #{category_target}). Running full search phase."
+          results.concat(products)
         end
 
-        # Phase 2: Also run keyword searches for items that may not be in main categories
-        terms_to_search = search_phase_limit ? search_terms.first(search_phase_limit) : search_terms
-        logger.info "[UsFoods] Phase 2: Searching with #{terms_to_search.size} terms"
+        elapsed_min = ((Time.current - import_start) / 60).round(1)
+        total_count = on_batch ? total_yielded : results.size
+        logger.info "[UsFoods] Fast catalog import complete: #{total_count} products in #{elapsed_min} min"
 
-        navigate_to("#{BASE_URL}/desktop/search/browse")
-        sleep 3
-
-        terms_to_search.each do |term|
-          begin
-            products = search_supplier_catalog(term, max: max_per_term)
-            results.concat(products)
-            logger.info "[UsFoods] Search '#{term}': #{products.size} products"
-          rescue StandardError => e
-            logger.warn "[UsFoods] Search failed for '#{term}': #{e.class}: #{e.message}"
-          end
-          rate_limit_delay
-        end
-
-        # Refresh session at end of successful scrape to extend validity for next cron run
-        save_session if results.any?
+        # Refresh session at end of successful scrape
+        save_session if total_count > 0
       end
 
-      # De-duplicate by SKU
+      # When using block mode, the service handles dedup — return empty
+      return [] if on_batch
+
+      # Legacy mode: de-duplicate by SKU and return array
       deduped = results.uniq { |r| r[:supplier_sku] }
       logger.info "[UsFoods] Total unique products: #{deduped.size} (from #{results.size} raw)"
       deduped
+    end
+
+    # Deep catalog import: browse all food categories and subcategories.
+    # This finds products the empty search misses (tens of thousands total).
+    # Takes 1-3 hours — designed to run as a daily background job.
+    def scrape_catalog_deep(&on_batch)
+      total_yielded = 0
+
+      with_browser do
+        session_restored = false
+        if restore_session
+          browser.refresh
+          sleep 3
+          if logged_in?
+            logger.info '[UsFoods] Session restored for deep import'
+            session_restored = true
+          end
+        end
+
+        unless session_restored
+          perform_login_steps
+          sleep 3
+          raise AuthenticationError, 'Could not log in for deep catalog import' unless logged_in?
+        end
+
+        save_session
+
+        import_start = Time.current
+        FOOD_CATEGORIES.each do |category|
+          subcategories = discover_subcategories(category)
+          display_name = category.gsub('-', ' ').split.map(&:capitalize).join(' ')
+
+          if subcategories.any?
+            logger.info "[UsFoods] #{display_name}: #{subcategories.size} subcategories"
+            subcategories.each do |subcat|
+              path = "/desktop/search2/product-listing/#{category}/#{subcat[:slug]}"
+              products = browse_category_page(path)
+              products.each { |p| p[:category] ||= display_name }
+
+              if on_batch
+                on_batch.call(products)
+                total_yielded += products.size
+              end
+
+              logger.info "[UsFoods] #{display_name}/#{subcat[:name]}: #{products.size} products (total: #{total_yielded})"
+            rescue StandardError => e
+              logger.warn "[UsFoods] Failed #{display_name}/#{subcat[:name]}: #{e.class}: #{e.message}"
+            end
+          else
+            # No subcategories found — browse the top-level category directly
+            begin
+              path = "/desktop/search2/product-listing/#{category}"
+              products = browse_category_page(path)
+              products.each { |p| p[:category] ||= display_name }
+
+              if on_batch
+                on_batch.call(products)
+                total_yielded += products.size
+              end
+
+              logger.info "[UsFoods] #{display_name}: #{products.size} products (total: #{total_yielded})"
+            rescue StandardError => e
+              logger.warn "[UsFoods] Failed #{display_name}: #{e.class}: #{e.message}"
+            end
+          end
+
+          # Save session periodically to keep it alive during long import
+          save_session
+        end
+
+        elapsed_min = ((Time.current - import_start) / 60).round(1)
+        logger.info "[UsFoods] Deep category browsing complete: #{total_yielded} products in #{elapsed_min} min"
+      end
+
+      total_yielded
+    end
+
+    # Discover subcategories for a top-level category by visiting its landing page.
+    # Returns an array of { name:, slug: } hashes.
+    def discover_subcategories(category)
+      navigate_to("#{BASE_URL}/desktop/category-landing/#{category}")
+      sleep 5 # Wait for Angular SPA to render the subcategory tiles
+
+      subcats_json = browser.evaluate(<<~JS)
+        (function() {
+          var result = [];
+          // Subcategory tiles use .image-bubble-text class
+          var bubbles = document.querySelectorAll('.image-bubble-text, [class*=image-bubble] p');
+          for (var i = 0; i < bubbles.length; i++) {
+            var text = (bubbles[i].innerText || '').trim();
+            if (text.length > 1 && text.length < 80) result.push(text);
+          }
+          // Fallback: ion-card elements with short text
+          if (result.length === 0) {
+            var cards = document.querySelectorAll('ion-card');
+            for (var i = 0; i < cards.length; i++) {
+              var text = (cards[i].innerText || '').trim();
+              if (text.length > 1 && text.length < 80 && !text.match(/^#/) && !text.match(/^\\$/) && text !== 'Shop All Products') {
+                result.push(text);
+              }
+            }
+          }
+          return JSON.stringify(result);
+        })()
+      JS
+
+      subcats = JSON.parse(subcats_json)
+      subcats.map do |name|
+        slug = name.downcase.gsub(/[^a-z0-9\s]/, '').strip.gsub(/\s+/, '-')
+        { name: name, slug: slug }
+      end
+    rescue StandardError => e
+      logger.warn "[UsFoods] Failed to discover subcategories for #{category}: #{e.message}"
+      []
+    end
+
+    # Browse a category/subcategory product listing page and scroll through
+    # the CDK virtual scroll to extract all products.
+    def browse_category_page(path)
+      navigate_to("#{BASE_URL}#{path}")
+      sleep 4
+
+      card_count = begin
+        browser.evaluate("document.querySelectorAll('.product-wrapper').length")
+      rescue StandardError
+        0
+      end
+      if card_count == 0
+        sleep 3
+        card_count = begin
+          browser.evaluate("document.querySelectorAll('.product-wrapper').length")
+        rescue StandardError
+          0
+        end
+        return [] if card_count == 0
+      end
+
+      # Scroll through CDK virtual scroll, extracting products as we go
+      all_products = {}
+      stale_rounds = 0
+
+      200.times do |_attempt|
+        page_products = extract_products_from_page
+        new_count = 0
+        page_products.each do |p|
+          next if p[:supplier_sku].blank?
+
+          unless all_products.key?(p[:supplier_sku])
+            all_products[p[:supplier_sku]] = p
+            new_count += 1
+          end
+        end
+
+        if new_count == 0
+          stale_rounds += 1
+          break if stale_rounds >= 4
+        else
+          stale_rounds = 0
+        end
+
+        scroll_virtual_list
+        sleep 1.5
+      end
+
+      all_products.values
     end
 
     # US Foods uses an Order-based workflow:
@@ -1440,299 +1569,198 @@ module Scrapers
       end
     end
 
-    # Browse a US Foods product category via the search2 facet URL.
-    # US Foods uses Ionic's ion-infinite-scroll for pagination.
-    # We must scroll the ion-content's internal shadow DOM scroll element
-    # to trigger the ionInfinite event and load more products.
-    def browse_category(category, max_products: 200)
-      # Support both top-level categories and subcategory paths (e.g. "Beef|Steaks")
-      if category.include?('|')
-        parts = category.split('|')
-        url = "#{BASE_URL}/desktop/search2?originSearchPage=catalog&facetFilters=ec_category:#{CGI.escape(parts.first)}|#{CGI.escape(parts.last)}"
-      else
-        url = "#{BASE_URL}/desktop/search2?originSearchPage=catalog&facetFilters=ec_category:#{CGI.escape(category)}"
-      end
-      navigate_to(url)
+    # Search for a term and scroll through ALL results, extracting products as we go.
+    #
+    # US Foods uses Angular CDK virtual scroll — only ~12-25 product cards are in
+    # the DOM at any time. As you scroll, previous cards are removed and new ones
+    # are rendered. We must extract products from each "window" as we scroll,
+    # accumulating them since they'll be recycled out of the DOM.
+    #
+    # Returns an array of product hashes (already deduped by SKU).
+    def search_and_scroll_all(term)
+      logger.info "[UsFoods] Searching for: #{term}"
 
-      # Wait for the Ionic SPA to render product cards (API call + render can take several seconds)
-      begin
-        wait_for_selector('ion-card', timeout: 15)
-      rescue StandardError
-        logger.warn "[UsFoods] No ion-card elements appeared for category '#{category}' after 15s"
-        return []
-      end
+      search_url = "#{BASE_URL}/desktop/search?searchText=#{CGI.escape(term)}"
+      navigate_to(search_url)
+      sleep 4
 
-      initial_count = begin
-        browser.evaluate("document.querySelectorAll('ion-card').length")
+      # Check if products loaded — .product-wrapper contains the full product info
+      card_count = begin
+        browser.evaluate("document.querySelectorAll('.product-wrapper').length")
       rescue StandardError
         0
       end
-      logger.info "[UsFoods] Category '#{category}': #{initial_count} cards on initial load"
-
-      previous_count = initial_count
-      stale_rounds = 0
-
-      20.times do |attempt|
-        current_count = begin
-          browser.evaluate("document.querySelectorAll('ion-card').length")
+      if card_count == 0
+        page_text = begin
+          browser.evaluate('document.body?.innerText?.substring(0, 500)')
+        rescue StandardError
+          ''
+        end
+        if page_text.include?("couldn't find any matches") || page_text.include?('0 Results')
+          logger.info "[UsFoods] No results for '#{term}'"
+          return []
+        end
+        # Wait a bit more for SPA rendering
+        sleep 3
+        card_count = begin
+          browser.evaluate("document.querySelectorAll('.product-wrapper').length")
         rescue StandardError
           0
         end
-        break if current_count >= max_products
+        if card_count == 0
+          logger.warn "[UsFoods] No product-wrappers found for '#{term}'"
+          return []
+        end
+      end
 
-        if current_count == previous_count
+      logger.info "[UsFoods] '#{term}': #{card_count} cards on initial load"
+
+      # Extract products while scrolling through the virtual scroll viewport.
+      # Each scroll renders a new window of ~12-25 cards; previous ones are removed.
+      all_products = {}  # SKU => product hash (dedup as we go)
+      stale_rounds = 0
+      max_scrolls = 200  # Safety cap
+
+      max_scrolls.times do |attempt|
+        # Extract whatever is currently visible
+        page_products = extract_products_from_page
+        new_count = 0
+        page_products.each do |p|
+          next if p[:supplier_sku].blank?
+
+          unless all_products.key?(p[:supplier_sku])
+            all_products[p[:supplier_sku]] = p
+            new_count += 1
+          end
+        end
+
+        if new_count == 0
           stale_rounds += 1
-          break if stale_rounds >= 5 # No new products after 5 consecutive attempts
+          break if stale_rounds >= 4 # No new products after 4 consecutive scrolls
         else
           stale_rounds = 0
         end
-        previous_count = current_count
 
-        logger.debug "[UsFoods] Category '#{category}' scroll attempt #{attempt + 1}: #{current_count} cards, #{stale_rounds} stale rounds"
+        if (attempt + 1) % 10 == 0 || new_count > 0
+          logger.info "[UsFoods] '#{term}' scroll #{attempt + 1}: +#{new_count} new (#{all_products.size} total unique)"
+        end
 
-        # Trigger Ionic infinite scroll by scrolling the ion-content's
-        # internal scroll element (inside the shadow DOM).
-        trigger_ionic_infinite_scroll
-        sleep 3
+        # Scroll the CDK virtual scroll container
+        scroll_virtual_list
+        sleep 1.5
       end
 
-      final_count = begin
-        browser.evaluate("document.querySelectorAll('ion-card').length")
-      rescue StandardError
-        0
-      end
-      logger.info "[UsFoods] Category '#{category}': #{final_count} cards loaded after scrolling (started with #{initial_count})"
-
-      extract_products_from_page(max_products)
+      logger.info "[UsFoods] '#{term}': #{all_products.size} unique products after scrolling"
+      all_products.values
     end
 
-    # Trigger Ionic's infinite scroll by scrolling the ion-content shadow DOM element.
-    # ion-content uses a shadow root with an internal .inner-scroll div.
-    # ion-infinite-scroll listens for scroll events on that container and fires
-    # ionInfinite when the user nears the bottom (threshold ~15%).
-    #
-    # Uses evaluate_async so Ferrum properly awaits the async Ionic API calls
-    # (getScrollElement, scrollToBottom, complete) instead of returning an
-    # unresolved Promise.
-    def trigger_ionic_infinite_scroll
-      browser.evaluate_async(<<~JS, 5)
-        var done = arguments[arguments.length - 1];
-        try {
-          var ionContent = document.querySelector('ion-content');
-
-          // Method 1: Use Ionic's getScrollElement() API to get the real scrollable element
-          if (ionContent && typeof ionContent.getScrollElement === 'function') {
-            try {
-              var scrollEl = await ionContent.getScrollElement();
-              if (scrollEl) {
-                scrollEl.scrollTop = scrollEl.scrollHeight;
-                scrollEl.dispatchEvent(new CustomEvent('scroll', { bubbles: true }));
-              }
-            } catch(e) {}
+    # Scroll the Angular CDK virtual scroll viewport that US Foods uses.
+    # This is the actual scrollable container — window.scrollTo does nothing.
+    def scroll_virtual_list
+      browser.evaluate(<<~JS)
+        (function() {
+          // Primary: Angular CDK virtual scroll viewport
+          var vScroll = document.querySelector('.cdk-virtual-scrollable');
+          if (vScroll) {
+            vScroll.scrollTop = vScroll.scrollHeight;
+            return;
           }
 
-          // Method 2: Use ion-content's scrollToBottom which handles shadow DOM internally
-          if (ionContent && typeof ionContent.scrollToBottom === 'function') {
-            try { await ionContent.scrollToBottom(300); } catch(e) {}
+          // Fallback: any element with cdk-virtual-scroll in class
+          var cdkEl = document.querySelector('[class*="cdk-virtual-scroll"]');
+          if (cdkEl) {
+            cdkEl.scrollTop = cdkEl.scrollHeight;
+            return;
           }
 
-          // Method 3: Directly access shadow root scroll container
-          if (ionContent && ionContent.shadowRoot) {
-            var innerScroll = ionContent.shadowRoot.querySelector('.inner-scroll');
-            if (innerScroll) {
-              innerScroll.scrollTop = innerScroll.scrollHeight;
-              innerScroll.dispatchEvent(new CustomEvent('scroll', { bubbles: true }));
-            }
-          }
-
-          // Method 4: Trigger ionInfinite event directly on the infinite scroll element
-          var infiniteScroll = document.querySelector('ion-infinite-scroll');
-          if (infiniteScroll) {
-            if (typeof infiniteScroll.complete === 'function') {
-              try { await infiniteScroll.complete(); } catch(e) {}
-            }
-            infiniteScroll.dispatchEvent(new CustomEvent('ionInfinite', {
-              bubbles: true, detail: { complete: function() {} }
-            }));
-          }
-
-          // Method 5: Standard window scroll as a fallback
+          // Last resort: window scroll
           window.scrollTo(0, document.body.scrollHeight);
-
-          done(true);
-        } catch(e) {
-          done(false);
-        }
+        })()
       JS
     rescue StandardError => e
-      logger.debug "[UsFoods] trigger_ionic_infinite_scroll error: #{e.message}"
+      logger.debug "[UsFoods] scroll_virtual_list error: #{e.message}"
       nil
     end
 
-    # Search for products by keyword via URL-based search.
-    # After initial results load, triggers Ionic infinite scroll to load more.
-    def search_supplier_catalog(term, max: 50)
-      logger.info "[UsFoods] Searching catalog for: #{term}"
-
-      # Use URL-based search for more reliable results
-      navigate_to("#{BASE_URL}/desktop/search2?q=#{CGI.escape(term)}")
-
-      # Wait for the SPA to render at least one product card
-      begin
-        wait_for_selector('ion-card', timeout: 15)
-      rescue StandardError
-        logger.warn "[UsFoods] No ion-card elements appeared for search '#{term}' after 15s"
-        return []
-      end
-
-      initial_count = begin
-        browser.evaluate("document.querySelectorAll('ion-card').length")
-      rescue StandardError
-        0
-      end
-      logger.info "[UsFoods] Search '#{term}': #{initial_count} cards on initial load"
-
-      # Scroll to load more search results using Ionic infinite scroll
-      previous_count = initial_count
-      stale_rounds = 0
-
-      15.times do |attempt|
-        current_count = begin
-          browser.evaluate("document.querySelectorAll('ion-card').length")
-        rescue StandardError
-          0
-        end
-        break if current_count >= max
-
-        if current_count == previous_count
-          stale_rounds += 1
-          break if stale_rounds >= 4
-        else
-          stale_rounds = 0
-        end
-        previous_count = current_count
-
-        logger.debug "[UsFoods] Search '#{term}' scroll attempt #{attempt + 1}: #{current_count} cards, #{stale_rounds} stale rounds"
-
-        trigger_ionic_infinite_scroll
-        sleep 3
-      end
-
-      final_count = begin
-        browser.evaluate("document.querySelectorAll('ion-card').length")
-      rescue StandardError
-        0
-      end
-      logger.info "[UsFoods] Search '#{term}': #{final_count} cards loaded after scrolling (started with #{initial_count})"
-
-      extract_products_from_page(max)
-    end
-
-    # Extract product data from all ion-card elements currently on the page.
-    # Used by both browse_category and search_supplier_catalog.
+    # Extract product data from all .product-card elements on the page.
     #
-    # US Foods shows TWO prices on product cards:
-    #   1. Case price (larger) - the actual price for the pack/case (e.g., "$56.30")
-    #   2. Unit price (smaller) - price per unit like "/oz" or "/lb" (e.g., "$0.18/oz")
-    # We want the CASE PRICE, not the unit price.
-    def extract_products_from_page(max = 100)
+    # US Foods product card innerText structure:
+    #   Patuxent Farms                   (brand)
+    #   Chicken, Thigh Meat Jumbo...     (description)
+    #   #2723278                         (SKU)
+    #   4/10 LB                          (pack size)
+    #   ($1.62 / LB)                     (unit price)
+    #   4.1                              (rating)
+    #   Recent Purchase                  (tags)
+    #   $64.62 CS                        (case price)
+    def extract_products_from_page
       products_json = begin
         browser.evaluate(<<~JS)
           (function() {
-            var cards = document.querySelectorAll('ion-card');
+            var cards = document.querySelectorAll('.product-wrapper');
             var products = [];
-            var limit = #{max};
+            var seen = {};
 
-            for (var i = 0; i < cards.length && products.length < limit; i++) {
+            for (var i = 0; i < cards.length; i++) {
               var card = cards[i];
               var text = card.innerText || '';
+              var lines = text.split('\\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
 
-              // Extract item number (#NNNNNNN) — skip cards without one (sub-category cards)
-              var skuMatch = text.match(/#(\\d{5,})/);
-              if (!skuMatch) continue;
-              var sku = skuMatch[1];
+              // Find SKU line (#NNNNNNN)
+              var sku = null;
+              var skuLineIdx = -1;
+              for (var j = 0; j < lines.length; j++) {
+                var m = lines[j].match(/^#(\\d{5,})$/);
+                if (m) { sku = m[1]; skuLineIdx = j; break; }
+              }
+              // Fallback: SKU anywhere in text
+              if (!sku) {
+                var sm = text.match(/#(\\d{5,})/);
+                if (sm) sku = sm[1];
+              }
+              if (!sku || seen[sku]) continue;
+              seen[sku] = true;
 
-              var brandEl = card.querySelector('[data-cy*="product-brand"]');
-              var brand = brandEl ? brandEl.innerText.trim() : '';
+              // Brand is typically 2 lines before SKU, description 1 line before
+              var brand = (skuLineIdx >= 2) ? lines[skuLineIdx - 2] : '';
+              var description = (skuLineIdx >= 1) ? lines[skuLineIdx - 1] : '';
 
-              var descEl = card.querySelector('[data-cy="product-description-text"]');
-              var desc = descEl ? descEl.innerText.trim() : '';
+              // Skip non-brand lines that leaked in
+              if (brand.match(/^(\\$|Order today|Recent|On My|Locally|Compare|Add|All Filters|Category)/i)) brand = '';
 
-              var name = brand ? (brand + ' ' + desc) : desc;
-              if (!name) continue;
+              var name = brand ? (brand + ' ' + description) : description;
+              if (!name || name.trim().length < 3) continue;
 
-              var packEl = card.querySelector('[data-cy*="product-packsize"]');
-              var packSize = packEl ? packEl.innerText.trim() : '';
+              // Pack size is typically 1 line after SKU
+              var packSize = (skuLineIdx >= 0 && skuLineIdx + 1 < lines.length) ? lines[skuLineIdx + 1] : '';
+              // Validate it looks like a pack size
+              if (!packSize.match(/\\d/)) packSize = '';
 
-              // Extract CASE PRICE (not unit price).
-              // US Foods shows case price in a larger element, and unit price in smaller text with "/oz", "/lb", etc.
-              // Strategy: Look for the price element that does NOT have a unit suffix.
+              // Case price: find "$XX.XX CS" pattern
               var price = null;
-
-              // Method 1: Look for data-cy price elements (case price vs unit price)
-              var casePriceEl = card.querySelector('[data-cy*="case-price"], [data-cy*="product-price"]:not([data-cy*="unit"])');
-              if (casePriceEl) {
-                var casePriceText = casePriceEl.innerText || '';
-                var casePriceMatch = casePriceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
-                if (casePriceMatch) {
-                  price = parseFloat(casePriceMatch[1].replace(',', ''));
-                }
+              var csMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*CS/i);
+              if (csMatch) {
+                price = parseFloat(csMatch[1].replace(',', ''));
               }
 
-              // Method 2: Split text by lines/spaces and find prices, excluding unit prices
-              // Unit prices have format "$X.XX/oz" or "$X.XX/lb" etc.
+              // Fallback: largest non-unit price
               if (!price) {
-                // Find all price patterns in the text
-                var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(\\/[a-zA-Z]+)?/g;
-                var match;
-                var casePrices = [];
-                var unitPrices = [];
-
-                while ((match = priceRegex.exec(text)) !== null) {
-                  var val = parseFloat(match[1].replace(',', ''));
-                  if (match[2]) {
-                    // Has unit suffix like /oz, /lb - this is a unit price
-                    unitPrices.push(val);
-                  } else {
-                    // No unit suffix - could be case price
-                    casePrices.push(val);
-                  }
+                var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(?!\\s*\\/|\\s*CS)/g;
+                var pm;
+                var prices = [];
+                while ((pm = priceRegex.exec(text)) !== null) {
+                  prices.push(parseFloat(pm[1].replace(',', '')));
                 }
-
-                // Prefer case prices (no unit suffix)
-                if (casePrices.length > 0) {
-                  // Take the largest case price (in case there are multiple)
-                  price = Math.max.apply(null, casePrices);
-                }
-              }
-
-              // Method 3: Fallback - if no case price found but we have unit prices,
-              // the case price might not be showing. Use the largest price overall,
-              // but only if it's reasonably large (> $5) to avoid unit prices.
-              // Most food service case prices are $5+ (often $20-100+).
-              if (!price) {
-                var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
-                var allPrices = priceMatches.map(function(p) {
-                  return parseFloat(p.replace('$', '').replace(',', ''));
-                });
-                if (allPrices.length > 0) {
-                  var maxPrice = Math.max.apply(null, allPrices);
-                  // Only use if it looks like a case price (> $5)
-                  // Prices under $5 are almost always per-unit prices
-                  if (maxPrice > 5) {
-                    price = maxPrice;
-                  }
-                }
+                if (prices.length > 0) price = Math.max.apply(null, prices);
               }
 
               var inStock = !text.toLowerCase().includes('out of stock') &&
-                            !text.toLowerCase().includes('unavailable') &&
-                            !card.querySelector('[data-cy*="out-of-stock"]');
+                            !text.toLowerCase().includes('unavailable');
 
               products.push({
                 sku: sku,
                 brand: brand,
-                name: name,
+                name: name.substring(0, 255),
                 pack_size: packSize,
                 price: price,
                 in_stock: inStock
@@ -1742,7 +1770,8 @@ module Scrapers
             return JSON.stringify(products);
           })()
         JS
-      rescue StandardError
+      rescue StandardError => e
+        logger.warn "[UsFoods] extract_products_from_page error: #{e.message}"
         '[]'
       end
 
@@ -1777,63 +1806,64 @@ module Scrapers
             var skuMatch = text.match(/#(\\d{5,})/);
             if (!skuMatch) return null;
 
+            // Try data-cy selectors (old layout) first, then fall back to text parsing
             var brandEl = document.querySelector('[data-cy*="product-brand"]');
             var descEl = document.querySelector('[data-cy="product-description-text"]');
             var packEl = document.querySelector('[data-cy*="product-packsize"]');
 
             var brand = brandEl ? brandEl.innerText.trim() : '';
             var desc = descEl ? descEl.innerText.trim() : '';
+            var packSize = packEl ? packEl.innerText.trim() : '';
 
-            // Extract CASE PRICE (not unit price) - same logic as extract_products_from_page
-            var price = null;
-
-            // Method 1: Look for case price element
-            var casePriceEl = document.querySelector('[data-cy*="case-price"], [data-cy*="product-price"]:not([data-cy*="unit"])');
-            if (casePriceEl) {
-              var casePriceText = casePriceEl.innerText || '';
-              var casePriceMatch = casePriceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
-              if (casePriceMatch) {
-                price = parseFloat(casePriceMatch[1].replace(',', ''));
+            // If data-cy elements not found, parse from text (new layout)
+            if (!desc) {
+              var lines = text.split('\\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+              for (var i = 0; i < lines.length; i++) {
+                if (lines[i].includes('#' + skuMatch[1])) {
+                  if (i >= 1) desc = lines[i - 1];
+                  if (i >= 2 && lines[i - 2].length < 80) brand = lines[i - 2];
+                  // Extract pack size from SKU line
+                  var pm = lines[i].match(/#\\d+\\s+(.+?)\\s*\\(/);
+                  if (pm && !packSize) packSize = pm[1].trim();
+                  break;
+                }
               }
             }
 
-            // Method 2: Split text and find prices, excluding unit prices
+            // Extract CASE PRICE — prefer "$XX.XX CS" format (new layout)
+            var price = null;
+
+            // Method 1: "$XX.XX CS" pattern
+            var csMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*CS/i);
+            if (csMatch) {
+              price = parseFloat(csMatch[1].replace(',', ''));
+            }
+
+            // Method 2: data-cy case price element (old layout)
+            if (!price) {
+              var casePriceEl = document.querySelector('[data-cy*="case-price"], [data-cy*="product-price"]:not([data-cy*="unit"])');
+              if (casePriceEl) {
+                var cpm = casePriceEl.innerText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+                if (cpm) price = parseFloat(cpm[1].replace(',', ''));
+              }
+            }
+
+            // Method 3: Find prices excluding unit prices (with /unit suffix)
             if (!price) {
               var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(\\/[a-zA-Z]+)?/g;
               var match;
               var casePrices = [];
-
               while ((match = priceRegex.exec(text)) !== null) {
-                var val = parseFloat(match[1].replace(',', ''));
-                if (!match[2]) {
-                  // No unit suffix - could be case price
-                  casePrices.push(val);
-                }
+                if (!match[2]) casePrices.push(parseFloat(match[1].replace(',', '')));
               }
-
-              if (casePrices.length > 0) {
-                price = Math.max.apply(null, casePrices);
-              }
-            }
-
-            // Method 3: Fallback - largest price, but only if > $5
-            // Prices under $5 are almost always per-unit prices
-            if (!price) {
-              var priceMatches = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})/g) || [];
-              var allPrices = priceMatches.map(function(p) {
-                return parseFloat(p.replace('$', '').replace(',', ''));
-              });
-              if (allPrices.length > 0) {
-                var maxPrice = Math.max.apply(null, allPrices);
-                if (maxPrice > 5) price = maxPrice;
-              }
+              if (casePrices.length > 0) price = Math.max.apply(null, casePrices);
             }
 
             return {
               sku: skuMatch[1],
               name: brand ? (brand + ' ' + desc) : desc,
               price: price,
-              pack_size: packEl ? packEl.innerText.trim() : '',
+              pack_size: packSize,
               in_stock: !text.toLowerCase().includes('out of stock')
             };
           })()

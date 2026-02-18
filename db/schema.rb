@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_18_004845) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -467,6 +467,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_14_162556) do
     t.integer "import_progress", default: 0
     t.integer "import_total", default: 0
     t.string "import_status_text"
+    t.datetime "last_deep_import_at"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"
     t.index ["status"], name: "index_supplier_credentials_on_status"
     t.index ["supplier_id"], name: "index_supplier_credentials_on_supplier_id"

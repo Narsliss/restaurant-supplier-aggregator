@@ -628,27 +628,6 @@ module Scrapers
       wait_for_cart_confirmation
     end
 
-    def click_add_to_cart_button
-      browser.evaluate(<<~JS)
-        (function() {
-          var buttons = document.querySelectorAll('button, [role="button"]');
-          for (var btn of buttons) {
-            var text = btn.innerText?.trim().toLowerCase();
-            var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-            if (text === '+' ||
-                ariaLabel.includes('increase quantity') ||
-                ariaLabel.includes('add to cart') ||
-                text === 'add to cart' ||
-                text.includes('add to cart')) {
-              btn.click();
-              return true;
-            }
-          }
-          return false;
-        })()
-      JS
-    end
-
     def wait_for_cart_confirmation
       wait_for_any_selector(
         '.cart-added',
