@@ -1,5 +1,5 @@
 class AggregatedListsController < ApplicationController
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching order_builder]
 
   def show
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
@@ -77,6 +77,19 @@ class AggregatedListsController < ApplicationController
     @aggregated_list.update(match_status: 'matching')
     AiProductMatchJob.perform_later(@aggregated_list.id)
     redirect_to @aggregated_list, notice: 'Re-running product matching...'
+  end
+
+  def order_builder
+    unless @aggregated_list.matched?
+      redirect_to @aggregated_list, alert: "Product matching must be complete before creating an order."
+      return
+    end
+
+    @product_matches = @aggregated_list.product_matches
+                                       .where.not(match_status: 'rejected')
+                                       .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+                                       .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
+    @suppliers = @aggregated_list.suppliers
   end
 
   private

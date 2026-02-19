@@ -11,6 +11,7 @@ import CategoryFilterController from "./category_filter_controller"
 import CredentialFormController from "./credential_form_controller"
 import InlineFormController from "./inline_form_controller"
 import SearchableSelectController from "./searchable_select_controller"
+import OrderBuilderController from "./order_builder_controller"
 
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
@@ -23,3 +24,4 @@ application.register("category-filter", CategoryFilterController)
 application.register("credential-form", CredentialFormController)
 application.register("inline-form", InlineFormController)
 application.register("searchable-select", SearchableSelectController)
+application.register("order-builder", OrderBuilderController)

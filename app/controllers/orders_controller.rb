@@ -141,6 +141,33 @@ class OrdersController < ApplicationController
     end
   end
 
+  # Create pending orders from an aggregated list's product matches
+  # SAFETY: Only creates status: "pending" orders. Never submits.
+  def create_from_aggregated_list
+    aggregated_list = find_aggregated_list(params[:aggregated_list_id])
+    quantities = params[:quantities] || {}
+
+    service = Orders::AggregatedListOrderService.new(
+      user: current_user,
+      aggregated_list: aggregated_list,
+      quantities: quantities,
+      location: current_location,
+      delivery_date: params[:delivery_date]
+    )
+
+    orders = service.create_pending_orders!
+
+    if orders.any?
+      redirect_to orders_path, notice: "#{orders.size} pending order(s) created across #{orders.map { |o| o.supplier.name }.join(', ')}. Review and submit when ready."
+    else
+      redirect_to order_builder_aggregated_list_path(aggregated_list),
+        alert: "No items selected. Set quantities for the items you want to order."
+    end
+  rescue => e
+    redirect_to order_builder_aggregated_list_path(aggregated_list),
+      alert: "Failed to create orders: #{e.message}"
+  end
+
   # Split order - preview
   def split_preview
     @order_list = current_user.order_lists.find(params[:order_list_id])
@@ -181,5 +208,13 @@ class OrdersController < ApplicationController
 
   def order_params
     params.require(:order).permit(:location_id, :notes, :delivery_date)
+  end
+
+  def find_aggregated_list(id)
+    if current_user.current_organization
+      AggregatedList.for_organization(current_user.current_organization).find(id)
+    else
+      current_user.created_aggregated_lists.find(id)
+    end
   end
 end
