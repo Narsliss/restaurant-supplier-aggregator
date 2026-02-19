@@ -10,7 +10,7 @@
         <div class="hidden sm:ml-8 sm:flex sm:space-x-6">
           <%= link_to "Dashboard", root_path,
               class: "inline-flex items-center border-b-2 #{current_page?(root_path) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-          <%= link_to "Supplier Lists", supplier_lists_path,
+          <%= link_to "Order Lists", supplier_lists_path,
               class: "inline-flex items-center border-b-2 #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <%= link_to "Order History", orders_path,
               class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
@@ -79,7 +79,7 @@
     <div class="space-y-1 px-2 pb-3 pt-2">
       <%= link_to "Dashboard", root_path,
           class: "block rounded-md px-3 py-2 text-base font-medium #{current_page?(root_path) ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>
-      <%= link_to "Supplier Lists", supplier_lists_path,
+      <%= link_to "Order Lists", supplier_lists_path,
           class: "block rounded-md px-3 py-2 text-base font-medium #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>
       <%= link_to "Order History", orders_path,
           class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'orders' ? 'bg-brand-navy-light text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-navy-light hover:text-white'}" %>

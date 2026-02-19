@@ -1,9 +1,5 @@
-<div class="mb-8" data-controller="inline-form" data-inline-form-show-text-value="+ New Order List" data-inline-form-hide-text-value="Cancel">
-  <div class="flex justify-between items-center mb-4">
-    <div>
-      <h2 class="text-lg font-heading font-semibold text-gray-900">Order Lists</h2>
-      <p class="text-sm text-gray-500">Connect supplier lists together to compare products and prices across suppliers.</p>
-    </div>
+<div data-controller="inline-form" data-inline-form-show-text-value="+ New Order List" data-inline-form-hide-text-value="Cancel">
+  <div class="flex justify-end mb-4">
     <% if @lists_by_supplier_for_form.any? %>
       <button type="button"
               data-action="inline-form#toggle"

@@ -55,106 +55,125 @@
     </div>
   </div>
 
-  <% if @orders.any? %>
+  <% if @order_groups.any? %>
     <p class="text-sm text-gray-500 mb-3">
-      Showing <%= @orders.offset_value + 1 %>–<%= [@orders.offset_value + @orders.limit_value, @orders.total_count].min %> of <%= @orders.total_count %> orders
+      <%= @order_count %> orders in <%= @order_groups.size %> <%= @order_groups.size == 1 ? "group" : "groups" %>
     </p>
 
-    <div class="bg-white shadow rounded-lg divide-y divide-gray-200">
-      <% @orders.each do |order| %>
-        <div class="p-4">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0 flex-1">
-              <h3 class="text-sm font-medium text-gray-900">
-                <%= link_to "Order ##{order.id}", order_path(order), class: "hover:text-brand-orange" %>
-                <span class="hidden sm:inline">&middot;</span>
-                <span class="block sm:inline text-gray-500 sm:text-gray-900"><%= order.supplier.name %></span>
-              </h3>
-              <p class="text-sm text-gray-500 mt-0.5">
-                <%= order.order_items.size %> items &middot; <%= number_to_currency(order.total_amount) %>
-                <% if order.submitted_at %>
-                  <span class="hidden sm:inline">&middot; <%= order.submitted_at.strftime("%b %d, %Y") %></span>
-                <% end %>
-              </p>
-              <% if order.confirmation_number.present? %>
-                <p class="text-xs text-gray-400 break-all">Confirmation: <%= order.confirmation_number %></p>
+    <div class="space-y-4">
+      <% @order_groups.each do |orders| %>
+        <% is_split = orders.size > 1 %>
+        <% group_total = orders.sum { |o| o.total_amount || 0 } %>
+        <% group_savings = orders.sum { |o| o.savings_amount || 0 } %>
+        <% group_items = orders.sum { |o| o.order_items.size } %>
+        <% group_date = orders.map(&:submitted_at).compact.max %>
+        <% order_list = orders.first.order_list %>
+
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+          <% if is_split %>
+            <%# === Split Order Group Header === %>
+            <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-navy/10 text-brand-navy">
+                      Split Order
+                    </span>
+                    <% if order_list %>
+                      <span class="text-sm text-gray-500"><%= order_list.name %></span>
+                    <% end %>
+                  </div>
+                  <p class="text-sm text-gray-500 mt-1">
+                    <%= group_items %> items across <%= orders.size %> suppliers &middot; <%= number_to_currency(group_total) %>
+                    <% if group_date %>
+                      <span class="hidden sm:inline">&middot; <%= group_date.strftime("%b %d, %Y") %></span>
+                    <% end %>
+                  </p>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <% if group_savings > 0 %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                      Saved <%= number_to_currency(group_savings) %>
+                    </span>
+                  <% end %>
+                </div>
+              </div>
+            </div>
+
+            <%# === Per-Supplier Sub-Rows === %>
+            <div class="divide-y divide-gray-100">
+              <% orders.each do |order| %>
+                <div class="px-4 py-3 hover:bg-gray-50">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0 flex-1 pl-4">
+                      <h3 class="text-sm font-medium text-gray-900">
+                        <%= link_to order.supplier.name, order_path(order), class: "hover:text-brand-orange" %>
+                      </h3>
+                      <p class="text-sm text-gray-500 mt-0.5">
+                        <%= order.order_items.size %> items &middot; <%= number_to_currency(order.total_amount) %>
+                      </p>
+                      <% if order.confirmation_number.present? %>
+                        <p class="text-xs text-gray-400 break-all">Confirmation: <%= order.confirmation_number %></p>
+                      <% end %>
+                    </div>
+                    <div class="flex items-center gap-2 flex-shrink-0">
+                      <% if order.savings_amount.to_f > 0 %>
+                        <span class="text-xs text-green-600">
+                          <%= number_to_currency(order.savings_amount) %>
+                        </span>
+                      <% end %>
+                      <% if order.confirmed? %>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Confirmed</span>
+                      <% elsif order.submitted? %>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
+                      <% end %>
+                      <%= link_to "View", order_path(order), class: "hidden sm:inline text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+                    </div>
+                  </div>
+                </div>
               <% end %>
             </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <% if order.savings_amount.to_f > 0 %>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                  Saved <%= number_to_currency(order.savings_amount) %>
-                </span>
-              <% end %>
-              <% if order.confirmed? %>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Confirmed</span>
-              <% elsif order.submitted? %>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
-              <% end %>
-              <%= link_to "View", order_path(order), class: "hidden sm:inline text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+
+          <% else %>
+            <%# === Single Supplier Order === %>
+            <% order = orders.first %>
+            <div class="p-4">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <h3 class="text-sm font-medium text-gray-900">
+                    <%= link_to "Order ##{order.id}", order_path(order), class: "hover:text-brand-orange" %>
+                    <span class="hidden sm:inline">&middot;</span>
+                    <span class="block sm:inline text-gray-500 sm:text-gray-900"><%= order.supplier.name %></span>
+                  </h3>
+                  <p class="text-sm text-gray-500 mt-0.5">
+                    <%= order.order_items.size %> items &middot; <%= number_to_currency(order.total_amount) %>
+                    <% if order.submitted_at %>
+                      <span class="hidden sm:inline">&middot; <%= order.submitted_at.strftime("%b %d, %Y") %></span>
+                    <% end %>
+                  </p>
+                  <% if order.confirmation_number.present? %>
+                    <p class="text-xs text-gray-400 break-all">Confirmation: <%= order.confirmation_number %></p>
+                  <% end %>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <% if order.savings_amount.to_f > 0 %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                      Saved <%= number_to_currency(order.savings_amount) %>
+                    </span>
+                  <% end %>
+                  <% if order.confirmed? %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Confirmed</span>
+                  <% elsif order.submitted? %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
+                  <% end %>
+                  <%= link_to "View", order_path(order), class: "hidden sm:inline text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+                </div>
+              </div>
             </div>
-          </div>
+          <% end %>
         </div>
       <% end %>
     </div>
-
-    <!-- Pagination -->
-    <% filter_params = { search: params[:search], supplier_id: params[:supplier_id], date_from: params[:date_from], date_to: params[:date_to] }.compact_blank %>
-    <% if @orders.total_pages > 1 %>
-      <nav class="mt-4 flex items-center justify-between" aria-label="Pagination">
-        <div class="flex gap-1">
-          <% if @orders.prev_page %>
-            <%= link_to orders_path(filter_params.merge(page: @orders.prev_page)),
-                  class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" do %>
-              <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-              Previous
-            <% end %>
-          <% end %>
-        </div>
-
-        <div class="hidden sm:flex gap-1">
-          <% pages_to_show = ([@orders.current_page - 2, 1].max..[@orders.current_page + 2, @orders.total_pages].min) %>
-          <% if pages_to_show.first > 1 %>
-            <%= link_to "1", orders_path(filter_params.merge(page: 1)),
-                  class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
-            <% if pages_to_show.first > 2 %>
-              <span class="inline-flex items-center px-2 py-2 text-sm text-gray-400">&hellip;</span>
-            <% end %>
-          <% end %>
-
-          <% pages_to_show.each do |page_num| %>
-            <% if page_num == @orders.current_page %>
-              <span class="inline-flex items-center px-3 py-2 text-sm font-semibold rounded-md bg-brand-orange text-white"><%= page_num %></span>
-            <% else %>
-              <%= link_to page_num, orders_path(filter_params.merge(page: page_num)),
-                    class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
-            <% end %>
-          <% end %>
-
-          <% if pages_to_show.last < @orders.total_pages %>
-            <% if pages_to_show.last < @orders.total_pages - 1 %>
-              <span class="inline-flex items-center px-2 py-2 text-sm text-gray-400">&hellip;</span>
-            <% end %>
-            <%= link_to @orders.total_pages, orders_path(filter_params.merge(page: @orders.total_pages)),
-                  class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" %>
-          <% end %>
-        </div>
-
-        <div class="sm:hidden text-sm text-gray-500">
-          Page <%= @orders.current_page %> of <%= @orders.total_pages %>
-        </div>
-
-        <div class="flex gap-1">
-          <% if @orders.next_page %>
-            <%= link_to orders_path(filter_params.merge(page: @orders.next_page)),
-                  class: "inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" do %>
-              Next
-              <svg class="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-            <% end %>
-          <% end %>
-        </div>
-      </nav>
-    <% end %>
   <% else %>
     <div class="text-center py-12 bg-white rounded-lg shadow">
       <p class="text-gray-500">No orders found for this period.</p>

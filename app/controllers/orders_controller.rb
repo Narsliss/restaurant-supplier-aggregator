@@ -2,35 +2,42 @@ class OrdersController < ApplicationController
   before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel]
 
   def index
-    @orders = current_user.orders
+    orders_scope = current_user.orders
       .completed
-      .includes(:supplier, :location, :order_items)
+      .includes(:supplier, :location, :order_items, :order_list)
       .order(submitted_at: :desc)
 
     # Default date range: last 30 days
     @date_from = params[:date_from].present? ? Date.parse(params[:date_from]) : 30.days.ago.to_date
     @date_to = params[:date_to].present? ? Date.parse(params[:date_to]) : Date.current
 
-    @orders = @orders.where("submitted_at >= ?", @date_from.beginning_of_day)
-    @orders = @orders.where("submitted_at <= ?", @date_to.end_of_day)
+    orders_scope = orders_scope.where("submitted_at >= ?", @date_from.beginning_of_day)
+    orders_scope = orders_scope.where("submitted_at <= ?", @date_to.end_of_day)
 
     # Filter by supplier
     if params[:supplier_id].present?
-      @orders = @orders.where(supplier_id: params[:supplier_id])
+      orders_scope = orders_scope.where(supplier_id: params[:supplier_id])
     end
 
     # Search by order ID or confirmation number
     if params[:search].present?
       search_term = "%#{params[:search]}%"
-      @orders = @orders.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
+      orders_scope = orders_scope.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
     end
 
     # KPI: total savings across filtered orders
-    @total_savings = @orders.sum(:savings_amount)
-    @total_spent = @orders.sum(:total_amount)
-    @order_count = @orders.count
+    @total_savings = orders_scope.sum(:savings_amount)
+    @total_spent = orders_scope.sum(:total_amount)
+    @order_count = orders_scope.count
 
-    @orders = @orders.page(params[:page])
+    # Group orders by order_list_id for split order display
+    # Orders with same order_list_id were part of one split order
+    all_orders = orders_scope.to_a
+    @order_groups = all_orders.group_by { |o| o.order_list_id || "standalone_#{o.id}" }
+      .values
+      .sort_by { |group| group.map(&:submitted_at).compact.max || Time.at(0) }
+      .reverse
+
     @suppliers = Supplier.joins(:orders)
       .where(orders: { user_id: current_user.id, status: %w[submitted confirmed] })
       .distinct.order(:name)
