@@ -1,9 +1,9 @@
 <div class="py-6">
   <div class="mb-6">
-    <%= link_to "&larr; Back".html_safe, aggregated_lists_path, class: "text-sm text-brand-orange hover:text-brand-orange-light" %>
+    <%= link_to "&larr; Supplier Lists".html_safe, supplier_lists_path, class: "text-sm text-brand-orange hover:text-brand-orange-light" %>
   </div>
 
-  <h1 class="text-2xl font-heading font-bold text-gray-900 mb-6">New Comparison</h1>
+  <h1 class="text-2xl font-heading font-bold text-gray-900 mb-6">New Order List</h1>
 
   <%= render "form", aggregated_list: @aggregated_list, available_lists: @available_lists %>
 </div>

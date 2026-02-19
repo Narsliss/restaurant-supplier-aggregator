@@ -17,7 +17,7 @@
   <div class="bg-white shadow rounded-lg p-6">
     <div class="space-y-4">
       <div>
-        <%= f.label :name, "Comparison Name", class: "block text-sm font-medium text-gray-700" %>
+        <%= f.label :name, "Order List Name", class: "block text-sm font-medium text-gray-700" %>
         <%= f.text_field :name, placeholder: "e.g., Staples, Produce, Weekend Prep",
             class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
         <p class="mt-1 text-xs text-gray-500">Give this comparison a name that describes the type of products.</p>
@@ -62,7 +62,7 @@
   </div>
 
   <div class="flex justify-end gap-3">
-    <%= link_to "Cancel", aggregated_lists_path,
+    <%= link_to "Cancel", supplier_lists_path,
         class: "rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50" %>
     <%= f.submit aggregated_list.persisted? ? "Update & Re-match" : "Create & Match Products",
         class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors cursor-pointer" %>

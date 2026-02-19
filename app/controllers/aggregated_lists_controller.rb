@@ -1,12 +1,6 @@
 class AggregatedListsController < ApplicationController
   before_action :set_aggregated_list, only: %i[show edit update destroy run_matching]
 
-  def index
-    @aggregated_lists = current_organization_aggregated_lists
-                        .includes(supplier_lists: :supplier)
-                        .order(updated_at: :desc)
-  end
-
   def show
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
     @product_matches = @aggregated_list.product_matches
@@ -76,7 +70,7 @@ class AggregatedListsController < ApplicationController
   def destroy
     name = @aggregated_list.name
     @aggregated_list.destroy
-    redirect_to aggregated_lists_path, notice: "#{name} deleted."
+    redirect_to supplier_lists_path, notice: "#{name} deleted."
   end
 
   def run_matching

@@ -2,7 +2,7 @@
   <%= hidden_field_tag :return_to, "supplier_lists" %>
 
   <div>
-    <%= f.label :name, "Comparison Name", class: "block text-sm font-medium text-gray-700" %>
+    <%= f.label :name, "Order List Name", class: "block text-sm font-medium text-gray-700" %>
     <%= f.text_field :name, name: "aggregated_list[name]",
         placeholder: "e.g., Staples, Produce, Weekend Prep",
         required: true,
@@ -30,7 +30,7 @@
   </div>
 
   <div class="flex justify-end">
-    <%= f.submit "Create & Match Products",
+    <%= f.submit "Create Order List & Match Products",
         class: "rounded-md bg-brand-orange px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors cursor-pointer" %>
   </div>
 <% end %>
