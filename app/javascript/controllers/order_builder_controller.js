@@ -51,12 +51,8 @@ export default class extends Controller {
 
     // Navy background — keep all white cards as-is (KPI cards + action row stay white)
 
-    // Hide the original in-page bar
-    cmdBar.style.visibility = "hidden"
-
-    // Placeholder to keep layout spacing
-    const barHeight = this._fixedBar.offsetHeight
-    cmdBar.style.height = barHeight + "px"
+    // Hide the original in-page bar completely (no placeholder — bar is fixed at bottom)
+    cmdBar.style.display = "none"
 
     // Floating table header + auto-hide bottom bar when footer is visible
     const nav = document.querySelector("nav")
