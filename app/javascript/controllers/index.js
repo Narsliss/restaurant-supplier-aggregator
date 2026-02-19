@@ -9,6 +9,8 @@ import CredentialValidatorController from "./credential_validator_controller"
 import ProductSearchController from "./product_search_controller"
 import CategoryFilterController from "./category_filter_controller"
 import CredentialFormController from "./credential_form_controller"
+import InlineFormController from "./inline_form_controller"
+import SearchableSelectController from "./searchable_select_controller"
 
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
@@ -19,3 +21,5 @@ application.register("credential-validator", CredentialValidatorController)
 application.register("product-search", ProductSearchController)
 application.register("category-filter", CategoryFilterController)
 application.register("credential-form", CredentialFormController)
+application.register("inline-form", InlineFormController)
+application.register("searchable-select", SearchableSelectController)

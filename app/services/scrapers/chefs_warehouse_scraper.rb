@@ -598,6 +598,252 @@ module Scrapers
       raise ScrapingError, "None of selectors found: #{selectors.join(', ')}"
     end
 
+    public
+
+    # Scrape order guides from Chef's Warehouse.
+    # CW has an order guides page at /account-dashboard/order-guides/
+    # which may contain one or more named order guides.
+    def scrape_supplier_lists
+      guides_url = "#{BASE_URL}/account-dashboard/order-guides/"
+      logger.info "[ChefsWarehouse] Navigating to order guides: #{guides_url}"
+
+      begin
+        navigate_to(guides_url)
+      rescue Ferrum::PendingConnectionsError
+        logger.warn '[ChefsWarehouse] PendingConnectionsError on order guides page — continuing'
+      end
+      sleep 5
+
+      # CW order guides page (Vue.js SPA) shows guide cards inside
+      # section.order-guide-items containers. Each guide is an <a> tag
+      # with class "cw-router-link" inside a div.guide-wrapper.
+      #
+      # Link hrefs:
+      #   /account-dashboard/order-guides/detail/?id=-1         (Recently Purchased)
+      #   /account-dashboard/order-guides/detail/?id=389493&type=user (user guide)
+      #   /account-dashboard/order-guides/detail/?id=334597&type=csr  (CW-managed)
+      #
+      # Guide names in h5.item-title, item counts in li.item-count.
+      guides_data = browser.evaluate(<<~JS)
+        (function() {
+          var guides = [];
+          var seen = {};
+
+          // Find guide links inside guide-wrapper containers
+          var wrappers = document.querySelectorAll('.guide-wrapper');
+          for (var i = 0; i < wrappers.length; i++) {
+            var link = wrappers[i].querySelector('a[href*="order-guides/detail"]');
+            if (!link) continue;
+
+            var href = link.getAttribute('href') || '';
+            var titleEl = wrappers[i].querySelector('.item-title, h5');
+            var countEl = wrappers[i].querySelector('.item-count');
+
+            var name = titleEl ? titleEl.innerText.trim() : '';
+            var countMatch = countEl ? countEl.innerText.match(/(\\d+)/) : null;
+            var itemCount = countMatch ? parseInt(countMatch[1]) : 0;
+
+            // Extract guide ID from query parameter ?id=XXXXX
+            var idMatch = href.match(/[?&]id=([^&]+)/);
+            var guideId = idMatch ? idMatch[1] : null;
+
+            if (name && guideId && !seen[guideId]) {
+              seen[guideId] = true;
+              guides.push({
+                name: name.substring(0, 255),
+                remote_id: guideId,
+                url: href,
+                item_count: itemCount
+              });
+            }
+          }
+
+          // Fallback: scan all links to order-guides/detail
+          if (guides.length === 0) {
+            var links = document.querySelectorAll('a[href*="order-guides/detail"]');
+            for (var j = 0; j < links.length; j++) {
+              var lhref = links[j].getAttribute('href') || '';
+              var ltext = (links[j].innerText || '').trim().split('\\n')[0] || '';
+              var lidMatch = lhref.match(/[?&]id=([^&]+)/);
+              var lid = lidMatch ? lidMatch[1] : null;
+
+              if (ltext && lid && !seen[lid]) {
+                seen[lid] = true;
+                guides.push({ name: ltext.substring(0, 255), remote_id: lid, url: lhref, item_count: 0 });
+              }
+            }
+          }
+
+          return JSON.stringify(guides);
+        })()
+      JS
+
+      parsed_guides = begin
+        JSON.parse(guides_data)
+      rescue StandardError
+        []
+      end
+
+      logger.info "[ChefsWarehouse] Found #{parsed_guides.size} order guides"
+
+      # If no guides found, treat the current page as a single guide
+      if parsed_guides.empty?
+        products = extract_order_guide_products
+        return [{
+          name: 'Order Guide',
+          remote_id: 'order-guide',
+          url: guides_url,
+          list_type: 'order_guide',
+          items: products
+        }]
+      end
+
+      # Scrape products from each guide
+      result_lists = []
+      parsed_guides.each do |guide|
+        guide_name = guide['name']
+        guide_url = guide['url']
+
+        logger.info "[ChefsWarehouse] Scraping guide '#{guide_name}' (#{guide['item_count']} items expected)"
+
+        if guide_url.present?
+          full_url = guide_url.start_with?('http') ? guide_url : "#{BASE_URL}#{guide_url}"
+          begin
+            navigate_to(full_url)
+          rescue Ferrum::PendingConnectionsError
+            logger.warn "[ChefsWarehouse] PendingConnectionsError on guide '#{guide_name}' — continuing"
+          end
+          sleep 5
+        end
+
+        products = extract_order_guide_products
+        logger.info "[ChefsWarehouse] Guide '#{guide_name}': #{products.size} products"
+
+        # Determine list type based on guide ID
+        list_type = guide['remote_id'] == '-1' ? 'favorites' : 'order_guide'
+
+        result_lists << {
+          name: guide_name,
+          remote_id: guide['remote_id'],
+          url: guide_url,
+          list_type: list_type,
+          items: products
+        }
+
+        rate_limit_delay
+      end
+
+      result_lists
+    end
+
+    # Extract products from the current order guide detail page.
+    #
+    # CW guide detail pages (Vue.js SPA) show products as li.cw-list-item
+    # elements inside div.order-guide-detail-items. Each item has:
+    #   - Name in a.item-title
+    #   - SKU in ul.info-list > li.item (second li, after brand)
+    #   - Brand in ul.info-list > li.item.body-one > a
+    #   - Pack size in span.pack-size
+    #   - Price in span.price
+    def extract_order_guide_products
+      # Scroll to load all products (CW lazy-loads on scroll)
+      last_count = 0
+      10.times do
+        browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        sleep 2
+        current_count = browser.evaluate("document.querySelectorAll('li.cw-list-item').length") rescue 0
+        break if current_count == last_count && current_count > 0
+        last_count = current_count
+      end
+
+      # Extract from guide detail list items
+      raw = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var results = [];
+            var seen = {};
+            var items = document.querySelectorAll('li.cw-list-item');
+
+            for (var i = 0; i < items.length; i++) {
+              var item = items[i];
+
+              // Name from the item-title link
+              var nameEl = item.querySelector('a.item-title, .item-title');
+              var name = nameEl ? nameEl.innerText.trim() : '';
+
+              // SKU: second <li> in the info-list (first is brand)
+              var infoItems = item.querySelectorAll('ul.info-list li.item');
+              var sku = '';
+              var brand = '';
+              for (var j = 0; j < infoItems.length; j++) {
+                var liText = infoItems[j].innerText.trim();
+                if (infoItems[j].classList.contains('body-one')) {
+                  brand = liText;
+                } else if (liText.match(/^[A-Z0-9]{2,}$/i)) {
+                  sku = liText;
+                }
+              }
+
+              // Also try extracting SKU from product link href (/products/SKU/)
+              if (!sku) {
+                var prodLink = item.querySelector('a[href*="/products/"]');
+                if (prodLink) {
+                  var hrefMatch = prodLink.getAttribute('href').match(/\\/products\\/([^/]+)/);
+                  if (hrefMatch) sku = hrefMatch[1];
+                }
+              }
+
+              if (!sku || !name || seen[sku]) continue;
+              seen[sku] = true;
+
+              // Pack size
+              var packEl = item.querySelector('.pack-size');
+              var packSize = packEl ? packEl.innerText.trim() : '';
+
+              // Price (e.g. "$60.50 / Piece" or "$129.15 / Case")
+              var priceEl = item.querySelector('.price');
+              var price = null;
+              if (priceEl) {
+                var priceMatch = priceEl.innerText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+                if (priceMatch) price = parseFloat(priceMatch[1].replace(',', ''));
+              }
+
+              // Full name with brand
+              var fullName = brand ? (name + ' - ' + brand) : name;
+
+              // In stock (check for out-of-stock indicators)
+              var outOfStock = item.querySelector('.out-of-stock, [class*="out-of-stock"]');
+              var inStock = !outOfStock && !item.innerText.match(/out of stock/i);
+
+              results.push({
+                sku: sku,
+                name: fullName.substring(0, 255),
+                price: price,
+                pack_size: packSize,
+                in_stock: inStock
+              });
+            }
+
+            return results;
+          })()
+        JS
+      rescue StandardError
+        []
+      end
+
+      (raw || []).each_with_index.map do |item, idx|
+        {
+          sku: item['sku'],
+          name: item['name'],
+          price: item['price'].is_a?(Numeric) ? item['price'] : nil,
+          pack_size: item['pack_size'].to_s.strip.presence,
+          quantity: 1,
+          in_stock: item['in_stock'] != false,
+          position: idx + 1
+        }
+      end
+    end
+
     protected
 
     def perform_login_steps

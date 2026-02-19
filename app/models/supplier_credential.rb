@@ -7,14 +7,16 @@ class SupplierCredential < ApplicationRecord
   # Associations
   belongs_to :user
   belongs_to :supplier
+  belongs_to :organization, optional: true
   has_many :supplier_2fa_requests, dependent: :destroy
+  has_many :supplier_lists, dependent: :destroy
 
   # Validations
   validates :username, presence: true
   validates :password, presence: true, unless: :supplier_no_password?
   validates :supplier_id, uniqueness: {
     scope: :user_id,
-    message: "credential already exists for this supplier"
+    message: 'credential already exists for this supplier'
   }
   validates :status, inclusion: {
     in: %w[pending active expired failed hold]
@@ -35,34 +37,34 @@ class SupplierCredential < ApplicationRecord
   end
 
   # Scopes
-  scope :active, -> { where(status: "active") }
-  scope :needs_refresh, -> { where("last_login_at < ?", 6.hours.ago) }
+  scope :active, -> { where(status: 'active') }
+  scope :needs_refresh, -> { where('last_login_at < ?', 6.hours.ago) }
   scope :for_supplier, ->(supplier) { where(supplier: supplier) }
 
   # Status constants
   STATUSES = {
-    pending: "pending",
-    active: "active",
-    expired: "expired",
-    failed: "failed",
-    hold: "hold"
+    pending: 'pending',
+    active: 'active',
+    expired: 'expired',
+    failed: 'failed',
+    hold: 'hold'
   }.freeze
 
   # Methods
   def active?
-    status == "active"
+    status == 'active'
   end
 
   def expired?
-    status == "expired"
+    status == 'expired'
   end
 
   def failed?
-    status == "failed"
+    status == 'failed'
   end
 
   def on_hold?
-    status == "hold" || account_on_hold?
+    status == 'hold' || account_on_hold?
   end
 
   def needs_refresh?
@@ -70,19 +72,19 @@ class SupplierCredential < ApplicationRecord
   end
 
   def mark_active!
-    update!(status: "active", last_login_at: Time.current, last_error: nil)
+    update!(status: 'active', last_login_at: Time.current, last_error: nil)
   end
 
   def mark_failed!(error_message)
-    update!(status: "failed", last_error: error_message)
+    update!(status: 'failed', last_error: error_message)
   end
 
   def mark_expired!
-    update!(status: "expired")
+    update!(status: 'expired')
   end
 
   def mark_on_hold!(reason)
-    update!(status: "hold", account_on_hold: true, hold_reason: reason)
+    update!(status: 'hold', account_on_hold: true, hold_reason: reason)
   end
 
   def clear_session!
@@ -97,8 +99,8 @@ class SupplierCredential < ApplicationRecord
   end
 
   def trusted_device_valid?
-    trusted_device_token.present? && 
-      trusted_device_expires_at.present? && 
+    trusted_device_token.present? &&
+      trusted_device_expires_at.present? &&
       trusted_device_expires_at > Time.current
   end
 
@@ -106,7 +108,7 @@ class SupplierCredential < ApplicationRecord
 
   def encryption_key
     Rails.application.credentials.encryption_key ||
-      ENV["ENCRYPTION_KEY"] ||
+      ENV['ENCRYPTION_KEY'] ||
       Rails.application.secret_key_base[0..31]
   end
 end

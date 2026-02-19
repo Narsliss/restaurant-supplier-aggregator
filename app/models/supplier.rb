@@ -7,6 +7,8 @@ class Supplier < ApplicationRecord
   has_many :supplier_requirements, dependent: :destroy
   has_many :supplier_delivery_schedules, dependent: :destroy
   has_many :orders, dependent: :restrict_with_error
+  has_many :supplier_lists, dependent: :destroy
+  has_many :product_match_items, dependent: :destroy
 
   # Validations
   validates :name, presence: true
@@ -28,15 +30,15 @@ class Supplier < ApplicationRecord
 
   # Authentication type helpers
   def two_fa_only?
-    auth_type == "two_fa"
+    auth_type == 'two_fa'
   end
 
   def welcome_url_auth?
-    auth_type == "welcome_url"
+    auth_type == 'welcome_url'
   end
 
   def password_auth?
-    auth_type == "password"
+    auth_type == 'password'
   end
 
   # Returns true if this supplier does NOT need a password
@@ -51,11 +53,11 @@ class Supplier < ApplicationRecord
   end
 
   def order_minimum
-    supplier_requirements.find_by(requirement_type: "order_minimum", active: true)&.numeric_value
+    supplier_requirements.find_by(requirement_type: 'order_minimum', active: true)&.numeric_value
   end
 
   def cutoff_requirement
-    supplier_requirements.find_by(requirement_type: "cutoff_time", active: true)
+    supplier_requirements.find_by(requirement_type: 'cutoff_time', active: true)
   end
 
   def delivery_schedule_for(location)

@@ -1,0 +1,27 @@
+<%= turbo_stream.replace dom_id(@product_match) do %>
+  <!-- Re-render the row with confirmed status -->
+  <tr id="<%= dom_id(@product_match) %>" class="hover:bg-gray-50">
+    <td class="px-4 py-3 sticky left-0 bg-white z-10">
+      <div class="text-sm font-medium text-gray-900"><%= @product_match.display_name %></div>
+    </td>
+    <% @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq.each do |supplier| %>
+      <td class="px-4 py-3">
+        <% item = @product_match.item_for_supplier(supplier) %>
+        <% if item %>
+          <div class="text-sm text-gray-900"><%= item.name.truncate(60) %></div>
+          <div class="text-xs text-gray-500"><%= item.pack_size %></div>
+          <div class="mt-1 text-sm font-semibold text-gray-900"><%= item.formatted_price %></div>
+        <% else %>
+          <span class="text-sm text-gray-400 italic">No match</span>
+        <% end %>
+      </td>
+    <% end %>
+    <td class="px-4 py-3 text-center">
+      <span class="text-green-600">
+        <svg class="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </span>
+    </td>
+  </tr>
+<% end %>

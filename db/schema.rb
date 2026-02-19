@@ -10,9 +10,32 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_18_150721) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_19_180948) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
+
+  create_table "aggregated_list_mappings", force: :cascade do |t|
+    t.bigint "aggregated_list_id", null: false
+    t.bigint "supplier_list_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["aggregated_list_id", "supplier_list_id"], name: "idx_agg_list_mappings_unique", unique: true
+    t.index ["aggregated_list_id"], name: "index_aggregated_list_mappings_on_aggregated_list_id"
+    t.index ["supplier_list_id"], name: "index_aggregated_list_mappings_on_supplier_list_id"
+  end
+
+  create_table "aggregated_lists", force: :cascade do |t|
+    t.bigint "organization_id"
+    t.bigint "created_by_id", null: false
+    t.string "name", null: false
+    t.text "description"
+    t.string "match_status", default: "pending", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_by_id"], name: "index_aggregated_lists_on_created_by_id"
+    t.index ["organization_id", "name"], name: "index_aggregated_lists_on_organization_id_and_name", unique: true
+    t.index ["organization_id"], name: "index_aggregated_lists_on_organization_id"
+  end
 
   create_table "billing_events", force: :cascade do |t|
     t.bigint "user_id"
@@ -211,6 +234,32 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_18_150721) do
     t.datetime "updated_at", null: false
     t.index ["slug"], name: "index_organizations_on_slug", unique: true
     t.index ["stripe_customer_id"], name: "index_organizations_on_stripe_customer_id", unique: true
+  end
+
+  create_table "product_match_items", force: :cascade do |t|
+    t.bigint "product_match_id", null: false
+    t.bigint "supplier_list_item_id", null: false
+    t.bigint "supplier_id", null: false
+    t.boolean "is_primary", default: false, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["product_match_id", "supplier_id"], name: "idx_match_items_match_supplier", unique: true
+    t.index ["product_match_id"], name: "index_product_match_items_on_product_match_id"
+    t.index ["supplier_id"], name: "index_product_match_items_on_supplier_id"
+    t.index ["supplier_list_item_id"], name: "index_product_match_items_on_supplier_list_item_id"
+  end
+
+  create_table "product_matches", force: :cascade do |t|
+    t.bigint "aggregated_list_id", null: false
+    t.string "canonical_name"
+    t.string "match_status", default: "auto_matched", null: false
+    t.decimal "confidence_score", precision: 3, scale: 2, default: "0.0"
+    t.integer "position", default: 0
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["aggregated_list_id", "position"], name: "index_product_matches_on_aggregated_list_id_and_position"
+    t.index ["aggregated_list_id"], name: "index_product_matches_on_aggregated_list_id"
+    t.index ["match_status"], name: "index_product_matches_on_match_status"
   end
 
   create_table "products", force: :cascade do |t|
@@ -491,6 +540,45 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_18_150721) do
     t.index ["supplier_id"], name: "index_supplier_delivery_schedules_on_supplier_id"
   end
 
+  create_table "supplier_list_items", force: :cascade do |t|
+    t.bigint "supplier_list_id", null: false
+    t.bigint "supplier_product_id"
+    t.string "remote_item_id"
+    t.string "name", null: false
+    t.string "sku"
+    t.decimal "price", precision: 10, scale: 2
+    t.string "pack_size"
+    t.decimal "quantity", precision: 10, scale: 2, default: "1.0"
+    t.boolean "in_stock", default: true
+    t.integer "position", default: 0
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["supplier_list_id", "sku"], name: "idx_list_items_list_sku", unique: true
+    t.index ["supplier_list_id"], name: "index_supplier_list_items_on_supplier_list_id"
+    t.index ["supplier_product_id"], name: "index_supplier_list_items_on_supplier_product_id"
+  end
+
+  create_table "supplier_lists", force: :cascade do |t|
+    t.bigint "supplier_credential_id", null: false
+    t.bigint "supplier_id", null: false
+    t.bigint "organization_id"
+    t.string "remote_list_id"
+    t.string "remote_list_url"
+    t.string "name", null: false
+    t.string "list_type", default: "order_guide", null: false
+    t.integer "product_count", default: 0
+    t.datetime "last_synced_at"
+    t.string "sync_status", default: "pending", null: false
+    t.text "sync_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id"], name: "index_supplier_lists_on_organization_id"
+    t.index ["supplier_credential_id", "remote_list_id"], name: "idx_supplier_lists_cred_remote", unique: true
+    t.index ["supplier_credential_id"], name: "index_supplier_lists_on_supplier_credential_id"
+    t.index ["supplier_id"], name: "index_supplier_lists_on_supplier_id"
+    t.index ["sync_status"], name: "index_supplier_lists_on_sync_status"
+  end
+
   create_table "supplier_products", force: :cascade do |t|
     t.bigint "product_id"
     t.bigint "supplier_id", null: false
@@ -581,6 +669,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_18_150721) do
     t.index ["unlock_token"], name: "index_users_on_unlock_token", unique: true
   end
 
+  add_foreign_key "aggregated_list_mappings", "aggregated_lists", on_delete: :cascade
+  add_foreign_key "aggregated_list_mappings", "supplier_lists", on_delete: :cascade
+  add_foreign_key "aggregated_lists", "organizations"
+  add_foreign_key "aggregated_lists", "users", column: "created_by_id"
   add_foreign_key "billing_events", "subscriptions"
   add_foreign_key "billing_events", "users"
   add_foreign_key "invoices", "organizations"
@@ -604,6 +696,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_18_150721) do
   add_foreign_key "orders", "users", on_delete: :cascade
   add_foreign_key "organization_invitations", "organizations"
   add_foreign_key "organization_invitations", "users", column: "invited_by_id"
+  add_foreign_key "product_match_items", "product_matches", on_delete: :cascade
+  add_foreign_key "product_match_items", "supplier_list_items", on_delete: :cascade
+  add_foreign_key "product_match_items", "suppliers"
+  add_foreign_key "product_matches", "aggregated_lists", on_delete: :cascade
   add_foreign_key "scraping_logs", "supplier_credentials"
   add_foreign_key "scraping_logs", "suppliers"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
@@ -621,6 +717,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_18_150721) do
   add_foreign_key "supplier_credentials", "users", on_delete: :cascade
   add_foreign_key "supplier_delivery_schedules", "locations", on_delete: :cascade
   add_foreign_key "supplier_delivery_schedules", "suppliers", on_delete: :cascade
+  add_foreign_key "supplier_list_items", "supplier_lists", on_delete: :cascade
+  add_foreign_key "supplier_list_items", "supplier_products", on_delete: :nullify
+  add_foreign_key "supplier_lists", "organizations"
+  add_foreign_key "supplier_lists", "supplier_credentials", on_delete: :cascade
+  add_foreign_key "supplier_lists", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_products", "products", on_delete: :nullify
   add_foreign_key "supplier_products", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_requirements", "suppliers", on_delete: :cascade

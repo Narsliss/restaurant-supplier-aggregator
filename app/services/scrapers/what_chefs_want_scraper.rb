@@ -482,6 +482,138 @@ module Scrapers
       end
     end
 
+    # Scrape the order guide from What Chefs Want (Cut+Dry platform).
+    # WCW has a single order guide at the /place-order URL.
+    # Returns array with one list hash per the BaseScraper#scrape_lists contract.
+    def scrape_supplier_lists
+      logger.info '[WhatChefsWant] Scraping order guide'
+      ensure_on_order_page
+      sleep 3
+
+      # Make sure the "All" filter is active to get all products
+      begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var buttons = document.querySelectorAll('button');
+            for (var i = 0; i < buttons.length; i++) {
+              if (buttons[i].innerText.trim() === 'All') {
+                buttons[i].click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        sleep 2
+      rescue StandardError => e
+        logger.debug "[WhatChefsWant] Could not click All filter: #{e.message}"
+      end
+
+      # Scroll to load all products (Cut+Dry uses infinite scroll)
+      scroll_to_load_all_products
+
+      # Extract products from the order guide table.
+      # Cut+Dry renders a React table with columns:
+      #   Item | Item Code | Unit | Last Order | Price | Quantity
+      # Product rows have td cells; category headers are single-cell rows.
+      # SKUs are in the "Item Code" column and also appear as
+      # data-for="product-card-{SKU}" attributes on elements.
+      products = begin
+        browser.evaluate(<<~JS)
+          (function() {
+            var results = [];
+            var seen = {};
+            var rows = document.querySelectorAll('table tr');
+
+            for (var i = 0; i < rows.length; i++) {
+              var cells = rows[i].querySelectorAll('td');
+              if (cells.length < 5) continue; // Skip header/category rows
+
+              // Item name from first cell
+              var nameEl = cells[0].querySelector('[data-tip="View Product Details"]');
+              if (!nameEl) nameEl = cells[0].querySelector('div > div > span > div');
+              var name = nameEl ? nameEl.innerText.trim() : '';
+              if (!name) {
+                // Fallback: first substantial text in the cell
+                var cellText = (cells[0].innerText || '').trim().split('\\n');
+                name = cellText.find(function(l) { return l.trim().length > 3; }) || '';
+              }
+
+              // SKU from Item Code cell (second column, index 1)
+              var sku = (cells[1] ? cells[1].innerText.trim() : '').replace(/\\D/g, '');
+
+              // Also try extracting from data-for attribute
+              if (!sku) {
+                var dataFor = cells[0].querySelector('[data-for^="product-card-"]');
+                if (dataFor) {
+                  var match = dataFor.getAttribute('data-for').match(/product-card-(\\d+)/);
+                  if (match) sku = match[1];
+                }
+              }
+
+              if (!sku || !name || seen[sku]) continue;
+              seen[sku] = true;
+
+              // Unit type (Case, Each, Pound, etc.)
+              var unit = cells[2] ? cells[2].innerText.trim() : '';
+
+              // Pack size from the item cell (often after the name)
+              var packText = (cells[0].innerText || '').trim();
+              var packMatch = packText.match(/(\\d+[x/]\\d+[\\s]*\\w+(?:\\s+\\w+)?|\\d+\\s*(?:LB|OZ|CS|EA|CT|GAL|COUNT)\\b[^\\n]*)/i);
+              var packSize = packMatch ? packMatch[1].trim() : '';
+
+              // Price
+              var priceText = cells[4] ? cells[4].innerText.trim() : '';
+              var price = null;
+              // May have "$13.99" or "$13.99/LB" or "$13.99/LB\\n$83.94/CS"
+              var priceMatch = priceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+              if (priceMatch) price = parseFloat(priceMatch[1].replace(',', ''));
+
+              results.push({
+                sku: sku,
+                name: name.substring(0, 255),
+                price: price,
+                pack_size: [packSize, unit].filter(Boolean).join(' - '),
+                in_stock: true
+              });
+            }
+
+            return results;
+          })()
+        JS
+      rescue StandardError
+        []
+      end
+
+      logger.info "[WhatChefsWant] Order guide: #{products.size} products"
+
+      list_url = begin
+        browser.current_url
+      rescue StandardError
+        "#{PLATFORM_URL}/place-order"
+      end
+
+      items = (products || []).each_with_index.map do |p, idx|
+        {
+          sku: p['sku'],
+          name: p['name'],
+          price: p['price'].is_a?(Numeric) ? p['price'] : nil,
+          pack_size: p['pack_size'].to_s.strip.presence,
+          quantity: 1,
+          in_stock: p['in_stock'] != false,
+          position: idx + 1
+        }
+      end
+
+      [{
+        name: 'Order Guide',
+        remote_id: 'order-guide',
+        url: list_url,
+        list_type: 'order_guide',
+        items: items
+      }]
+    end
+
     protected
 
     def perform_login_steps
@@ -907,6 +1039,93 @@ module Scrapers
         in_stock: browser.at_css('.out-of-stock, .unavailable, .sold-out').nil?,
         scraped_at: Time.current
       }
+    end
+
+    # Scroll down the order page to load all products (Cut+Dry lazy-loads).
+    def scroll_to_load_all_products
+      previous_count = 0
+      stale_rounds = 0
+
+      30.times do
+        # Count products currently visible
+        current_count = browser.evaluate(<<~JS)
+          (function() {
+            var text = document.body.innerText || '';
+            return (text.match(/#\\d{3,}/g) || []).length;
+          })()
+        JS
+
+        if current_count <= previous_count
+          stale_rounds += 1
+          break if stale_rounds >= 3
+        else
+          stale_rounds = 0
+        end
+        previous_count = current_count
+
+        # Scroll to bottom
+        browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        sleep 2
+      end
+
+      logger.info "[WhatChefsWant] Scroll complete, ~#{previous_count} products visible"
+    end
+
+    # Parse order guide items from page text. Similar to parse_catalog_results
+    # but without the "Catalog Results" header requirement since we're on
+    # the order guide page directly.
+    def parse_order_guide_items(text)
+      products = []
+
+      # Split by "Add to Cart" to get individual product blocks
+      blocks = text.split('Add to Cart')
+
+      blocks.each_with_index do |block, idx|
+        lines = block.strip.split("\n").map(&:strip).reject(&:blank?)
+        next if lines.size < 2
+
+        # Find the line with item code
+        code_line_idx = lines.index { |l| l.include?('| #') || l.match?(/#\d{3,}/) }
+        next unless code_line_idx
+
+        code_line = lines[code_line_idx]
+        sku_match = code_line.match(/#(\d+)/)
+        next unless sku_match
+
+        sku = sku_match[1]
+        name = lines[0..([code_line_idx - 1, 0].max)].first
+        next if name.blank? || name.length < 3
+
+        brand = code_line_idx >= 2 ? lines[code_line_idx - 1] : nil
+        pack_size = code_line.split('|').first&.strip
+
+        price_line = lines.find { |l| l.match?(/\$[\d,.]+/) }
+        price = nil
+        if price_line
+          price_match = price_line.match(/\$([\d,.]+)/)
+          price = price_match[1].gsub(',', '').to_f if price_match
+        end
+
+        unit_line = lines.find { |l| l.match?(/^(Case|Each|Pound|Gallon|Bag|Box)$/i) }
+        unit = unit_line&.strip
+
+        in_stock = !block.include?('Currently not available')
+        full_name = brand.present? ? "#{name} #{brand}".truncate(255) : name.truncate(255)
+
+        products << {
+          sku: sku,
+          name: full_name,
+          price: price,
+          pack_size: [pack_size, unit].compact.join(' - '),
+          quantity: 1,
+          in_stock: in_stock,
+          position: idx + 1
+        }
+      rescue StandardError => e
+        logger.debug "[WhatChefsWant] Failed to parse order guide item: #{e.message}"
+      end
+
+      products
     end
 
     # Get the current cart total from the cart button on the order page.

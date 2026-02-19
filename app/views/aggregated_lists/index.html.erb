@@ -1,0 +1,66 @@
+<div class="py-6">
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h1 class="text-2xl font-heading font-bold text-gray-900">Compare Lists</h1>
+      <p class="mt-1 text-sm text-gray-500">Connect supplier lists to compare prices across suppliers.</p>
+    </div>
+    <%= link_to "New Comparison", new_aggregated_list_path,
+        class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
+  </div>
+
+  <% if @aggregated_lists.empty? %>
+    <div class="bg-white shadow rounded-lg p-12 text-center">
+      <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+      </svg>
+      <h3 class="mt-2 text-sm font-medium text-gray-900">No comparisons yet</h3>
+      <p class="mt-1 text-sm text-gray-500">
+        Create a comparison to match products across your supplier lists.
+      </p>
+      <%= link_to "Create your first comparison", new_aggregated_list_path,
+          class: "mt-4 inline-block text-brand-orange hover:text-brand-orange-light font-medium text-sm" %>
+    </div>
+  <% else %>
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <% @aggregated_lists.each do |list| %>
+        <%= link_to aggregated_list_path(list), class: "bg-white shadow rounded-lg p-6 hover:shadow-md transition-shadow" do %>
+          <div class="flex justify-between items-start">
+            <h3 class="text-lg font-heading font-medium text-gray-900"><%= list.name %></h3>
+            <% case list.match_status %>
+            <% when "matched" %>
+              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-800">Matched</span>
+            <% when "matching" %>
+              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">Matching...</span>
+            <% when "failed" %>
+              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-800">Failed</span>
+            <% else %>
+              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">Pending</span>
+            <% end %>
+          </div>
+          <p class="mt-1 text-sm text-gray-500"><%= list.description %></p>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <% list.supplier_lists.includes(:supplier).each do |sl| %>
+              <span class="inline-flex items-center rounded-full bg-brand-navy/10 px-2.5 py-0.5 text-xs font-medium text-brand-navy">
+                <%= sl.supplier.name %>
+              </span>
+            <% end %>
+          </div>
+          <div class="mt-4 grid grid-cols-3 gap-4 text-center text-sm">
+            <div>
+              <p class="font-semibold text-gray-900"><%= list.total_match_count %></p>
+              <p class="text-gray-500">Products</p>
+            </div>
+            <div>
+              <p class="font-semibold text-green-600"><%= list.confirmed_count %></p>
+              <p class="text-gray-500">Confirmed</p>
+            </div>
+            <div>
+              <p class="font-semibold text-amber-600"><%= list.auto_matched_count %></p>
+              <p class="text-gray-500">To Review</p>
+            </div>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  <% end %>
+</div>

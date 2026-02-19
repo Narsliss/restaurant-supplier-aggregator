@@ -23,6 +23,9 @@ class User < ApplicationRecord
   # Invitations sent by this user
   has_many :sent_invitations, class_name: 'OrganizationInvitation', foreign_key: :invited_by_id
 
+  # Aggregated lists created by this user
+  has_many :created_aggregated_lists, class_name: 'AggregatedList', foreign_key: :created_by_id, dependent: :destroy
+
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :role, inclusion: { in: %w[user super_admin] }

@@ -34,6 +34,13 @@ production:
     schedule: "0 3 * * *"
     description: "Discontinue supplier products not seen in 3+ consecutive imports and older than 72 hours"
 
+  # Sync all supplier lists/order guides daily at 4 AM
+  sync_all_lists:
+    class: SyncAllListsJob
+    queue: scraping
+    schedule: "0 4 * * *"
+    description: "Sync supplier lists/order guides for all active credentials"
+
   # Expire old 2FA requests every 5 minutes
   expire_2fa_requests:
     class: Expire2faRequestsJob

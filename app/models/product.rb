@@ -10,7 +10,19 @@ class Product < ApplicationRecord
 
   # Scopes
   scope :search, lambda { |query|
-    where('name LIKE :q OR normalized_name LIKE :q OR upc LIKE :q', q: "%#{query}%")
+    terms = query.to_s.strip.split(/\s+/).reject(&:blank?)
+    return none if terms.empty?
+
+    # Each word must appear in name, normalized_name, OR upc.
+    # This lets "chicken breast" match "Breast Chicken Tender" etc.
+    relation = all
+    terms.each do |term|
+      pattern = "%#{term}%"
+      relation = relation.where(
+        'name LIKE :q OR normalized_name LIKE :q OR upc LIKE :q', q: pattern
+      )
+    end
+    relation
   }
   scope :by_category, ->(category) { where(category: category) }
   scope :with_prices, lambda {

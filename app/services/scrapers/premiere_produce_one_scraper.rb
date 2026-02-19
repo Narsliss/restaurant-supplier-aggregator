@@ -441,6 +441,108 @@ module Scrapers
       deduped
     end
 
+    # Scrape order guide(s) from Premiere Produce One (Pepper platform).
+    # PPO is a JS SPA — no URL change when navigating. The "Order Guide"
+    # link is in the left sidebar. The dropdown chevron may reveal multiple guides.
+    # Categories filter within the guide (All, BAKERY & DESSERT, etc.).
+    # Override scrape_lists (not scrape_supplier_lists) because PPO requires
+    # full login with 2FA, so we can't rely on BaseScraper's version which
+    # calls perform_login_steps but doesn't handle 2FA code polling.
+    def scrape_lists
+      with_browser do
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          wait_for_react_render(timeout: 15)
+        end
+
+        unless logged_in?
+          perform_login_steps
+
+          if two_fa_page?
+            max_code_attempts = 3
+            attempt = 0
+            while two_fa_page? && attempt < max_code_attempts
+              attempt += 1
+              resent = attempt > 1
+              if resent
+                click_button_by_text('resend code')
+                sleep 2
+              end
+              code = wait_for_user_code(attempt: attempt, resent: resent)
+              raise AuthenticationError, 'Verification timed out during list import' unless code
+
+              type_code_and_submit(code)
+              sleep 5
+              wait_for_page_load
+              if logged_in?
+                save_session
+                credential.mark_active!
+                save_trusted_device
+                mark_2fa_request_verified!
+                TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
+                break
+              end
+              next unless attempt < max_code_attempts && two_fa_page?
+
+              mark_2fa_request_failed!
+              TwoFactorChannel.broadcast_to(
+                credential.user,
+                { type: 'code_result', success: false, error: 'Code expired or invalid.', can_retry: true }
+              )
+
+            end
+          end
+
+          raise AuthenticationError, 'Could not log in for list import' unless logged_in?
+
+          save_session
+        end
+
+        # Navigate to Order Guide via sidebar
+        navigate_to_order_guide
+
+        # Check for multiple order guides via dropdown
+        guides = discover_order_guides
+
+        if guides.empty?
+          # Single guide — extract products from current page
+          products = extract_order_guide_products_ppo
+          return [{
+            name: 'Order Guide',
+            remote_id: 'order-guide',
+            url: BASE_URL,
+            list_type: 'order_guide',
+            items: products
+          }]
+        end
+
+        # Multiple guides — scrape each
+        result_lists = []
+        guides.each do |guide|
+          logger.info "[PremiereProduceOne] Scraping guide '#{guide[:name]}'"
+          select_order_guide(guide[:name])
+          sleep 3
+          wait_for_react_render(timeout: 10)
+
+          products = extract_order_guide_products_ppo
+          logger.info "[PremiereProduceOne] Guide '#{guide[:name]}': #{products.size} products"
+
+          result_lists << {
+            name: guide[:name],
+            remote_id: guide[:remote_id],
+            url: BASE_URL,
+            list_type: 'order_guide',
+            items: products
+          }
+
+          rate_limit_delay
+        end
+
+        result_lists
+      end
+    end
+
     def scrape_prices(product_skus)
       results = []
 
@@ -1004,6 +1106,248 @@ module Scrapers
       request = Supplier2faRequest.where(supplier_credential: credential, status: %w[submitted verified])
                                   .order(created_at: :desc).first
       request&.mark_failed! unless request&.failed?
+    end
+
+    # Navigate to the Order Guide page by clicking the sidebar link.
+    def navigate_to_order_guide
+      logger.info '[PremiereProduceOne] Navigating to Order Guide'
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Look for "Order Guide" in sidebar links/buttons
+          var els = document.querySelectorAll('a, button, [role="button"], [class*="nav"] *');
+          for (var i = 0; i < els.length; i++) {
+            var text = (els[i].innerText || '').trim().toLowerCase();
+            if (text === 'order guide' || text.includes('order guide')) {
+              els[i].click();
+              return true;
+            }
+          }
+          return false;
+        })()
+      JS
+
+      if clicked
+        sleep 3
+        wait_for_react_render(timeout: 10)
+      else
+        logger.warn '[PremiereProduceOne] Could not find Order Guide link in sidebar'
+      end
+    end
+
+    # Discover multiple order guides via the dropdown chevron.
+    # Returns array of { name:, remote_id: } hashes. Empty if only one guide.
+    def discover_order_guides
+      guides = browser.evaluate(<<~JS)
+        (function() {
+          var results = [];
+          // Look for dropdown or select near "Order Guide" heading
+          var heading = null;
+          var headings = document.querySelectorAll('h1, h2, h3, [class*="heading"], [class*="title"]');
+          for (var i = 0; i < headings.length; i++) {
+            if ((headings[i].innerText || '').toLowerCase().includes('order guide')) {
+              heading = headings[i];
+              break;
+            }
+          }
+          if (!heading) return results;
+
+          // Look for a dropdown trigger (chevron/arrow) near the heading
+          var dropdown = heading.querySelector('svg, [class*="arrow"], [class*="chevron"], [class*="dropdown"]') ||
+                         heading.parentElement?.querySelector('[class*="dropdown"], select');
+          if (dropdown) {
+            // Click to open dropdown
+            dropdown.click && dropdown.click();
+          }
+
+          // Wait briefly, then look for dropdown options
+          var options = document.querySelectorAll('[class*="dropdown"] li, [class*="menu"] li, [role="option"], [role="menuitem"]');
+          for (var j = 0; j < options.length; j++) {
+            var text = (options[j].innerText || '').trim();
+            if (text.length > 0 && text.length < 100) {
+              results.push({
+                name: text,
+                remote_id: text.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+              });
+            }
+          }
+
+          return results;
+        })()
+      JS
+
+      (guides || []).map { |g| { name: g['name'], remote_id: g['remote_id'] } }
+    rescue StandardError
+      []
+    end
+
+    # Select a specific order guide from the dropdown.
+    def select_order_guide(guide_name)
+      browser.evaluate(<<~JS)
+        (function() {
+          // Click dropdown to open
+          var headings = document.querySelectorAll('h1, h2, h3, [class*="heading"], [class*="title"]');
+          for (var i = 0; i < headings.length; i++) {
+            if ((headings[i].innerText || '').toLowerCase().includes('order guide')) {
+              var trigger = headings[i].querySelector('svg, [class*="arrow"], [class*="chevron"]') || headings[i];
+              trigger.click && trigger.click();
+              break;
+            }
+          }
+
+          // Find and click the matching option
+          setTimeout(function() {
+            var options = document.querySelectorAll('[class*="dropdown"] li, [class*="menu"] li, [role="option"], [role="menuitem"]');
+            for (var j = 0; j < options.length; j++) {
+              if ((options[j].innerText || '').trim() === '#{guide_name.gsub("'", "\\\\'")}') {
+                options[j].click();
+                return true;
+              }
+            }
+          }, 500);
+        })()
+      JS
+      sleep 2
+    rescue StandardError => e
+      logger.warn "[PremiereProduceOne] Could not select guide '#{guide_name}': #{e.message}"
+    end
+
+    # Extract products from the current Order Guide page.
+    # Uses the same text-parsing approach as extract_products_from_catalog
+    # but returns items in the list item format.
+    def extract_order_guide_products_ppo
+      # Make sure "All" category filter is selected
+      browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('button');
+          for (var i = 0; i < buttons.length; i++) {
+            if (buttons[i].innerText.trim() === 'All') {
+              buttons[i].click();
+              return;
+            }
+          }
+        })()
+      JS
+      sleep 2
+
+      # Scroll to load all products
+      previous_count = 0
+      stale_rounds = 0
+      20.times do
+        browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        sleep 2
+
+        current_count = begin
+          browser.evaluate(<<~JS)
+            (document.body.innerText.match(/(?:Case|Each|Piece)\\s*[•·]\\s*\\d{3,}/g) || []).length
+          JS
+        rescue StandardError
+          0
+        end
+
+        if current_count <= previous_count
+          stale_rounds += 1
+          break if stale_rounds >= 3
+        else
+          stale_rounds = 0
+        end
+        previous_count = current_count
+      end
+
+      # Parse products using the same logic as extract_products_from_catalog
+      page_text = begin
+        browser.evaluate("document.body ? document.body.innerText : ''")
+      rescue StandardError
+        ''
+      end
+
+      lines = page_text.split("\n").map(&:strip).reject(&:blank?)
+      products = []
+
+      lines.each_with_index do |line, i|
+        sku_match = line.match(/^(?:Case|Each|Piece)\s*[•·]\s*(\d{3,})$/)
+        next unless sku_match
+
+        sku = sku_match[1]
+        name = nil
+        price = nil
+        pack_size = nil
+        brand = nil
+        unit = line.match(/^(Case|Each|Piece)/)[1]
+
+        (i - 1).downto([i - 6, 0].max) do |j|
+          prev_line = lines[j]
+          if prev_line.match?(/^(All|BAKERY|BEVERAGE|DAIRY|FFV|FOODSERVICE|PANTRY|PRODUCE|PROTEIN|SPECIALTY|Sort:)/)
+            next
+          end
+          next if prev_line.match?(/^\d+\s+fulfilled\s+on\s+/i)
+          next if prev_line.match?(/^Add to cart$/i)
+          next if prev_line.match?(/^\d+\s*[-+]$/)
+          next if prev_line.match?(/^See all \d+ products/)
+
+          if prev_line.include?('Brand:') || prev_line.include?('Pack Size:')
+            brand_match = prev_line.match(/Brand:\s*([^|]+)/)
+            brand = brand_match[1].strip if brand_match
+            pack_match = prev_line.match(/Pack Size:\s*([^|]+)/)
+            pack_size = pack_match[1].strip if pack_match
+            price_match = prev_line.match(/\$([\d,.]+)/)
+            price = price_match[1].gsub(',', '').to_f if price_match
+            next
+          end
+
+          if !price && /^\$[\d,.]+$/.match?(prev_line)
+            price = prev_line.gsub(/[$,]/, '').to_f
+            next
+          end
+
+          unless price
+            p_match = prev_line.match(/\$([\d,.]+)/)
+            if p_match && prev_line.length < 30
+              price = p_match[1].gsub(',', '').to_f
+              next
+            end
+          end
+
+          next unless !name && prev_line.length > 2 && prev_line.length < 120 && !prev_line.include?('|') &&
+                      !/^[a-z]/.match?(prev_line) && !/fulfilled on/i.match?(prev_line) &&
+                      !/^\d+\s+(fulfilled|ordered|delivered)/i.match?(prev_line)
+
+          name = prev_line
+          break
+        end
+
+        next unless name && sku
+        next if /^\d+\s+fulfilled/i.match?(name) || /fulfilled on/i.match?(name)
+
+        unless price
+          ((i + 1)..[i + 3, lines.length - 1].min).each do |k|
+            fwd_line = lines[k]
+            if /^\$[\d,.]+$/.match?(fwd_line)
+              price = fwd_line.gsub(/[$,]/, '').to_f
+              break
+            end
+            fwd_match = fwd_line.match(/^\$([\d,.]+)/)
+            if fwd_match
+              price = fwd_match[1].gsub(',', '').to_f
+              break
+            end
+            break if /^Add note$/i.match?(fwd_line) || /^(?:Case|Each|Piece)\s*[•·]/.match?(fwd_line)
+          end
+        end
+
+        full_name = brand.present? ? "#{name} #{brand}".truncate(255) : name.truncate(255)
+
+        products << {
+          sku: sku,
+          name: full_name,
+          price: price,
+          pack_size: pack_size.present? ? "#{unit} - #{pack_size}" : unit,
+          quantity: 1,
+          in_stock: true,
+          position: products.size + 1
+        }
+      end
+
+      products
     end
 
     # Browse a category by clicking on the category filter/sidebar

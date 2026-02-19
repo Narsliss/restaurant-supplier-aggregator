@@ -519,6 +519,221 @@ module Scrapers
       total_yielded
     end
 
+    # Scrape saved order lists from US Foods /desktop/lists page.
+    # US Foods organizes lists with names and product counts.
+    # Returns array of list hashes per the BaseScraper#scrape_lists contract.
+    def scrape_supplier_lists
+      lists_url = "#{BASE_URL}/desktop/lists"
+      logger.info "[UsFoods] Navigating to lists page: #{lists_url}"
+      navigate_to(lists_url)
+      sleep 5
+
+      # US Foods uses Angular/Ionic with data-cy attributes for testing.
+      # The lists page has multiple sections (app-sortable-section-desktop-tablet),
+      # each containing ion-row elements with data-cy="list-data-row-{index}".
+      # List rows are NOT links — clicking a row navigates via Angular router
+      # to /desktop/lists/view/SL-{id}. The SL-{id} is only in the resulting URL.
+      #
+      # Sections: "Last Viewed" (often empty), "My Shopping Lists", "Managed By US Foods"
+      # Row indices reset within each section.
+
+      # Extract section names and their list rows from the DOM
+      lists_metadata = browser.evaluate(<<~JS)
+        (function() {
+          var sections = document.querySelectorAll('app-sortable-section-desktop-tablet');
+          var allLists = [];
+          var globalIndex = 0;
+
+          for (var s = 0; s < sections.length; s++) {
+            var titleEl = sections[s].querySelector('[data-cy=sortable-section-title-text]');
+            var sectionName = titleEl ? titleEl.innerText.trim() : 'Unknown';
+
+            // Skip the "Last Viewed" section — it's ephemeral and usually empty
+            if (sectionName === 'Last Viewed') continue;
+
+            var rows = sections[s].querySelectorAll('ion-row[data-cy^="list-data-row-"]');
+            for (var r = 0; r < rows.length; r++) {
+              var nameEl = rows[r].querySelector('p[data-cy^="list-data-list-name-text-"]');
+              var productsEl = rows[r].querySelector('div[data-cy^="list-data-products-icon-"]');
+
+              var name = nameEl ? nameEl.innerText.trim() : '';
+              var productCount = productsEl ? parseInt(productsEl.innerText.trim()) || 0 : 0;
+
+              if (name.length > 0) {
+                allLists.push({
+                  name: name,
+                  section: sectionName,
+                  section_index: s,
+                  row_index: r,
+                  global_index: globalIndex,
+                  product_count: productCount
+                });
+                globalIndex++;
+              }
+            }
+          }
+
+          return JSON.stringify(allLists);
+        })()
+      JS
+
+      parsed_lists = begin
+        JSON.parse(lists_metadata)
+      rescue StandardError
+        []
+      end
+
+      logger.info "[UsFoods] Found #{parsed_lists.size} lists on lists page"
+
+      if parsed_lists.empty?
+        logger.info '[UsFoods] No lists found on page'
+        return []
+      end
+
+      # Scrape products from each list by clicking into it
+      result_lists = []
+      parsed_lists.each_with_index do |list_data, idx|
+        list_name = list_data['name']
+        section = list_data['section']
+        row_index = list_data['row_index']
+        section_index = list_data['section_index']
+        product_count = list_data['product_count']
+
+        logger.info "[UsFoods] Scraping list '#{list_name}' (section: #{section}, #{product_count} products expected)"
+
+        # Navigate back to lists index if not already there (skip on first iteration)
+        if idx > 0
+          navigate_to(lists_url)
+          sleep 4
+        end
+
+        # Click the list row to navigate to its detail page.
+        # Since row indices reset per section, we target by section index then row index.
+        clicked = browser.evaluate(<<~JS)
+          (function() {
+            var sections = document.querySelectorAll('app-sortable-section-desktop-tablet');
+            if (sections.length <= #{section_index}) return 'section_not_found';
+
+            var rows = sections[#{section_index}].querySelectorAll('ion-row[data-cy^="list-data-row-"]');
+            if (rows.length <= #{row_index}) return 'row_not_found';
+
+            var nameCol = rows[#{row_index}].querySelector('ion-col[data-cy^="list-data-list-name-column-"]');
+            if (nameCol) {
+              nameCol.click();
+              return 'clicked';
+            }
+            return 'name_col_not_found';
+          })()
+        JS
+
+        unless clicked == 'clicked'
+          logger.warn "[UsFoods] Could not click list '#{list_name}': #{clicked}"
+          next
+        end
+
+        sleep 5
+
+        # Extract the list ID from the resulting URL.
+        # Patterns: /lists/view/SL-7115892, /lists/view/OG-795581, /lists/recentlyPurchased
+        current_url = browser.current_url
+        remote_id = current_url[%r{/lists/view/([A-Z]+-\d+)}, 1] ||
+                    current_url[%r{/lists/([^/?]+)$}, 1]
+
+        unless remote_id
+          logger.warn "[UsFoods] Could not extract list ID from URL: #{current_url}"
+          remote_id = list_name.downcase.gsub(/[^a-z0-9]+/, '-')
+        end
+
+        logger.info "[UsFoods] List '#{list_name}' has ID #{remote_id} (URL: #{current_url})"
+
+        # Determine list type
+        list_type = if section == 'Managed By US Foods'
+                      list_name.match?(/order\s*guide/i) ? 'order_guide' : 'managed'
+                    else
+                      'custom'
+                    end
+
+        products = scroll_and_extract_list_products
+        logger.info "[UsFoods] List '#{list_name}': #{products.size} products scraped"
+
+        result_lists << {
+          name: list_name,
+          remote_id: remote_id,
+          url: current_url,
+          list_type: list_type,
+          items: products
+        }
+
+        rate_limit_delay
+      end
+
+      result_lists
+    end
+
+    # Scroll through a list page and extract all products using the same
+    # virtual scroll + product extraction logic used for catalog scraping.
+    def scroll_and_extract_list_products
+      # Wait for products to render
+      card_count = begin
+        browser.evaluate("document.querySelectorAll('.product-wrapper').length")
+      rescue StandardError
+        0
+      end
+
+      if card_count == 0
+        sleep 3
+        card_count = begin
+          browser.evaluate("document.querySelectorAll('.product-wrapper').length")
+        rescue StandardError
+          0
+        end
+        return [] if card_count == 0
+      end
+
+      all_products = {}
+      stale_rounds = 0
+      max_scrolls = 200
+
+      max_scrolls.times do |_attempt|
+        page_products = extract_products_from_page
+        new_count = 0
+
+        page_products.each do |p|
+          next if p[:supplier_sku].blank?
+
+          unless all_products.key?(p[:supplier_sku])
+            all_products[p[:supplier_sku]] = p
+            new_count += 1
+          end
+        end
+
+        if new_count == 0
+          stale_rounds += 1
+          break if stale_rounds >= 4
+        else
+          stale_rounds = 0
+        end
+
+        scroll_virtual_list
+        sleep 1.5
+      end
+
+      # Convert to list item format
+      position = 0
+      all_products.values.map do |p|
+        position += 1
+        {
+          sku: p[:supplier_sku],
+          name: p[:supplier_name],
+          price: p[:current_price],
+          pack_size: p[:pack_size],
+          quantity: 1,
+          in_stock: p[:in_stock] != false,
+          position: position
+        }
+      end
+    end
+
     # Discover subcategories for a top-level category by visiting its landing page.
     # Returns an array of { name:, slug: } hashes.
     def discover_subcategories(category)
@@ -1662,19 +1877,21 @@ module Scrapers
           // Primary: Angular CDK virtual scroll viewport
           var vScroll = document.querySelector('.cdk-virtual-scrollable');
           if (vScroll) {
-            vScroll.scrollTop = vScroll.scrollHeight;
+            // Scroll incrementally by viewport height so virtual scroll renders
+            // new items. Jumping to scrollHeight skips all middle content.
+            vScroll.scrollTop += vScroll.clientHeight;
             return;
           }
 
           // Fallback: any element with cdk-virtual-scroll in class
           var cdkEl = document.querySelector('[class*="cdk-virtual-scroll"]');
           if (cdkEl) {
-            cdkEl.scrollTop = cdkEl.scrollHeight;
+            cdkEl.scrollTop += cdkEl.clientHeight;
             return;
           }
 
           // Last resort: window scroll
-          window.scrollTo(0, document.body.scrollHeight);
+          window.scrollBy(0, window.innerHeight);
         })()
       JS
     rescue StandardError => e

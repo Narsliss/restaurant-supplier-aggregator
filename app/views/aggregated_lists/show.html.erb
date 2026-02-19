@@ -1,0 +1,170 @@
+<div class="py-6">
+  <div class="mb-6">
+    <%= link_to "&larr; All Comparisons".html_safe, aggregated_lists_path, class: "text-sm text-brand-orange hover:text-brand-orange-light" %>
+  </div>
+
+  <div class="flex justify-between items-center mb-6">
+    <div>
+      <h1 class="text-2xl font-heading font-bold text-gray-900"><%= @aggregated_list.name %></h1>
+      <p class="mt-1 text-sm text-gray-500">
+        <%= @suppliers.map(&:name).join(" vs ") %>
+        <span class="mx-1">&middot;</span>
+        <%= pluralize(@aggregated_list.total_match_count, "product") %>
+      </p>
+    </div>
+    <div class="flex gap-3">
+      <%= link_to "Edit", edit_aggregated_list_path(@aggregated_list),
+          class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+      <%= button_to "Re-match", run_matching_aggregated_list_path(@aggregated_list),
+          method: :post,
+          class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="bg-white shadow rounded-lg p-4 text-center">
+      <p class="text-2xl font-heading font-bold text-gray-900"><%= @aggregated_list.total_match_count %></p>
+      <p class="text-sm text-gray-500">Total Products</p>
+    </div>
+    <div class="bg-white shadow rounded-lg p-4 text-center">
+      <p class="text-2xl font-heading font-bold text-green-600"><%= @aggregated_list.matched_product_count %></p>
+      <p class="text-sm text-gray-500">Matched</p>
+    </div>
+    <div class="bg-white shadow rounded-lg p-4 text-center">
+      <p class="text-2xl font-heading font-bold text-amber-600"><%= @aggregated_list.unmatched_count %></p>
+      <p class="text-sm text-gray-500">Unmatched</p>
+    </div>
+  </div>
+
+  <% if @aggregated_list.matching? %>
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+      <p class="text-sm text-blue-800">Product matching is in progress. This page will update when complete.</p>
+    </div>
+  <% end %>
+
+  <!-- Match comparison table -->
+  <% if @product_matches.any? %>
+    <div class="bg-white shadow rounded-lg overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50 sticky top-0 z-20">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-30">Product</th>
+            <% @suppliers.each do |supplier| %>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px] bg-gray-50"><%= supplier.name %></th>
+            <% end %>
+            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">Status</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          <% @product_matches.each do |match| %>
+            <tr id="<%= dom_id(match) %>" class="<%= match.unmatched? ? 'bg-amber-50/50' : '' %> hover:bg-gray-50">
+              <!-- Canonical name column -->
+              <td class="px-4 py-3 sticky left-0 bg-inherit z-10">
+                <div class="text-sm font-medium text-gray-900"><%= match.display_name %></div>
+                <div class="text-xs text-gray-500">
+                  <% if match.confidence_score && match.confidence_score > 0 %>
+                    <span class="<%= match.confidence_score >= 0.8 ? 'text-green-600' : 'text-amber-600' %>">
+                      <%= (match.confidence_score * 100).round %>% confidence
+                    </span>
+                  <% end %>
+                </div>
+              </td>
+
+              <!-- Supplier columns -->
+              <% @suppliers.each do |supplier| %>
+                <td class="px-4 py-3" id="match_<%= match.id %>_supplier_<%= supplier.id %>">
+                  <% item = match.item_for_supplier(supplier) %>
+                  <% pmi = match.product_match_items.find_by(supplier: supplier) %>
+                  <% available_items = @items_by_supplier[supplier.id] || [] %>
+                  <% if item %>
+                    <% cheapest = match.cheapest_supplier %>
+                    <% most_expensive = match.most_expensive_supplier %>
+                    <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+                    <% is_most_expensive = most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+
+                    <div class="text-sm text-gray-900"><%= item.name.truncate(60) %></div>
+                    <div class="text-xs text-gray-500"><%= item.pack_size %></div>
+                    <div class="mt-1">
+                      <span class="text-sm font-semibold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
+                        <%= item.formatted_price %>
+                      </span>
+                      <% unless item.in_stock %>
+                        <span class="ml-1 text-xs text-red-500">Out of stock</span>
+                      <% end %>
+                    </div>
+                    <% if pmi && available_items.any? %>
+                      <details class="mt-1">
+                        <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Change</summary>
+                        <div class="mt-1">
+                          <%= form_with url: product_match_item_path(pmi), method: :patch, data: { turbo_frame: "_top" } do |f| %>
+                            <%= render "aggregated_lists/searchable_select",
+                                       field_name: "product_match_item[supplier_list_item_id]",
+                                       items: available_items,
+                                       selected_id: item.id %>
+                          <% end %>
+                        </div>
+                      </details>
+                    <% end %>
+                  <% else %>
+                    <%# No match — allow assigning one if a product_match_item exists for this supplier, or show add option %>
+                    <% if pmi %>
+                      <span class="text-sm text-gray-400 italic">No match</span>
+                      <% if available_items.any? %>
+                        <details class="mt-1">
+                          <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
+                          <div class="mt-1">
+                            <%= form_with url: product_match_item_path(pmi), method: :patch, data: { turbo_frame: "_top" } do |f| %>
+                              <%= render "aggregated_lists/searchable_select",
+                                         field_name: "product_match_item[supplier_list_item_id]",
+                                         items: available_items,
+                                         selected_id: nil %>
+                            <% end %>
+                          </div>
+                        </details>
+                      <% end %>
+                    <% else %>
+                      <span class="text-sm text-gray-400 italic">No match</span>
+                      <% if available_items.any? %>
+                        <details class="mt-1">
+                          <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
+                          <div class="mt-1">
+                            <%= form_with url: product_match_items_path, method: :post, data: { turbo_frame: "_top" } do |f| %>
+                              <%= hidden_field_tag "product_match_item[product_match_id]", match.id %>
+                              <%= hidden_field_tag "product_match_item[supplier_id]", supplier.id %>
+                              <%= render "aggregated_lists/searchable_select",
+                                         field_name: "product_match_item[supplier_list_item_id]",
+                                         items: available_items,
+                                         selected_id: nil %>
+                            <% end %>
+                          </div>
+                        </details>
+                      <% end %>
+                    <% end %>
+                  <% end %>
+                </td>
+              <% end %>
+
+              <!-- Status column -->
+              <td class="px-4 py-3 text-center whitespace-nowrap">
+                <% if match.unmatched? %>
+                  <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unmatched</span>
+                <% else %>
+                  <span class="text-green-600">
+                    <svg class="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </span>
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <div class="bg-white shadow rounded-lg p-8 text-center">
+      <p class="text-gray-500">No product matches yet. Add supplier lists and run matching.</p>
+    </div>
+  <% end %>
+</div>

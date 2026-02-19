@@ -1,0 +1,41 @@
+<div class="mb-8" data-controller="inline-form" data-inline-form-show-text-value="+ New Comparison" data-inline-form-hide-text-value="Cancel">
+  <div class="flex justify-between items-center mb-4">
+    <div>
+      <h2 class="text-lg font-heading font-semibold text-gray-900">Comparison Lists</h2>
+      <p class="text-sm text-gray-500">Group supplier lists together to compare products across suppliers.</p>
+    </div>
+    <% if @lists_by_supplier_for_form.any? %>
+      <button type="button"
+              data-action="inline-form#toggle"
+              data-inline-form-target="button"
+              class="rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors">
+        + New Comparison
+      </button>
+    <% end %>
+  </div>
+
+  <%# Inline creation form (hidden by default) %>
+  <div data-inline-form-target="form" class="hidden mb-4">
+    <%= render "supplier_lists/comparison_form" %>
+  </div>
+
+  <%# Existing comparison list cards %>
+  <% if @aggregated_lists.any? %>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <% @aggregated_lists.each do |aggregated_list| %>
+        <%= render "supplier_lists/comparison_card", aggregated_list: aggregated_list %>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="bg-white shadow rounded-lg p-6 text-center">
+      <p class="text-sm text-gray-500">
+        No comparison lists yet.
+        <% if @lists_by_supplier_for_form.any? %>
+          Click "+ New Comparison" to group supplier lists and compare products.
+        <% else %>
+          Sync your supplier lists first, then create comparisons.
+        <% end %>
+      </p>
+    </div>
+  <% end %>
+</div>

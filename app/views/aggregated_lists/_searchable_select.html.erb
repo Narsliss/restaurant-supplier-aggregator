@@ -1,0 +1,25 @@
+<%# Searchable select for product assignment.
+    Shows all items in a scrollable list with a search filter at top.
+    Locals: field_name (string), items (ActiveRecord collection), selected_id (integer or nil) %>
+<div data-controller="searchable-select" class="relative">
+  <input type="hidden"
+         data-searchable-select-target="hidden"
+         name="<%= field_name %>"
+         value="<%= selected_id %>">
+  <input type="text"
+         data-searchable-select-target="input"
+         data-action="input->searchable-select#filter"
+         placeholder="Type to filter..."
+         autocomplete="off"
+         class="block w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-brand-orange focus:ring-brand-orange">
+  <ul data-searchable-select-target="list"
+      class="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md bg-white shadow-lg ring-1 ring-black/5 text-xs">
+    <% items.each do |opt| %>
+      <li data-value="<%= opt.id %>"
+          data-action="click->searchable-select#select"
+          class="cursor-pointer px-3 py-1.5 hover:bg-brand-orange hover:text-white <%= opt.id == selected_id ? 'bg-brand-orange/10 font-medium' : '' %>">
+        <%= opt.name.truncate(50) %> — <%= opt.price ? "$#{'%.2f' % opt.price}" : 'N/A' %>
+      </li>
+    <% end %>
+  </ul>
+</div>

@@ -1,0 +1,19 @@
+<%= turbo_stream.replace "match_#{@product_match.id}_supplier_#{@product_match_item.supplier_id}" do %>
+  <td class="px-4 py-3" id="match_<%= @product_match.id %>_supplier_<%= @product_match_item.supplier_id %>">
+    <% item = @product_match_item.supplier_list_item %>
+    <div class="text-sm text-gray-900"><%= item.name.truncate(60) %></div>
+    <div class="text-xs text-gray-500"><%= item.pack_size %></div>
+    <div class="mt-1">
+      <span class="text-sm font-semibold text-gray-900"><%= item.formatted_price %></span>
+      <% unless item.in_stock %>
+        <span class="ml-1 text-xs text-red-500">Out of stock</span>
+      <% end %>
+    </div>
+    <div class="mt-1 text-xs text-green-600 font-medium">Assigned</div>
+  </td>
+<% end %>
+
+<%# Remove any duplicate rows that were cleaned up %>
+<% @removed_match_ids.each do |removed_id| %>
+  <%= turbo_stream.remove "product_match_#{removed_id}" %>
+<% end %>

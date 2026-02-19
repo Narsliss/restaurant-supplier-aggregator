@@ -1,0 +1,70 @@
+<%= form_with(model: aggregated_list, class: "space-y-6") do |f| %>
+  <% if aggregated_list.errors.any? %>
+    <div class="rounded-md bg-brand-orange-50 p-4">
+      <div class="flex">
+        <div class="ml-3">
+          <h3 class="text-sm font-medium text-brand-orange-dark"><%= pluralize(aggregated_list.errors.count, "error") %></h3>
+          <ul class="mt-2 list-disc pl-5 space-y-1 text-sm text-brand-orange-dark">
+            <% aggregated_list.errors.full_messages.each do |msg| %>
+              <li><%= msg %></li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <div class="bg-white shadow rounded-lg p-6">
+    <div class="space-y-4">
+      <div>
+        <%= f.label :name, "Comparison Name", class: "block text-sm font-medium text-gray-700" %>
+        <%= f.text_field :name, placeholder: "e.g., Staples, Produce, Weekend Prep",
+            class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+        <p class="mt-1 text-xs text-gray-500">Give this comparison a name that describes the type of products.</p>
+      </div>
+
+      <div>
+        <%= f.label :description, class: "block text-sm font-medium text-gray-700" %>
+        <%= f.text_area :description, rows: 2, placeholder: "Optional description...",
+            class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white shadow rounded-lg p-6">
+    <h3 class="text-lg font-heading font-medium text-gray-900 mb-4">Connect Supplier Lists</h3>
+    <p class="text-sm text-gray-500 mb-4">Select one list per supplier to compare. Products will be matched across the selected lists.</p>
+
+    <% selected_ids = local_assigns[:selected_list_ids] || [] %>
+    <% lists_by_supplier = available_lists.group_by(&:supplier) %>
+
+    <% if lists_by_supplier.empty? %>
+      <p class="text-sm text-gray-500 italic">
+        No supplier lists available. <%= link_to "Sync your supplier lists", supplier_lists_path, class: "text-brand-orange hover:text-brand-orange-light" %> first.
+      </p>
+    <% else %>
+      <div class="space-y-4">
+        <% lists_by_supplier.each do |supplier, lists| %>
+          <div class="border border-gray-200 rounded-lg p-4">
+            <label class="block text-sm font-medium text-gray-900 mb-2"><%= supplier.name %></label>
+            <select name="supplier_list_ids[]" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm">
+              <option value="">-- None --</option>
+              <% lists.each do |list| %>
+                <option value="<%= list.id %>" <%= 'selected' if selected_ids.include?(list.id) %>>
+                  <%= list.name %> (<%= pluralize(list.product_count, "item") %>)
+                </option>
+              <% end %>
+            </select>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="flex justify-end gap-3">
+    <%= link_to "Cancel", aggregated_lists_path,
+        class: "rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50" %>
+    <%= f.submit aggregated_list.persisted? ? "Update & Re-match" : "Create & Match Products",
+        class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors cursor-pointer" %>
+  </div>
+<% end %>

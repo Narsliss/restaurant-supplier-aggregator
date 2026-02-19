@@ -9,11 +9,13 @@ class Organization < ApplicationRecord
   has_many :orders, dependent: :destroy
   has_many :invoices, dependent: :destroy
   has_many :organization_invitations, dependent: :destroy
+  has_many :supplier_lists, dependent: :destroy
+  has_many :aggregated_lists, dependent: :destroy
 
   # Validations
   validates :name, presence: true
   validates :slug, presence: true, uniqueness: true,
-                   format: { with: /\A[a-z0-9-]+\z/, message: "can only contain lowercase letters, numbers, and hyphens" }
+                   format: { with: /\A[a-z0-9-]+\z/, message: 'can only contain lowercase letters, numbers, and hyphens' }
 
   # Callbacks
   before_validation :generate_slug, on: :create
@@ -31,16 +33,16 @@ class Organization < ApplicationRecord
   end
 
   def subscription_status
-    current_subscription&.status || "none"
+    current_subscription&.status || 'none'
   end
 
   # Member methods
   def owner
-    memberships.find_by(role: "owner")&.user
+    memberships.find_by(role: 'owner')&.user
   end
 
   def owners
-    users.joins(:memberships).where(memberships: { role: "owner", organization_id: id })
+    users.joins(:memberships).where(memberships: { role: 'owner', organization_id: id })
   end
 
   def admins
@@ -66,7 +68,7 @@ class Organization < ApplicationRecord
   end
 
   def owner?(user)
-    role_for(user) == "owner"
+    role_for(user) == 'owner'
   end
 
   def admin?(user)
@@ -100,12 +102,12 @@ class Organization < ApplicationRecord
 
     Stripe::Checkout::Session.create(
       customer: customer.id,
-      payment_method_types: ["card"],
+      payment_method_types: ['card'],
       line_items: [{
         price: config[:monthly_price_id],
         quantity: 1
       }],
-      mode: "subscription",
+      mode: 'subscription',
       subscription_data: {
         trial_period_days: config[:trial_days],
         metadata: {
@@ -120,7 +122,7 @@ class Organization < ApplicationRecord
   end
 
   def create_billing_portal_session(return_url:)
-    raise "No Stripe customer" unless stripe_customer_id
+    raise 'No Stripe customer' unless stripe_customer_id
 
     Stripe::BillingPortal::Session.create(
       customer: stripe_customer_id,

@@ -141,6 +141,38 @@ module Scrapers
       raise NotImplementedError, 'Subclass must implement #search_supplier_catalog'
     end
 
+    # Scrape the supplier's saved order lists/order guides.
+    # Returns an array of hashes representing each list:
+    #   [
+    #     {
+    #       name: "Order Guide",
+    #       remote_id: "12345",        # supplier's internal list ID (if available)
+    #       url: "https://...",         # direct URL to this list (if available)
+    #       list_type: "order_guide",   # order_guide, custom, or favorites
+    #       items: [
+    #         { sku:, name:, price:, pack_size:, quantity:, in_stock:, position: }
+    #       ]
+    #     }
+    #   ]
+    def scrape_lists
+      with_browser do
+        unless restore_session && (navigate_to(supplier_base_url) || true) && logged_in?
+          perform_login_steps
+          sleep 2
+          raise AuthenticationError, 'Could not log in for list import' unless logged_in?
+
+          save_session
+        end
+
+        scrape_supplier_lists
+      end
+    end
+
+    # Override in subclasses to implement supplier-specific list scraping
+    def scrape_supplier_lists
+      raise NotImplementedError, 'Subclass must implement #scrape_supplier_lists'
+    end
+
     def add_to_cart(items, delivery_date: nil)
       raise NotImplementedError, 'Subclass must implement #add_to_cart'
     end

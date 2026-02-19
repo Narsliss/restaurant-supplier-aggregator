@@ -1,6 +1,7 @@
 class SupplierCredentialsController < ApplicationController
   before_action :set_credential,
-                only: %i[show edit update destroy validate refresh_session import_products submit_2fa_code status]
+                only: %i[show edit update destroy validate refresh_session import_products import_lists submit_2fa_code
+                         status]
   before_action :set_suppliers, only: %i[new create edit update]
 
   def index
@@ -417,6 +418,34 @@ class SupplierCredentialsController < ApplicationController
       format.html do
         redirect_to supplier_credentials_path,
                     notice: "Product import started for #{@credential.supplier.name}. Products will appear shortly."
+      end
+      format.json do
+        render json: { status: 'importing', credential_id: @credential.id, supplier: @credential.supplier.name }
+      end
+    end
+  end
+
+  def import_lists
+    unless @credential.active?
+      respond_to do |format|
+        format.html do
+          redirect_to supplier_credentials_path,
+                      alert: "Cannot import lists from #{@credential.supplier.name} — credentials must be validated and active first."
+        end
+        format.json do
+          render json: { status: 'error', message: 'Credentials not active' }, status: :unprocessable_entity
+        end
+      end
+      return
+    end
+
+    ImportSupplierListsJob.perform_later(@credential.id)
+    Rails.logger.info "[SupplierCredentials] List import queued for credential ##{@credential.id} — #{@credential.supplier.name} (user: #{current_user.id})"
+
+    respond_to do |format|
+      format.html do
+        redirect_to supplier_lists_path,
+                    notice: "Importing order guides from #{@credential.supplier.name}..."
       end
       format.json do
         render json: { status: 'importing', credential_id: @credential.id, supplier: @credential.supplier.name }
