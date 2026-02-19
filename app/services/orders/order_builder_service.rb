@@ -35,6 +35,7 @@ module Orders
       # Calculate totals
       order.subtotal = order.order_items.sum(&:line_total)
       order.total_amount = order.subtotal # Tax calculated later if needed
+      order.savings_amount = order.calculate_savings
 
       order
     end

@@ -114,6 +114,24 @@ class Order < ApplicationRecord
     update!(status: "cancelled")
   end
 
+  def calculate_savings
+    return 0 if order_items.empty?
+
+    worst_total = order_items.sum do |item|
+      product = item.supplier_product&.product
+      next item.line_total unless product
+
+      worst_price = product.supplier_products
+        .where.not(discontinued: true)
+        .where.not(current_price: nil)
+        .maximum(:current_price)
+
+      (worst_price || item.unit_price) * item.quantity
+    end
+
+    [worst_total - (total_amount || calculated_subtotal), 0].max.round(2)
+  end
+
   def validation_errors
     order_validations.where(passed: false).pluck(:message)
   end

@@ -105,7 +105,6 @@ Rails.application.routes.draw do
       post :cancel
     end
     collection do
-      get :history
       get :split_preview
       post :split_create
     end

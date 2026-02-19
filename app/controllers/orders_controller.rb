@@ -3,25 +3,20 @@ class OrdersController < ApplicationController
 
   def index
     @orders = current_user.orders
+      .completed
       .includes(:supplier, :location, :order_items)
-      .order(created_at: :desc)
+      .order(submitted_at: :desc)
+
+    # Default date range: last 30 days
+    @date_from = params[:date_from].present? ? Date.parse(params[:date_from]) : 30.days.ago.to_date
+    @date_to = params[:date_to].present? ? Date.parse(params[:date_to]) : Date.current
+
+    @orders = @orders.where("submitted_at >= ?", @date_from.beginning_of_day)
+    @orders = @orders.where("submitted_at <= ?", @date_to.end_of_day)
 
     # Filter by supplier
     if params[:supplier_id].present?
       @orders = @orders.where(supplier_id: params[:supplier_id])
-    end
-
-    # Filter by status
-    if params[:status].present?
-      @orders = @orders.where(status: params[:status])
-    end
-
-    # Filter by date range
-    if params[:date_from].present?
-      @orders = @orders.where("created_at >= ?", Date.parse(params[:date_from]).beginning_of_day)
-    end
-    if params[:date_to].present?
-      @orders = @orders.where("created_at <= ?", Date.parse(params[:date_to]).end_of_day)
     end
 
     # Search by order ID or confirmation number
@@ -30,16 +25,15 @@ class OrdersController < ApplicationController
       @orders = @orders.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
     end
 
-    @orders = @orders.page(params[:page])
-    @suppliers = Supplier.joins(:orders).where(orders: { user_id: current_user.id }).distinct.order(:name)
-  end
+    # KPI: total savings across filtered orders
+    @total_savings = @orders.sum(:savings_amount)
+    @total_spent = @orders.sum(:total_amount)
+    @order_count = @orders.count
 
-  def history
-    @orders = current_user.orders
-      .completed
-      .includes(:supplier, :location)
-      .order(submitted_at: :desc)
-      .page(params[:page])
+    @orders = @orders.page(params[:page])
+    @suppliers = Supplier.joins(:orders)
+      .where(orders: { user_id: current_user.id, status: %w[submitted confirmed] })
+      .distinct.order(:name)
   end
 
   def show

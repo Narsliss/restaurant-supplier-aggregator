@@ -81,6 +81,7 @@ module Orders
           end
 
           order.recalculate_totals!
+          order.update!(savings_amount: order.calculate_savings)
           orders << order
         end
 
