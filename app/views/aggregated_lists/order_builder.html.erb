@@ -1,4 +1,4 @@
-<div class="max-w-6xl mx-auto" data-controller="order-builder">
+<div class="max-w-6xl mx-auto pb-48" data-controller="order-builder">
   <div class="mb-6">
     <%= link_to "&larr; Order Lists".html_safe, supplier_lists_path, class: "text-sm text-brand-orange hover:text-brand-orange-light" %>
   </div>
@@ -14,48 +14,64 @@
         class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
   </div>
 
-  <%# Summary bar — updated live by Stimulus %>
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-    <div class="bg-white shadow rounded-lg p-4">
-      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Items Selected</p>
-      <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="itemCount">0</p>
-    </div>
-    <div class="bg-white shadow rounded-lg p-4">
-      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Estimated Total</p>
-      <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="runningTotal">$0.00</p>
-    </div>
-    <div class="bg-white shadow rounded-lg p-4">
-      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Suppliers</p>
-      <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="supplierCount">0</p>
-    </div>
-  </div>
-
-  <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, class: "space-y-6") do |form| %>
+  <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "order-form") do |form| %>
     <%= hidden_field_tag :aggregated_list_id, @aggregated_list.id %>
 
-    <%# Delivery date %>
-    <div class="bg-white shadow rounded-lg p-4">
-      <div class="sm:w-48">
-        <%= form.label :delivery_date, "Delivery Date", class: "block text-xs font-medium text-gray-500 mb-1" %>
-        <%= date_field_tag :delivery_date, nil, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+    <%# Fixed command bar — KPIs + delivery date + submit (JS moves to body for true fixed positioning) %>
+    <div id="order-builder-command-bar" class="bg-gray-50 pt-1 pb-3">
+      <div class="grid grid-cols-3 gap-4 mb-3">
+        <div class="bg-white shadow rounded-lg p-4">
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Items Selected</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="itemCount">0</p>
+        </div>
+        <div class="bg-white shadow rounded-lg p-4">
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Estimated Total</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="runningTotal">$0.00</p>
+        </div>
+        <div class="bg-white shadow rounded-lg p-4">
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Suppliers</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="supplierCount">0</p>
+        </div>
+      </div>
+      <div class="bg-white shadow rounded-lg p-3">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <div class="hidden sm:block">
+              <%= date_field_tag :delivery_date, nil, class: "w-40 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+            </div>
+            <div class="text-sm text-gray-500">
+              <span id="action-bar-item-count">0</span> items &middot;
+              <span class="font-semibold text-gray-900" id="action-bar-running-total">$0.00</span>
+            </div>
+          </div>
+          <div class="flex gap-3">
+            <%= link_to "Cancel", supplier_lists_path, class: "px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900" %>
+            <button type="submit"
+                    disabled
+                    data-order-builder-target="submitButton"
+                    class="px-6 py-2 rounded-md text-sm font-semibold text-white shadow-sm transition-colors bg-gray-300 cursor-not-allowed">
+              Create Pending Orders
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
     <% if @product_matches.any? %>
       <%# Desktop table %>
-      <div class="hidden sm:block bg-white shadow rounded-lg overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50">
+      <div class="hidden sm:block">
+        <table class="min-w-full divide-y divide-gray-200" id="order-builder-table">
+          <thead id="order-builder-thead">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-10 min-w-[200px]">Product</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-navy">Product</th>
               <% @suppliers.each do |supplier| %>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[140px]"><%= supplier.name %></th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-navy"><%= supplier.name %></th>
               <% end %>
-              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-36">Qty</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-28">Line Total</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-white uppercase tracking-wider bg-brand-navy">Qty</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-white uppercase tracking-wider bg-brand-navy">Line Total</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200">
+          <tbody class="divide-y divide-gray-200 bg-white">
             <% @product_matches.each_with_index do |match, idx| %>
               <% cheapest = match.cheapest_supplier %>
               <% most_expensive = match.most_expensive_supplier %>
@@ -64,7 +80,7 @@
 
               <tr data-order-builder-row class="hover:bg-gray-50">
                 <%# Product name %>
-                <td class="px-4 py-3 sticky left-0 bg-white z-5">
+                <td class="px-4 py-3">
                   <div class="text-sm font-medium text-gray-900"><%= match.display_name %></div>
                 </td>
 
@@ -184,25 +200,6 @@
         <% end %>
       </div>
 
-      <%# Submit footer %>
-      <div class="bg-white shadow rounded-lg p-4">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div class="text-sm text-gray-500">
-            <span data-order-builder-target="itemCount">0</span> items &middot;
-            Estimated <span class="font-semibold text-gray-900" data-order-builder-target="runningTotal">$0.00</span>
-            across <span data-order-builder-target="supplierCount">0</span> suppliers
-          </div>
-          <div class="flex gap-3">
-            <%= link_to "Cancel", supplier_lists_path, class: "px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900" %>
-            <button type="submit"
-                    disabled
-                    data-order-builder-target="submitButton"
-                    class="px-6 py-2 rounded-md text-sm font-semibold text-white shadow-sm transition-colors bg-gray-300 cursor-not-allowed">
-              Create Pending Orders
-            </button>
-          </div>
-        </div>
-      </div>
     <% else %>
       <div class="bg-white shadow rounded-lg p-8 text-center">
         <p class="text-gray-500">No matched products found. Go back and review product matching first.</p>

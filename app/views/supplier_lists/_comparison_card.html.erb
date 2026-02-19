@@ -45,6 +45,7 @@
   <div class="mt-4 pt-4 border-t border-gray-100">
     <% if aggregated_list.matched? %>
       <%= link_to order_builder_aggregated_list_path(aggregated_list),
+          data: { turbo: false },
           class: "block w-full text-center rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" do %>
         Create Order
       <% end %>
