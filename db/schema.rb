@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_20_004705) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_20_050000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -123,6 +123,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_20_004705) do
     t.text "notes"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.decimal "verified_price", precision: 10, scale: 2
     t.index ["order_id"], name: "index_order_items_on_order_id"
     t.index ["status"], name: "index_order_items_on_status"
     t.index ["supplier_product_id"], name: "index_order_items_on_supplier_product_id"
@@ -191,6 +192,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_20_004705) do
     t.bigint "organization_id"
     t.decimal "savings_amount", precision: 10, scale: 2, default: "0.0"
     t.string "batch_id"
+    t.string "verification_status"
+    t.datetime "price_verified_at"
+    t.decimal "verified_total", precision: 10, scale: 2
+    t.decimal "price_change_amount", precision: 10, scale: 2
+    t.text "verification_error"
     t.index ["batch_id"], name: "index_orders_on_batch_id"
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"
@@ -202,6 +208,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_20_004705) do
     t.index ["user_id", "status"], name: "index_orders_on_user_id_and_status"
     t.index ["user_id", "submitted_at"], name: "index_orders_on_user_id_and_submitted_at"
     t.index ["user_id"], name: "index_orders_on_user_id"
+    t.index ["verification_status"], name: "index_orders_on_verification_status"
   end
 
   create_table "organization_invitations", force: :cascade do |t|

@@ -154,8 +154,10 @@ class SupplierCredentialsController < ApplicationController
   end
 
   def validate
-    # Check if credential is already active and recently validated
-    if @credential.active? && @credential.last_login_at.present? && @credential.last_login_at > 1.hour.ago
+    # Check if credential is already active, recently validated, AND has a valid session.
+    # If the session is expired we must allow re-validation even if the credential is "active"
+    # — especially for 2FA suppliers that can't auto-reconnect.
+    if @credential.active? && @credential.session_valid? && @credential.last_login_at.present? && @credential.last_login_at > 1.hour.ago
       respond_to do |format|
         format.html do
           redirect_to supplier_credentials_path,

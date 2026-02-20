@@ -69,6 +69,22 @@ class OrderItem < ApplicationRecord
     order.recalculate_totals!
   end
 
+  # --- Price verification ---
+
+  def verified_price_difference
+    return 0 unless verified_price.present?
+    verified_price - unit_price
+  end
+
+  def verified_price_changed?
+    verified_price.present? && verified_price != unit_price
+  end
+
+  def verified_price_change_percentage
+    return 0 unless verified_price_changed? && unit_price > 0
+    ((verified_price - unit_price) / unit_price * 100).round(1)
+  end
+
   private
 
   def calculate_line_total

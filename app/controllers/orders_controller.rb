@@ -175,7 +175,8 @@ class OrdersController < ApplicationController
       alert: "Failed to create orders: #{e.message}"
   end
 
-  # Review orders from a batch before submitting
+  # Review orders from a batch before submitting.
+  # Automatically kicks off price verification for any pending orders.
   def review
     unless params[:batch_id].present?
       redirect_to orders_path, alert: "No batch specified."
@@ -186,13 +187,35 @@ class OrdersController < ApplicationController
     @aggregated_list_id = params[:aggregated_list_id]
     @orders = current_user.orders
       .for_batch(@batch_id)
-      .pending
+      .where(status: %w[pending verifying price_changed])
       .includes(:supplier, order_items: { supplier_product: :product })
 
     if @orders.empty?
-      redirect_to orders_path, notice: "All orders in this batch have already been submitted."
+      # Check if they've all been submitted already
+      submitted = current_user.orders.for_batch(@batch_id).where(status: %w[processing submitted confirmed])
+      if submitted.any?
+        redirect_to orders_path, notice: "All orders in this batch have been submitted."
+      else
+        redirect_to orders_path, alert: "No orders found for this batch."
+      end
       return
     end
+
+    # Auto-start verification for any pending orders that haven't been verified yet
+    orders_needing_verification = @orders.select { |o| o.pending? && o.verification_status.nil? }
+    if orders_needing_verification.any?
+      orders_needing_verification.each do |order|
+        order.start_verification!
+        PriceVerificationJob.perform_later(order.id)
+      end
+    end
+
+    # Reload to pick up status changes from start_verification!
+    @orders.each(&:reload) if orders_needing_verification.any?
+
+    # Check if any are currently verifying (for UI state)
+    @verifying = @orders.any?(&:verifying?)
+    @has_price_changes = @orders.any?(&:price_changed?)
 
     # Build review data for each order
     @review_orders = @orders.map do |order|
@@ -206,7 +229,11 @@ class OrdersController < ApplicationController
         minimum: minimum,
         meets_minimum: minimum.nil? || (order.subtotal || 0) >= minimum,
         amount_to_minimum: minimum ? [minimum - (order.subtotal || 0), 0].max : 0,
-        savings: order.savings_amount || 0
+        savings: order.savings_amount || 0,
+        verification_status: order.verification_status,
+        verified_total: order.verified_total,
+        price_change_amount: order.price_change_amount,
+        verification_error: order.verification_error
       }
     end
 
@@ -219,13 +246,15 @@ class OrdersController < ApplicationController
     }
   end
 
-  # Submit all pending orders in a batch
-  # SAFETY: Only queues PlaceOrderJob — never calls submit!/scraper directly.
+  # Submit all pending orders in a batch.
+  # Prices are already verified on the review page — goes straight to PlaceOrderJob.
+  # SAFETY: Never calls submit!/scraper directly.
   def submit_batch
     batch_id = params[:batch_id]
     order_ids = params[:order_ids] # optional: submit specific orders only
 
-    orders = current_user.orders.for_batch(batch_id).pending
+    # Accept orders that are pending (verified) or have accepted price changes
+    orders = current_user.orders.for_batch(batch_id).where(status: %w[pending price_changed])
 
     if order_ids.present?
       orders = orders.where(id: order_ids)
@@ -240,17 +269,140 @@ class OrdersController < ApplicationController
     missing_dates = orders.select { |o| o.delivery_date.blank? || o.delivery_date <= Date.current }
     if missing_dates.any?
       supplier_names = missing_dates.map { |o| o.supplier.name }.join(", ")
-      redirect_to review_orders_path(batch_id: batch_id),
+      redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: params[:aggregated_list_id]),
         alert: "Please set a delivery date (after today) for: #{supplier_names}"
       return
     end
 
+    # Accept any price changes and proceed directly to placement
     orders.each do |order|
-      PlaceOrderJob.perform_later(order.id)
+      order.accept_price_changes! if order.price_changed?
       order.update!(status: "processing")
+      PlaceOrderJob.perform_later(order.id)
     end
 
-    redirect_to orders_path, notice: "#{orders.size} order(s) submitted for processing."
+    redirect_to orders_path,
+      notice: "#{orders.size} order(s) submitted to suppliers."
+  end
+
+  # JSON endpoint for polling verification status from the review page
+  def verification_status
+    batch_id = params[:batch_id]
+    orders = current_user.orders.for_batch(batch_id)
+      .includes(:supplier, order_items: :supplier_product)
+
+    order_statuses = orders.map do |order|
+      items_with_changes = order.order_items.select(&:verified_price_changed?).map do |item|
+        {
+          id: item.id,
+          name: item.supplier_product.supplier_name,
+          sku: item.supplier_sku,
+          expected_price: item.unit_price.to_f,
+          verified_price: item.verified_price.to_f,
+          difference: item.verified_price_difference.to_f,
+          change_percentage: item.verified_price_change_percentage
+        }
+      end
+
+      {
+        id: order.id,
+        supplier_name: order.supplier.name,
+        status: order.status,
+        verification_status: order.verification_status,
+        subtotal: order.subtotal.to_f,
+        verified_total: order.verified_total&.to_f,
+        price_change_amount: order.price_change_amount&.to_f,
+        price_change_percentage: order.price_change_percentage,
+        verification_error: order.verification_error,
+        price_verified_at: order.price_verified_at&.iso8601,
+        items_with_changes: items_with_changes
+      }
+    end
+
+    all_complete = orders.none?(&:verification_in_progress?)
+
+    render json: {
+      batch_id: batch_id,
+      orders: order_statuses,
+      summary: {
+        total_orders: orders.size,
+        verifying: orders.count(&:verification_in_progress?),
+        verified: orders.count(&:prices_verified?),
+        price_changed: orders.count(&:has_price_changes?),
+        failed: orders.count(&:verification_failed?),
+        processing: orders.count(&:processing?),
+        all_complete: all_complete,
+        any_price_changed: orders.any?(&:has_price_changes?),
+        any_failed: orders.any?(&:verification_failed?),
+        skipped: orders.count { |o| o.verification_status == "skipped" },
+        all_clear: orders.all? { |o| o.prices_verified? || o.verification_status == "skipped" || o.processing? || o.submitted? || o.confirmed? }
+      }
+    }
+  end
+
+  # Accept price changes for specific orders and proceed to placement
+  def accept_price_changes
+    batch_id = params[:batch_id]
+    order_ids = params[:order_ids] || []
+
+    orders = current_user.orders.for_batch(batch_id).where(status: "price_changed")
+    orders = orders.where(id: order_ids) if order_ids.present?
+
+    if orders.empty?
+      render json: { error: "No orders with price changes found." }, status: :unprocessable_entity
+      return
+    end
+
+    orders.each do |order|
+      order.accept_price_changes!
+      order.update!(status: "processing")
+      PlaceOrderJob.perform_later(order.id)
+    end
+
+    render json: {
+      success: true,
+      message: "#{orders.size} order(s) accepted with updated prices and submitted."
+    }
+  end
+
+  # Retry verification for failed orders
+  def retry_verification
+    batch_id = params[:batch_id]
+    order_ids = params[:order_ids] || []
+
+    orders = current_user.orders.for_batch(batch_id).where(verification_status: "failed")
+    orders = orders.where(id: order_ids) if order_ids.present?
+
+    orders.each do |order|
+      order.start_verification!
+      PriceVerificationJob.perform_later(order.id)
+    end
+
+    render json: {
+      success: true,
+      message: "Retrying verification for #{orders.size} order(s)..."
+    }
+  end
+
+  # Skip verification — marks orders as skipped so user can review and submit manually
+  def skip_verification
+    batch_id = params[:batch_id]
+    order_ids = params[:order_ids] || []
+
+    orders = current_user.orders.for_batch(batch_id)
+      .where(status: %w[verifying price_changed])
+      .or(current_user.orders.for_batch(batch_id).where(verification_status: "failed"))
+    orders = orders.where(id: order_ids) if order_ids.present?
+
+    orders.each do |order|
+      order.skip_verification!
+      order.update!(status: "pending") unless order.pending?
+    end
+
+    render json: {
+      success: true,
+      message: "Verification skipped for #{orders.size} order(s). Ready to submit."
+    }
   end
 
   # Split order - preview

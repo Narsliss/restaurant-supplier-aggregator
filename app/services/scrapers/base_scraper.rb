@@ -91,6 +91,30 @@ module Scrapers
       raise NotImplementedError, 'Subclass must implement #scrape_prices'
     end
 
+    # Lightweight session check: restore cookies → navigate → check if still logged in.
+    # Returns true if session is alive (and refreshes last_login_at), false if expired.
+    # Does NOT attempt login or trigger 2FA — just checks if saved cookies still work.
+    # Subclasses can override for SPA-specific behavior (e.g., PPO waits for React).
+    def soft_refresh
+      with_browser do
+        if restore_session
+          navigate_to(supplier_base_url)
+          sleep 2
+          if logged_in?
+            save_session
+            credential.mark_active!
+            logger.info "[#{self.class.name.demodulize}] Soft refresh successful - session extended"
+            return true
+          end
+        end
+        logger.info "[#{self.class.name.demodulize}] Soft refresh failed - session expired"
+        false
+      end
+    rescue StandardError => e
+      logger.warn "[#{self.class.name.demodulize}] Soft refresh error: #{e.message}"
+      false
+    end
+
     # Scrape the supplier's catalog by searching for terms.
     # Returns an array of hashes: { supplier_sku, supplier_name, current_price, pack_size, in_stock, category }
     # Default implementation searches the supplier site for each term.

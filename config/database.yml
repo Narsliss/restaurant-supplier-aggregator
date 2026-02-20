@@ -6,6 +6,7 @@ default: &default
 development:
   <<: *default
   database: restaurant_supplier_aggregator_development
+  prepared_statements: false
 
 test:
   <<: *default

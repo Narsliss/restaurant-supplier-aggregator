@@ -23,14 +23,53 @@ class SupplierListItem < ApplicationRecord
   delegate :supplier, to: :supplier_list
   delegate :supplier_credential, to: :supplier_list
 
-  # Link to existing SupplierProduct by SKU match
+  # Link to an existing SupplierProduct, trying (in order):
+  #   1. Exact SKU match
+  #   2. Exact name match (case-insensitive)
+  #   3. Prefix name match — some platforms (e.g. Cut+Dry / WCW) append brand
+  #      names in catalog but not in the order guide, so "Cherries - Amarene In
+  #      Syrup" should match "Cherries - Amarene In Syrup Gelatech".
+  # If no match is found and we have enough data, create a SupplierProduct so
+  # the item can be included in orders.
   def link_to_supplier_product!
-    return if supplier_product_id.present? || sku.blank?
+    return if supplier_product_id.present?
 
-    sp = SupplierProduct.find_by(
-      supplier_id: supplier_list.supplier_id,
-      supplier_sku: sku
-    )
+    sid = supplier_list.supplier_id
+
+    # 1. SKU match
+    sp = SupplierProduct.find_by(supplier_id: sid, supplier_sku: sku) if sku.present?
+
+    if sp.nil? && name.present?
+      clean_name = name.downcase.strip
+
+      # 2. Exact name match (case-insensitive)
+      sp = SupplierProduct.where(supplier_id: sid)
+             .where('LOWER(supplier_name) = ?', clean_name)
+             .first
+
+      # 3. Prefix match — list name is a prefix of catalog name (brand appended)
+      #    Only if name is long enough to avoid false positives
+      if sp.nil? && clean_name.length >= 10
+        sp = SupplierProduct.where(supplier_id: sid)
+               .where('LOWER(supplier_name) LIKE ?', "#{sanitize_sql_like(clean_name)}%")
+               .order(:supplier_name)
+               .first
+      end
+    end
+
+    # 4. Create from list item data so orders aren't silently dropped
+    if sp.nil? && name.present? && price.present?
+      sp = SupplierProduct.create!(
+        supplier_id: sid,
+        supplier_sku: sku.presence || "LIST-#{id}",
+        supplier_name: name,
+        current_price: price,
+        pack_size: pack_size,
+        in_stock: in_stock,
+        price_updated_at: Time.current
+      )
+    end
+
     update!(supplier_product_id: sp.id) if sp
   end
 
@@ -45,5 +84,11 @@ class SupplierListItem < ApplicationRecord
     parts = [formatted_price]
     parts << pack_size if pack_size.present?
     parts.join(' / ')
+  end
+
+  private
+
+  def sanitize_sql_like(string)
+    string.gsub(/[%_\\]/) { |m| "\\#{m}" }
   end
 end

@@ -111,6 +111,10 @@ Rails.application.routes.draw do
       post :create_from_aggregated_list
       get :review
       post :submit_batch
+      get :verification_status
+      post :accept_price_changes
+      post :retry_verification
+      post :skip_verification
     end
     resources :order_items, only: [:update, :destroy]
   end

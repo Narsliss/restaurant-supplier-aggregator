@@ -313,6 +313,30 @@ module Scrapers
       false
     end
 
+    # Lightweight session check: restore cookies → navigate → check if still logged in.
+    # Returns true if session is alive (and extends last_login_at), false if expired.
+    # Does NOT trigger 2FA or attempt login — just checks if the saved session works.
+    def soft_refresh
+      with_browser do
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          wait_for_react_render(timeout: 10)
+          if logged_in?
+            save_session
+            credential.mark_active!
+            logger.info '[PremiereProduceOne] Soft refresh successful - session extended'
+            return true
+          end
+        end
+        logger.info '[PremiereProduceOne] Soft refresh failed - session expired'
+        false
+      end
+    rescue StandardError => e
+      logger.warn "[PremiereProduceOne] Soft refresh error: #{e.message}"
+      false
+    end
+
     # Override base scrape_catalog because PPO requires 2FA for login.
     # The base class calls perform_login_steps which only enters the email —
     # PPO needs the full login flow (with 2FA code polling) to get past the
@@ -547,7 +571,18 @@ module Scrapers
       results = []
 
       with_browser do
-        login unless logged_in?
+        # Restore session inline — do NOT call login() which has its own
+        # with_browser block and would create a nested browser (killing ours).
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          wait_for_react_render(timeout: 15)
+        end
+        unless logged_in?
+          # PPO is 2FA-only — can't auto-login without user interaction
+          raise SessionExpiredError, 'Session expired and cannot auto-login. Please re-authenticate with Premiere Produce One.'
+        end
+        save_session
 
         product_skus.each do |sku|
           begin

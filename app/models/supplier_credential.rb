@@ -92,10 +92,16 @@ class SupplierCredential < ApplicationRecord
   end
 
   def session_valid?
-    # Sessions are valid for 6 hours (matching needs_refresh? scope)
-    # The actual supplier session cookies may expire sooner, but we'll
-    # attempt to restore the session and re-login if needed
-    session_data.present? && last_login_at.present? && last_login_at > 6.hours.ago
+    return false unless session_data.present? && last_login_at.present?
+
+    # Use different TTLs based on supplier auth type:
+    # - 2FA suppliers (US Foods, PPO): sessions typically last 24+ hours on the
+    #   supplier side. Use 24h so we don't show "Disconnected" prematurely.
+    #   If the session IS dead, soft_refresh will catch it when verification runs.
+    # - Password suppliers (CW, WCW): can auto-login anytime, so a shorter window
+    #   just means we'll re-authenticate — no user impact.
+    ttl = supplier&.no_password_required? ? 24.hours : 6.hours
+    last_login_at > ttl.ago
   end
 
   def trusted_device_valid?

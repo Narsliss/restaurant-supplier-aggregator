@@ -11,6 +11,10 @@ default: &default
       threads: 1
       processes: 1
       polling_interval: 2
+    - queues: [price_verification]
+      threads: 4
+      processes: 1
+      polling_interval: 1
     - queues: [scraping]
       threads: 1
       processes: 1

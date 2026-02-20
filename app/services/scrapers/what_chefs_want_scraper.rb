@@ -211,7 +211,18 @@ module Scrapers
       results = []
 
       with_browser do
-        login unless logged_in?
+        # Restore session inline — do NOT call login() which has its own
+        # with_browser block and would create a nested browser (killing ours).
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          sleep 2
+        end
+        unless logged_in?
+          perform_login_steps
+          raise AuthenticationError, 'Could not log in for price verification' unless logged_in?
+        end
+        save_session
 
         product_skus.each do |sku|
           begin

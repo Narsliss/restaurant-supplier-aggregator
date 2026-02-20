@@ -5,7 +5,7 @@ SupplierHub is a restaurant supplier aggregation platform that helps restaurants
 
 ## Tech Stack
 - **Backend**: Ruby on Rails 7.1.6, Ruby 3.3.6
-- **Database**: SQLite
+- **Database**: PostgreSQL
 - **Cache/Queue/Cable**: Solid Stack (solid_queue, solid_cache, solid_cable) — no Redis
 - **Frontend**: Hotwire (Turbo + Stimulus), Tailwind CSS
 - **Browser Automation**: Ferrum (headless Chrome) for supplier scraping
@@ -50,7 +50,7 @@ Job dashboard: Mission Control at `/jobs` (super_admin only).
 ### Services
 - **web**: Rails app (Puma), PORT=8080
 - **worker**: Solid Queue (PROCESS_TYPE=worker)
-- **SQLite**: File-based database (also backs queue, cache, and cable via Solid Stack)
+- **PostgreSQL**: Database (also backs queue, cache, and cable via Solid Stack)
 
 ### Environment Variables (Railway)
 ```
@@ -58,7 +58,7 @@ RAILS_ENV=production
 RAILS_LOG_TO_STDOUT=true
 RAILS_SERVE_STATIC_FILES=true
 SECRET_KEY_BASE=<generated>
-DATABASE_PATH=/data/production.sqlite3
+DATABASE_URL=<postgresql-url>
 PROCESS_TYPE=web|worker
 ```
 
@@ -161,4 +161,4 @@ Scrapers save cookies + localStorage + sessionStorage to `supplier_credentials.s
 6. Migrated to Solid Stack (solid_queue, solid_cache, solid_cable) — removed Redis dependency
 7. Added per-unit price comparison for different pack sizes
 8. Registered credential-form Stimulus controller for 2FA supplier password field hide
-9. Migrated from PostgreSQL to SQLite — zero external service dependencies
+9. Migrated back to PostgreSQL from SQLite
