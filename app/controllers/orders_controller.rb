@@ -101,9 +101,15 @@ class OrdersController < ApplicationController
   def update
     if @order.pending? && @order.update(order_params)
       @order.recalculate_totals!
-      redirect_to @order, notice: "Order updated."
+      respond_to do |format|
+        format.html { redirect_to @order, notice: "Order updated." }
+        format.json { render json: { success: true, order: { id: @order.id, delivery_date: @order.delivery_date, notes: @order.notes } } }
+      end
     else
-      render :edit, status: :unprocessable_entity
+      respond_to do |format|
+        format.html { render :edit, status: :unprocessable_entity }
+        format.json { render json: { error: "Could not update order" }, status: :unprocessable_entity }
+      end
     end
   end
 
@@ -155,10 +161,11 @@ class OrdersController < ApplicationController
       delivery_date: params[:delivery_date]
     )
 
-    orders = service.create_pending_orders!
+    orders, batch_id = service.create_pending_orders!
 
     if orders.any?
-      redirect_to orders_path, notice: "#{orders.size} pending order(s) created across #{orders.map { |o| o.supplier.name }.join(', ')}. Review and submit when ready."
+      redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: aggregated_list.id),
+        notice: "#{orders.size} order(s) ready for review across #{orders.map { |o| o.supplier.name }.join(', ')}."
     else
       redirect_to order_builder_aggregated_list_path(aggregated_list),
         alert: "No items selected. Set quantities for the items you want to order."
@@ -166,6 +173,84 @@ class OrdersController < ApplicationController
   rescue => e
     redirect_to order_builder_aggregated_list_path(aggregated_list),
       alert: "Failed to create orders: #{e.message}"
+  end
+
+  # Review orders from a batch before submitting
+  def review
+    unless params[:batch_id].present?
+      redirect_to orders_path, alert: "No batch specified."
+      return
+    end
+
+    @batch_id = params[:batch_id]
+    @aggregated_list_id = params[:aggregated_list_id]
+    @orders = current_user.orders
+      .for_batch(@batch_id)
+      .pending
+      .includes(:supplier, order_items: { supplier_product: :product })
+
+    if @orders.empty?
+      redirect_to orders_path, notice: "All orders in this batch have already been submitted."
+      return
+    end
+
+    # Build review data for each order
+    @review_orders = @orders.map do |order|
+      minimum = order.supplier.order_minimum
+      {
+        order: order,
+        supplier: order.supplier,
+        items: order.order_items.includes(supplier_product: :product),
+        subtotal: order.subtotal || order.calculated_subtotal,
+        item_count: order.order_items.count,
+        minimum: minimum,
+        meets_minimum: minimum.nil? || (order.subtotal || 0) >= minimum,
+        amount_to_minimum: minimum ? [minimum - (order.subtotal || 0), 0].max : 0,
+        savings: order.savings_amount || 0
+      }
+    end
+
+    @summary = {
+      order_count: @orders.size,
+      total_items: @review_orders.sum { |r| r[:item_count] },
+      total_amount: @review_orders.sum { |r| r[:subtotal] },
+      total_savings: @review_orders.sum { |r| r[:savings] },
+      all_minimums_met: @review_orders.all? { |r| r[:meets_minimum] }
+    }
+  end
+
+  # Submit all pending orders in a batch
+  # SAFETY: Only queues PlaceOrderJob — never calls submit!/scraper directly.
+  def submit_batch
+    batch_id = params[:batch_id]
+    order_ids = params[:order_ids] # optional: submit specific orders only
+
+    orders = current_user.orders.for_batch(batch_id).pending
+
+    if order_ids.present?
+      orders = orders.where(id: order_ids)
+    end
+
+    if orders.empty?
+      redirect_to orders_path, alert: "No pending orders found for this batch."
+      return
+    end
+
+    # Validate all orders have a delivery date set (must be after today)
+    missing_dates = orders.select { |o| o.delivery_date.blank? || o.delivery_date <= Date.current }
+    if missing_dates.any?
+      supplier_names = missing_dates.map { |o| o.supplier.name }.join(", ")
+      redirect_to review_orders_path(batch_id: batch_id),
+        alert: "Please set a delivery date (after today) for: #{supplier_names}"
+      return
+    end
+
+    orders.each do |order|
+      PlaceOrderJob.perform_later(order.id)
+      order.update!(status: "processing")
+    end
+
+    redirect_to orders_path, notice: "#{orders.size} order(s) submitted for processing."
   end
 
   # Split order - preview

@@ -17,42 +17,33 @@
   <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "order-form") do |form| %>
     <%= hidden_field_tag :aggregated_list_id, @aggregated_list.id %>
 
-    <%# Fixed command bar — KPIs + delivery date + submit (JS moves to body for true fixed positioning) %>
-    <div id="order-builder-command-bar" class="bg-gray-50 pt-1 pb-3">
-      <div class="grid grid-cols-3 gap-4 mb-3">
-        <div class="bg-white shadow rounded-lg p-4">
-          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Items Selected</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="itemCount">0</p>
+    <%# Fixed command bar — compact row with individual KPI cards (JS clones to body for fixed positioning) %>
+    <div id="order-builder-command-bar" class="bg-gray-50 py-2">
+      <div class="flex items-center gap-2">
+        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1">
+          <span class="text-xs font-medium text-gray-500 uppercase">Items</span>
+          <span class="text-lg font-bold text-gray-900" data-order-builder-target="itemCount">0</span>
         </div>
-        <div class="bg-white shadow rounded-lg p-4">
-          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Estimated Total</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="runningTotal">$0.00</p>
+        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1">
+          <span class="text-xs font-medium text-gray-500 uppercase">Total</span>
+          <span class="text-lg font-bold text-gray-900" data-order-builder-target="runningTotal">$0.00</span>
         </div>
-        <div class="bg-white shadow rounded-lg p-4">
-          <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Suppliers</p>
-          <p class="mt-1 text-2xl font-bold text-gray-900" data-order-builder-target="supplierCount">0</p>
+        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1">
+          <span class="text-xs font-medium text-gray-500 uppercase">Suppliers</span>
+          <span class="text-lg font-bold text-gray-900" data-order-builder-target="supplierCount">0</span>
         </div>
-      </div>
-      <div class="bg-white shadow rounded-lg p-3">
-        <div class="flex items-center justify-between gap-4">
-          <div class="flex items-center gap-4">
-            <div class="hidden sm:block">
-              <%= date_field_tag :delivery_date, nil, class: "w-40 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
-            </div>
-            <div class="text-sm text-gray-500">
-              <span id="action-bar-item-count">0</span> items &middot;
-              <span class="font-semibold text-gray-900" id="action-bar-running-total">$0.00</span>
-            </div>
-          </div>
-          <div class="flex gap-3">
-            <%= link_to "Cancel", supplier_lists_path, class: "px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900" %>
-            <button type="submit"
-                    disabled
-                    data-order-builder-target="submitButton"
-                    class="px-6 py-2 rounded-md text-sm font-semibold text-white shadow-sm transition-colors bg-gray-300 cursor-not-allowed">
-              Create Pending Orders
-            </button>
-          </div>
+        <div class="hidden sm:block bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1">
+          <span class="text-xs font-medium text-gray-500 uppercase">Delivery</span>
+          <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-36 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
+        </div>
+        <div class="ml-auto bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-3">
+          <%= link_to "Cancel", supplier_lists_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
+          <button type="submit"
+                  disabled
+                  data-order-builder-target="submitButton"
+                  class="px-5 py-1.5 rounded-md text-sm font-semibold text-white shadow-sm transition-colors bg-gray-300 cursor-not-allowed">
+            Create Orders
+          </button>
         </div>
       </div>
     </div>
@@ -111,21 +102,22 @@
                   <div class="inline-flex items-center gap-1">
                     <button type="button"
                             data-action="order-builder#decrement"
-                            class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-100 text-sm">
+                            class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors text-sm">
                       &minus;
                     </button>
                     <input type="number"
                            name="quantities[<%= match.id %>]"
-                           value="0"
+                           value="<%= @quantities[match.id.to_s] || 0 %>"
                            min="0"
                            class="w-14 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                            data-order-builder-target="quantityInput"
                            data-action="input->order-builder#updateTotals"
                            data-price="<%= cheapest_price %>"
-                           data-supplier-id="<%= cheapest_supplier_id %>">
+                           data-supplier-id="<%= cheapest_supplier_id %>"
+                           data-match-id="<%= match.id %>">
                     <button type="button"
                             data-action="order-builder#increment"
-                            class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-100 text-sm">
+                            class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors text-sm">
                       +
                     </button>
                   </div>
@@ -178,21 +170,22 @@
             <div class="flex items-center justify-center gap-2">
               <button type="button"
                       data-action="order-builder#decrement"
-                      class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-100">
+                      class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors">
                 &minus;
               </button>
               <input type="number"
-                     name="quantities[<%= match.id %>]"
-                     value="0"
+                     value="<%= @quantities[match.id.to_s] || 0 %>"
                      min="0"
                      class="w-16 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                      data-order-builder-target="quantityInput"
                      data-action="input->order-builder#updateTotals"
                      data-price="<%= cheapest_price %>"
-                     data-supplier-id="<%= cheapest_supplier_id %>">
+                     data-supplier-id="<%= cheapest_supplier_id %>"
+                     data-match-id="<%= match.id %>"
+                     data-mobile="true">
               <button type="button"
                       data-action="order-builder#increment"
-                      class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-100">
+                      class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors">
                 +
               </button>
             </div>

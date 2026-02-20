@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   /* US Foods Brand Colors */
   --color-brand-green: #5C8727;
@@ -34,5 +36,317 @@
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
+  }
+
+  /* ===================================================
+     DARK MODE OVERRIDES
+     Triggered by .dark class on <html>.
+     Override Tailwind utility classes so templates
+     don't need any changes.
+     =================================================== */
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  /* --- Page background --- */
+  html.dark {
+    background-color: #111827 !important;
+  }
+  .dark .bg-gray-50 {
+    background-color: #1f2937 !important;
+  }
+
+  /* --- Cards & panels --- */
+  .dark .bg-white {
+    background-color: #1f2937 !important;
+  }
+
+  /* --- Section/alt backgrounds --- */
+  .dark .bg-gray-100 {
+    background-color: #374151 !important;
+  }
+
+  /* --- Primary text --- */
+  .dark .text-gray-900 {
+    color: #f9fafb !important;
+  }
+  .dark .text-gray-800 {
+    color: #f3f4f6 !important;
+  }
+
+  /* --- Secondary text --- */
+  .dark .text-gray-700 {
+    color: #d1d5db !important;
+  }
+  .dark .text-gray-600 {
+    color: #d1d5db !important;
+  }
+  .dark .text-gray-500 {
+    color: #9ca3af !important;
+  }
+
+  /* --- Tertiary / muted text ---
+     Scoped to main content only — nav/footer use gray-300/400
+     for links on dark navy backgrounds and should stay light. */
+  .dark main .text-gray-400 {
+    color: #6b7280 !important;
+  }
+  .dark main .text-gray-300 {
+    color: #6b7280 !important;
+  }
+
+  /* --- Borders --- */
+  .dark .border-gray-200 {
+    border-color: #374151 !important;
+  }
+  .dark .border-gray-300 {
+    border-color: #4b5563 !important;
+  }
+  .dark .border-gray-100 {
+    border-color: #1f2937 !important;
+  }
+
+  /* --- Dividers --- */
+  .dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+    border-color: #374151 !important;
+  }
+  .dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
+    border-color: #374151 !important;
+  }
+
+  /* --- Hover states --- */
+  .dark .hover\:bg-gray-50:hover {
+    background-color: #374151 !important;
+  }
+  .dark .hover\:bg-gray-100:hover {
+    background-color: #374151 !important;
+  }
+  .dark .hover\:bg-gray-300:hover {
+    background-color: #4b5563 !important;
+  }
+
+  /* --- Form inputs --- */
+  .dark input:where(.border-gray-300),
+  .dark select:where(.border-gray-300),
+  .dark textarea:where(.border-gray-300) {
+    background-color: #374151 !important;
+    border-color: #4b5563 !important;
+    color: #f9fafb !important;
+  }
+  .dark input[type="date"]:where(.border-gray-300) {
+    background-color: #374151 !important;
+    border-color: #4b5563 !important;
+    color: #f9fafb !important;
+  }
+  .dark input[type="number"] {
+    background-color: #374151 !important;
+    border-color: #4b5563 !important;
+    color: #f9fafb !important;
+  }
+
+  /* --- Disabled / secondary buttons --- */
+  .dark .bg-gray-200 {
+    background-color: #374151 !important;
+  }
+  .dark .bg-gray-300 {
+    background-color: #4b5563 !important;
+  }
+
+  /* --- Dropdown menus --- */
+  .dark [data-dropdown-target="menu"] {
+    background-color: #1f2937 !important;
+    border-color: #374151 !important;
+  }
+  .dark [data-dropdown-target="menu"] > div:first-child {
+    color: #f9fafb !important;
+    border-color: #374151 !important;
+  }
+  .dark [data-dropdown-target="menu"] a {
+    color: #d1d5db !important;
+  }
+  .dark [data-dropdown-target="menu"] a:hover {
+    background-color: #374151 !important;
+    color: #f9fafb !important;
+  }
+  /* Sign out button (brand-orange text) */
+  .dark [data-dropdown-target="menu"] button[type="submit"] {
+    color: #f87171 !important;
+  }
+  .dark [data-dropdown-target="menu"] button[type="submit"]:hover {
+    background-color: #374151 !important;
+  }
+  /* Theme toggle button */
+  .dark [data-dropdown-target="menu"] button[data-action*="theme"] {
+    color: #d1d5db !important;
+  }
+  .dark [data-dropdown-target="menu"] button[data-action*="theme"]:hover {
+    background-color: #374151 !important;
+    color: #f9fafb !important;
+  }
+
+  /* --- Ring on dropdown --- */
+  .dark .ring-1.ring-black\/5 {
+    --tw-ring-color: rgba(255, 255, 255, 0.1) !important;
+  }
+
+  /* --- Shadows --- */
+  .dark .shadow,
+  .dark .shadow-sm,
+  .dark .shadow-lg {
+    --tw-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  /* --- Modal backdrop --- */
+  .dark .bg-gray-500.bg-opacity-75 {
+    background-color: rgba(0, 0, 0, 0.8) !important;
+  }
+
+  /* --- Status badges: green --- */
+  .dark .bg-green-100 {
+    background-color: #064e3b !important;
+  }
+  .dark .text-green-800 {
+    color: #6ee7b7 !important;
+  }
+  .dark .text-green-700 {
+    color: #6ee7b7 !important;
+  }
+  .dark .text-green-600 {
+    color: #6ee7b7 !important;
+  }
+
+  /* --- Status badges: red --- */
+  .dark .bg-red-100 {
+    background-color: #7f1d1d !important;
+  }
+  .dark .text-red-800 {
+    color: #fca5a5 !important;
+  }
+  .dark .text-red-600 {
+    color: #fca5a5 !important;
+  }
+  .dark .text-red-500 {
+    color: #fca5a5 !important;
+  }
+
+  /* --- Status badges: blue --- */
+  .dark .bg-blue-100 {
+    background-color: #1e3a5f !important;
+  }
+  .dark .text-blue-800 {
+    color: #93c5fd !important;
+  }
+  .dark .text-blue-700 {
+    color: #93c5fd !important;
+  }
+
+  /* --- Status badges & alerts: yellow --- */
+  .dark .bg-yellow-50 {
+    background-color: rgba(113, 63, 18, 0.3) !important;
+  }
+  .dark .bg-yellow-100 {
+    background-color: #713f12 !important;
+  }
+  .dark .text-yellow-800 {
+    color: #fde68a !important;
+  }
+  .dark .text-yellow-600 {
+    color: #fcd34d !important;
+  }
+  .dark .border-yellow-200 {
+    border-color: #92400e !important;
+  }
+
+  /* --- Status badges: amber --- */
+  .dark .bg-amber-100 {
+    background-color: #78350f !important;
+  }
+  .dark .text-amber-800 {
+    color: #fcd34d !important;
+  }
+
+  /* --- Alert/info boxes (50-shade backgrounds) --- */
+  .dark .bg-blue-50 {
+    background-color: rgba(30, 58, 95, 0.5) !important;
+  }
+  .dark .bg-red-50 {
+    background-color: rgba(127, 29, 29, 0.3) !important;
+  }
+  .dark .bg-amber-50 {
+    background-color: rgba(120, 53, 15, 0.3) !important;
+  }
+  .dark .bg-green-50 {
+    background-color: rgba(6, 78, 59, 0.3) !important;
+  }
+
+  /* --- Brand accent 50-shade backgrounds in dark mode --- */
+  .dark .bg-brand-green-50 {
+    background-color: rgba(92, 135, 39, 0.15) !important;
+  }
+  .dark .bg-brand-orange-50 {
+    background-color: rgba(207, 69, 32, 0.15) !important;
+  }
+  .dark .hover\:bg-brand-green-50:hover {
+    background-color: rgba(92, 135, 39, 0.25) !important;
+  }
+
+  /* --- Brand text colors in dark mode ---
+     Navy text is invisible on dark backgrounds. Lighten it.
+     Scoped to main content — nav already uses white/gray text. */
+  .dark main .text-brand-navy {
+    color: #7e91ff !important; /* brand-blue — readable on dark bg */
+  }
+  .dark main .hover\:text-brand-navy:hover {
+    color: #a3b1ff !important;
+  }
+  .dark main .text-brand-orange {
+    color: #e8714f !important; /* lighter orange for contrast */
+  }
+  .dark main .hover\:text-brand-orange:hover {
+    color: #f0946e !important;
+  }
+
+  /* --- Preserve: nav, footer, table headers ---
+     bg-brand-navy elements stay the same in both modes.
+     No overrides needed. */
+
+  /* --- Preserve: brand accent buttons ---
+     bg-brand-orange, bg-brand-green buttons stay as-is.
+     They look good on dark backgrounds already. */
+
+  /* --- Quantity stepper +/- buttons (order builder) --- */
+  .dark button.border-gray-300.text-gray-600 {
+    border-color: #6b7280 !important;
+    color: #d1d5db !important;
+  }
+  .dark button.border-gray-300.text-gray-600:hover {
+    background-color: #4b5563 !important;
+    border-color: #9ca3af !important;
+    color: #f9fafb !important;
+  }
+  .dark button.border-gray-300.text-gray-600:active {
+    background-color: #6b7280 !important;
+  }
+
+  /* --- Inline border styles (order builder zebra rows) --- */
+  .dark tr[style*="border-bottom"] {
+    border-bottom-color: #374151 !important;
+  }
+
+  /* --- Select dropdown appearance on dark ---
+     Scoped to main content — nav select already has navy styling */
+  .dark main select {
+    background-color: #374151 !important;
+    border-color: #4b5563 !important;
+    color: #f9fafb !important;
+  }
+
+  /* --- Flash message background tints --- */
+  .dark .border-l-4.border-brand-green {
+    background-color: rgba(92, 135, 39, 0.1) !important;
+  }
+  .dark .border-l-4.border-brand-orange {
+    background-color: rgba(207, 69, 32, 0.1) !important;
   }
 }

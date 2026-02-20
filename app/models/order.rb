@@ -22,6 +22,7 @@ class Order < ApplicationRecord
   scope :completed, -> { where(status: %w[submitted confirmed]) }
   scope :recent, -> { order(created_at: :desc) }
   scope :by_date, ->(date) { where(submitted_at: date.all_day) }
+  scope :for_batch, ->(batch_id) { where(batch_id: batch_id) }
 
   # Status constants
   STATUSES = {

@@ -90,6 +90,37 @@ class AggregatedListsController < ApplicationController
                                        .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     @suppliers = @aggregated_list.suppliers
+
+    # Pre-fill quantities from existing pending batch orders (when returning from review page)
+    @quantities = {}
+    @delivery_date = nil
+    if params[:batch_id].present?
+      batch_orders = current_user.orders.for_batch(params[:batch_id]).pending
+                       .includes(order_items: :supplier_product)
+      if batch_orders.any?
+        @delivery_date = batch_orders.first.delivery_date
+
+        # Build lookup: supplier_product_id → product_match_id
+        sp_to_match = {}
+        @product_matches.each do |pm|
+          pm.product_match_items.each do |pmi|
+            sp = pmi.supplier_list_item&.supplier_product
+            sp_to_match[sp.id] = pm.id if sp
+          end
+        end
+
+        # Map order items back to product matches
+        batch_orders.each do |order|
+          order.order_items.each do |oi|
+            match_id = sp_to_match[oi.supplier_product_id]
+            @quantities[match_id.to_s] = oi.quantity if match_id
+          end
+        end
+
+        # Delete the pending batch orders since user is re-editing
+        batch_orders.destroy_all
+      end
+    end
   end
 
   private

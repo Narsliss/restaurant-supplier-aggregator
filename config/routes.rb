@@ -46,8 +46,8 @@ Rails.application.routes.draw do
     end
   end
 
-  # Supplier Lists (scraped order guides)
-  resources :supplier_lists, only: %i[index show] do
+  # Supplier Lists (scraped order guides) — URL: /order-lists
+  resources :supplier_lists, only: %i[index show], path: "order-lists" do
     member do
       post :sync
     end
@@ -99,8 +99,8 @@ Rails.application.routes.draw do
     end
   end
 
-  # Orders
-  resources :orders do
+  # Orders — URL: /order-history
+  resources :orders, path: "order-history" do
     member do
       post :submit
       post :cancel
@@ -109,7 +109,10 @@ Rails.application.routes.draw do
       get :split_preview
       post :split_create
       post :create_from_aggregated_list
+      get :review
+      post :submit_batch
     end
+    resources :order_items, only: [:update, :destroy]
   end
 
   # API namespace

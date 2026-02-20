@@ -5,7 +5,8 @@
   <div class="relative overflow-hidden bg-brand-navy">
     <img src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1920&q=80"
          alt="Restaurant kitchen"
-         class="absolute inset-0 h-full w-full object-cover opacity-20">
+         class="absolute inset-0 h-full w-full object-cover opacity-20"
+         onerror="this.style.display='none'">
     <div class="relative px-6 py-12 sm:px-12 sm:py-16">
       <h1 class="text-3xl sm:text-4xl font-heading font-bold text-white tracking-wide">
         Welcome back, <%= current_user.first_name || current_user.email.split('@').first %>

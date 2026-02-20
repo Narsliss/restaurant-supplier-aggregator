@@ -13,12 +13,14 @@ module Orders
     # Creates pending Order records grouped by cheapest supplier.
     # SAFETY: Only creates status: "pending" orders. Never calls submit!,
     # PlaceOrderJob, OrderPlacementService, or any scraper code.
+    # Returns [orders_array, batch_id_string].
     def create_pending_orders!
       selected_items = build_selected_items
-      return [] if selected_items.empty?
+      return [[], nil] if selected_items.empty?
 
       by_supplier = selected_items.group_by { |item| item[:supplier_id] }
 
+      batch_id = SecureRandom.uuid
       orders = []
       ActiveRecord::Base.transaction do
         by_supplier.each do |supplier_id, items|
@@ -30,9 +32,11 @@ module Orders
             status: "pending",
             delivery_date: delivery_date,
             notes: "Created from #{aggregated_list.name}",
-            organization_id: user.current_organization&.id
+            organization_id: user.current_organization&.id,
+            batch_id: batch_id
           )
 
+          order_savings = 0
           items.each do |item|
             order.order_items.create!(
               supplier_product_id: item[:supplier_product_id],
@@ -41,15 +45,20 @@ module Orders
               line_total: item[:unit_price] * item[:quantity],
               status: "pending"
             )
+
+            # Savings = what you'd pay at the most expensive supplier minus what you're actually paying
+            if item[:worst_price] && item[:worst_price] > item[:unit_price]
+              order_savings += (item[:worst_price] - item[:unit_price]) * item[:quantity]
+            end
           end
 
           order.recalculate_totals!
-          order.update!(savings_amount: order.calculate_savings)
+          order.update!(savings_amount: order_savings.round(2))
           orders << order
         end
       end
 
-      orders
+      [orders, batch_id]
     end
 
     private
@@ -68,6 +77,8 @@ module Orders
         cheapest = pm.cheapest_supplier
         next unless cheapest
 
+        most_expensive = pm.most_expensive_supplier
+
         supplier_list_item = cheapest[:item]
         supplier_product = supplier_list_item.supplier_product
 
@@ -85,7 +96,8 @@ module Orders
           supplier_id: cheapest[:supplier].id,
           supplier_product_id: supplier_product.id,
           quantity: qty,
-          unit_price: supplier_product.current_price || supplier_list_item.price
+          unit_price: supplier_product.current_price || supplier_list_item.price,
+          worst_price: most_expensive&.dig(:price)
         }
       end
 

@@ -12,6 +12,8 @@ import CredentialFormController from "./credential_form_controller"
 import InlineFormController from "./inline_form_controller"
 import SearchableSelectController from "./searchable_select_controller"
 import OrderBuilderController from "./order_builder_controller"
+import OrderReviewController from "./order_review_controller"
+import ThemeController from "./theme_controller"
 
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
@@ -25,3 +27,5 @@ application.register("credential-form", CredentialFormController)
 application.register("inline-form", InlineFormController)
 application.register("searchable-select", SearchableSelectController)
 application.register("order-builder", OrderBuilderController)
+application.register("order-review", OrderReviewController)
+application.register("theme", ThemeController)
