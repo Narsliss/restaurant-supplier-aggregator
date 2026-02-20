@@ -116,7 +116,7 @@ Rails.application.routes.draw do
       post :retry_verification
       post :skip_verification
     end
-    resources :order_items, only: [:update, :destroy]
+    resources :order_items, only: [:create, :update, :destroy]
   end
 
   # API namespace

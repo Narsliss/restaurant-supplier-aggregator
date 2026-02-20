@@ -220,6 +220,14 @@ class OrdersController < ApplicationController
     # Build review data for each order
     @review_orders = @orders.map do |order|
       minimum = order.supplier.order_minimum
+      meets_minimum = minimum.nil? || (order.subtotal || 0) >= minimum
+
+      suggestions = if !meets_minimum
+        Orders::MinimumSuggestionService.new(user: current_user, order: order).suggestions
+      else
+        []
+      end
+
       {
         order: order,
         supplier: order.supplier,
@@ -227,13 +235,14 @@ class OrdersController < ApplicationController
         subtotal: order.subtotal || order.calculated_subtotal,
         item_count: order.order_items.count,
         minimum: minimum,
-        meets_minimum: minimum.nil? || (order.subtotal || 0) >= minimum,
+        meets_minimum: meets_minimum,
         amount_to_minimum: minimum ? [minimum - (order.subtotal || 0), 0].max : 0,
         savings: order.savings_amount || 0,
         verification_status: order.verification_status,
         verified_total: order.verified_total,
         price_change_amount: order.price_change_amount,
-        verification_error: order.verification_error
+        verification_error: order.verification_error,
+        suggestions: suggestions
       }
     end
 

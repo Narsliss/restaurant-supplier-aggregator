@@ -13,7 +13,8 @@ export default class extends Controller {
     "priceChangeBanner", "verificationFailedBanner", "verificationFailedMessage",
     "verifyingIndicator", "verifiedBadge", "priceChangedBadge", "verifyFailedBadge",
     "priceChangeDetails", "priceChangeList", "priceDiff", "unitPriceDisplay",
-    "verificationErrorDetails", "verificationErrorText"
+    "verificationErrorDetails", "verificationErrorText",
+    "suggestionsSection"
   ]
 
   static values = {
@@ -141,6 +142,261 @@ export default class extends Controller {
     const input = event.currentTarget
     const orderId = input.dataset.orderId
     this._patchOrder(orderId, { notes: input.value })
+  }
+
+  // --- Quick-add suggestions ---
+
+  addSuggestion(event) {
+    const btn = event.currentTarget
+    const orderId = String(btn.dataset.orderId)
+    const supplierProductId = btn.dataset.supplierProductId
+
+    // Disable immediately to prevent double-click
+    btn.disabled = true
+    btn.classList.add("opacity-50", "cursor-not-allowed")
+
+    fetch(`/order-history/${orderId}/order_items`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": this._csrfToken(),
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({ supplier_product_id: supplierProductId, quantity: 1 })
+    })
+    .then(res => {
+      if (!res.ok) throw new Error("Failed to add item")
+      return res.json()
+    })
+    .then(data => {
+      if (data.is_existing) {
+        this._updateExistingItemRow(data.item)
+      } else {
+        this._insertNewItemRow(orderId, data.item)
+      }
+
+      // Remove the suggestion pill
+      btn.remove()
+
+      // Update order totals from server response (most accurate)
+      this._applyServerTotals(orderId, data.order, data.meets_minimum)
+
+      // Recalculate summary bar and minimum status from DOM
+      this._recalculateSummary()
+      this._updateMinimumStatus()
+    })
+    .catch(err => {
+      console.error("Error adding suggestion:", err)
+      // Re-enable button on network/server failure
+      btn.disabled = false
+      btn.classList.remove("opacity-50", "cursor-not-allowed")
+    })
+  }
+
+  _insertNewItemRow(orderId, item) {
+    const card = this._cardForOrder(orderId)
+    if (!card) {
+      console.warn("[_insertNewItemRow] Card not found for orderId:", orderId)
+      return
+    }
+
+    const name = item.name || ""
+    const sku = item.sku || ""
+
+    // Desktop table row
+    const tbody = card.querySelector("table tbody")
+    if (tbody) {
+      const tr = document.createElement("tr")
+      tr.setAttribute("data-order-review-target", "itemRow")
+      tr.setAttribute("data-item-id", item.id)
+      tr.setAttribute("data-order-id", orderId)
+      tr.setAttribute("data-unit-price", item.unit_price)
+      tr.setAttribute("data-sku", item.sku)
+      tr.innerHTML = `
+        <td class="px-4 py-2 text-sm text-gray-900">${this._escapeHtml(name)}</td>
+        <td class="px-4 py-2 text-sm text-gray-500">${this._escapeHtml(sku)}</td>
+        <td class="px-4 py-2 text-center">
+          <div class="inline-flex items-center gap-1">
+            <button type="button"
+                    data-action="order-review#decrementItem"
+                    data-item-id="${item.id}"
+                    data-order-id="${orderId}"
+                    class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors text-sm">
+              &minus;
+            </button>
+            <input type="number"
+                   value="${item.quantity}"
+                   min="1"
+                   class="w-14 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                   data-order-review-target="quantityInput"
+                   data-action="change->order-review#updateQuantity"
+                   data-item-id="${item.id}"
+                   data-order-id="${orderId}">
+            <button type="button"
+                    data-action="order-review#incrementItem"
+                    data-item-id="${item.id}"
+                    data-order-id="${orderId}"
+                    class="w-7 h-7 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors text-sm">
+              +
+            </button>
+          </div>
+        </td>
+        <td class="px-4 py-2 text-sm text-right">
+          <span class="text-gray-900" data-order-review-target="unitPriceDisplay" data-item-id="${item.id}">${this._formatCurrency(item.unit_price)}</span>
+          <span class="hidden block text-xs mt-0.5" data-order-review-target="priceDiff" data-item-id="${item.id}"></span>
+        </td>
+        <td class="px-4 py-2 text-sm font-medium text-gray-900 text-right" data-order-review-target="lineTotal" data-item-id="${item.id}">
+          ${this._formatCurrency(item.line_total)}
+        </td>
+        <td class="px-4 py-2 text-center">
+          <button type="button"
+                  data-action="order-review#removeItem"
+                  data-item-id="${item.id}"
+                  data-order-id="${orderId}"
+                  class="text-red-400 hover:text-red-600 transition-colors"
+                  title="Remove item">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </td>
+      `
+      tr.classList.add("bg-green-50")
+      tbody.appendChild(tr)
+      setTimeout(() => tr.classList.remove("bg-green-50"), 2000)
+    }
+
+    // Mobile card
+    const mobileContainer = card.querySelector(".sm\\:hidden")
+    if (mobileContainer) {
+      const div = document.createElement("div")
+      div.className = "p-3 bg-green-50"
+      div.setAttribute("data-order-review-target", "itemRow")
+      div.setAttribute("data-item-id", item.id)
+      div.setAttribute("data-order-id", orderId)
+      div.setAttribute("data-unit-price", item.unit_price)
+      div.setAttribute("data-sku", item.sku)
+      div.innerHTML = `
+        <div class="flex justify-between items-start mb-2">
+          <div class="flex-1 min-w-0 mr-3">
+            <p class="text-sm font-medium text-gray-900">${this._escapeHtml(name)}</p>
+            <p class="text-xs text-gray-400">SKU: ${this._escapeHtml(sku)}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-900" data-order-review-target="lineTotal" data-item-id="${item.id}">
+              ${this._formatCurrency(item.line_total)}
+            </span>
+            <button type="button"
+                    data-action="order-review#removeItem"
+                    data-item-id="${item.id}"
+                    data-order-id="${orderId}"
+                    class="text-red-400 hover:text-red-600 transition-colors"
+                    title="Remove item">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div>
+            <span class="text-xs text-gray-500" data-order-review-target="unitPriceDisplay" data-item-id="${item.id}">${this._formatCurrency(item.unit_price)} each</span>
+            <span class="hidden text-xs" data-order-review-target="priceDiff" data-item-id="${item.id}"></span>
+          </div>
+          <div class="inline-flex items-center gap-1">
+            <button type="button"
+                    data-action="order-review#decrementItem"
+                    data-item-id="${item.id}"
+                    data-order-id="${orderId}"
+                    class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors">
+              &minus;
+            </button>
+            <input type="number"
+                   value="${item.quantity}"
+                   min="1"
+                   class="w-14 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                   data-order-review-target="quantityInput"
+                   data-action="change->order-review#updateQuantity"
+                   data-item-id="${item.id}"
+                   data-order-id="${orderId}">
+            <button type="button"
+                    data-action="order-review#incrementItem"
+                    data-item-id="${item.id}"
+                    data-order-id="${orderId}"
+                    class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors">
+              +
+            </button>
+          </div>
+        </div>
+      `
+      mobileContainer.appendChild(div)
+      setTimeout(() => div.classList.remove("bg-green-50"), 2000)
+    }
+  }
+
+  _updateExistingItemRow(item) {
+    const itemId = String(item.id)
+    const input = this._inputForItem(itemId)
+    if (input) {
+      input.value = item.quantity
+    }
+    this._updateLineTotal(itemId, item.quantity)
+
+    // Flash the row green briefly
+    const row = this._rowForItem(itemId)
+    if (row) {
+      row.classList.add("bg-green-50")
+      setTimeout(() => row.classList.remove("bg-green-50"), 2000)
+    }
+  }
+
+  _hideSuggestionsIfMinimumMet(orderId) {
+    const card = this._cardForOrder(orderId)
+    if (!card) return
+
+    const minimum = parseFloat(card.dataset.minimum) || 0
+    if (minimum === 0) return
+
+    const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
+    let subtotal = 0
+    rows.forEach(row => {
+      const unitPrice = parseFloat(row.dataset.unitPrice) || 0
+      const input = row.querySelector("[data-order-review-target='quantityInput']")
+      const qty = input ? (parseInt(input.value) || 0) : 0
+      subtotal += unitPrice * qty
+    })
+
+    if (subtotal >= minimum) {
+      this.suggestionsSectionTargets.forEach(el => {
+        if (el.dataset.orderId === orderId) {
+          el.style.display = "none"
+        }
+      })
+    }
+  }
+
+  // Apply server-returned order totals to DOM (more accurate than client recalculation)
+  _applyServerTotals(orderId, orderData, meetsMinimum) {
+    if (!orderData) return
+
+    const subtotal = orderData.subtotal
+    const itemCount = orderData.item_count
+
+    this.orderSubtotalTargets.forEach(el => {
+      if (el.dataset.orderId === orderId) {
+        el.textContent = this._formatCurrency(subtotal)
+      }
+    })
+    this.orderSubtotalFooterTargets.forEach(el => {
+      if (el.dataset.orderId === orderId) {
+        el.textContent = this._formatCurrency(subtotal)
+      }
+    })
+    this.orderItemCountTargets.forEach(el => {
+      if (el.dataset.orderId === orderId) {
+        el.textContent = itemCount
+      }
+    })
   }
 
   // --- Price verification actions ---
@@ -706,6 +962,9 @@ export default class extends Controller {
           }
         }
       })
+
+      // Hide suggestions when minimum is met
+      this._hideSuggestionsIfMinimumMet(orderId)
     })
 
     this._updateSubmitStates()
@@ -857,7 +1116,13 @@ export default class extends Controller {
   }
 
   _cardForOrder(orderId) {
-    return this.orderCardTargets.find(card => card.dataset.orderId === orderId)
+    const id = String(orderId)
+    // Try Stimulus targets first
+    const fromTargets = this.orderCardTargets.find(card => card.dataset.orderId === id)
+    if (fromTargets) return fromTargets
+
+    // Fallback: direct DOM query within this controller's element
+    return this.element.querySelector(`[data-order-review-target="orderCard"][data-order-id="${id}"]`)
   }
 
   _setVerificationStatus(orderId, status) {
@@ -870,6 +1135,12 @@ export default class extends Controller {
   }
 
   _formatCurrency(amount) {
-    return "$" + amount.toFixed(2)
+    return "$" + parseFloat(amount).toFixed(2)
+  }
+
+  _escapeHtml(text) {
+    const div = document.createElement("div")
+    div.textContent = text
+    return div.innerHTML
   }
 }
