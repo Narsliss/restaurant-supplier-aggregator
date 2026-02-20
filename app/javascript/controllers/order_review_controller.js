@@ -179,11 +179,16 @@ export default class extends Controller {
       btn.remove()
 
       // Update order totals from server response (most accurate)
-      this._applyServerTotals(orderId, data.order, data.meets_minimum)
+      this._applyServerTotals(orderId, data.order)
 
-      // Recalculate summary bar and minimum status from DOM
+      // Recalculate summary bar
       this._recalculateSummary()
-      this._updateMinimumStatus()
+
+      // Update minimum status for the modified order using server data
+      this._updateMinimumForOrder(orderId, parseFloat(data.order.subtotal), data.meets_minimum)
+
+      // Update submit button states
+      this._updateSubmitStates()
     })
     .catch(err => {
       console.error("Error adding suggestion:", err)
@@ -350,33 +355,8 @@ export default class extends Controller {
     }
   }
 
-  _hideSuggestionsIfMinimumMet(orderId) {
-    const card = this._cardForOrder(orderId)
-    if (!card) return
-
-    const minimum = parseFloat(card.dataset.minimum) || 0
-    if (minimum === 0) return
-
-    const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
-    let subtotal = 0
-    rows.forEach(row => {
-      const unitPrice = parseFloat(row.dataset.unitPrice) || 0
-      const input = row.querySelector("[data-order-review-target='quantityInput']")
-      const qty = input ? (parseInt(input.value) || 0) : 0
-      subtotal += unitPrice * qty
-    })
-
-    if (subtotal >= minimum) {
-      this.suggestionsSectionTargets.forEach(el => {
-        if (el.dataset.orderId === orderId) {
-          el.style.display = "none"
-        }
-      })
-    }
-  }
-
   // Apply server-returned order totals to DOM (more accurate than client recalculation)
-  _applyServerTotals(orderId, orderData, meetsMinimum) {
+  _applyServerTotals(orderId, orderData) {
     if (!orderData) return
 
     const subtotal = orderData.subtotal
@@ -395,6 +375,79 @@ export default class extends Controller {
     this.orderItemCountTargets.forEach(el => {
       if (el.dataset.orderId === orderId) {
         el.textContent = itemCount
+      }
+    })
+  }
+
+  // Update minimum status for a single order using server-provided data.
+  // This avoids DOM-based recalculation which can be wrong if the browser
+  // is serving cached JS or the DOM is out of sync.
+  _updateMinimumForOrder(orderId, subtotal, meetsMinimum) {
+    const card = this._cardForOrder(orderId)
+    if (!card) return
+
+    const minimum = parseFloat(card.dataset.minimum) || 0
+
+    // Update badge
+    this.minimumBadgeTargets.forEach(badge => {
+      if (badge.dataset.orderId === orderId) {
+        if (meetsMinimum) {
+          badge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+          badge.textContent = "Ready"
+        } else {
+          badge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"
+          badge.textContent = "Minimum not met"
+        }
+      }
+    })
+
+    // Update shortfall text
+    this.minimumShortfallTargets.forEach(el => {
+      if (el.dataset.orderId === orderId) {
+        if (meetsMinimum) {
+          el.style.display = "none"
+        } else {
+          const shortfall = minimum - subtotal
+          el.style.display = "inline"
+          el.textContent = `(Need ${this._formatCurrency(shortfall)} more for minimum)`
+        }
+      }
+    })
+
+    // Update card ring
+    if (meetsMinimum) {
+      card.classList.remove("ring-2", "ring-yellow-400")
+    } else {
+      card.classList.add("ring-2", "ring-yellow-400")
+    }
+
+    // Update warning banners
+    this.minimumWarningTargets.forEach(warning => {
+      if (warning.dataset.orderId === orderId) {
+        warning.style.display = meetsMinimum ? "none" : "block"
+        if (!meetsMinimum) {
+          const supplierName = card.dataset.supplierName
+          const shortfall = minimum - subtotal
+          const p = warning.querySelector("p")
+          if (p) {
+            p.innerHTML = `
+              <span class="font-medium">Warning:</span>
+              ${supplierName} order minimum not met.
+              <span class="text-yellow-600">
+                Current: ${this._formatCurrency(subtotal)},
+                Need: ${this._formatCurrency(shortfall)} more
+                (Minimum: ${this._formatCurrency(minimum)})
+              </span>
+            `
+          }
+        }
+      }
+    })
+
+    // Show or hide suggestions based on minimum status
+    this.suggestionsSectionTargets.forEach(el => {
+      if (el.dataset.orderId === orderId) {
+        el.style.display = meetsMinimum ? "none" : ""
       }
     })
   }
@@ -950,21 +1003,28 @@ export default class extends Controller {
           if (!meetsMinium) {
             const supplierName = card.dataset.supplierName
             const shortfall = minimum - subtotal
-            warning.querySelector("p").innerHTML = `
-              <span class="font-medium">Warning:</span>
-              ${supplierName} order minimum not met.
-              <span class="text-yellow-600">
-                Current: ${this._formatCurrency(subtotal)},
-                Need: ${this._formatCurrency(shortfall)} more
-                (Minimum: ${this._formatCurrency(minimum)})
-              </span>
-            `
+            const p = warning.querySelector("p")
+            if (p) {
+              p.innerHTML = `
+                <span class="font-medium">Warning:</span>
+                ${supplierName} order minimum not met.
+                <span class="text-yellow-600">
+                  Current: ${this._formatCurrency(subtotal)},
+                  Need: ${this._formatCurrency(shortfall)} more
+                  (Minimum: ${this._formatCurrency(minimum)})
+                </span>
+              `
+            }
           }
         }
       })
 
-      // Hide suggestions when minimum is met
-      this._hideSuggestionsIfMinimumMet(orderId)
+      // Show or hide suggestions based on minimum status
+      this.suggestionsSectionTargets.forEach(el => {
+        if (el.dataset.orderId === orderId) {
+          el.style.display = meetsMinium ? "none" : ""
+        }
+      })
     })
 
     this._updateSubmitStates()

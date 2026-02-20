@@ -64,6 +64,10 @@ module Orders
       Rails.logger.error "[PriceVerification] Auth error for #{order.supplier.name}: #{e.message}"
       if order.supplier.no_password_required?
         skip_verification!("Could not connect to #{order.supplier.name}. Using last imported prices.")
+      elsif latest_price_update && latest_price_update > 24.hours.ago
+        # Password-based supplier login failed but we have recent prices —
+        # skip gracefully instead of alarming the user with a credential error.
+        skip_verification!("Could not connect to #{order.supplier.name}. Using last imported prices.")
       else
         fail_verification!("Could not log in to #{order.supplier.name}. Please check your credentials in Supplier Settings.")
       end
@@ -71,6 +75,8 @@ module Orders
       Rails.logger.error "[PriceVerification] Session expired for #{order.supplier.name}: #{e.message}"
       if order.supplier.no_password_required?
         skip_verification!("#{order.supplier.name} session expired. Using last imported prices.")
+      elsif latest_price_update && latest_price_update > 24.hours.ago
+        skip_verification!("Connection to #{order.supplier.name} expired. Using last imported prices.")
       else
         fail_verification!("Connection to #{order.supplier.name} expired. Please retry.")
       end

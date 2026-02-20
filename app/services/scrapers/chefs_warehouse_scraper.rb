@@ -856,32 +856,149 @@ module Scrapers
 
     protected
 
+    # Robust login flow using JS-based form discovery.
+    # Reuses the same approach as the main login() method but without the
+    # with_browser wrapper so it can be called from scrape_prices/add_to_cart
+    # which already have an open browser session.
     def perform_login_steps
       login_url = credential.supplier.login_url.presence || "#{BASE_URL}/login"
       navigate_to(login_url)
       sleep 3
 
-      email_field = discover_field(EMAIL_SELECTORS, 'email/username')
-      password_field = discover_field(PASSWORD_SELECTORS, 'password')
+      logger.info "[ChefsWarehouse] perform_login_steps: on #{browser.current_url}"
 
-      if email_field && password_field
-        fill_element(email_field, credential.username, 'email')
-        fill_element(password_field, credential.password, 'password')
+      # Use JavaScript to discover the login form — same approach as login()
+      login_result = browser.evaluate(<<~JS)
+        (function() {
+          var result = { found: false, email: null, password: null, button: null };
 
-        submit_btn = discover_field(SUBMIT_SELECTORS, 'submit button')
-        if submit_btn
+          var passwordInputs = document.querySelectorAll('input[type="password"]');
+          var passwordField = null;
+          for (var pw of passwordInputs) {
+            if (pw.offsetParent !== null) { passwordField = pw; break; }
+          }
+          if (!passwordField) return { found: false, error: 'No visible password field' };
+
+          var passwordContainer = passwordField.closest('form') || passwordField.closest('div[class*="login"]') || passwordField.parentElement?.parentElement?.parentElement;
+          var emailField = null;
+
+          if (passwordContainer) {
+            var containerInputs = passwordContainer.querySelectorAll('input[type="text"], input[type="email"]');
+            for (var inp of containerInputs) {
+              if (inp.offsetParent !== null && inp !== passwordField) { emailField = inp; break; }
+            }
+          }
+          if (!emailField) {
+            var allInputs = document.querySelectorAll('input[type="text"], input[type="email"]');
+            for (var inp of allInputs) {
+              if (inp.offsetParent !== null) { emailField = inp; break; }
+            }
+          }
+          if (!emailField) return { found: false, error: 'No visible email/text field' };
+
+          var submitButton = null;
+          var buttons = document.querySelectorAll('button[type="submit"], button');
+          for (var btn of buttons) {
+            var text = (btn.innerText || '').trim().toLowerCase();
+            if (text === 'sign in' && btn.offsetParent !== null) { submitButton = btn; break; }
+          }
+
+          if (!emailField.id) emailField.id = 'cw-temp-email-' + Date.now();
+          if (!passwordField.id) passwordField.id = 'cw-temp-password-' + Date.now();
+          if (submitButton && !submitButton.id) submitButton.id = 'cw-temp-submit-' + Date.now();
+
+          return {
+            found: true,
+            emailId: emailField.id,
+            passwordId: passwordField.id,
+            submitId: submitButton ? submitButton.id : null
+          };
+        })()
+      JS
+
+      unless login_result && login_result['found']
+        error_detail = login_result&.dig('error') || 'unknown'
+        logger.error "[ChefsWarehouse] perform_login_steps: form not found (#{error_detail})"
+        # Fall back to basic selector approach
+        email_field = discover_field(EMAIL_SELECTORS, 'email/username')
+        password_field = discover_field(PASSWORD_SELECTORS, 'password')
+        if email_field && password_field
+          fill_element(email_field, credential.username, 'email')
+          fill_element(password_field, credential.password, 'password')
+          submit_btn = discover_field(SUBMIT_SELECTORS, 'submit button')
+          if submit_btn
+            begin; submit_btn.click; rescue StandardError; submit_btn.evaluate('this.click()'); end
+          else
+            browser.keyboard.type(:Enter)
+          end
+          wait_for_page_load
+          sleep 3
+        end
+        return
+      end
+
+      logger.info "[ChefsWarehouse] perform_login_steps: found form — email=##{login_result['emailId']}, submit=##{login_result['submitId']}"
+
+      # Fill using real CDP keyboard input (required for Vue.js v-model)
+      email_el = browser.at_css("##{login_result['emailId']}")
+      password_el = browser.at_css("##{login_result['passwordId']}")
+
+      unless email_el && password_el
+        logger.error "[ChefsWarehouse] perform_login_steps: could not get element references"
+        return
+      end
+
+      begin
+        email_el.click; sleep 0.2; email_el.focus
+        email_el.type(credential.username, :clear)
+      rescue Ferrum::CoordinatesNotFoundError
+        email_el.evaluate("this.scrollIntoView({ block: 'center' })")
+        sleep 0.3; email_el.click
+        email_el.type(credential.username, :clear)
+      end
+      sleep 0.5
+
+      begin
+        password_el.click; sleep 0.2; password_el.focus
+        password_el.type(credential.password, :clear)
+      rescue Ferrum::CoordinatesNotFoundError
+        password_el.evaluate("this.scrollIntoView({ block: 'center' })")
+        sleep 0.3; password_el.click
+        password_el.type(credential.password, :clear)
+      end
+      sleep 0.5
+
+      # Click submit
+      if login_result['submitId']
+        submit_el = browser.at_css("##{login_result['submitId']}")
+        if submit_el
           begin
-            submit_btn.click
-          rescue StandardError
-            submit_btn.evaluate('this.click()')
+            submit_el.click
+          rescue Ferrum::CoordinatesNotFoundError
+            submit_el.evaluate("this.scrollIntoView({ block: 'center' })")
+            sleep 0.3; submit_el.click
           end
         else
           browser.keyboard.type(:Enter)
         end
+      else
+        browser.keyboard.type(:Enter)
+      end
+
+      sleep 2
+
+      # If still on login page, try Enter as fallback
+      if browser.current_url.to_s.include?('/login')
+        logger.info '[ChefsWarehouse] perform_login_steps: still on login page, pressing Enter'
+        begin
+          password_el_retry = browser.at_css("##{login_result['passwordId']}")
+          password_el_retry&.focus
+        rescue StandardError; nil; end
+        browser.keyboard.type(:Enter)
       end
 
       wait_for_page_load
-      sleep 3
+      sleep 5
     end
 
     public
