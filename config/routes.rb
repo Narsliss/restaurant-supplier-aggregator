@@ -119,19 +119,6 @@ Rails.application.routes.draw do
     resources :order_items, only: [:create, :update, :destroy]
   end
 
-  # API namespace
-  namespace :api do
-    namespace :v1 do
-      resources :products, only: %i[index show]
-      resources :prices, only: [:index]
-      resources :order_lists do
-        member do
-          get :price_comparison
-        end
-      end
-    end
-  end
-
   # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check
 
