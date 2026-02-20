@@ -7,6 +7,9 @@
 #   UnitParser.parse("1 GAL")        => { quantity: 1, unit: "gal", normalized_quantity: 128, normalized_unit: "fl oz", parseable: true }
 #   UnitParser.parse("4x10 oz")      => { quantity: 40, unit: "oz", normalized_quantity: 40, normalized_unit: "oz", parseable: true }
 #   UnitParser.parse("Case - 12-2#") => { quantity: 24, unit: "lb", normalized_quantity: 384, normalized_unit: "oz", parseable: true }
+#   UnitParser.parse("15 DZ")        => { quantity: 15, unit: "dz", normalized_quantity: 180, normalized_unit: "each", parseable: true }
+#   UnitParser.parse("1 DOZEN")      => { quantity: 1, unit: "dz", normalized_quantity: 12, normalized_unit: "each", parseable: true }
+#   UnitParser.parse("BUNCH")        => { quantity: 1, unit: "bunch", normalized_quantity: 1, normalized_unit: "bunch", parseable: true }
 #
 class UnitParser
   # Weight conversions to ounces
@@ -49,14 +52,51 @@ class UnitParser
     "l" => 33.814
   }.freeze
 
-  # Count units (no conversion needed)
-  COUNT_UNITS = %w[ea each ct count pc pcs piece pieces pk].to_set.freeze
+  # Count-convertible units → normalized to "each"
+  COUNT_TO_EACH = {
+    "ea" => 1.0,
+    "each" => 1.0,
+    "ct" => 1.0,
+    "count" => 1.0,
+    "pc" => 1.0,
+    "pcs" => 1.0,
+    "piece" => 1.0,
+    "pieces" => 1.0,
+    "pk" => 1.0,
+    "dz" => 12.0,
+    "doz" => 12.0,
+    "dozen" => 12.0
+  }.freeze
+
+  # Produce/specialty units (not convertible to weight/volume/count — compared within their own category)
+  PRODUCE_UNITS = {
+    "bunch" => "bunch",
+    "bunches" => "bunch",
+    "bundle" => "bunch",
+    "head" => "head",
+    "heads" => "head",
+    "stalk" => "stalk",
+    "stalks" => "stalk",
+    "bushel" => "bushel",
+    "bu" => "bushel",
+    "flat" => "flat",
+    "flats" => "flat",
+    "pint" => "pint"  # pint of berries = count unit in produce
+  }.freeze
+
+  # Legacy set for unit_pattern matching (all recognized units)
+  COUNT_UNITS = COUNT_TO_EACH.keys.to_set.freeze
 
   # Unit display names for normalized units
   DISPLAY_UNITS = {
     "oz" => "oz",
     "fl oz" => "fl oz",
-    "each" => "ea"
+    "each" => "ea",
+    "bunch" => "bunch",
+    "head" => "head",
+    "stalk" => "stalk",
+    "bushel" => "bushel",
+    "flat" => "flat"
   }.freeze
 
   class << self
@@ -69,7 +109,8 @@ class UnitParser
       result = parse_case_pack(text) ||
                parse_multiplied_pack(text) ||
                parse_simple_quantity(text) ||
-               parse_pound_sign(text)
+               parse_pound_sign(text) ||
+               parse_bare_unit(text)
 
       result || unparseable
     end
@@ -132,17 +173,27 @@ class UnitParser
       end
     end
 
-    # Parses "50 LB", "16 oz", "1 GAL", "5 lb case", "EA - 10 LB"
+    # Parses "50 LB", "16 oz", "1 GAL", "5 lb case", "EA - 10 LB", "3/HEAD CS"
     def parse_simple_quantity(text)
       # Strip prefixes like "EA -", "CS -"
       cleaned = text.gsub(/^(ea|cs|case|bag|box|tray|bucket|jar)\s*[\-\s]+/i, "")
 
-      if cleaned =~ /(\d+\.?\d*)\s*(#{unit_pattern})\b/i
+      if cleaned =~ /(\d+\.?\d*)\s*[\/\s]\s*(#{unit_pattern})\b/i
         quantity = $1.to_f
         unit = normalize_unit_str($2)
         return nil if quantity <= 0
 
         build_result(quantity, unit)
+      end
+    end
+
+    # Parses bare unit names with no quantity: "BUNCH", "DOZEN", "Each", "Pound"
+    def parse_bare_unit(text)
+      cleaned = text.gsub(/^(case|each|ea)\s*[\-\s]+/i, "").strip
+      unit = normalize_unit_str(cleaned.split(/\s+/).first || "")
+
+      if COUNT_TO_EACH.key?(unit) || PRODUCE_UNITS.key?(unit) || WEIGHT_TO_OZ.key?(unit) || VOLUME_TO_FL_OZ.key?(unit)
+        build_result(1.0, unit)
       end
     end
 
@@ -180,9 +231,14 @@ class UnitParser
         return { quantity: quantity * VOLUME_TO_FL_OZ[unit], unit: "fl oz" }
       end
 
-      # Check count
-      if COUNT_UNITS.include?(unit)
-        return { quantity: quantity, unit: "each" }
+      # Check count-convertible (ea, ct, dz, dozen → each)
+      if COUNT_TO_EACH.key?(unit)
+        return { quantity: quantity * COUNT_TO_EACH[unit], unit: "each" }
+      end
+
+      # Check produce/specialty units (comparable within their own category)
+      if PRODUCE_UNITS.key?(unit)
+        return { quantity: quantity, unit: PRODUCE_UNITS[unit] }
       end
 
       nil
@@ -197,11 +253,17 @@ class UnitParser
       s = "kg" if s == "kgs" || s == "kilogram"
       s = "each" if s == "ea" || s == "pc" || s == "pcs" || s == "piece" || s == "pieces"
       s = "ct" if s == "count"
+      s = "dz" if s == "doz" || s == "dozen"
+      s = "bunch" if s == "bunches" || s == "bundle"
+      s = "head" if s == "heads"
+      s = "stalk" if s == "stalks"
+      s = "bushel" if s == "bu"
+      s = "flat" if s == "flats"
       s
     end
 
     def unit_pattern
-      all_units = (WEIGHT_TO_OZ.keys + VOLUME_TO_FL_OZ.keys + COUNT_UNITS.to_a).uniq
+      all_units = (WEIGHT_TO_OZ.keys + VOLUME_TO_FL_OZ.keys + COUNT_TO_EACH.keys + PRODUCE_UNITS.keys).uniq
       all_units.sort_by { |u| -u.length }.map { |u| Regexp.escape(u) }.join("|")
     end
 
