@@ -382,7 +382,7 @@ class SupplierCredentialsController < ApplicationController
 
     respond_to do |format|
       format.html do
-        redirect_to supplier_lists_path,
+        redirect_to supplier_lists_path(syncing: Time.current.to_i),
                     notice: "Importing order guides from #{@credential.supplier.name}..."
       end
       format.json do

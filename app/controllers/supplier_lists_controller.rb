@@ -10,13 +10,15 @@ class SupplierListsController < ApplicationController
     @credentials = current_user.supplier_credentials.active.includes(:supplier)
 
     # Detect if a sync is still in progress.
-    # syncing param is a timestamp set by sync/sync_all actions.
-    # Keep showing the banner for up to 5 minutes or until all lists are synced.
+    # Show the banner whenever any list is actively syncing OR the syncing param
+    # was recently set (covers the brief window before the job marks lists as syncing).
+    has_syncing_lists = @supplier_lists.where(sync_status: 'syncing').exists?
     if params[:syncing].present?
       sync_started = Time.at(params[:syncing].to_i) rescue nil
-      has_syncing_lists = @supplier_lists.where(sync_status: 'syncing').exists?
       recently_started = sync_started && sync_started > 5.minutes.ago
       @syncing = has_syncing_lists || (recently_started && @lists_by_supplier.empty?)
+    else
+      @syncing = has_syncing_lists
     end
 
     # Comparison lists (AggregatedLists)
