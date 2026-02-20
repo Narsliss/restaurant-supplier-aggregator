@@ -6,6 +6,34 @@ development: {}
 test: {}
 
 production:
+  # Rotate through suppliers to import product catalogs (each supplier ~1x/hour)
+  staggered_supplier_import:
+    class: StaggeredSupplierImportJob
+    queue: scraping
+    schedule: "*/15 * * * *"
+    description: "Staggered supplier product import every 15 minutes"
+
+  # Deep category browsing for US Foods (finds products missed by quick imports)
+  deep_catalog_import:
+    class: DeepCatalogImportJob
+    queue: scraping
+    schedule: "0 2 * * *"
+    description: "US Foods deep category browse daily at 2 AM"
+
+  # Proactive session keepalive for all suppliers
+  refresh_sessions:
+    class: RefreshAllSessionsJob
+    queue: default
+    schedule: "0 */2 * * *"
+    description: "Refresh supplier sessions every 2 hours"
+
+  # Mark products as discontinued if missing from 3+ consecutive imports
+  discontinue_stale_products:
+    class: DiscontinueStaleProductsJob
+    queue: low
+    schedule: "0 3 * * *"
+    description: "Discontinue stale products daily at 3 AM"
+
   # Sync all supplier lists/order guides daily at 4 AM
   sync_all_lists:
     class: SyncAllListsJob
