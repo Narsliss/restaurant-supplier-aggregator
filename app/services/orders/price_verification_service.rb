@@ -15,10 +15,18 @@ module Orders
       @results = []
     end
 
+    # Prices updated within this window are considered fresh — skip live verification.
+    FRESH_PRICE_THRESHOLD = 1.hour
+
     # Verify all items in the order against live supplier prices.
     # Returns a result hash with verification outcome.
     def verify!
       Rails.logger.info "[PriceVerification] Starting verification for Order ##{order.id} (#{order.supplier.name})"
+
+      # Fast path: if all item prices were imported recently, skip the browser entirely
+      if prices_fresh?
+        return skip_with_cached_prices!
+      end
 
       credential = find_credential
       unless credential
@@ -221,6 +229,39 @@ module Orders
         skipped: true,
         skip_reason: reason,
         verification_status: "skipped"
+      }
+    end
+
+    def prices_fresh?
+      oldest_price = order.order_items
+        .joins(:supplier_product)
+        .minimum("supplier_products.price_updated_at")
+
+      oldest_price.present? && oldest_price > FRESH_PRICE_THRESHOLD.ago
+    end
+
+    def skip_with_cached_prices!
+      last_update = latest_price_update
+      ago = last_update ? time_ago_in_words(last_update) : "recently"
+
+      Rails.logger.info "[PriceVerification] Order ##{order.id}: All prices fresh (updated #{ago}). Skipping live verification."
+
+      # Use cached prices as verified prices
+      verified_total = order.order_items.includes(:supplier_product).sum do |item|
+        item.update!(verified_price: item.unit_price)
+        item.unit_price * item.quantity
+      end
+
+      order.mark_verified!(verified_total: verified_total)
+
+      {
+        success: true,
+        order_id: order.id,
+        verified_total: verified_total,
+        price_change_amount: 0,
+        has_price_changes: false,
+        results: [],
+        verification_status: "verified"
       }
     end
 
