@@ -1,11 +1,12 @@
 module Orders
   class AggregatedListOrderService
-    attr_reader :user, :aggregated_list, :quantities, :location, :delivery_date
+    attr_reader :user, :aggregated_list, :quantities, :supplier_overrides, :location, :delivery_date
 
-    def initialize(user:, aggregated_list:, quantities:, location: nil, delivery_date: nil)
+    def initialize(user:, aggregated_list:, quantities:, supplier_overrides: {}, location: nil, delivery_date: nil)
       @user = user
       @aggregated_list = aggregated_list
       @quantities = quantities.transform_keys(&:to_s).transform_values(&:to_i)
+      @supplier_overrides = supplier_overrides.transform_keys(&:to_s).transform_values(&:to_i)
       @location = location
       @delivery_date = delivery_date
     end
@@ -74,12 +75,17 @@ module Orders
         qty = quantities[pm.id.to_s]
         next if qty.nil? || qty <= 0
 
-        cheapest = pm.cheapest_supplier
-        next unless cheapest
+        # Check if user overrode the supplier for this match
+        override_supplier_id = supplier_overrides[pm.id.to_s]
+        chosen = if override_supplier_id
+          pm.prices_by_supplier.find { |p| p[:supplier].id == override_supplier_id && p[:price].present? }
+        end
+        chosen ||= pm.cheapest_supplier
+        next unless chosen
 
         most_expensive = pm.most_expensive_supplier
 
-        supplier_list_item = cheapest[:item]
+        supplier_list_item = chosen[:item]
         supplier_product = supplier_list_item.supplier_product
 
         # Attempt to link via SKU match if not already linked
@@ -93,7 +99,7 @@ module Orders
 
         selected << {
           product_match_id: pm.id,
-          supplier_id: cheapest[:supplier].id,
+          supplier_id: chosen[:supplier].id,
           supplier_product_id: supplier_product.id,
           quantity: qty,
           unit_price: supplier_product.current_price || supplier_list_item.price,

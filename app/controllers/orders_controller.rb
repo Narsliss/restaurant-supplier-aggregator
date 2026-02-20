@@ -157,6 +157,7 @@ class OrdersController < ApplicationController
       user: current_user,
       aggregated_list: aggregated_list,
       quantities: quantities,
+      supplier_overrides: params[:supplier_overrides] || {},
       location: current_location,
       delivery_date: params[:delivery_date]
     )
