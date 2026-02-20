@@ -50,13 +50,13 @@
       <label data-credential-form-target="usernameLabel" for="supplier_credential_username" class="block text-sm font-medium text-gray-700">
         <%= credential.supplier&.welcome_url_auth? ? "Welcome URL" : "Email / Username" %>
       </label>
-      <%= form.text_field :username, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", required: true, autocomplete: "off", placeholder: credential.supplier&.welcome_url_auth? ? "https://www.whatchefswant.com/welcome/..." : "", data: { credential_form_target: "usernameInput" } %>
+      <%= form.text_field :username, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", required: true, autocomplete: "supplier-username", placeholder: credential.supplier&.welcome_url_auth? ? "https://www.whatchefswant.com/welcome/..." : "", data: { credential_form_target: "usernameInput" } %>
     </div>
 
     <div data-controller="password-toggle" data-credential-form-target="passwordField" class="<%= 'hidden' if credential.supplier&.no_password_required? %>">
       <%= form.label :password, class: "block text-sm font-medium text-gray-700" %>
       <div class="relative mt-1">
-        <%= form.password_field :password, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green pr-10", required: credential.new_record? && credential.supplier&.password_auth?, placeholder: credential.persisted? ? "Leave blank to keep current" : "", data: { password_toggle_target: "input", credential_form_target: "passwordInput" } %>
+        <%= form.password_field :password, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green pr-10", required: credential.new_record? && credential.supplier&.password_auth?, placeholder: credential.persisted? ? "Leave blank to keep current" : "", autocomplete: "new-password", data: { password_toggle_target: "input", credential_form_target: "passwordInput" } %>
         <button type="button" class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600" data-action="click->password-toggle#toggle">
           <svg data-password-toggle-target="showIcon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.64 0 8.577 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.64 0-8.577-3.007-9.963-7.178z" />
