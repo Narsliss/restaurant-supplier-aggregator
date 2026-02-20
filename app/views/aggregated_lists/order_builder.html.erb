@@ -54,12 +54,12 @@
         <table class="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg overflow-hidden shadow-sm" id="order-builder-table">
           <thead id="order-builder-thead">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-navy">Product</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Product</th>
               <% @suppliers.each do |supplier| %>
-                <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-navy"><%= supplier.name %></th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark"><%= supplier.name %></th>
               <% end %>
-              <th class="px-4 py-3 text-center text-xs font-medium text-white uppercase tracking-wider bg-brand-navy">Qty</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-white uppercase tracking-wider bg-brand-navy">Line Total</th>
+              <th class="px-4 py-3 text-center text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Qty</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Line Total</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200 bg-white">

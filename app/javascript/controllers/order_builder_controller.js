@@ -22,7 +22,7 @@ export default class extends Controller {
 
     // Clone the command bar into a fixed div on document.body
     this._fixedBar = document.createElement("div")
-    this._fixedBar.style.cssText = "position:fixed;bottom:0;left:0;right:0;z-index:50;background:#2D3436;border-top:1px solid #1E2425;padding:0.25rem 1rem 0.5rem;"
+    this._fixedBar.style.cssText = "position:fixed;bottom:0;left:0;right:0;z-index:50;background:#3A6147;border-top:1px solid #2D5A3D;padding:0.25rem 1rem 0.5rem;"
     this._fixedBar.innerHTML = `<div style="max-width:72rem;margin:0 auto;">${cmdBar.innerHTML}</div>`
     document.body.appendChild(this._fixedBar)
 
@@ -73,7 +73,7 @@ export default class extends Controller {
 
     if (thead && table) {
       this._floatingHeader = document.createElement("div")
-      this._floatingHeader.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:40;display:none;background:#2D3436;border-bottom:1px solid #1E2425;"
+      this._floatingHeader.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:40;display:none;background:#3A6147;border-bottom:1px solid #2D5A3D;"
       document.body.appendChild(this._floatingHeader)
 
       this._scrollHandler = () => {

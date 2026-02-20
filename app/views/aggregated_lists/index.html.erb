@@ -40,7 +40,7 @@
           <p class="mt-1 text-sm text-gray-500"><%= list.description %></p>
           <div class="mt-4 flex flex-wrap gap-2">
             <% list.supplier_lists.includes(:supplier).each do |sl| %>
-              <span class="inline-flex items-center rounded-full bg-brand-navy/10 px-2.5 py-0.5 text-xs font-medium text-brand-navy">
+              <span class="inline-flex items-center rounded-full bg-brand-green-50 px-2.5 py-0.5 text-xs font-medium text-brand-green-dark">
                 <%= sl.supplier.name %>
               </span>
             <% end %>

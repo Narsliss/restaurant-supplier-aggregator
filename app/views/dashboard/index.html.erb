@@ -2,10 +2,10 @@
 
 <!-- Hero Banner -->
 <div class="-mx-4 sm:-mx-6 lg:-mx-8 -mt-10 mb-8">
-  <div class="relative overflow-hidden bg-brand-navy">
+  <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
     <img src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1920&q=80"
          alt="Restaurant kitchen"
-         class="absolute inset-0 h-full w-full object-cover opacity-20"
+         class="absolute inset-0 h-full w-full object-cover opacity-15"
          onerror="this.style.display='none'">
     <div class="relative px-6 py-12 sm:px-12 sm:py-16">
       <h1 class="text-3xl sm:text-4xl font-heading font-bold text-white tracking-wide">
@@ -53,7 +53,7 @@
 <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
   <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
     <dt>
-      <div class="absolute rounded-md bg-brand-navy p-3">
+      <div class="absolute rounded-md bg-brand-green-dark p-3">
         <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
         </svg>
@@ -124,7 +124,7 @@
           <%= link_to order, class: "block hover:bg-brand-green-50 transition-colors" do %>
             <div class="px-4 py-4 sm:px-6">
               <div class="flex items-center justify-between">
-                <p class="truncate text-sm font-medium text-brand-navy">
+                <p class="truncate text-sm font-medium text-brand-green-dark">
                   <%= order.supplier.name %>
                 </p>
                 <div class="ml-2 flex flex-shrink-0">
