@@ -19,6 +19,12 @@ class ValidateCredentialsJob < ApplicationJob
     if result[:valid]
       Rails.logger.info "[ValidateCredentialsJob] Credentials valid for #{credential.supplier.name}"
       credential.mark_active!
+
+      # Kick off initial imports so the user sees products and lists immediately
+      # instead of waiting for the next cron cycle (up to 15 min for products,
+      # 24 hours for lists).
+      ImportSupplierProductsJob.perform_later(credential.id)
+      ImportSupplierListsJob.perform_later(credential.id)
     elsif result[:two_fa_required]
       # For non-polling scrapers, 2FA was requested but handled via exception
       Rails.logger.info "[ValidateCredentialsJob] 2FA required for #{credential.supplier.name}"

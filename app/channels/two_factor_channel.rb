@@ -119,8 +119,11 @@ class TwoFactorChannel < ApplicationCable::Channel
   def resume_operation(request)
     case request.request_type
     when "login"
-      # Login already completed by login_with_code — just refresh session state
+      # Login already completed by login_with_code — refresh session and
+      # kick off initial imports so products/lists appear immediately.
       RefreshSessionJob.perform_later(request.supplier_credential_id)
+      ImportSupplierProductsJob.perform_later(request.supplier_credential_id)
+      ImportSupplierListsJob.perform_later(request.supplier_credential_id)
     when "checkout"
       # Find and resume the pending order
       order = current_user.orders.find_by(status: "pending_manual", supplier: request.supplier_credential.supplier)
