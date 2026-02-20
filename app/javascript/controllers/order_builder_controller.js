@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate"]
+  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell"]
 
   connect() {
     this.updateTotals()
@@ -232,6 +232,51 @@ export default class extends Controller {
     inputs.forEach(input => {
       input.classList.remove("ring-2", "ring-brand-orange", "border-brand-orange")
     })
+  }
+
+  selectSupplier(event) {
+    const cell = event.currentTarget
+    const matchId = cell.dataset.matchId
+    const newPrice = parseFloat(cell.dataset.supplierPrice) || 0
+    const newSupplierId = cell.dataset.supplierIdValue
+
+    // Update all quantity inputs for this match (desktop + mobile) with new price/supplier
+    this.quantityInputTargets.forEach(input => {
+      if (input.dataset.matchId === matchId) {
+        input.dataset.price = newPrice
+        input.dataset.supplierId = newSupplierId
+      }
+    })
+
+    // Update visual state: remove ring from all cells for this match, add to selected
+    this.supplierCellTargets.forEach(c => {
+      if (c.dataset.matchId === matchId) {
+        c.classList.remove("ring-2", "ring-1", "ring-brand-green", "bg-green-50")
+        c.classList.add("hover:bg-gray-100")
+      }
+    })
+    // Highlight clicked cell (and its counterpart on mobile/desktop)
+    this.supplierCellTargets.forEach(c => {
+      if (c.dataset.matchId === matchId && c.dataset.supplierIdValue === newSupplierId) {
+        c.classList.add("ring-2", "ring-brand-green", "bg-green-50")
+        c.classList.remove("hover:bg-gray-100")
+      }
+    })
+
+    // Update hidden override field so the form submission knows which supplier was picked
+    let overridesDiv = document.getElementById("supplier-overrides")
+    let existing = overridesDiv.querySelector(`input[name="supplier_overrides[${matchId}]"]`)
+    if (existing) {
+      existing.value = newSupplierId
+    } else {
+      const input = document.createElement("input")
+      input.type = "hidden"
+      input.name = `supplier_overrides[${matchId}]`
+      input.value = newSupplierId
+      overridesDiv.appendChild(input)
+    }
+
+    this.updateTotals()
   }
 
   increment(event) {
