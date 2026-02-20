@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
   <!-- Shipping box base -->
-  <rect x="4" y="16" width="32" height="20" rx="2" fill="#CF4520"/>
+  <rect x="4" y="16" width="32" height="20" rx="2" fill="#D4943A"/>
   <!-- Box lid -->
-  <path d="M2 12C2 10.8954 2.89543 10 4 10H36C37.1046 10 38 10.8954 38 12V16H2V12Z" fill="#11116b"/>
+  <path d="M2 12C2 10.8954 2.89543 10 4 10H36C37.1046 10 38 10.8954 38 12V16H2V12Z" fill="#2D3436"/>
   <!-- Box center stripe -->
-  <rect x="17" y="10" width="6" height="26" fill="#11116b" opacity="0.15"/>
+  <rect x="17" y="10" width="6" height="26" fill="#2D3436" opacity="0.15"/>
   <!-- Leaf/fresh accent on the box -->
-  <path d="M20 6C20 6 24 8 24 10H16C16 8 20 6 20 6Z" fill="#5C8727"/>
+  <path d="M20 6C20 6 24 8 24 10H16C16 8 20 6 20 6Z" fill="#4A7C59"/>
   <!-- Fork icon inside box -->
   <g transform="translate(14, 19)">
     <rect x="0" y="0" width="1.5" height="8" rx="0.75" fill="white"/>
@@ -16,6 +16,6 @@
     <rect x="3" y="8" width="2.5" height="5" rx="1" fill="white"/>
   </g>
   <!-- Small checkmark badge -->
-  <circle cx="33" cy="11" r="5" fill="#5C8727"/>
+  <circle cx="33" cy="11" r="5" fill="#4A7C59"/>
   <path d="M30.5 11L32 12.5L35.5 9.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

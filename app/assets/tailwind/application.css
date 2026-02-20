@@ -3,27 +3,36 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  /* US Foods Brand Colors */
-  --color-brand-green: #5C8727;
-  --color-brand-green-light: #6d9a30;
-  --color-brand-green-dark: #4a6e1f;
-  --color-brand-green-50: #f3f7ec;
-  --color-brand-green-100: #e4edcf;
-  --color-brand-green-200: #c9dba0;
+  /* SupplierHub "Market Fresh" Brand Colors */
 
-  --color-brand-orange: #CF4520;
-  --color-brand-orange-light: #e05533;
-  --color-brand-orange-dark: #b33a1a;
-  --color-brand-orange-50: #fef3f0;
-  --color-brand-orange-100: #fce4dc;
+  /* Sage Green — primary (nav, buttons, links) */
+  --color-brand-green: #4A7C59;
+  --color-brand-green-light: #5A9469;
+  --color-brand-green-dark: #3A6147;
+  --color-brand-green-50: #E8F0EB;
+  --color-brand-green-100: #D0E1D5;
+  --color-brand-green-200: #A1C3AB;
 
-  --color-brand-navy: #11116b;
-  --color-brand-navy-light: #1a1a8a;
-  --color-brand-navy-dark: #0d0d52;
+  /* Warm Amber — accent (CTAs, badges, attention) */
+  --color-brand-orange: #D4943A;
+  --color-brand-orange-light: #DDA654;
+  --color-brand-orange-dark: #B87A2E;
+  --color-brand-orange-50: #FDF6EC;
+  --color-brand-orange-100: #FAEBCF;
 
-  --color-brand-gray: #717073;
+  /* Charcoal — nav bar, headings */
+  --color-brand-navy: #2D3436;
+  --color-brand-navy-light: #3D4648;
+  --color-brand-navy-dark: #1E2425;
+
+  /* Supporting colors */
+  --color-brand-gray: #636E72;
   --color-brand-blue: #7e91ff;
-  --color-brand-pomegranate: #EC4025;
+  --color-brand-pomegranate: #C0392B;
+
+  /* Warm page backgrounds */
+  --color-brand-cream: #FAFAF8;
+  --color-brand-stone: #F5F3F0;
 
   /* Font families */
   --font-heading: 'Oswald', sans-serif;
@@ -53,7 +62,9 @@
   html.dark {
     background-color: #111827 !important;
   }
-  .dark .bg-gray-50 {
+  .dark .bg-gray-50,
+  .dark .bg-brand-stone,
+  .dark .bg-brand-cream {
     background-color: #1f2937 !important;
   }
 
@@ -282,29 +293,29 @@
 
   /* --- Brand accent 50-shade backgrounds in dark mode --- */
   .dark .bg-brand-green-50 {
-    background-color: rgba(92, 135, 39, 0.15) !important;
+    background-color: rgba(74, 124, 89, 0.15) !important;
   }
   .dark .bg-brand-orange-50 {
-    background-color: rgba(207, 69, 32, 0.15) !important;
+    background-color: rgba(212, 148, 58, 0.15) !important;
   }
   .dark .hover\:bg-brand-green-50:hover {
-    background-color: rgba(92, 135, 39, 0.25) !important;
+    background-color: rgba(74, 124, 89, 0.25) !important;
   }
 
   /* --- Brand text colors in dark mode ---
-     Navy text is invisible on dark backgrounds. Lighten it.
+     Charcoal text is near-invisible on dark backgrounds. Lighten it.
      Scoped to main content — nav already uses white/gray text. */
   .dark main .text-brand-navy {
-    color: #7e91ff !important; /* brand-blue — readable on dark bg */
+    color: #93c5fd !important; /* light blue — readable on dark bg */
   }
   .dark main .hover\:text-brand-navy:hover {
-    color: #a3b1ff !important;
+    color: #bfdbfe !important;
   }
   .dark main .text-brand-orange {
-    color: #e8714f !important; /* lighter orange for contrast */
+    color: #DDA654 !important; /* lighter amber for contrast */
   }
   .dark main .hover\:text-brand-orange:hover {
-    color: #f0946e !important;
+    color: #E8BD7A !important;
   }
 
   /* --- Preserve: nav, footer, table headers ---
@@ -344,9 +355,9 @@
 
   /* --- Flash message background tints --- */
   .dark .border-l-4.border-brand-green {
-    background-color: rgba(92, 135, 39, 0.1) !important;
+    background-color: rgba(74, 124, 89, 0.1) !important;
   }
   .dark .border-l-4.border-brand-orange {
-    background-color: rgba(207, 69, 32, 0.1) !important;
+    background-color: rgba(212, 148, 58, 0.1) !important;
   }
 }

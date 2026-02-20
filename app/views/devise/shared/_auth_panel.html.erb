@@ -1,50 +1,50 @@
 <%# Left panel with branding — shared across all auth pages %>
-<div class="hidden lg:flex lg:w-1/2 relative overflow-hidden" style="background-color: #0d0d52;">
+<div class="hidden lg:flex lg:w-1/2 relative overflow-hidden" style="background-color: #2D3436;">
   <!-- Subtle accent glows -->
-  <div class="absolute -bottom-24 -left-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(207,69,32,0.08);"></div>
-  <div class="absolute -top-24 -right-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(92,135,39,0.08);"></div>
+  <div class="absolute -bottom-24 -left-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(212,148,58,0.08);"></div>
+  <div class="absolute -top-24 -right-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(74,124,89,0.1);"></div>
 
   <div class="relative z-10 flex flex-col justify-between p-12 w-full">
     <div>
       <%= render "shared/logo", variant: :login %>
-      <p class="mt-3 text-lg" style="color: #a0a0c0;">Restaurant Supplier Aggregator</p>
+      <p class="mt-3 text-lg" style="color: #9ca3af;">Restaurant Supplier Aggregator</p>
     </div>
 
     <div class="space-y-8">
       <h2 class="text-2xl text-white font-heading leading-relaxed">
         Streamline your procurement across multiple suppliers.
       </h2>
-      <p style="color: #9090b0;" class="leading-relaxed">
+      <p style="color: #9ca3af;" class="leading-relaxed">
         Compare prices, manage orders, and save time &mdash; all from one dashboard.
       </p>
       <div class="flex flex-col space-y-3 text-sm">
         <div class="flex items-center space-x-3">
-          <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(92,135,39,0.2);">
-            <svg class="h-4 w-4" style="color: #5C8727;" fill="currentColor" viewBox="0 0 20 20">
+          <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(74,124,89,0.25);">
+            <svg class="h-4 w-4" style="color: #5A9469;" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
             </svg>
           </div>
-          <span style="color: #c0c0d8;">Order from multiple suppliers at once</span>
+          <span style="color: #d1d5db;">Order from multiple suppliers at once</span>
         </div>
         <div class="flex items-center space-x-3">
-          <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(92,135,39,0.2);">
-            <svg class="h-4 w-4" style="color: #5C8727;" fill="currentColor" viewBox="0 0 20 20">
+          <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(74,124,89,0.25);">
+            <svg class="h-4 w-4" style="color: #5A9469;" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
             </svg>
           </div>
-          <span style="color: #c0c0d8;">Compare prices across your vendors</span>
+          <span style="color: #d1d5db;">Compare prices across your vendors</span>
         </div>
         <div class="flex items-center space-x-3">
-          <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(92,135,39,0.2);">
-            <svg class="h-4 w-4" style="color: #5C8727;" fill="currentColor" viewBox="0 0 20 20">
+          <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(74,124,89,0.25);">
+            <svg class="h-4 w-4" style="color: #5A9469;" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
             </svg>
           </div>
-          <span style="color: #c0c0d8;">Track every order in one place</span>
+          <span style="color: #d1d5db;">Track every order in one place</span>
         </div>
       </div>
     </div>
 
-    <p class="text-xs" style="color: #606080;">&copy; <%= Date.current.year %> SupplierHub</p>
+    <p class="text-xs" style="color: #6b7280;">&copy; <%= Date.current.year %> SupplierHub</p>
   </div>
 </div>
