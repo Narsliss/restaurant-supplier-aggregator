@@ -47,31 +47,59 @@ class ProductMatch < ApplicationRecord
   # Price comparison across matched items
   def prices_by_supplier
     product_match_items.includes(:supplier_list_item, :supplier).map do |pmi|
+      item = pmi.supplier_list_item
       {
         supplier: pmi.supplier,
-        item: pmi.supplier_list_item,
-        price: pmi.supplier_list_item.price,
-        pack_size: pmi.supplier_list_item.pack_size,
-        in_stock: pmi.supplier_list_item.in_stock
+        item: item,
+        price: item.price,
+        pack_size: item.pack_size,
+        per_unit_price: item.per_unit_price,
+        normalized_unit: item.normalized_unit,
+        formatted_per_unit: item.formatted_per_unit_price,
+        in_stock: item.in_stock
       }
     end
   end
 
+  # Are per-unit prices comparable across suppliers? (same normalized unit)
+  def per_unit_comparable?
+    items = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
+    units = items.filter_map { |p| p[:normalized_unit] }.uniq
+    units.size == 1
+  end
+
   def cheapest_supplier
     prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
-    prices.min_by { |p| p[:price] }
+    return nil if prices.empty?
+
+    # Use per-unit price when all items share the same normalized unit
+    if per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
+      prices.min_by { |p| p[:per_unit_price] }
+    else
+      prices.min_by { |p| p[:price] }
+    end
   end
 
   def most_expensive_supplier
     prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
-    prices.max_by { |p| p[:price] }
+    return nil if prices.empty?
+
+    if per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
+      prices.max_by { |p| p[:per_unit_price] }
+    else
+      prices.max_by { |p| p[:price] }
+    end
   end
 
   def price_spread
-    prices = prices_by_supplier.select { |p| p[:price].present? }.map { |p| p[:price] }
+    prices = prices_by_supplier.select { |p| p[:price].present? }
     return nil if prices.size < 2
 
-    prices.max - prices.min
+    if per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
+      prices.map { |p| p[:per_unit_price] }.max - prices.map { |p| p[:per_unit_price] }.min
+    else
+      prices.map { |p| p[:price] }.max - prices.map { |p| p[:price] }.min
+    end
   end
 
   # Get the item for a specific supplier

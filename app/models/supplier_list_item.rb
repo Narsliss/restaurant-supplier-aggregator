@@ -73,6 +73,32 @@ class SupplierListItem < ApplicationRecord
     update!(supplier_product_id: sp.id) if sp
   end
 
+  # Per-unit price comparison (delegates to UnitParser)
+  def parsed_pack_size
+    @parsed_pack_size ||= UnitParser.parse(pack_size)
+  end
+
+  def per_unit_price
+    return nil unless price && parsed_pack_size[:parseable]
+    return nil if parsed_pack_size[:normalized_quantity] <= 0
+
+    (price / parsed_pack_size[:normalized_quantity]).round(4)
+  end
+
+  def normalized_unit
+    parsed_pack_size[:parseable] ? parsed_pack_size[:normalized_unit] : nil
+  end
+
+  def comparable_with?(other)
+    return false unless parsed_pack_size[:parseable] && other.parsed_pack_size[:parseable]
+
+    normalized_unit == other.normalized_unit
+  end
+
+  def formatted_per_unit_price
+    UnitParser.format_per_unit(per_unit_price, normalized_unit)
+  end
+
   # Price display
   def formatted_price
     return 'N/A' unless price
