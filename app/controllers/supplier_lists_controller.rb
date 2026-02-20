@@ -9,6 +9,16 @@ class SupplierListsController < ApplicationController
     @lists_by_supplier = @supplier_lists.group_by(&:supplier)
     @credentials = current_user.supplier_credentials.active.includes(:supplier)
 
+    # Detect if a sync is still in progress.
+    # syncing param is a timestamp set by sync/sync_all actions.
+    # Keep showing the banner for up to 5 minutes or until all lists are synced.
+    if params[:syncing].present?
+      sync_started = Time.at(params[:syncing].to_i) rescue nil
+      has_syncing_lists = @supplier_lists.where(sync_status: 'syncing').exists?
+      recently_started = sync_started && sync_started > 5.minutes.ago
+      @syncing = has_syncing_lists || (recently_started && @lists_by_supplier.empty?)
+    end
+
     # Comparison lists (AggregatedLists)
     @aggregated_lists = current_organization_aggregated_lists
                           .includes(supplier_lists: :supplier)
@@ -25,7 +35,7 @@ class SupplierListsController < ApplicationController
     @supplier_list.update(sync_status: 'syncing')
 
     respond_to do |format|
-      format.html { redirect_to supplier_lists_path, notice: "Syncing #{@supplier_list.supplier.name} lists..." }
+      format.html { redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Syncing #{@supplier_list.supplier.name} lists..." }
       format.turbo_stream
     end
   end
@@ -36,7 +46,7 @@ class SupplierListsController < ApplicationController
       ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id)
     end
 
-    redirect_to supplier_lists_path, notice: "Syncing lists for #{credentials.count} suppliers..."
+    redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Syncing lists for #{credentials.count} suppliers..."
   end
 
   private
