@@ -48,7 +48,7 @@ class OrderItemsController < ApplicationController
         name: @order_item.supplier_product.supplier_name,
         sku: @order_item.supplier_product.supplier_sku,
         pack_size: @order_item.supplier_product.pack_size,
-        quantity: @order_item.quantity,
+        quantity: @order_item.quantity.to_i,
         unit_price: @order_item.unit_price,
         line_total: @order_item.line_total
       },
@@ -120,7 +120,7 @@ class OrderItemsController < ApplicationController
     {
       item: {
         id: @order_item.id,
-        quantity: @order_item.quantity,
+        quantity: @order_item.quantity.to_i,
         unit_price: @order_item.unit_price,
         line_total: @order_item.line_total
       },

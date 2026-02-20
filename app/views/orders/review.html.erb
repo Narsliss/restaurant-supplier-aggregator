@@ -300,7 +300,7 @@
                         &minus;
                       </button>
                       <input type="number"
-                             value="<%= item.quantity %>"
+                             value="<%= item.quantity.to_i %>"
                              min="1"
                              class="w-14 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                              data-order-review-target="quantityInput"
@@ -385,7 +385,7 @@
                     &minus;
                   </button>
                   <input type="number"
-                         value="<%= item.quantity %>"
+                         value="<%= item.quantity.to_i %>"
                          min="1"
                          class="w-14 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                          data-order-review-target="quantityInput"
