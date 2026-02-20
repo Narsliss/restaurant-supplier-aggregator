@@ -54,34 +54,18 @@ class SupplierCredentialsController < ApplicationController
     if @credential.save
       Rails.logger.info "[SupplierCredentials] Created credential ##{@credential.id} for #{@credential.supplier.name} (user: #{current_user.id})"
 
-      # 2FA-only suppliers (US Foods, PPO) must validate asynchronously because
-      # the scraper polls the DB waiting for the user's verification code.
-      async_scrapers = %w[
-        Scrapers::PremiereProduceOneScraper
-        Scrapers::UsFoodsScraper
-      ]
+      # All validations run async — headless Chrome is too slow on shared
+      # Railway vCPUs to block an HTTP request.
+      @credential.update!(status: 'pending')
+      ValidateCredentialsJob.perform_later(@credential.id)
 
-      if async_scrapers.include?(@credential.supplier.scraper_class)
-        @credential.update!(status: 'pending')
-        ValidateCredentialsJob.perform_later(@credential.id)
+      message = if @credential.supplier.no_password_required?
+                  "#{@credential.supplier.name} credentials saved. Check your email or phone for a verification code."
+                else
+                  "#{@credential.supplier.name} credentials saved. Validating now — this usually takes 15-30 seconds."
+                end
 
-        redirect_to supplier_credentials_path,
-                    notice: "#{@credential.supplier.name} credentials saved. Check your email or phone for a verification code."
-      else
-        # Password-based suppliers: validate synchronously for immediate feedback
-        result = validate_credential_now(@credential)
-
-        if result[:valid]
-          redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} credentials verified successfully."
-        elsif result[:two_fa_required]
-          redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} credentials saved. A verification code is required — please enter the code sent to your phone or email."
-        else
-          redirect_to supplier_credentials_path,
-                      alert: "#{@credential.supplier.name} credentials saved but validation failed: #{result[:message]}"
-        end
-      end
+      redirect_to supplier_credentials_path, notice: message
     else
       Rails.logger.warn "[SupplierCredentials] Failed to create credential: #{@credential.errors.full_messages.join(', ')}"
       render :new, status: :unprocessable_entity
@@ -105,33 +89,19 @@ class SupplierCredentialsController < ApplicationController
     if @credential.update(filtered_params)
       Rails.logger.info "[SupplierCredentials] Updated credential ##{@credential.id} for #{@credential.supplier.name} (user: #{current_user.id})"
 
-      # 2FA-only suppliers must validate asynchronously
-      async_scrapers = %w[
-        Scrapers::PremiereProduceOneScraper
-        Scrapers::UsFoodsScraper
-      ]
+      # All validations run async — headless Chrome is too slow on shared
+      # Railway vCPUs to block an HTTP request.
+      Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
+      @credential.update!(status: 'pending')
+      ValidateCredentialsJob.perform_later(@credential.id)
 
-      if async_scrapers.include?(@credential.supplier.scraper_class)
-        Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
-        @credential.update!(status: 'pending')
-        ValidateCredentialsJob.perform_later(@credential.id)
+      message = if @credential.supplier.no_password_required?
+                  "#{@credential.supplier.name} credentials updated. Check your email or phone for a verification code."
+                else
+                  "#{@credential.supplier.name} credentials updated. Re-validating now — this usually takes 15-30 seconds."
+                end
 
-        redirect_to supplier_credentials_path,
-                    notice: "#{@credential.supplier.name} credentials updated. Check your email or phone for a verification code."
-      else
-        result = validate_credential_now(@credential)
-
-        if result[:valid]
-          redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} credentials updated and verified successfully."
-        elsif result[:two_fa_required]
-          redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} credentials updated. A verification code is required — please enter the code sent to your phone or email."
-        else
-          redirect_to supplier_credentials_path,
-                      alert: "#{@credential.supplier.name} credentials updated but validation failed: #{result[:message]}"
-        end
-      end
+      redirect_to supplier_credentials_path, notice: message
     else
       Rails.logger.warn "[SupplierCredentials] Failed to update credential ##{@credential.id}: #{@credential.errors.full_messages.join(', ')}"
       render :edit, status: :unprocessable_entity
@@ -183,62 +153,28 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
-    # Suppliers that may require 2FA (with code polling) should run asynchronously
-    # via Sidekiq so the HTTP request doesn't block for up to 5 minutes.
-    # This includes PPO (passwordless) and US Foods (MFA via Azure B2C).
-    async_scrapers = [
-      'Scrapers::PremiereProduceOneScraper',
-      'Scrapers::UsFoodsScraper'
-    ]
+    # All validations run async via the worker process.
+    # Headless Chrome is slow on shared Railway vCPUs — blocking the web
+    # request would tie up a Puma thread for 30-60+ seconds.
+    # Cancel any existing pending 2FA requests for this credential
+    Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
+    @credential.update!(status: 'pending')
 
-    if async_scrapers.include?(@credential.supplier.scraper_class)
-      # Cancel any existing pending 2FA requests for this credential
-      Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
-      @credential.update!(status: 'pending')
+    ValidateCredentialsJob.perform_later(@credential.id)
 
-      ValidateCredentialsJob.perform_later(@credential.id)
-
-      respond_to do |format|
-        format.html do
-          redirect_to supplier_credentials_path,
-                      notice: "Validating #{@credential.supplier.name}... Check your email or phone for a verification code."
-        end
-        format.json do
-          render json: { status: 'validating', credential_id: @credential.id, supplier: @credential.supplier.name }
-        end
-      end
-      return
-    end
-
-    # Other suppliers: validate synchronously
-    result = validate_credential_now(@credential)
+    two_fa_supplier = @credential.supplier.no_password_required?
+    message = if two_fa_supplier
+                "Validating #{@credential.supplier.name}... Check your email or phone for a verification code."
+              else
+                "Validating #{@credential.supplier.name} credentials... This usually takes 15-30 seconds."
+              end
 
     respond_to do |format|
-      if result[:valid]
-        format.html do
-          redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} credentials verified successfully."
-        end
-        format.json do
-          render json: { status: 'active', credential_id: @credential.id, supplier: @credential.supplier.name }
-        end
-      elsif result[:two_fa_required]
-        format.html do
-          redirect_to supplier_credentials_path,
-                      notice: "#{@credential.supplier.name} requires a verification code. Please enter the code sent to your phone or email."
-        end
-        format.json do
-          render json: { status: 'two_fa_required', credential_id: @credential.id, supplier: @credential.supplier.name }
-        end
-      else
-        format.html do
-          redirect_to supplier_credentials_path,
-                      alert: "#{@credential.supplier.name} validation failed: #{result[:message]}"
-        end
-        format.json do
-          render json: { status: 'failed', message: result[:message], credential_id: @credential.id },
-                 status: :unprocessable_entity
-        end
+      format.html do
+        redirect_to supplier_credentials_path, notice: message
+      end
+      format.json do
+        render json: { status: 'validating', credential_id: @credential.id, supplier: @credential.supplier.name }
       end
     end
   end
@@ -477,27 +413,4 @@ class SupplierCredentialsController < ApplicationController
     params.require(:supplier_credential).permit(:supplier_id, :username, :password)
   end
 
-  def validate_credential_now(credential)
-    manager = Authentication::SessionManager.new(credential)
-    result = manager.validate_credentials
-
-    if result[:valid]
-      credential.mark_active!
-    elsif result[:two_fa_required]
-      # 2FA pending — keep credential in pending state, don't mark failed
-      credential.update!(two_fa_enabled: true, status: 'pending')
-    else
-      credential.mark_failed!(result[:message] || 'Validation failed')
-    end
-
-    result
-  rescue Authentication::TwoFactorHandler::TwoFactorRequired
-    # Direct raise from scraper (bypasses SessionManager catch)
-    credential.update!(two_fa_enabled: true, status: 'pending')
-    { valid: false, two_fa_required: true, message: 'Verification code required. Check your phone or email.' }
-  rescue StandardError => e
-    Rails.logger.error "[SupplierCredentials] Validation error: #{e.message}"
-    credential.mark_failed!(e.message)
-    { valid: false, message: e.message }
-  end
 end
