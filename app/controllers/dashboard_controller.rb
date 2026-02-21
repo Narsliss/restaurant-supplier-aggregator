@@ -22,7 +22,8 @@ class DashboardController < ApplicationController
       total_orders: current_user.orders.count,
       orders_this_month: current_user.orders.where("created_at >= ?", Time.current.beginning_of_month).count,
       active_suppliers: current_user.supplier_credentials.active.count,
-      order_lists: current_user.order_lists.count
+      order_lists: current_user.order_lists.count,
+      total_savings: current_user.orders.sum(:savings_amount)
     }
   end
 end
