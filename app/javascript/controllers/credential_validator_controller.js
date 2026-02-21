@@ -278,7 +278,10 @@ export default class extends Controller {
         this.updateBadge("Active", "bg-green-100 text-green-800")
         this.hideTfaBlock()
         this.hideStatusBlock()
-        this.enableValidateBtn()
+        this.hideValidateBtn()
+        this.hideError()
+        this.hideReconnectBanners()
+        this.showConnectedBadge()
         this.showImportBtn()
         this.enableImportBtn()
         this.showSuccessFlash()
@@ -352,8 +355,35 @@ export default class extends Controller {
     this.validateBtnTarget.disabled = false
     this.validateBtnTarget.style.opacity = ""
     this.validateBtnTarget.style.pointerEvents = ""
+    this.validateBtnTarget.classList.remove("hidden")
+    this.validateBtnTarget.classList.add("inline-flex")
     if (this._origBtnHTML) {
       this.validateBtnTarget.innerHTML = this._origBtnHTML
+    }
+  }
+
+  hideValidateBtn() {
+    if (!this.hasValidateBtnTarget) return
+    this.validateBtnTarget.classList.add("hidden")
+    this.validateBtnTarget.classList.remove("inline-flex")
+  }
+
+  // Hide the red "Session expired" and "Login failed" recovery banners
+  hideReconnectBanners() {
+    const card = this.element
+    card.querySelectorAll("[data-reconnect-banner]").forEach(el => el.classList.add("hidden"))
+  }
+
+  // Show the green "Connected" session badge after successful validation
+  showConnectedBadge() {
+    const card = this.element
+    const sessionBadge = card.querySelector("[data-session-badge]")
+    if (sessionBadge) {
+      sessionBadge.className = "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 whitespace-nowrap"
+      sessionBadge.innerHTML = `
+        <svg class="w-3 h-3 mr-0.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+        Connected
+      `
     }
   }
 
