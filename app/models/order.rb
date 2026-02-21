@@ -88,6 +88,10 @@ class Order < ApplicationRecord
     submitted? || confirmed?
   end
 
+  def editable?
+    status.in?(%w[pending verifying price_changed pending_review])
+  end
+
   def can_submit?
     pending? || status == "pending_review" || price_changed?
   end

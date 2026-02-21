@@ -1,5 +1,5 @@
 class OrdersController < ApplicationController
-  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel]
+  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder]
 
   def index
     orders_scope = current_user.orders
@@ -44,7 +44,7 @@ class OrdersController < ApplicationController
   end
 
   def show
-    @items = @order.order_items.includes(supplier_product: :supplier)
+    @items = @order.order_items.includes(supplier_product: [:supplier, :product])
     @validations = @order.order_validations.order(validated_at: :desc)
   end
 
@@ -99,7 +99,7 @@ class OrdersController < ApplicationController
   end
 
   def update
-    if @order.pending? && @order.update(order_params)
+    if @order.editable? && @order.update(order_params)
       @order.recalculate_totals!
       respond_to do |format|
         format.html { redirect_to @order, notice: "Order updated." }
@@ -145,6 +145,62 @@ class OrdersController < ApplicationController
     else
       redirect_to @order, alert: "Cannot cancel this order."
     end
+  end
+
+  # Reorder: clone a completed order's items into a new pending order at current prices
+  def reorder
+    if @order.processing?
+      redirect_to @order, alert: "This order is still being processed."
+      return
+    end
+
+    batch_id = SecureRandom.uuid
+    new_order = nil
+
+    ActiveRecord::Base.transaction do
+      new_order = current_user.orders.create!(
+        supplier: @order.supplier,
+        location: current_location,
+        status: "pending",
+        batch_id: batch_id,
+        subtotal: 0,
+        total_amount: 0
+      )
+
+      skipped = []
+
+      @order.order_items.includes(:supplier_product).each do |original_item|
+        sp = original_item.supplier_product
+
+        # Skip items that are discontinued or no longer priced
+        if sp.nil? || sp.discontinued? || sp.current_price.nil?
+          skipped << (sp&.supplier_name || "Unknown item")
+          next
+        end
+
+        new_order.order_items.create!(
+          supplier_product: sp,
+          quantity: original_item.quantity,
+          unit_price: sp.current_price,
+          line_total: sp.current_price * original_item.quantity,
+          status: "pending"
+        )
+      end
+
+      new_order.recalculate_totals!
+
+      if new_order.order_items.empty?
+        raise ActiveRecord::Rollback
+      end
+    end
+
+    if new_order.nil? || new_order.order_items.empty?
+      redirect_to @order, alert: "None of the items from this order are currently available."
+      return
+    end
+
+    redirect_to review_orders_path(batch_id: batch_id),
+      notice: "New order created with #{new_order.order_items.count} items at current prices. Review and submit when ready."
   end
 
   # Create pending orders from an aggregated list's product matches

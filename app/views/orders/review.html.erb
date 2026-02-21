@@ -204,18 +204,27 @@
         </div>
 
         <%# Delivery date & notes %>
-        <div class="px-4 py-3 bg-gray-50 border-b flex flex-col sm:flex-row gap-3">
+        <% needs_delivery_date = order.delivery_date.blank? %>
+        <div class="px-4 py-3 border-b flex flex-col sm:flex-row gap-3 <%= needs_delivery_date ? 'bg-amber-50 border-amber-200' : 'bg-gray-50' %>">
           <div class="flex-1">
-            <label class="block text-xs font-medium text-gray-500 mb-1">Delivery Date</label>
+            <label class="block text-xs font-medium <%= needs_delivery_date ? 'text-amber-700' : 'text-gray-500' %> mb-1">
+              Delivery Date
+              <% if needs_delivery_date %>
+                <span class="text-red-500">*</span>
+              <% end %>
+            </label>
+            <% if needs_delivery_date %>
+              <p class="text-xs text-amber-600 mb-1">Select a delivery date to enable submission</p>
+            <% end %>
             <input type="date"
                    value="<%= order.delivery_date %>"
                    min="<%= Date.tomorrow %>"
                    max="<%= Date.today + 30.days %>"
-                   class="w-full sm:w-48 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm"
+                   class="w-full sm:w-48 rounded-md shadow-sm focus:border-brand-green focus:ring-brand-green text-sm <%= needs_delivery_date ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-300' %>"
                    data-action="change->order-review#updateDeliveryDate"
                    data-order-review-target="deliveryDate"
                    data-order-id="<%= order.id %>"
-                   <%= 'disabled' if order.verifying? %>>
+                   >
           </div>
           <div class="flex-1">
             <label class="block text-xs font-medium text-gray-500 mb-1">Notes</label>
@@ -225,7 +234,7 @@
                    class="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm"
                    data-action="change->order-review#updateNotes"
                    data-order-id="<%= order.id %>"
-                   <%= 'disabled' if order.verifying? %>>
+                   >
           </div>
         </div>
 

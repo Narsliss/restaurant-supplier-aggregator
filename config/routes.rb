@@ -104,6 +104,7 @@ Rails.application.routes.draw do
     member do
       post :submit
       post :cancel
+      post :reorder
     end
     collection do
       get :split_preview
