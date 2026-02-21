@@ -112,6 +112,9 @@ class ImportSupplierListsService
     # Try to link to an existing SupplierProduct by SKU
     item.link_to_supplier_product! if item.supplier_product_id.nil?
 
+    # Propagate latest list data (price, stock, last_scraped_at) to the linked product
+    refresh_linked_product(item) if item.supplier_product_id.present?
+
     if is_new
       results[:items_imported] += 1
     else
@@ -119,6 +122,35 @@ class ImportSupplierListsService
     end
   rescue StandardError => e
     Rails.logger.debug "[ImportLists] Error upserting item SKU #{sku}: #{e.message}"
+  end
+
+  # Propagate list item data to the linked SupplierProduct so list syncing
+  # keeps products "alive" in the discontinuation lifecycle and prices current.
+  def refresh_linked_product(item)
+    sp = item.supplier_product
+    return unless sp
+
+    attrs = { last_scraped_at: Time.current }
+
+    # Update price if the list has a newer/different price
+    if item.price.present? && item.price != sp.current_price
+      attrs[:previous_price] = sp.current_price
+      attrs[:current_price] = item.price
+      attrs[:price_updated_at] = Time.current
+    end
+
+    # Update stock status
+    attrs[:in_stock] = item.in_stock unless item.in_stock.nil?
+
+    # Update pack_size if present and different
+    attrs[:pack_size] = item.pack_size if item.pack_size.present? && item.pack_size != sp.pack_size
+
+    sp.update!(attrs)
+
+    # Reset discontinuation tracking — product is still on the supplier
+    sp.record_seen! if sp.consecutive_misses > 0 || sp.discontinued?
+  rescue StandardError => e
+    Rails.logger.debug "[ImportLists] Error refreshing linked product for SKU #{item.sku}: #{e.message}"
   end
 
   def mark_removed_lists(scraped_remote_ids)

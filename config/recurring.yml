@@ -6,19 +6,19 @@ development: {}
 test: {}
 
 production:
-  # Rotate through suppliers to import product catalogs (each supplier ~1x/hour)
+  # Daily safety-net catalog import (per-user list syncing is the primary data source)
   staggered_supplier_import:
     class: StaggeredSupplierImportJob
     queue: scraping
-    schedule: "*/15 * * * *"
-    description: "Staggered supplier product import every 15 minutes"
+    schedule: "0 5 * * *"
+    description: "Daily supplier product catalog import at 5 AM (safety net)"
 
-  # Deep category browsing for US Foods (finds products missed by quick imports)
+  # Weekly deep category browsing for US Foods (supplement to list syncing)
   deep_catalog_import:
     class: DeepCatalogImportJob
     queue: scraping
-    schedule: "0 2 * * *"
-    description: "US Foods deep category browse daily at 2 AM"
+    schedule: "0 2 * * 0"
+    description: "US Foods deep category browse weekly on Sunday at 2 AM"
 
   # Proactive session keepalive for all suppliers
   refresh_sessions:
@@ -34,12 +34,12 @@ production:
     schedule: "0 3 * * *"
     description: "Discontinue stale products daily at 3 AM"
 
-  # Sync all supplier lists/order guides daily at 4 AM
+  # Primary data source: sync all user ordering lists every 4 hours
   sync_all_lists:
     class: SyncAllListsJob
     queue: scraping
-    schedule: "0 4 * * *"
-    description: "Sync supplier lists/order guides for all active credentials"
+    schedule: "0 */4 * * *"
+    description: "Sync supplier lists/order guides for all credentials every 4 hours"
 
   # Expire old 2FA requests every 5 minutes
   expire_2fa_requests:

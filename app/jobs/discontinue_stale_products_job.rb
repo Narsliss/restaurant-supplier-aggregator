@@ -14,8 +14,10 @@
 class DiscontinueStaleProductsJob < ApplicationJob
   queue_as :low
 
-  # Products not scraped within this window AND with enough misses get discontinued
-  STALENESS_THRESHOLD = 72.hours
+  # Products not scraped within this window AND with enough misses get discontinued.
+  # Set to 7 days because platform catalog imports now run daily (not hourly) and
+  # list syncing is the primary data source — products need time to appear in either.
+  STALENESS_THRESHOLD = 7.days
 
   def perform
     Rails.logger.info '[DiscontinueStaleProducts] Checking for stale products to discontinue'

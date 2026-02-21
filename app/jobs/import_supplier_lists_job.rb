@@ -8,7 +8,11 @@ class ImportSupplierListsJob < ApplicationJob
 
   def perform(credential_id)
     credential = SupplierCredential.find_by(id: credential_id)
-    return unless credential&.active?
+
+    # Allow active credentials and expired password-based suppliers (CW, WCW)
+    # which can auto-login. Skip expired 2FA suppliers (would trigger unwanted MFA).
+    return unless credential&.active? ||
+                  (credential&.expired? && credential.supplier.password_auth?)
 
     Rails.logger.info "[ImportListsJob] Starting for credential #{credential_id} (#{credential.supplier.name})"
 
