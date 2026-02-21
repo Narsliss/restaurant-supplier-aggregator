@@ -11,17 +11,17 @@
         <span class="mx-1">&middot;</span>
         <%= pluralize(@supplier_list.product_count, "product") %>
         <span class="mx-1">&middot;</span>
-        Last synced: <%= @supplier_list.time_since_sync %>
+        Last updated: <%= @supplier_list.time_since_sync %>
       </p>
     </div>
-    <%= button_to "Sync Now", sync_supplier_list_path(@supplier_list),
+    <%= button_to "Update List", sync_supplier_list_path(@supplier_list),
         method: :post,
         class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
   </div>
 
   <% if @items.empty? %>
     <div class="bg-white shadow rounded-lg p-8 text-center">
-      <p class="text-gray-500">No items in this list yet. Click "Sync Now" to import products.</p>
+      <p class="text-gray-500">No items in this list yet. Click "Update List" to import products.</p>
     </div>
   <% else %>
     <div class="bg-white shadow rounded-lg overflow-hidden">

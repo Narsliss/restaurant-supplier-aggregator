@@ -37,7 +37,7 @@ class SupplierListsController < ApplicationController
     @supplier_list.update(sync_status: 'syncing')
 
     respond_to do |format|
-      format.html { redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Syncing #{@supplier_list.supplier.name} lists..." }
+      format.html { redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Updating #{@supplier_list.supplier.name} lists..." }
       format.turbo_stream
     end
   end
@@ -48,7 +48,7 @@ class SupplierListsController < ApplicationController
       ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id)
     end
 
-    redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Syncing lists for #{credentials.count} suppliers..."
+    redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Updating lists for #{credentials.count} suppliers..."
   end
 
   private
