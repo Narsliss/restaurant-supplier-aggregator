@@ -19,10 +19,11 @@ module Authentication
             Rails.logger.info "[SessionManager] Soft refresh succeeded for #{credential.supplier.name}"
             return true
           end
-          Rails.logger.info "[SessionManager] Soft refresh failed, session expired for #{credential.supplier.name}"
-          # Don't fall through to full login - let the user trigger that manually
-          # This prevents unexpected MFA prompts from background jobs
-          credential.mark_expired!
+          Rails.logger.info "[SessionManager] Soft refresh failed for #{credential.supplier.name}"
+          # Don't fall through to full login — that would trigger unexpected MFA prompts.
+          # Instead, record the failure. The credential stays active until 3 consecutive
+          # failures (~6 hours), giving transient issues time to resolve.
+          credential.record_refresh_failure!
           return false
         end
 
@@ -128,7 +129,7 @@ module Authentication
     end
 
     def self.refresh_all_sessions
-      SupplierCredential.active.needs_refresh.find_each do |credential|
+      SupplierCredential.where(status: %w[active expired]).needs_refresh.find_each do |credential|
         RefreshSessionJob.perform_later(credential.id)
       end
     end

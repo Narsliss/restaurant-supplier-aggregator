@@ -18,7 +18,10 @@ class ImportSupplierProductsJob < ApplicationJob
       return
     end
 
-    unless @credential.active? || @credential.status == 'pending'
+    unless @credential.active? || @credential.status == 'pending' ||
+           (@credential.expired? && !@credential.supplier.no_password_required?)
+      # Skip expired 2FA suppliers (would trigger unwanted MFA in a background job).
+      # Password-based suppliers (CW, WCW) can auto-login, so let them proceed.
       Rails.logger.warn "[ImportProductsJob] Credential ##{@credential.id} status is '#{@credential.status}', skipping import"
       @scraping_log&.mark_cancelled!
       return

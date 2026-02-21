@@ -72,7 +72,7 @@ class SupplierCredential < ApplicationRecord
   end
 
   def mark_active!
-    update!(status: 'active', last_login_at: Time.current, last_error: nil)
+    update!(status: 'active', last_login_at: Time.current, last_error: nil, refresh_failures: 0)
   end
 
   def mark_failed!(error_message)
@@ -81,6 +81,23 @@ class SupplierCredential < ApplicationRecord
 
   def mark_expired!
     update!(status: 'expired')
+  end
+
+  # Record a refresh failure without immediately expiring the credential.
+  # Transient failures (network blips, supplier maintenance) shouldn't kill
+  # a session that has a valid KMSI token. Only mark expired after 3+
+  # consecutive failures (~6 hours of being unreachable at 2-hour intervals).
+  MAX_REFRESH_FAILURES = 3
+
+  def record_refresh_failure!
+    new_count = refresh_failures + 1
+    if new_count >= MAX_REFRESH_FAILURES
+      Rails.logger.warn "[SupplierCredential] #{supplier&.name} hit #{new_count} consecutive refresh failures — marking expired"
+      update!(refresh_failures: new_count, status: 'expired')
+    else
+      Rails.logger.info "[SupplierCredential] #{supplier&.name} refresh failure #{new_count}/#{MAX_REFRESH_FAILURES} — keeping active"
+      update!(refresh_failures: new_count)
+    end
   end
 
   def mark_on_hold!(reason)
