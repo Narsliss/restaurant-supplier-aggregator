@@ -1419,6 +1419,8 @@ module Scrapers
         fill_field(PASSWORD_FIELD, credential.password)
         sleep 0.5
         click(SUBMIT_BTN)
+        sleep 3
+        handle_kmsi_prompt # Click "Yes" on "Stay signed in?" if B2C shows it
         wait_for_redirect_to_usfoods(timeout: 20)
         sleep 2
       else
@@ -1433,6 +1435,59 @@ module Scrapers
     end
 
     private
+
+    # Detect and click "Yes" on the Azure B2C KMSI (Keep Me Signed In) prompt.
+    # After MFA or password auth, B2C may show a "Would you like to stay signed in
+    # on this device?" interstitial page with Yes/No buttons. Clicking "Yes" sets a
+    # persistent remember-me cookie that survives browser restarts — critical for
+    # session persistence since we destroy the Chrome process after each operation.
+    #
+    # Standard B2C element IDs:
+    #   #idBtn_Accept => "Yes" button
+    #   #idBtn_Back   => "No" button
+    #   #idSIButton9  => Primary action button (sometimes used for KMSI submit)
+    def handle_kmsi_prompt
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Azure B2C standard KMSI "Yes" button
+          var acceptBtn = document.getElementById('idBtn_Accept');
+          if (acceptBtn && acceptBtn.offsetParent !== null) {
+            acceptBtn.click();
+            return 'idBtn_Accept';
+          }
+
+          // B2C primary action button (alternate KMSI rendering)
+          var primaryBtn = document.getElementById('idSIButton9');
+          if (primaryBtn && primaryBtn.offsetParent !== null) {
+            primaryBtn.click();
+            return 'idSIButton9';
+          }
+
+          // Fallback: any visible button with text "Yes"
+          var buttons = document.querySelectorAll('button, input[type="submit"], input[type="button"]');
+          for (var i = 0; i < buttons.length; i++) {
+            var text = (buttons[i].innerText || buttons[i].value || '').trim().toLowerCase();
+            if (text === 'yes') {
+              buttons[i].click();
+              return 'yes-text-match';
+            }
+          }
+
+          return null;
+        })()
+      JS
+
+      if clicked
+        logger.info "[UsFoods] Handled KMSI 'Stay signed in' prompt: #{clicked}"
+        sleep 2
+        true
+      else
+        false
+      end
+    rescue StandardError => e
+      logger.debug "[UsFoods] KMSI prompt check error: #{e.message}"
+      false
+    end
 
     # Handle MFA selection and code entry via Supplier2faRequest (like PPO)
     def handle_mfa_selection
@@ -1604,6 +1659,13 @@ module Scrapers
         if current_url.include?('usfoods.com') && !current_url.include?('b2clogin.com')
           logger.info "[UsFoods] Redirected to: #{current_url}"
           return
+        end
+
+        # Check for KMSI "Stay signed in?" prompt before trying Continue buttons.
+        # B2C may show this interstitial after MFA — must click "Yes" to get a
+        # persistent session cookie, then the redirect will follow automatically.
+        if handle_kmsi_prompt
+          next # Loop back to check for redirect
         end
 
         # Try clicking the B2C Continue button using multiple approaches.

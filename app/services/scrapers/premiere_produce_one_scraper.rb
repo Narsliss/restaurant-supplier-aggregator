@@ -98,10 +98,14 @@ module Scrapers
             sleep 5
             wait_for_page_load
 
+            # Handle "Stay signed in" / "Trust this device" prompt BEFORE checking
+            # logged_in? — if the prompt is blocking, logged_in? would return false
+            # and we'd never reach this method. Safe to call when no prompt exists.
+            save_trusted_device
+
             if logged_in?
               save_session
               credential.mark_active!
-              save_trusted_device
               mark_2fa_request_verified!
               logger.info '[PremiereProduceOne] Verification successful — logged in!'
               TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
