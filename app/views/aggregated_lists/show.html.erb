@@ -50,15 +50,15 @@
   <!-- Stats bar -->
   <div class="grid grid-cols-3 gap-4 mb-6">
     <div class="bg-white shadow rounded-lg p-4 text-center">
-      <p class="text-2xl font-heading font-bold text-gray-900"><%= @aggregated_list.total_match_count %></p>
+      <p class="text-2xl font-heading font-bold text-gray-900"><%= @stats[:total] %></p>
       <p class="text-sm text-gray-500">Total Products</p>
     </div>
     <div class="bg-white shadow rounded-lg p-4 text-center">
-      <p class="text-2xl font-heading font-bold text-green-600"><%= @aggregated_list.matched_product_count %></p>
+      <p class="text-2xl font-heading font-bold text-green-600"><%= @stats[:matched] %></p>
       <p class="text-sm text-gray-500">Matched</p>
     </div>
     <div class="bg-white shadow rounded-lg p-4 text-center">
-      <p class="text-2xl font-heading font-bold text-amber-600"><%= @aggregated_list.unmatched_count %></p>
+      <p class="text-2xl font-heading font-bold text-amber-600"><%= @stats[:unmatched] %></p>
       <p class="text-sm text-gray-500">Unmatched</p>
     </div>
   </div>
@@ -116,16 +116,16 @@
               </td>
 
               <!-- Supplier columns -->
+              <% price_info = @price_data[match.id] %>
               <% @suppliers.each do |supplier| %>
                 <td class="px-4 py-3" id="match_<%= match.id %>_supplier_<%= supplier.id %>">
-                  <% item = match.item_for_supplier(supplier) %>
-                  <% pmi = match.product_match_items.find_by(supplier: supplier) %>
+                  <% lookup = @match_supplier_map.dig(match.id, supplier.id) %>
+                  <% item = lookup&.dig(:item) %>
+                  <% pmi = lookup&.dig(:pmi) %>
                   <% available_items = @items_by_supplier[supplier.id] || [] %>
                   <% if item %>
-                    <% cheapest = match.cheapest_supplier %>
-                    <% most_expensive = match.most_expensive_supplier %>
-                    <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-                    <% is_most_expensive = most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+                    <% is_cheapest = price_info[:cheapest_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
+                    <% is_most_expensive = price_info[:most_expensive_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
 
                     <div class="text-sm text-gray-900"><%= item.name.truncate(60) %></div>
                     <div class="text-xs text-gray-500">
@@ -225,7 +225,7 @@
         <div>
           <h3 class="text-lg font-heading font-semibold text-gray-900">Ready to continue?</h3>
           <p class="text-sm text-gray-500 mt-1">
-            <%= @aggregated_list.matched_product_count %> matched products across <%= @suppliers.size %> suppliers
+            <%= @stats[:matched] %> matched products across <%= @suppliers.size %> suppliers
           </p>
         </div>
         <div class="flex gap-3 w-full sm:w-auto">

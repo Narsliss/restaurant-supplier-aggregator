@@ -4,9 +4,75 @@ class AggregatedListsController < ApplicationController
   def show
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
     @product_matches = @aggregated_list.product_matches
-                                       .includes(product_match_items: %i[supplier supplier_list_item])
+                                       .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 WHEN 'rejected' THEN 4 ELSE 5 END, position ASC"))
     @suppliers = @supplier_lists.map(&:supplier).uniq
+
+    # Pre-compute stats with a single grouped query instead of 3 separate COUNTs
+    status_counts = @aggregated_list.product_matches.group(:match_status).count
+    @stats = {
+      total: status_counts.values.sum,
+      matched: (status_counts['confirmed'] || 0) + (status_counts['auto_matched'] || 0) + (status_counts['manual'] || 0),
+      unmatched: status_counts['unmatched'] || 0
+    }
+
+    # Pre-build lookup: match_id -> { supplier_id -> { pmi:, item: } }
+    # Eliminates N+1 find_by queries in the view (was ~1600 queries for 200 matches × 4 suppliers)
+    @match_supplier_map = {}
+    @price_data = {}
+
+    @product_matches.each do |match|
+      supplier_map = {}
+      match.product_match_items.each do |pmi|
+        supplier_map[pmi.supplier_id] = { pmi: pmi, item: pmi.supplier_list_item }
+      end
+      @match_supplier_map[match.id] = supplier_map
+
+      # Pre-compute price comparison per match (cheapest/most_expensive/spread)
+      # Avoids calling prices_by_supplier 3× per row in the view
+      prices = match.product_match_items.map do |pmi|
+        item = pmi.supplier_list_item
+        sp = item.supplier_product
+        {
+          supplier: pmi.supplier,
+          price: item.price || sp&.current_price,
+          per_unit_price: item.per_unit_price,
+          normalized_unit: item.normalized_unit,
+          in_stock: sp ? sp.in_stock : item.read_attribute(:in_stock)
+        }
+      end
+
+      in_stock_prices = prices.select { |p| p[:price].present? && p[:in_stock] }
+      units = in_stock_prices.filter_map { |p| p[:normalized_unit] }.uniq
+      comparable = units.size == 1
+
+      cheapest = most_expensive = nil
+      if in_stock_prices.any?
+        if comparable && in_stock_prices.all? { |p| p[:per_unit_price].present? }
+          cheapest = in_stock_prices.min_by { |p| p[:per_unit_price] }
+          most_expensive = in_stock_prices.max_by { |p| p[:per_unit_price] }
+        else
+          cheapest = in_stock_prices.min_by { |p| p[:price] }
+          most_expensive = in_stock_prices.max_by { |p| p[:price] }
+        end
+      end
+
+      with_price = prices.select { |p| p[:price].present? }
+      spread = nil
+      if with_price.size >= 2
+        if comparable && with_price.all? { |p| p[:per_unit_price].present? }
+          spread = with_price.map { |p| p[:per_unit_price] }.max - with_price.map { |p| p[:per_unit_price] }.min
+        else
+          spread = with_price.map { |p| p[:price] }.max - with_price.map { |p| p[:price] }.min
+        end
+      end
+
+      @price_data[match.id] = {
+        cheapest_supplier: cheapest&.dig(:supplier),
+        most_expensive_supplier: most_expensive&.dig(:supplier),
+        spread: spread
+      }
+    end
 
     # Load all items per supplier for dropdown reassignment
     @items_by_supplier = {}
