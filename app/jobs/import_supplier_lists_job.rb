@@ -16,12 +16,19 @@ class ImportSupplierListsJob < ApplicationJob
 
     Rails.logger.info "[ImportListsJob] Starting for credential #{credential_id} (#{credential.supplier.name})"
 
+    # Mark all existing lists as syncing immediately so the UI shows progress
+    credential.supplier_lists.where.not(sync_status: 'syncing').update_all(sync_status: 'syncing')
+
     service = ImportSupplierListsService.new(credential)
     result = service.call
 
     Rails.logger.info "[ImportListsJob] Complete for credential #{credential_id}: #{result}"
   rescue StandardError => e
     Rails.logger.error "[ImportListsJob] Failed for credential #{credential_id}: #{e.class}: #{e.message}"
+    # Mark any still-syncing lists as failed so the UI doesn't show a stale spinner
+    credential&.supplier_lists&.where(sync_status: 'syncing')&.update_all(
+      sync_status: 'failed', sync_error: "#{e.class}: #{e.message}"
+    )
     raise # Let Solid Queue handle retries
   end
 end

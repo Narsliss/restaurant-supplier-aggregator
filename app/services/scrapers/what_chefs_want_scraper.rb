@@ -560,107 +560,16 @@ module Scrapers
       ensure_on_order_page
       sleep 3
 
-      # Make sure the "All" filter is active to get all products
-      begin
-        browser.evaluate(<<~JS)
-          (function() {
-            var buttons = document.querySelectorAll('button');
-            for (var i = 0; i < buttons.length; i++) {
-              if (buttons[i].innerText.trim() === 'All') {
-                buttons[i].click();
-                return true;
-              }
-            }
-            return false;
-          })()
-        JS
-        sleep 2
-      rescue StandardError => e
-        logger.debug "[WhatChefsWant] Could not click All filter: #{e.message}"
-      end
+      # Wait for the SPA to settle (it client-side redirects from /place-order
+      # to /place-order/{ids}/quantities) and for the table to render
+      wait_for_order_table
 
-      # Scroll to load all products (Cut+Dry uses infinite scroll)
-      scroll_to_load_all_products
+      # Cut+Dry uses virtual scroll — DOM elements are recycled as you scroll.
+      # Only ~10-25 rows exist in the DOM at any time. We must extract visible
+      # products DURING scrolling and accumulate them in a persistent JS object.
+      products = scroll_and_extract_order_guide
 
-      # Extract products from the order guide table.
-      # Cut+Dry renders a React table with columns:
-      #   Item | Item Code | Unit | Last Order | Price | Quantity
-      # Product rows have td cells; category headers are single-cell rows.
-      # SKUs are in the "Item Code" column and also appear as
-      # data-for="product-card-{SKU}" attributes on elements.
-      products = begin
-        browser.evaluate(<<~JS)
-          (function() {
-            var results = [];
-            var seen = {};
-            var rows = document.querySelectorAll('table tr');
-
-            for (var i = 0; i < rows.length; i++) {
-              var cells = rows[i].querySelectorAll('td');
-              if (cells.length < 5) continue; // Skip header/category rows
-
-              // Item name from first cell
-              var nameEl = cells[0].querySelector('[data-tip="View Product Details"]');
-              if (!nameEl) nameEl = cells[0].querySelector('div > div > span > div');
-              var name = nameEl ? nameEl.innerText.trim() : '';
-              if (!name) {
-                // Fallback: first substantial text in the cell
-                var cellText = (cells[0].innerText || '').trim().split('\\n');
-                name = cellText.find(function(l) { return l.trim().length > 3; }) || '';
-              }
-
-              // SKU from Item Code cell (second column, index 1)
-              var sku = (cells[1] ? cells[1].innerText.trim() : '').replace(/\\D/g, '');
-
-              // Also try extracting from data-for attribute
-              if (!sku) {
-                var dataFor = cells[0].querySelector('[data-for^="product-card-"]');
-                if (dataFor) {
-                  var match = dataFor.getAttribute('data-for').match(/product-card-(\\d+)/);
-                  if (match) sku = match[1];
-                }
-              }
-
-              if (!sku || !name || seen[sku]) continue;
-              seen[sku] = true;
-
-              // Unit type (Case, Each, Pound, etc.)
-              var unit = cells[2] ? cells[2].innerText.trim() : '';
-
-              // Pack size from the item cell (often after the name)
-              var packText = (cells[0].innerText || '').trim();
-              var packMatch = packText.match(/(\\d+[x/]\\d+[\\s]*\\w+(?:\\s+\\w+)?|\\d+\\s*(?:LB|OZ|CS|EA|CT|GAL|COUNT)\\b[^\\n]*)/i);
-              var packSize = packMatch ? packMatch[1].trim() : '';
-
-              // Price — prefer case/CS price when dual pricing shown
-              // e.g. "$13.99/LB\\n$83.94/CS" → take $83.94 (case price users pay)
-              var priceText = cells[4] ? cells[4].innerText.trim() : '';
-              var price = null;
-              var csMatch = priceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*\\/?\\s*(?:CS|case)/i);
-              if (csMatch) {
-                price = parseFloat(csMatch[1].replace(',', ''));
-              } else {
-                var priceMatch = priceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
-                if (priceMatch) price = parseFloat(priceMatch[1].replace(',', ''));
-              }
-
-              results.push({
-                sku: sku,
-                name: name.substring(0, 255),
-                price: price,
-                pack_size: [packSize, unit].filter(Boolean).join(' - '),
-                in_stock: true
-              });
-            }
-
-            return results;
-          })()
-        JS
-      rescue StandardError
-        []
-      end
-
-      logger.info "[WhatChefsWant] Order guide: #{products.size} products"
+      logger.info "[WhatChefsWant] Order guide: #{products.size} products after scroll-and-extract"
 
       list_url = begin
         browser.current_url
@@ -1125,33 +1034,117 @@ module Scrapers
     end
 
     # Scroll down the order page to load all products (Cut+Dry lazy-loads).
-    def scroll_to_load_all_products
-      previous_count = 0
+    # Counts actual table rows with 5+ cells (matching extraction logic) to
+    # reliably detect when new products have loaded.
+    # Wait for the order guide table to render after SPA navigation.
+    # Cut+Dry redirects from /place-order to /place-order/{ids}/quantities.
+    def wait_for_order_table
+      10.times do
+        has_table = browser.evaluate('document.querySelectorAll("table tr").length > 0')
+        break if has_table
+
+        sleep 1
+      end
+      sleep 2 # Extra settle time for React rendering
+    end
+
+    # Scroll through the virtual-scroll order guide, extracting products as we go.
+    # Cut+Dry recycles DOM rows — only ~10-25 exist at any time. We accumulate
+    # products in a window-level JS object that persists across scroll positions.
+    def scroll_and_extract_order_guide
+      # The extraction JS is inlined in each evaluate call so it survives
+      # any SPA micro-navigations that might clear window globals.
+      extract_js = <<~'JSTEMPLATE'
+        (function() {
+          if (!window.__wcwProducts) window.__wcwProducts = {};
+          var rows = document.querySelectorAll('table tr');
+          var newCount = 0;
+          for (var i = 0; i < rows.length; i++) {
+            var cells = rows[i].querySelectorAll('td');
+            if (cells.length < 5) continue;
+
+            var sku = (cells[1] ? cells[1].innerText.trim() : '').replace(/\D/g, '');
+            if (!sku) {
+              var dataFor = cells[0].querySelector('[data-for^="product-card-"]');
+              if (dataFor) {
+                var m = dataFor.getAttribute('data-for').match(/product-card-(\d+)/);
+                if (m) sku = m[1];
+              }
+            }
+            if (!sku || window.__wcwProducts[sku]) continue;
+
+            var nameEl = cells[0].querySelector('[data-tip="View Product Details"]');
+            if (!nameEl) nameEl = cells[0].querySelector('div > div > span > div');
+            var name = nameEl ? nameEl.innerText.trim() : '';
+            if (!name) {
+              var lines = (cells[0].innerText || '').trim().split('\n');
+              for (var j = 0; j < lines.length; j++) {
+                if (lines[j].trim().length > 3) { name = lines[j].trim(); break; }
+              }
+            }
+            if (!name) continue;
+
+            var unit = cells[2] ? cells[2].innerText.trim() : '';
+            var packText = (cells[0].innerText || '').trim();
+            var packMatch = packText.match(/(\d+[x\/]\d+[\s]*\w+(?:\s+\w+)?|\d+\s*(?:LB|OZ|CS|EA|CT|GAL|COUNT)\b[^\n]*)/i);
+            var packSize = packMatch ? packMatch[1].trim() : '';
+
+            var priceText = cells[4] ? cells[4].innerText.trim() : '';
+            var price = null;
+            var csMatch = priceText.match(/\$(\d+[\d,]*\.\d{2})\s*\/?\s*(?:CS|case)/i);
+            if (csMatch) {
+              price = parseFloat(csMatch[1].replace(',', ''));
+            } else {
+              var pm = priceText.match(/\$(\d+[\d,]*\.\d{2})/);
+              if (pm) price = parseFloat(pm[1].replace(',', ''));
+            }
+
+            window.__wcwProducts[sku] = {
+              sku: sku,
+              name: name.substring(0, 255),
+              price: price,
+              pack_size: [packSize, unit].filter(Boolean).join(' - '),
+              in_stock: true
+            };
+            newCount++;
+          }
+          return { total: Object.keys(window.__wcwProducts).length, newInRound: newCount };
+        })()
+      JSTEMPLATE
+
+      # Initial extraction
+      result = browser.evaluate(extract_js)
+      logger.info "[WhatChefsWant] Initial extraction: #{result['total']} products"
+
+      # Scroll and extract
       stale_rounds = 0
+      max_scrolls = 80
 
-      30.times do
-        # Count products currently visible
-        current_count = browser.evaluate(<<~JS)
-          (function() {
-            var text = document.body.innerText || '';
-            return (text.match(/#\\d{3,}/g) || []).length;
-          })()
-        JS
+      max_scrolls.times do |round|
+        browser.evaluate('window.scrollBy(0, Math.round(window.innerHeight * 0.75))')
+        sleep 1.5
 
-        if current_count <= previous_count
+        result = browser.evaluate(extract_js)
+
+        if result['newInRound'] == 0
           stale_rounds += 1
-          break if stale_rounds >= 3
+          break if stale_rounds >= 5
         else
           stale_rounds = 0
         end
-        previous_count = current_count
 
-        # Scroll to bottom
-        browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-        sleep 2
+        if (round + 1) % 10 == 0
+          logger.info "[WhatChefsWant] Scroll round #{round + 1}: #{result['total']} total products accumulated"
+        end
       end
 
-      logger.info "[WhatChefsWant] Scroll complete, ~#{previous_count} products visible"
+      # Collect all accumulated products
+      products = browser.evaluate('Object.values(window.__wcwProducts)')
+      logger.info "[WhatChefsWant] Scroll-and-extract complete: #{products.size} products"
+      products
+    rescue StandardError => e
+      logger.error "[WhatChefsWant] scroll_and_extract_order_guide failed: #{e.message}"
+      []
     end
 
     # Parse order guide items from page text. Similar to parse_catalog_results

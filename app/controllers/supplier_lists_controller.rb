@@ -13,13 +13,33 @@ class SupplierListsController < ApplicationController
     # Show the banner whenever any list is actively syncing OR the syncing param
     # was recently set (covers the brief window before the job marks lists as syncing).
     has_syncing_lists = @supplier_lists.where(sync_status: 'syncing').exists?
+
+    # Also check for pending/running import jobs in Solid Queue
+    # (covers the gap between job enqueue and when lists get marked as syncing)
+    credential_ids = @credentials.pluck(:id)
+    pending_job_credential_ids = []
+    if credential_ids.any?
+      SolidQueue::Job
+        .where(class_name: 'ImportSupplierListsJob', finished_at: nil)
+        .pluck(:arguments)
+        .each do |args|
+          cred_id = (JSON.parse(args)["arguments"]&.first rescue nil)
+          pending_job_credential_ids << cred_id if cred_id && credential_ids.include?(cred_id)
+        end
+    end
+    has_pending_import_jobs = pending_job_credential_ids.any?
+
     if params[:syncing].present?
       sync_started = Time.at(params[:syncing].to_i) rescue nil
       recently_started = sync_started && sync_started > 5.minutes.ago
-      @syncing = has_syncing_lists || (recently_started && @lists_by_supplier.empty?)
+      @syncing = has_syncing_lists || has_pending_import_jobs || recently_started
     else
-      @syncing = has_syncing_lists
+      @syncing = has_syncing_lists || has_pending_import_jobs
     end
+
+    # Track which supplier credentials are currently syncing (for disabling buttons)
+    @syncing_credential_ids = Set.new(pending_job_credential_ids)
+    @syncing_credential_ids += @supplier_lists.where(sync_status: 'syncing').pluck(:supplier_credential_id)
 
     # Comparison lists (AggregatedLists)
     @aggregated_lists = current_organization_aggregated_lists
