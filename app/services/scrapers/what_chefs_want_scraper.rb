@@ -1122,13 +1122,13 @@ module Scrapers
 
       max_scrolls.times do |round|
         browser.evaluate('window.scrollBy(0, Math.round(window.innerHeight * 0.75))')
-        sleep 1.5
+        sleep 0.3
 
         result = browser.evaluate(extract_js)
 
         if result['newInRound'] == 0
           stale_rounds += 1
-          break if stale_rounds >= 5
+          break if stale_rounds >= 2
         else
           stale_rounds = 0
         end

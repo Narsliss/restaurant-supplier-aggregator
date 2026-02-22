@@ -833,13 +833,13 @@ module Scrapers
 
         if new_count == 0
           stale_rounds += 1
-          break if stale_rounds >= 4
+          break if stale_rounds >= 2
         else
           stale_rounds = 0
         end
 
         scroll_virtual_list
-        sleep 1.5
+        sleep 0.3
       end
 
       # Convert to list item format
