@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_22_205802) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_22_222800) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -32,6 +32,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_22_205802) do
     t.string "match_status", default: "pending", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "catalog_search_status"
     t.index ["created_by_id"], name: "index_aggregated_lists_on_created_by_id"
     t.index ["organization_id", "name"], name: "index_aggregated_lists_on_organization_id_and_name", unique: true
     t.index ["organization_id"], name: "index_aggregated_lists_on_organization_id"

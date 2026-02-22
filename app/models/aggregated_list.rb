@@ -39,6 +39,19 @@ class AggregatedList < ApplicationRecord
     update!(match_status: 'failed')
   end
 
+  # Catalog search status
+  def searching_catalog?
+    catalog_search_status == 'searching'
+  end
+
+  def mark_searching_catalog!
+    update!(catalog_search_status: 'searching')
+  end
+
+  def mark_catalog_search_done!
+    update!(catalog_search_status: 'completed')
+  end
+
   # Supplier info
   def suppliers
     supplier_lists.includes(:supplier).map(&:supplier).uniq

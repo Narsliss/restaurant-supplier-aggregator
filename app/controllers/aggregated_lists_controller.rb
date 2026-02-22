@@ -151,8 +151,9 @@ class AggregatedListsController < ApplicationController
       return
     end
 
+    @aggregated_list.mark_searching_catalog!
     CatalogSearchJob.perform_later(@aggregated_list.id)
-    redirect_to @aggregated_list, notice: "Searching full catalog for #{@aggregated_list.unmatched_count} unmatched products..."
+    redirect_to @aggregated_list, notice: "Searching full catalog for unmatched products..."
   end
 
   def order_builder

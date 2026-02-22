@@ -9,11 +9,11 @@
       <p class="mt-1 text-sm text-gray-500">
         <%= @suppliers.map(&:name).join(" vs ") %>
         <span class="mx-1">&middot;</span>
-        <%= pluralize(@aggregated_list.total_match_count, "product") %>
+        <%= pluralize(@stats[:total], "product") %>
       </p>
     </div>
     <div class="flex gap-3">
-      <% if @aggregated_list.matching? %>
+      <% if @aggregated_list.matching? || @aggregated_list.searching_catalog? %>
         <span class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">
           <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -27,7 +27,7 @@
         <%= button_to "Re-match", run_matching_aggregated_list_path(@aggregated_list),
             method: :post,
             class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
-        <% if @aggregated_list.matched? && @aggregated_list.unmatched_count > 0 %>
+        <% if @aggregated_list.matched? && @stats[:unmatched] > 0 %>
           <%= button_to search_catalog_aggregated_list_path(@aggregated_list),
               method: :post,
               class: "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border border-indigo-500 text-indigo-600 hover:bg-indigo-500 hover:text-white transition-colors" do %>
@@ -67,12 +67,10 @@
     <div class="relative overflow-hidden rounded-lg bg-brand-orange/10 border-2 border-brand-orange p-5 mb-6 shadow-md"
          data-controller="auto-refresh"
          data-auto-refresh-interval-value="10000">
-      <!-- Animated progress bar at top -->
       <div class="absolute top-0 left-0 h-1 w-full bg-brand-orange/20">
         <div class="h-full w-1/3 bg-brand-orange rounded-r animate-progress-bar"></div>
       </div>
       <div class="flex items-center gap-4">
-        <!-- Spinning loader -->
         <div class="shrink-0">
           <svg class="h-8 w-8 animate-spin text-brand-orange" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -82,6 +80,28 @@
         <div>
           <p class="text-base font-semibold text-gray-900">Processing — please wait</p>
           <p class="text-sm text-gray-600 mt-0.5">Product matching is running. This can take up to 2 minutes. The page will refresh automatically when complete.</p>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <% if @aggregated_list.searching_catalog? %>
+    <div class="relative overflow-hidden rounded-lg bg-indigo-50 border-2 border-indigo-400 p-5 mb-6 shadow-md"
+         data-controller="auto-refresh"
+         data-auto-refresh-interval-value="10000">
+      <div class="absolute top-0 left-0 h-1 w-full bg-indigo-200">
+        <div class="h-full w-1/3 bg-indigo-500 rounded-r animate-progress-bar"></div>
+      </div>
+      <div class="flex items-center gap-4">
+        <div class="shrink-0">
+          <svg class="h-8 w-8 animate-spin text-indigo-600" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        <div>
+          <p class="text-base font-semibold text-gray-900">Searching full catalog — please wait</p>
+          <p class="text-sm text-gray-600 mt-0.5">Searching ~19,000 supplier products for matches to unmatched items. This can take 1-2 minutes. The page will refresh automatically when complete.</p>
         </div>
       </div>
     </div>
@@ -219,7 +239,7 @@
   <% end %>
 
   <!-- Approve / Next Steps bar -->
-  <% if @product_matches.any? && !@aggregated_list.matching? %>
+  <% if @product_matches.any? && !@aggregated_list.matching? && !@aggregated_list.searching_catalog? %>
     <div class="mt-8 bg-white shadow rounded-lg p-6">
       <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
         <div>

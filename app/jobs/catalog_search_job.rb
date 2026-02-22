@@ -10,5 +10,7 @@ class CatalogSearchJob < ApplicationJob
 
     service = CatalogSearchService.new(aggregated_list)
     service.call
+  ensure
+    aggregated_list&.mark_catalog_search_done! if aggregated_list
   end
 end
