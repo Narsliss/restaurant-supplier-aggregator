@@ -64,7 +64,9 @@
   </div>
 
   <% if @aggregated_list.matching? %>
-    <div class="relative overflow-hidden rounded-lg bg-brand-orange/10 border-2 border-brand-orange p-5 mb-6 shadow-md">
+    <div class="relative overflow-hidden rounded-lg bg-brand-orange/10 border-2 border-brand-orange p-5 mb-6 shadow-md"
+         data-controller="auto-refresh"
+         data-auto-refresh-interval-value="10000">
       <!-- Animated progress bar at top -->
       <div class="absolute top-0 left-0 h-1 w-full bg-brand-orange/20">
         <div class="h-full w-1/3 bg-brand-orange rounded-r animate-progress-bar"></div>
@@ -83,7 +85,6 @@
         </div>
       </div>
     </div>
-    <meta http-equiv="refresh" content="10">
   <% end %>
 
   <!-- Match comparison table -->
