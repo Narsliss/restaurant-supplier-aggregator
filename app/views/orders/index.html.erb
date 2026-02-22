@@ -96,6 +96,11 @@
                       Saved <%= number_to_currency(group_savings) %>
                     </span>
                   <% end %>
+                  <% if orders.first.batch_id.present? %>
+                    <%= link_to "View Batch", batch_progress_orders_path(batch_id: orders.first.batch_id), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+                  <% elsif orders.first.order_list_id.present? %>
+                    <%= link_to "View Batch", batch_progress_orders_path(order_list_id: orders.first.order_list_id), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+                  <% end %>
                 </div>
               </div>
             </div>

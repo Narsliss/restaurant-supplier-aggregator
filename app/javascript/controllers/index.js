@@ -14,6 +14,8 @@ import SearchableSelectController from "./searchable_select_controller"
 import OrderBuilderController from "./order_builder_controller"
 import OrderReviewController from "./order_review_controller"
 import ThemeController from "./theme_controller"
+import OrderStatusController from "./order_status_controller"
+import BatchProgressController from "./batch_progress_controller"
 
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
@@ -29,3 +31,5 @@ application.register("searchable-select", SearchableSelectController)
 application.register("order-builder", OrderBuilderController)
 application.register("order-review", OrderReviewController)
 application.register("theme", ThemeController)
+application.register("order-status", OrderStatusController)
+application.register("batch-progress", BatchProgressController)

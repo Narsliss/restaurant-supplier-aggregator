@@ -1,9 +1,9 @@
 class OrdersController < ApplicationController
-  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder]
+  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status]
 
   def index
     orders_scope = current_user.orders
-      .completed
+      .where(status: %w[submitted confirmed dry_run_complete])
       .includes(:supplier, :location, :order_items, :order_list)
       .order(submitted_at: :desc)
 
@@ -30,16 +30,17 @@ class OrdersController < ApplicationController
     @total_spent = orders_scope.sum(:total_amount)
     @order_count = orders_scope.count
 
-    # Group orders by order_list_id for split order display
+    # Group orders by order_list_id or batch_id for split/batch order display
     # Orders with same order_list_id were part of one split order
+    # Orders with same batch_id were submitted together as a batch
     all_orders = orders_scope.to_a
-    @order_groups = all_orders.group_by { |o| o.order_list_id || "standalone_#{o.id}" }
+    @order_groups = all_orders.group_by { |o| o.order_list_id || o.batch_id || "standalone_#{o.id}" }
       .values
       .sort_by { |group| group.map(&:submitted_at).compact.max || Time.at(0) }
       .reverse
 
     @suppliers = Supplier.joins(:orders)
-      .where(orders: { user_id: current_user.id, status: %w[submitted confirmed] })
+      .where(orders: { user_id: current_user.id, status: %w[submitted confirmed dry_run_complete] })
       .distinct.order(:name)
   end
 
@@ -145,6 +146,15 @@ class OrdersController < ApplicationController
     else
       redirect_to @order, alert: "Cannot cancel this order."
     end
+  end
+
+  # JSON endpoint for show page polling while order is processing
+  def placement_status
+    render json: {
+      id: @order.id,
+      status: @order.status,
+      processing: @order.processing?
+    }
   end
 
   # Reorder: clone a completed order's items into a new pending order at current prices
@@ -343,12 +353,17 @@ class OrdersController < ApplicationController
     # Accept any price changes and proceed directly to placement
     orders.each do |order|
       order.accept_price_changes! if order.price_changed?
-      order.update!(status: "processing")
+      order.update!(status: "processing", error_message: nil, confirmation_number: nil)
       PlaceOrderJob.perform_later(order.id)
     end
 
-    redirect_to orders_path,
-      notice: "#{orders.size} order(s) submitted to suppliers."
+    # Single order: redirect to show page so user sees real-time processing status
+    # Multiple orders: redirect to batch progress page for real-time tracking
+    if orders.size == 1
+      redirect_to order_path(orders.first), notice: "Order is being submitted to #{orders.first.supplier.name}..."
+    else
+      redirect_to batch_progress_orders_path(batch_id: batch_id), notice: "#{orders.size} orders are being submitted..."
+    end
   end
 
   # JSON endpoint for polling verification status from the review page
@@ -370,6 +385,15 @@ class OrdersController < ApplicationController
         }
       end
 
+      # Include out-of-stock items so the review page can warn before submit
+      unavailable_items = order.order_items.select { |item| item.supplier_product&.out_of_stock? }.map do |item|
+        {
+          id: item.id,
+          name: item.supplier_product.supplier_name,
+          sku: item.supplier_sku
+        }
+      end
+
       {
         id: order.id,
         supplier_name: order.supplier.name,
@@ -381,7 +405,9 @@ class OrdersController < ApplicationController
         price_change_percentage: order.price_change_percentage,
         verification_error: order.verification_error,
         price_verified_at: order.price_verified_at&.iso8601,
-        items_with_changes: items_with_changes
+        items_with_changes: items_with_changes,
+        unavailable_items: unavailable_items,
+        supplier_delivery_address: order.supplier_delivery_address
       }
     end
 
@@ -503,6 +529,47 @@ class OrdersController < ApplicationController
     end
   end
 
+  # Batch progress page — real-time tracking during submission + permanent batch detail view
+  # Supports both batch_id (submit_batch) and order_list_id (split orders) grouping
+  def batch_progress
+    @batch_id = params[:batch_id]
+    @order_list_id = params[:order_list_id]
+    @orders = find_batch_orders
+      .includes(:supplier, order_items: :supplier_product)
+      .order(:id)
+
+    if @orders.empty?
+      redirect_to orders_path, alert: "No orders found for this batch."
+      return
+    end
+
+    @any_processing = @orders.any?(&:processing?)
+    @batch_total = @orders.sum { |o| o.total_amount || 0 }
+    @batch_items = @orders.sum { |o| o.order_items.size }
+  end
+
+  # JSON endpoint for batch progress polling
+  def batch_placement_status
+    orders = find_batch_orders
+      .includes(:supplier, order_items: :supplier_product)
+
+    render json: {
+      orders: orders.map { |o|
+        {
+          id: o.id,
+          supplier_name: o.supplier.name,
+          status: o.status,
+          processing: o.processing?,
+          total_amount: o.total_amount&.to_f,
+          confirmation_number: o.confirmation_number,
+          error_message: o.error_message,
+          item_count: o.order_items.size
+        }
+      },
+      all_complete: orders.none?(&:processing?)
+    }
+  end
+
   private
 
   def set_order
@@ -511,6 +578,16 @@ class OrdersController < ApplicationController
 
   def order_params
     params.require(:order).permit(:location_id, :notes, :delivery_date)
+  end
+
+  def find_batch_orders
+    if params[:batch_id].present?
+      current_user.orders.for_batch(params[:batch_id])
+    elsif params[:order_list_id].present?
+      current_user.orders.where(order_list_id: params[:order_list_id])
+    else
+      Order.none
+    end
   end
 
   def find_aggregated_list(id)

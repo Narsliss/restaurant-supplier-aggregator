@@ -3,6 +3,7 @@ module Scrapers
     BASE_URL = 'https://www.chefswarehouse.com'.freeze
     ORDER_URL = 'https://order.chefswarehouse.com'.freeze
     ORDER_MINIMUM = 200.00
+    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live CW orders
 
     # Override with_browser to use longer timeout and stealth options
     # CW's Vue.js SPA needs more time and may trigger bot detection
@@ -382,9 +383,115 @@ module Scrapers
 
           rate_limit_delay
         end
+
+        # While browser is still open and authenticated, grab the delivery address
+        begin
+          extract_delivery_address
+        rescue StandardError => e
+          logger.warn "[ChefsWarehouse] Address extraction failed (non-fatal): #{e.message}"
+        end
       end
 
       results
+    end
+
+    def clear_cart
+      with_browser do
+        unless restore_session && logged_in?
+          perform_login_steps
+          save_session
+        end
+
+        navigate_to("#{BASE_URL}/cart")
+        sleep 3
+
+        # Check if cart has items
+        cart_count = browser.evaluate(<<~JS)
+          (function() {
+            // Look for cart count in the shopping cart button (e.g. "10")
+            var cartBtn = document.querySelector('.shopping-cart-btn, .mobile-shopping-cart-btn');
+            if (cartBtn) {
+              var num = parseInt(cartBtn.innerText.trim());
+              if (!isNaN(num)) return num;
+            }
+            // Fallback: count quantity inputs on the cart page
+            var inputs = document.querySelectorAll('input[type="number"]');
+            return inputs.length;
+          })()
+        JS
+
+        if cart_count.to_i == 0
+          logger.info '[ChefsWarehouse] Cart is already empty'
+          return
+        end
+
+        logger.info "[ChefsWarehouse] Clearing cart (#{cart_count} items)..."
+
+        # Click the "Empty Cart" button
+        clicked_empty = browser.evaluate(<<~JS)
+          (function() {
+            var buttons = document.querySelectorAll('button, a');
+            for (var btn of buttons) {
+              var text = (btn.innerText || '').trim().toLowerCase();
+              if (text === 'empty cart' && btn.offsetParent !== null) {
+                btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                btn.click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+
+        unless clicked_empty
+          logger.warn '[ChefsWarehouse] Could not find Empty Cart button'
+          return
+        end
+
+        sleep 1
+
+        # CW shows a confirmation modal: "You're about to remove all items from your cart"
+        # Confirm by clicking the second "Empty Cart" button in the modal
+        confirmed = browser.evaluate(<<~JS)
+          (function() {
+            // Look for modal confirmation button — it's the "Empty Cart" button inside the modal
+            var modal = document.querySelector('.modal, [class*="modal"], [role="dialog"]');
+            if (modal) {
+              var buttons = modal.querySelectorAll('button, a');
+              for (var btn of buttons) {
+                var text = (btn.innerText || '').trim().toLowerCase();
+                if (text === 'empty cart') {
+                  btn.click();
+                  return { confirmed: true, method: 'modal-button' };
+                }
+              }
+            }
+
+            // Fallback: find all "Empty Cart" buttons and click the last one (modal confirm)
+            var allBtns = document.querySelectorAll('button, a');
+            var emptyBtns = [];
+            for (var btn of allBtns) {
+              var text = (btn.innerText || '').trim().toLowerCase();
+              if (text === 'empty cart' && btn.offsetParent !== null) {
+                emptyBtns.push(btn);
+              }
+            }
+            if (emptyBtns.length > 1) {
+              emptyBtns[emptyBtns.length - 1].click();
+              return { confirmed: true, method: 'last-empty-btn' };
+            }
+
+            return { confirmed: false };
+          })()
+        JS
+
+        if confirmed && confirmed['confirmed']
+          logger.info "[ChefsWarehouse] Cart emptied (#{confirmed['method']})"
+          sleep 2 # Wait for cart to clear
+        else
+          logger.warn '[ChefsWarehouse] Could not confirm Empty Cart modal'
+        end
+      end
     end
 
     def add_to_cart(items, delivery_date: nil)
@@ -413,52 +520,171 @@ module Scrapers
         end
 
         if failed_items.any?
-          raise ItemUnavailableError.new(
-            "#{failed_items.count} item(s) could not be added",
-            items: failed_items
-          )
+          if added_items.empty?
+            # ALL items failed — nothing in the cart, can't proceed
+            raise ItemUnavailableError.new(
+              "#{failed_items.count} item(s) could not be added",
+              items: failed_items
+            )
+          else
+            # Some items failed but others succeeded — log warning and continue
+            logger.warn "[ChefsWarehouse] #{failed_items.count} item(s) skipped (unavailable): " \
+                        "#{failed_items.map { |i| i[:sku] }.join(', ')}"
+          end
         end
 
-        { added: added_items.count }
+        { added: added_items.count, failed: failed_items }
       end
     end
 
-    def checkout
+    def checkout(dry_run: false)
+      effective_dry_run = dry_run || !CHECKOUT_LIVE
+      logger.info "[ChefsWarehouse] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
+
       with_browser do
-        navigate_to("#{BASE_URL}/cart")
-        wait_for_selector('.cart-page, .shopping-cart')
+        # Step 1: Restore session / login
+        unless restore_session && logged_in?
+          perform_login_steps
+          save_session
+        end
 
-        validate_cart_before_checkout
+        # Step 2: Navigate to cart page
+        navigate_to_cart_page
 
-        minimum_check = check_order_minimum_at_checkout
-        unless minimum_check[:met]
+        # Step 3: Extract cart data (JS-based DOM scanning)
+        cart_data = extract_cart_data
+        logger.info "[ChefsWarehouse] Cart: #{cart_data[:item_count]} items, subtotal=#{cart_data[:subtotal]}"
+
+        # Step 4: Validate cart
+        raise ScrapingError, 'Cart is empty' if cart_data[:item_count] == 0
+
+        # Step 5: Check order minimum
+        if cart_data[:subtotal] < ORDER_MINIMUM
           raise OrderMinimumError.new(
             'Order minimum not met',
-            minimum: minimum_check[:minimum],
-            current_total: minimum_check[:current]
+            minimum: ORDER_MINIMUM,
+            current_total: cart_data[:subtotal]
           )
         end
 
-        unavailable = detect_unavailable_items_in_cart
-        if unavailable.any?
+        # Step 6: Check for unavailable items
+        if cart_data[:unavailable_items].any?
           raise ItemUnavailableError.new(
-            "#{unavailable.count} item(s) are unavailable",
-            items: unavailable
+            "#{cart_data[:unavailable_items].count} item(s) are unavailable",
+            items: cart_data[:unavailable_items]
           )
         end
 
-        click('.checkout-btn, .proceed-checkout')
-        wait_for_selector('.checkout-page, .order-summary')
+        # Step 7: Navigate to checkout page
+        proceed_to_checkout_page
 
-        click('.place-order, .submit-order')
-        wait_for_confirmation_or_error
+        # Step 8: Extract checkout/review page data
+        checkout_data = extract_checkout_data
+        logger.info "[ChefsWarehouse] Checkout: total=#{checkout_data[:total]}, delivery=#{checkout_data[:delivery_date]}"
 
-        {
-          confirmation_number: extract_text('.order-number, .confirmation-id'),
-          total: extract_price(extract_text('.order-total, .grand-total')),
-          delivery_date: extract_text('.delivery-date, .ship-date')
-        }
+        # ═══════════════════════════════════════════
+        # ═══ SAFETY GATE — DRY RUN CHECK ══════════
+        # ═══════════════════════════════════════════
+        if effective_dry_run
+          logger.info "[ChefsWarehouse] DRY RUN COMPLETE — stopping before final submit"
+          logger.info "[ChefsWarehouse] Would have placed order: total=#{checkout_data[:total]}"
+
+          return {
+            confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+            total: checkout_data[:total] || cart_data[:subtotal],
+            delivery_date: checkout_data[:delivery_date],
+            dry_run: true,
+            cart_items: cart_data[:items],
+            checkout_summary: checkout_data
+          }
+        end
+
+        # Step 9: LIVE ORDER — Click final submit
+        logger.warn "[ChefsWarehouse] PLACING LIVE ORDER — clicking submit"
+        click_place_order_button
+
+        # Step 10: Wait for confirmation
+        confirmation = wait_for_order_confirmation
+
+        logger.info "[ChefsWarehouse] Order placed: #{confirmation[:confirmation_number]}"
+        confirmation
       end
+    end
+
+    # Extract delivery address from CW account page.
+    # Must be called inside an existing with_browser block (browser already open).
+    def extract_delivery_address
+      logger.info "[ChefsWarehouse] Extracting delivery address from account..."
+
+      # Try the account dashboard addresses page
+      address_urls = [
+        "#{BASE_URL}/account-dashboard/addresses/",
+        "#{BASE_URL}/account-dashboard/delivery-addresses/",
+        "#{BASE_URL}/account-dashboard/"
+      ]
+
+      address_urls.each do |url|
+        begin
+          navigate_to(url)
+          sleep 2
+
+          # Log the page content for discovery
+          page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+          logger.info "[ChefsWarehouse] Address page (#{url}): #{page_text.first(1500)}"
+
+          # Try to extract address via JavaScript - scan for address-like elements
+          address = browser.evaluate(<<~JS)
+            (function() {
+              // Look for common address container patterns
+              var selectors = [
+                '[class*="address"]',
+                '[class*="shipping"]',
+                '[class*="delivery"]',
+                '[data-address]',
+                '[class*="location"]'
+              ];
+
+              for (var i = 0; i < selectors.length; i++) {
+                var els = document.querySelectorAll(selectors[i]);
+                for (var j = 0; j < els.length; j++) {
+                  var text = els[j].innerText.trim();
+                  // Look for text that contains a ZIP code pattern (basic address heuristic)
+                  if (text && text.match(/\\b\\d{5}(-\\d{4})?\\b/) && text.length < 300) {
+                    return text;
+                  }
+                }
+              }
+
+              // Fallback: scan all paragraphs and divs for address patterns
+              var all = document.querySelectorAll('p, div, span, address');
+              for (var k = 0; k < all.length; k++) {
+                var t = all[k].innerText.trim();
+                // Match: has a ZIP code, has a state abbreviation, reasonable length
+                if (t && t.match(/\\b\\d{5}(-\\d{4})?\\b/) && t.match(/\\b[A-Z]{2}\\b/) && t.length > 10 && t.length < 300) {
+                  // Avoid nav bars, footers, etc.
+                  var parent = all[k].closest('nav, footer, header');
+                  if (!parent) return t;
+                }
+              }
+
+              return null;
+            })()
+          JS
+
+          if address.present?
+            # Clean up: collapse whitespace and newlines
+            cleaned = address.gsub(/\s+/, ' ').strip
+            logger.info "[ChefsWarehouse] Found delivery address: #{cleaned}"
+            @last_delivery_address = cleaned
+            return @last_delivery_address
+          end
+        rescue StandardError => e
+          logger.warn "[ChefsWarehouse] Failed to extract address from #{url}: #{e.message}"
+        end
+      end
+
+      logger.info "[ChefsWarehouse] Could not extract delivery address from any account page"
+      @last_delivery_address = nil
     end
 
     private
@@ -512,69 +738,63 @@ module Scrapers
     end
 
     def add_product_from_detail_page(item)
-      # CW is a Vue.js SPA - use JavaScript to interact with form elements
-      # Set quantity if needed
-      if item[:quantity].to_i > 1
-        browser.evaluate(<<~JS)
+      qty = item[:quantity].to_i
+      qty = 1 if qty < 1
+
+      # CW's Vue.js SPA ignores programmatic quantity input changes.
+      # Most reliable approach: click Add to Cart once per unit needed.
+      qty.times do |i|
+        clicked = browser.evaluate(<<~JS)
           (function() {
-            var qtyInputs = document.querySelectorAll('input[type="number"], input.qty-input, input[name="quantity"], .quantity-input input');
-            for (var input of qtyInputs) {
-              if (input.offsetParent !== null) { // visible
-                input.value = '#{item[:quantity]}';
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                return true;
+            // Phase 1: Scoped to product detail area (not recommendations)
+            var pdpContainers = document.querySelectorAll(
+              '.product-detail, .pdp-container, .product-info, [class*="product-detail"], [class*="pdp"], main > section:first-child, .product-page'
+            );
+
+            for (var container of pdpContainers) {
+              var btn = container.querySelector('.add-to-cart-btn, button.add-to-cart, [class*="add-to-cart"]');
+              if (btn && btn.offsetParent !== null) {
+                btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                btn.click();
+                return { clicked: true, selector: 'pdp-scoped', classes: btn.className };
               }
             }
-            return false;
+
+            // Phase 2: First visible add-to-cart button
+            var selectors = ['.add-to-cart-btn', 'button.add-to-cart', 'button[class*="add-to-cart"]'];
+            for (var sel of selectors) {
+              var buttons = document.querySelectorAll(sel);
+              for (var btn of buttons) {
+                if (btn.offsetParent !== null) {
+                  btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                  btn.click();
+                  return { clicked: true, selector: sel, classes: btn.className };
+                }
+              }
+            }
+
+            // Phase 3: Any button with "add to cart" text
+            var allButtons = document.querySelectorAll('button');
+            for (var btn of allButtons) {
+              if (btn.innerText.toLowerCase().includes('add to cart')) {
+                btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                btn.click();
+                return { clicked: true, method: 'text-match' };
+              }
+            }
+
+            return { clicked: false };
           })()
         JS
-        sleep 0.5
+
+        raise ScrapingError, "Add to cart button not found for SKU #{item[:sku]}" unless clicked && clicked['clicked']
+
+        logger.debug "[ChefsWarehouse] Clicked add-to-cart (#{i + 1}/#{qty}): #{clicked.inspect}"
+        wait_for_cart_confirmation
+
+        # Brief pause between clicks to let Vue update the cart state
+        sleep 1.5 if i < qty - 1
       end
-
-      # Click add to cart using JavaScript (handles Vue.js event binding)
-      clicked = browser.evaluate(<<~JS)
-        (function() {
-          // Find visible add-to-cart button
-          var selectors = [
-            '.add-to-cart-btn',
-            'button.add-to-cart',
-            '.add-to-cart',
-            '#add-to-cart',
-            'button[class*="add-to-cart"]',
-            '.pdp-add-to-cart'
-          ];
-
-          for (var sel of selectors) {
-            var buttons = document.querySelectorAll(sel);
-            for (var btn of buttons) {
-              // Check if button is in viewport or make it visible
-              btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-
-              // Trigger click
-              btn.click();
-              return { clicked: true, selector: sel };
-            }
-          }
-
-          // Fallback: find any button with "add" text
-          var allButtons = document.querySelectorAll('button');
-          for (var btn of allButtons) {
-            if (btn.innerText.toLowerCase().includes('add to cart')) {
-              btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-              btn.click();
-              return { clicked: true, method: 'text-match' };
-            }
-          }
-
-          return { clicked: false };
-        })()
-      JS
-
-      raise ScrapingError, "Add to cart button not found for SKU #{item[:sku]}" unless clicked && clicked['clicked']
-
-      logger.debug "[ChefsWarehouse] Clicked add-to-cart: #{clicked.inspect}"
-      wait_for_cart_confirmation
     end
 
     def wait_for_cart_confirmation
@@ -1509,55 +1729,362 @@ module Scrapers
     end
 
     # ── Checkout helpers ────────────────────────────────────────────
-    def check_order_minimum_at_checkout
-      subtotal_text = extract_text('.subtotal, .cart-subtotal')
-      current_total = extract_price(subtotal_text) || 0
+
+    def navigate_to_cart_page
+      # Try the main cart URL first
+      navigate_to("#{BASE_URL}/cart")
+      sleep 3 # Wait for Vue SPA to render
+
+      # Check if we're on a cart page with items
+      page_text = browser.evaluate('document.body.innerText') || ''
+
+      # If the page doesn't look like a cart, try alternate URLs
+      unless page_text.match?(/\$\d+\.\d{2}/) || page_text.downcase.include?('cart') || page_text.downcase.include?('shopping')
+        logger.info "[ChefsWarehouse] /cart didn't load cart content, trying /account-dashboard/cart/"
+        navigate_to("#{BASE_URL}/account-dashboard/cart/")
+        sleep 3
+        page_text = browser.evaluate('document.body.innerText') || ''
+      end
+
+      # Log the page structure for DOM discovery
+      logger.info "[ChefsWarehouse] Cart page URL: #{browser.current_url}"
+      logger.info "[ChefsWarehouse] Cart page text (first 500 chars): #{page_text[0..500]}"
+
+      # Log DOM structure for selector discovery
+      dom_info = browser.evaluate(<<~JS)
+        (function() {
+          var info = { url: window.location.href, title: document.title };
+          info.has_table = !!document.querySelector('table');
+          info.has_cart_class = !!document.querySelector('[class*="cart"]');
+          info.has_price = !!document.body.innerText.match(/\\$\\d+\\.\\d{2}/);
+          info.buttons = Array.from(document.querySelectorAll('button, a.btn, [role="button"]'))
+            .slice(0, 20)
+            .map(function(b) { return { tag: b.tagName, text: b.innerText.trim().substring(0, 50), classes: b.className.substring(0, 80) }; });
+          info.inputs = Array.from(document.querySelectorAll('input[type="number"]'))
+            .map(function(i) { return { name: i.name, value: i.value, classes: i.className.substring(0, 80) }; });
+          return info;
+        })()
+      JS
+
+      logger.info "[ChefsWarehouse] Cart page DOM: #{dom_info.inspect}"
+    end
+
+    def extract_cart_data
+      cart_data = browser.evaluate(<<~JS)
+        (function() {
+          var result = { items: [], subtotal: 0, item_count: 0, unavailable: [], raw_prices: [], badge_count: 0 };
+
+          // === ITEM COUNT: Trust the shopping cart badge (most reliable) ===
+          var cartBadge = document.querySelector('.shopping-cart-btn, .mobile-shopping-cart-btn, [class*="cart-count"]');
+          if (cartBadge) {
+            var badgeNum = parseInt(cartBadge.innerText.trim());
+            if (!isNaN(badgeNum)) result.badge_count = badgeNum;
+          }
+
+          var pageText = document.body.innerText;
+
+          // === SUBTOTAL: Look for labeled amounts ===
+          var subtotalPatterns = [
+            /subtotal[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /cart\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /estimated\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i
+          ];
+          for (var pattern of subtotalPatterns) {
+            var match = pageText.match(pattern);
+            if (match) {
+              result.subtotal = parseFloat(match[1].replace(',', ''));
+              break;
+            }
+          }
+
+          // === CART ITEMS: Only count elements with quantity inputs ===
+          // Actual cart items have qty inputs; recommendation products just have "Add to Cart" buttons
+          var qtyInputs = document.querySelectorAll('input[type="number"]');
+          var cartItems = [];
+
+          qtyInputs.forEach(function(input) {
+            if (input.offsetParent === null) return; // skip hidden
+
+            // Walk up to find the containing cart item element
+            var container = input.closest(
+              '[class*="cart-item"], [class*="line-item"], [class*="product-row"], ' +
+              'tr, li, .card, [class*="cart"] > div'
+            );
+            if (!container) container = input.parentElement && input.parentElement.parentElement;
+            if (!container) return;
+
+            // Skip if this container is inside a recommendation/suggested section
+            var inRecommendation = container.closest('[class*="recommend"], [class*="suggest"], [class*="trending"], [class*="carousel"]');
+            if (inRecommendation) return;
+
+            var elText = container.innerText || '';
+            var priceMatch = elText.match(/\\$([\\d,]+\\.\\d{2})/);
+            var qty = parseInt(input.value) || 1;
+            var name = elText.split('\\n')[0].trim().substring(0, 80);
+            var price = priceMatch ? parseFloat(priceMatch[1].replace(',', '')) : 0;
+            var sku = (container.getAttribute('data-sku') || container.getAttribute('data-product-id') || '').trim();
+
+            var isUnavailable = elText.toLowerCase().match(/out of stock|unavailable|discontinued/);
+
+            if (price > 0) {
+              var item = { name: name, price: price, quantity: qty, sku: sku };
+              cartItems.push(item);
+              if (isUnavailable) result.unavailable.push(item);
+            }
+          });
+
+          result.items = cartItems;
+          result.raw_prices = (pageText.match(/\\$[\\d,]+\\.\\d{2}/g) || []);
+
+          // Item count: prefer badge (most reliable), then found cart items
+          result.item_count = result.badge_count || cartItems.length;
+
+          // Subtotal: if no labeled subtotal, sum the cart items we found
+          if (result.subtotal === 0 && cartItems.length > 0) {
+            result.subtotal = cartItems.reduce(function(sum, item) {
+              return sum + (item.price * item.quantity);
+            }, 0);
+          }
+
+          // Last resort subtotal: largest dollar amount on page
+          if (result.subtotal === 0 && result.raw_prices.length > 0) {
+            var amounts = result.raw_prices.map(function(p) { return parseFloat(p.replace(/[\\$,]/g, '')); });
+            result.subtotal = Math.max.apply(null, amounts);
+          }
+
+          return result;
+        })()
+      JS
+
+      logger.info "[ChefsWarehouse] Cart extraction: badge=#{cart_data['badge_count']}, items_found=#{(cart_data['items'] || []).size}, subtotal=#{cart_data['subtotal']}"
 
       {
-        met: current_total >= ORDER_MINIMUM,
-        minimum: ORDER_MINIMUM,
-        current: current_total
+        items: cart_data['items'] || [],
+        subtotal: cart_data['subtotal'] || 0,
+        item_count: cart_data['item_count'] || 0,
+        unavailable_items: (cart_data['unavailable'] || []).map { |i| { sku: i['sku'], name: i['name'], message: 'Out of stock' } },
+        raw_prices: cart_data['raw_prices'] || []
       }
     end
 
-    def detect_unavailable_items_in_cart
-      unavailable = []
+    def proceed_to_checkout_page
+      # Find and click checkout/proceed button using text matching (most reliable for unknown DOM)
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Exclusion classes — buttons that happen to say "Submit" but aren't checkout
+          var excludeClasses = ['search-button', 'clear-button', 'close-button'];
 
-      browser.css('.cart-item, .line-item').each do |item|
-        next unless item.at_css('.out-of-stock, .unavailable')
+          function isExcluded(el) {
+            var cls = (el.className || '').toLowerCase();
+            for (var exc of excludeClasses) {
+              if (cls.includes(exc)) return true;
+            }
+            return false;
+          }
 
-        unavailable << {
-          sku: item.at_css('[data-sku], [data-product-id]')&.attribute('data-sku'),
-          name: item.at_css('.product-name, .item-title')&.text&.strip,
-          message: item.at_css('.stock-message')&.text&.strip
-        }
+          // Phase 1: Exact text matches for common checkout buttons
+          var exactTargets = ['checkout', 'proceed to checkout', 'proceed', 'place order', 'continue to checkout'];
+          var elements = document.querySelectorAll('button, a.btn, a[class*="btn"], [role="button"], input[type="submit"]');
+
+          for (var el of elements) {
+            if (isExcluded(el)) continue;
+            var text = (el.innerText || el.value || '').trim().toLowerCase();
+            for (var target of exactTargets) {
+              if (text.includes(target)) {
+                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                el.click();
+                return { clicked: true, text: el.innerText.trim(), tag: el.tagName, method: 'exact-text' };
+              }
+            }
+          }
+
+          // Phase 2: CW-specific — look for a primary "Submit" button (not search/close)
+          // CW's cart uses a btn-primary "Submit" button as the checkout action
+          for (var el of elements) {
+            if (isExcluded(el)) continue;
+            var text = (el.innerText || el.value || '').trim().toLowerCase();
+            var cls = (el.className || '').toLowerCase();
+            if (text === 'submit' && (cls.includes('btn-primary') || cls.includes('btn-submit') || cls.includes('cart'))) {
+              el.scrollIntoView({ behavior: 'instant', block: 'center' });
+              el.click();
+              return { clicked: true, text: el.innerText.trim(), tag: el.tagName, method: 'primary-submit', classes: el.className };
+            }
+          }
+
+          // Phase 3: Any visible "Submit" button that isn't excluded
+          for (var el of elements) {
+            if (isExcluded(el)) continue;
+            var text = (el.innerText || el.value || '').trim().toLowerCase();
+            if (text === 'submit' && el.offsetParent !== null) {
+              el.scrollIntoView({ behavior: 'instant', block: 'center' });
+              el.click();
+              return { clicked: true, text: el.innerText.trim(), tag: el.tagName, method: 'submit-fallback', classes: el.className };
+            }
+          }
+
+          // Phase 4: href-based links
+          var links = document.querySelectorAll('a[href*="checkout"], a[href*="order"]');
+          for (var link of links) {
+            if (link.offsetParent !== null) {
+              link.click();
+              return { clicked: true, text: link.innerText.trim(), method: 'href-match' };
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      if clicked && clicked['clicked']
+        logger.info "[ChefsWarehouse] Clicked checkout button: #{clicked.inspect}"
+      else
+        logger.warn "[ChefsWarehouse] Could not find checkout button — logging page state"
+        log_page_state('checkout_button_not_found')
+        raise ScrapingError, 'Could not find checkout/proceed button'
       end
 
-      unavailable
+      sleep 5 # Wait for checkout page to load (Vue SPA navigation)
+
+      # Log checkout page structure for discovery
+      logger.info "[ChefsWarehouse] Checkout page URL: #{browser.current_url}"
+      page_text = browser.evaluate('document.body.innerText') || ''
+      logger.info "[ChefsWarehouse] Checkout page text (first 500 chars): #{page_text[0..500]}"
     end
 
-    def validate_cart_before_checkout
-      detect_error_conditions
+    def extract_checkout_data
+      checkout_data = browser.evaluate(<<~JS)
+        (function() {
+          var text = document.body.innerText;
+          var result = { total: 0, delivery_date: null, summary_text: text.substring(0, 1000) };
 
-      return unless browser.at_css('.empty-cart, .no-items')
+          // Extract total
+          var totalPatterns = [
+            /order\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /grand\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /amount\\s*due[:\\s]*\\$([\\d,]+\\.\\d{2})/i
+          ];
+          for (var pattern of totalPatterns) {
+            var match = text.match(pattern);
+            if (match) {
+              result.total = parseFloat(match[1].replace(',', ''));
+              break;
+            }
+          }
 
-      raise ScrapingError, 'Cart is empty'
+          // Extract delivery date
+          var datePatterns = [
+            /deliver[y]?\\s*(?:date)?[:\\s]*(\\w+ \\d{1,2},? \\d{4})/i,
+            /ship\\s*(?:date)?[:\\s]*(\\w+ \\d{1,2},? \\d{4})/i,
+            /estimated\\s*delivery[:\\s]*(\\w+ \\d{1,2},? \\d{4})/i,
+            /(\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})/
+          ];
+          for (var pattern of datePatterns) {
+            var match = text.match(pattern);
+            if (match) {
+              result.delivery_date = match[1];
+              break;
+            }
+          }
+
+          // Capture available buttons for logging
+          result.buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a.btn'))
+            .filter(function(b) { return b.offsetParent !== null; })
+            .slice(0, 15)
+            .map(function(b) { return { text: b.innerText.trim().substring(0, 50), tag: b.tagName, classes: b.className.substring(0, 80) }; });
+
+          return result;
+        })()
+      JS
+
+      logger.info "[ChefsWarehouse] Checkout data: #{checkout_data.inspect}"
+
+      {
+        total: checkout_data['total'] || 0,
+        delivery_date: checkout_data['delivery_date'],
+        summary_text: checkout_data['summary_text'],
+        buttons: checkout_data['buttons'] || []
+      }
     end
 
-    def wait_for_confirmation_or_error
+    def click_place_order_button
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var targets = ['place order', 'submit order', 'complete order', 'confirm order'];
+          var elements = document.querySelectorAll('button, input[type="submit"], a.btn, [role="button"]');
+
+          for (var el of elements) {
+            var text = (el.innerText || el.value || '').trim().toLowerCase();
+            for (var target of targets) {
+              if (text.includes(target)) {
+                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                el.click();
+                return { clicked: true, text: el.innerText.trim() };
+              }
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      raise ScrapingError, 'Could not find place order button' unless clicked && clicked['clicked']
+
+      logger.info "[ChefsWarehouse] Clicked place order: #{clicked.inspect}"
+    end
+
+    def wait_for_order_confirmation
       start_time = Time.current
       timeout = 30
 
       loop do
-        return true if browser.at_css('.confirmation, .order-success, .thank-you')
+        page_text = browser.evaluate('document.body.innerText') || ''
 
-        error_msg = browser.at_css('.error, .checkout-error')&.text&.strip
-        raise ScrapingError, "Checkout failed: #{error_msg}" if error_msg
+        # Check for confirmation indicators
+        if page_text.match?(/confirmation|order\s*#|order\s*number|thank\s*you|order\s*placed/i)
+          # Extract confirmation number
+          conf_match = page_text.match(/(?:order\s*#?|confirmation\s*#?)[:\s]*([A-Z0-9-]+)/i)
+          total_match = page_text.match(/total[:\s]*\$[\d,]+\.\d{2}/i)
 
-        raise ScrapingError, 'Checkout timeout' if Time.current - start_time > timeout
+          confirmation_number = conf_match ? conf_match[1] : "CW-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+          total = total_match ? extract_price(total_match[0]) : nil
 
-        sleep 0.5
+          logger.info "[ChefsWarehouse] Order confirmed: #{confirmation_number}"
+
+          return {
+            confirmation_number: confirmation_number,
+            total: total,
+            delivery_date: nil
+          }
+        end
+
+        # Check for errors
+        if page_text.match?(/error|failed|could not|unable to/i) && !page_text.match?(/confirmation/i)
+          error_text = page_text[0..200]
+          raise ScrapingError, "Checkout failed: #{error_text}"
+        end
+
+        raise ScrapingError, 'Checkout confirmation timeout (30s)' if Time.current - start_time > timeout
+
+        sleep 1
       end
+    end
+
+    def log_page_state(context)
+      page_info = browser.evaluate(<<~JS)
+        (function() {
+          return {
+            url: window.location.href,
+            title: document.title,
+            text_preview: document.body.innerText.substring(0, 1000),
+            button_count: document.querySelectorAll('button').length,
+            link_count: document.querySelectorAll('a').length,
+            input_count: document.querySelectorAll('input').length
+          };
+        })()
+      JS
+
+      logger.info "[ChefsWarehouse] Page state (#{context}): #{page_info.inspect}"
     end
   end
 end

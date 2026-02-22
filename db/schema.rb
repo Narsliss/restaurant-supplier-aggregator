@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_21_171454) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_21_185039) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -197,6 +197,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_21_171454) do
     t.decimal "verified_total", precision: 10, scale: 2
     t.decimal "price_change_amount", precision: 10, scale: 2
     t.text "verification_error"
+    t.text "supplier_delivery_address"
     t.index ["batch_id"], name: "index_orders_on_batch_id"
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"
@@ -646,6 +647,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_21_171454) do
     t.datetime "updated_at", null: false
     t.boolean "password_required", default: true, null: false
     t.string "auth_type", default: "password", null: false
+    t.boolean "checkout_enabled", default: false, null: false
     t.index ["active"], name: "index_suppliers_on_active"
     t.index ["code"], name: "index_suppliers_on_code", unique: true
   end

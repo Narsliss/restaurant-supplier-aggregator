@@ -1,4 +1,7 @@
-<div class="max-w-4xl mx-auto">
+<div class="max-w-4xl mx-auto"
+     data-controller="order-status"
+     data-order-status-url-value="<%= placement_status_order_path(@order) %>"
+     data-order-status-processing-value="<%= @order.processing? %>">
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Order #<%= @order.id %></h1>
@@ -9,11 +12,13 @@
       <% when "pending" %>
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">Pending</span>
       <% when "processing" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">Processing</span>
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800" data-order-status-badge>Processing</span>
       <% when "submitted" %>
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Submitted</span>
       <% when "confirmed" %>
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Confirmed</span>
+      <% when "dry_run_complete" %>
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">Dry Run Complete</span>
       <% when "failed" %>
         <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">Failed</span>
       <% when "cancelled" %>
@@ -29,6 +34,68 @@
     </div>
   </div>
 
+  <% if @order.processing? %>
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+      <div class="flex items-center gap-3">
+        <svg class="animate-spin h-5 w-5 text-blue-600 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <div>
+          <h3 class="text-sm font-semibold text-blue-800">Submitting to <%= @order.supplier.name %></h3>
+          <p class="text-sm text-blue-700 mt-0.5">Running through the checkout process. This page will update automatically.</p>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <% if @order.dry_run_complete? %>
+    <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
+      <div class="flex items-start gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <h3 class="text-sm font-semibold text-purple-800">Test Run — No Order Placed</h3>
+          <p class="text-sm text-purple-700 mt-1">This was a dry run. The checkout flow was tested but no real order was submitted to <%= @order.supplier.name %>. No charges were made. To place a real order, checkout must be enabled for this supplier.</p>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <% removed_validation = @validations.find { |v| v.validation_type == 'items_removed' } %>
+  <% if removed_validation %>
+    <div class="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-6">
+      <div class="flex items-start gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div class="min-w-0">
+          <h3 class="text-sm font-semibold text-amber-800">Items Removed — Out of Stock</h3>
+          <p class="text-sm text-amber-700 mt-1"><%= removed_validation.message %></p>
+          <% if removed_validation.details && removed_validation.details['removed_items'].present? %>
+            <ul class="mt-2 space-y-1">
+              <% removed_validation.details['removed_items'].each do |item| %>
+                <li class="flex items-start gap-2 text-sm text-amber-800">
+                  <span class="text-amber-500 flex-shrink-0 mt-0.5">&bull;</span>
+                  <span>
+                    <strong><%= item['name'] %></strong>
+                    <% if item['sku'].present? %>
+                      <span class="text-amber-600">(#<%= item['sku'] %>)</span>
+                    <% end %>
+                    <% if item['reason'].present? %>
+                      <span class="text-amber-600">— <%= item['reason'] %></span>
+                    <% end %>
+                  </span>
+                </li>
+              <% end %>
+            </ul>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
   <!-- Order Details -->
   <div class="bg-white shadow rounded-lg p-4 sm:p-6 mb-6">
     <dl class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -43,6 +110,14 @@
       <div>
         <dt class="text-sm font-medium text-gray-500">Total</dt>
         <dd class="mt-1 text-xl font-bold text-gray-900"><%= number_to_currency(@order.total_amount) %></dd>
+        <% if @order.total_amount && @order.subtotal && @order.total_amount > @order.subtotal && @order.subtotal > 0 %>
+          <dd class="mt-0.5 text-xs text-gray-500">
+            Items: <%= number_to_currency(@order.subtotal) %> +
+            <span class="text-amber-600 font-medium">
+              <%= number_to_currency(@order.total_amount - @order.subtotal) %> surcharge/fees
+            </span>
+          </dd>
+        <% end %>
       </div>
       <% if @order.confirmation_number.present? %>
         <div>
@@ -51,14 +126,14 @@
         </div>
       <% end %>
     </dl>
-    <% if @order.error_message.present? %>
+    <% if @order.failed? && @order.error_message.present? %>
       <div class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
         <p class="text-sm text-red-700"><strong>Error:</strong> <%= @order.error_message %></p>
       </div>
     <% end %>
     <% if @order.notes.present? %>
       <div class="mt-4">
-        <p class="text-sm text-gray-500"><strong>Notes:</strong> <%= @order.notes %></p>
+        <div class="text-sm text-gray-500"><strong>Notes:</strong><br><%= simple_format(@order.notes, {}, wrapper_tag: "span") %></div>
       </div>
     <% end %>
   </div>

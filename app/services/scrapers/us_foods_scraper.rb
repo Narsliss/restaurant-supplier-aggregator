@@ -2,6 +2,7 @@ module Scrapers
   class UsFoodsScraper < BaseScraper
     BASE_URL = 'https://order.usfoods.com'.freeze
     ORDER_MINIMUM = 250.00
+    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live US Foods orders
 
     # Azure AD B2C login selectors
     USERID_FIELD = '#signInName-facade'.freeze
@@ -116,6 +117,117 @@ module Scrapers
       yield(browser)
     ensure
       browser&.quit
+    end
+
+    # Keep a single browser alive across clear_cart → add_to_cart → checkout.
+    # US Foods uses an order-based model — the active order context may not
+    # survive across separate browser sessions. Reusing one browser avoids
+    # losing the order between steps.
+    def ensure_order_browser!
+      return if @browser # Already have an open browser
+
+      ua = if ENV['BROWSER_PATH'].present? || Rails.env.production?
+             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+           else
+             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+           end
+
+      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
+
+      browser_opts = {
+        headless: headless_mode ? 'new' : false,
+        timeout: 90,
+        process_timeout: 60,
+        window_size: [1280, 720],
+        browser_options: {
+          "no-sandbox": true,
+          "disable-gpu": true,
+          "disable-dev-shm-usage": true,
+          "disable-blink-features": 'AutomationControlled',
+          "user-agent": ua,
+          "disable-features": 'AutomationControlled,TranslateUI',
+          "excludeSwitches": 'enable-automation',
+          "no-first-run": true,
+          "no-default-browser-check": true,
+          "disable-component-update": true,
+          "disable-session-crashed-bubble": true,
+          "disable-extensions": true,
+          "disable-default-apps": true,
+          "disable-translate": true,
+          "disable-sync": true,
+          "disable-background-timer-throttling": true,
+          "disable-renderer-backgrounding": true,
+          "disable-backgrounding-occluded-windows": true,
+          "js-flags": '--max-old-space-size=256 --lite-mode',
+          "renderer-process-limit": 1,
+          "disable-software-rasterizer": true,
+          "disable-image-loading": false
+        }
+      }
+
+      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
+
+      logger.info '[UsFoods] Starting order browser (persistent for checkout flow)'
+      @browser = Ferrum::Browser.new(**browser_opts)
+
+      # Network interception (block images/analytics)
+      begin
+        browser.network.intercept
+        browser.on(:request) do |request|
+          url = request.url
+          if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
+             url.include?('adobedtm.com') ||
+             url.include?('analytics') ||
+             url.include?('google-analytics') ||
+             url.include?('googletagmanager')
+            request.abort
+          else
+            request.continue
+          end
+        end
+      rescue StandardError => e
+        logger.warn "[UsFoods] Order browser network interception failed: #{e.message}"
+      end
+
+      # Inject stealth scripts via CDP
+      begin
+        stealth_js = <<~JS
+          Object.defineProperty(navigator, 'webdriver', {get: () => false});
+          Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+          Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+          if (!window.chrome) window.chrome = {};
+          if (!window.chrome.runtime) window.chrome.runtime = {};
+        JS
+        browser.evaluate_on_new_document(stealth_js)
+      rescue StandardError => e
+        logger.warn "[UsFoods] Order browser CDP stealth failed: #{e.message}"
+      end
+
+      # Login
+      if restore_session
+        navigate_to(BASE_URL)
+        sleep 2
+        unless logged_in?
+          logger.info '[UsFoods] Order browser session invalid, performing fresh login'
+          perform_login_steps
+          save_session
+        end
+      else
+        logger.info '[UsFoods] Order browser no session, performing login'
+        perform_login_steps
+        save_session
+      end
+
+      logger.info '[UsFoods] Order browser ready'
+    end
+
+    def close_order_browser!
+      save_session if @browser
+      @browser&.quit
+      @browser = nil
+    rescue StandardError => e
+      logger.debug "[UsFoods] Error closing order browser: #{e.message}"
+      @browser = nil
     end
 
     # Apply comprehensive stealth patches after each page navigation.
@@ -845,59 +957,407 @@ module Scrapers
     def add_to_cart(items, delivery_date: nil)
       @target_delivery_date = delivery_date
 
-      with_browser do
-        # Restore session and navigate to check if logged in
-        if restore_session
-          navigate_to(BASE_URL)
-          sleep 2
-          unless logged_in?
-            logger.info '[UsFoods] Session invalid, performing fresh login'
-            perform_login_steps
-            save_session
-          end
-        else
-          logger.info '[UsFoods] No session to restore, performing login'
-          perform_login_steps
-          save_session
+      # Use persistent order browser — keeps same browser across
+      # clear_cart → add_to_cart → checkout so the active order is preserved.
+      ensure_order_browser!
+
+      logger.info "[UsFoods] Logged in, starting add-to-cart for #{items.size} items"
+      logger.info "[UsFoods] Target delivery date: #{@target_delivery_date || 'default'}"
+
+      # Step 0: Ensure an active order exists on the site.
+      # US Foods requires creating an order (with delivery date) before items
+      # can be added. Without an active order, quantity inputs on search pages
+      # don't register and items won't be added to any order.
+      ensure_active_order_on_site!
+
+      added_items = []
+      failed_items = []
+
+      items.each do |item|
+        begin
+          add_item_to_order(item[:sku], item[:quantity])
+          added_items << item
+          logger.info "[UsFoods] Added SKU #{item[:sku]} qty #{item[:quantity]} to order"
+        rescue ItemUnavailableError => e
+          # Item is genuinely out of stock on US Foods — skip it but report it properly
+          # so handle_skipped_cart_items can mark the supplier_product as OOS.
+          oos_name = e.items&.first&.dig(:name) || "SKU #{item[:sku]}"
+          logger.warn "[UsFoods] SKU #{item[:sku]} is out of stock — skipping: #{e.message}"
+          failed_items << { sku: item[:sku], name: oos_name, error: e.message, out_of_stock: true }
+        rescue StandardError => e
+          logger.warn "[UsFoods] Failed to add SKU #{item[:sku]}: #{e.message}"
+          failed_items << { sku: item[:sku], name: "SKU #{item[:sku]}", error: e.message }
         end
+        rate_limit_delay
+      end
 
-        logger.info "[UsFoods] Logged in, starting add-to-cart for #{items.size} items"
-        logger.info "[UsFoods] Target delivery date: #{@target_delivery_date || 'default'}"
+      # Bulk verify: navigate to order page ONCE and check all SKUs.
+      # This avoids navigating away between adds (which can interrupt async adds).
+      if added_items.any?
+        expected_skus = added_items.map { |i| i[:sku].to_s }
+        verification = verify_items_on_order_page(expected_skus)
 
-        added_items = []
-        failed_items = []
-        first_item = true
-
-        items.each do |item|
-          begin
-            add_item_to_order(item[:sku], item[:quantity], create_new_order: first_item)
-            added_items << item
-            logger.info "[UsFoods] Added SKU #{item[:sku]} qty #{item[:quantity]} to order"
-            first_item = false # Subsequent items go to existing order
-          rescue StandardError => e
-            logger.warn "[UsFoods] Failed to add SKU #{item[:sku]}: #{e.message}"
-            failed_items << { sku: item[:sku], error: e.message }
+        # Any items not found on the order page are actually failed
+        if verification[:missing].any?
+          verification[:missing].each do |sku|
+            item = added_items.find { |i| i[:sku].to_s == sku.to_s }
+            added_items.delete(item) if item
+            failed_items << { sku: sku, name: "SKU #{sku}", error: 'Not found on order page after add' }
+            logger.warn "[UsFoods] SKU #{sku} was NOT on the order page — add likely failed"
           end
-          rate_limit_delay
         end
+      end
 
-        if failed_items.any? && added_items.empty?
+      if failed_items.any? && added_items.empty?
+        close_order_browser!
+
+        # If ALL items failed because they're OOS, raise ItemUnavailableError
+        # (this correctly triggers stock-marking behavior).
+        # If items failed for OTHER reasons (scraper bugs), raise ScrapingError
+        # to avoid falsely marking products as out of stock.
+        all_oos = failed_items.all? { |f| f[:out_of_stock] }
+        if all_oos
           raise ItemUnavailableError.new(
-            'All items failed to add to order',
-            items: failed_items
+            "All #{failed_items.size} items are out of stock on US Foods",
+            items: failed_items.map { |f| { sku: f[:sku], name: f[:name], message: f[:error] } }
           )
+        else
+          raise ScrapingError, "Failed to add any items to US Foods order. " \
+            "SKUs: #{failed_items.map { |f| f[:sku] }.join(', ')}. " \
+            "Errors: #{failed_items.map { |f| f[:error] }.first(3).join('; ')}"
         end
+      end
 
-        logger.info "[UsFoods] Added #{added_items.size} items to order (#{failed_items.size} failed)"
-        { added: added_items.size, failed: failed_items }
+      logger.info "[UsFoods] Added #{added_items.size} items to order (#{failed_items.size} failed)"
+      { added: added_items.size, failed: failed_items }
+    end
+
+    # Ensure there's an active order on the US Foods site.
+    # Without an active order, setting quantities on search pages won't add
+    # items to an order. We must create one from the order page first.
+    def ensure_active_order_on_site!
+      navigate_to("#{BASE_URL}/desktop/order")
+      sleep 2
+
+      # Check current page state — look at buttons to determine order status
+      page_state = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('ion-button, button');
+          var visible = Array.from(buttons).filter(function(b) { return b.offsetParent !== null; });
+          var texts = visible.map(function(b) { return (b.innerText || '').trim().toLowerCase(); });
+
+          var hasCancel = texts.some(function(t) { return t.includes('cancel order'); });
+          var hasAddProducts = texts.some(function(t) { return t === 'add products'; });
+          var hasStartOrder = texts.some(function(t) { return t.includes('start an order'); });
+          var hasCreateOrder = texts.some(function(t) { return t.includes('create order'); });
+
+          // Check for items in the order — look for product rows or price
+          var pageText = document.body ? document.body.innerText : '';
+          var hasTotal = !!pageText.match(/Total:\\s*\\$[1-9]/); // Non-zero total = real order with items
+
+          // Look for Cart button with items: "Cart: $X.XX (N)"
+          var cartButton = null;
+          for (var btn of visible) {
+            var text = (btn.innerText || '').trim();
+            var match = text.match(/Cart:\\s*\\$(\S+)\\s*\\((\d+)\\)/);
+            if (match) {
+              cartButton = { total: match[1], count: parseInt(match[2]), text: text };
+              break;
+            }
+          }
+
+          return {
+            has_cancel: hasCancel,
+            has_add_products: hasAddProducts,
+            has_start_order: hasStartOrder,
+            has_create_order: hasCreateOrder,
+            has_nonzero_total: hasTotal,
+            cart_button: cartButton,
+            buttons: texts.filter(function(t) { return t.length > 0; }).slice(0, 15)
+          };
+        })()
+      JS
+      logger.info "[UsFoods] Order page state: #{page_state}"
+
+      # Determine if a real, active order already exists.
+      # A real order has EITHER:
+      #   - A non-zero total (items already on it)
+      #   - A Cart button showing items
+      #   - "Add Products" visible WITHOUT "Start An Order"
+      # If "Start An Order" is visible, it means the order page is empty and
+      # no deliverable order has been created yet.
+      has_real_order = page_state &&
+        !page_state['has_start_order'] &&
+        (page_state['has_add_products'] || page_state['has_nonzero_total'] || page_state['cart_button'])
+
+      if has_real_order
+        logger.info '[UsFoods] Active order already exists — no creation needed'
+        return
+      end
+
+      # No active order. We need to click "Create Order" (the next-delivery-button
+      # in the header) — NOT "Start An Order" which just navigates to the lists page.
+      #
+      # "Create Order" with class `next-delivery-button` creates an order for the
+      # next available delivery date. "Start An Order" misleadingly just goes to
+      # /desktop/lists to browse products — it does NOT create an order.
+      logger.info '[UsFoods] No active order — clicking "Create Order" to create one'
+
+      create_result = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('ion-button, button');
+
+          // PRIORITY: Click "Create Order" (the next-delivery-button in header).
+          // This is the REAL order creation button that sets up a delivery date.
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            var text = (btn.innerText || '').trim().toLowerCase();
+            if (text.includes('create order')) {
+              btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+              btn.click();
+              return { clicked: true, text: btn.innerText.trim(), method: 'create-order' };
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      if create_result && create_result['clicked']
+        logger.info "[UsFoods] Clicked '#{create_result['text']}' — waiting for order creation"
+        sleep 3
+
+        # After clicking "Create Order", a delivery date selection modal may appear,
+        # or the order may be created directly with the next available date.
+        complete_order_creation_flow
+      else
+        logger.warn "[UsFoods] Could not find 'Create Order' button. Buttons: #{page_state&.dig('buttons')}"
       end
     end
 
-    # Add a single item to an order via US Foods search → modal flow
-    def add_item_to_order(sku, quantity, create_new_order: false)
-      # Search for the product
+    # Complete the order creation flow after "Create Order" was clicked.
+    # This handles any delivery date selection modal, delivery type options
+    # (Pronto/Regular), and confirmation buttons.
+    def complete_order_creation_flow
+      # Log the page state to see what appeared after clicking "Create Order"
+      page_snapshot = browser.evaluate(<<~JS)
+        (function() {
+          var body = document.body ? document.body.innerText : '';
+
+          // All visible buttons
+          var buttons = Array.from(document.querySelectorAll('ion-button, button, [role="button"]'))
+            .filter(function(b) { return b.offsetParent !== null; })
+            .map(function(b) {
+              return {
+                text: (b.innerText || '').trim().substring(0, 80),
+                tag: b.tagName,
+                class: (b.className || '').substring(0, 100)
+              };
+            })
+            .filter(function(b) { return b.text.length > 0; });
+
+          // All visible clickable elements that might be date tiles or delivery options
+          var clickables = Array.from(document.querySelectorAll(
+            'ion-card, ion-item, ion-chip, ion-segment-button, [class*="date"], ' +
+            '[class*="delivery"], [class*="tile"], [class*="option"], [class*="select"], ' +
+            '[class*="calendar"], [class*="schedule"]'
+          ))
+            .filter(function(el) { return el.offsetParent !== null; })
+            .slice(0, 20)
+            .map(function(el) {
+              return {
+                tag: el.tagName,
+                text: (el.innerText || '').trim().substring(0, 100),
+                class: (el.className || '').substring(0, 100)
+              };
+            });
+
+          // Any modals/overlays/alerts that appeared
+          var modals = Array.from(document.querySelectorAll(
+            'ion-modal, ion-alert, ion-popover, ion-action-sheet, ' +
+            '[class*="modal"], [class*="overlay"], [role="dialog"], [role="alertdialog"]'
+          )).filter(function(m) {
+            return m.offsetParent !== null || m.classList.contains('show') ||
+                   getComputedStyle(m).display !== 'none';
+          }).map(function(m) {
+            return {
+              tag: m.tagName,
+              text: (m.innerText || '').trim().substring(0, 400)
+            };
+          });
+
+          return {
+            page_text: body.substring(0, 800),
+            url: location.href,
+            buttons: buttons.slice(0, 20),
+            clickables: clickables,
+            modals: modals.filter(function(m) { return m.text.length > 0; })
+          };
+        })()
+      JS
+      logger.info "[UsFoods] Post-'Create Order' page state:"
+      logger.info "[UsFoods]   URL: #{page_snapshot['url']}"
+      logger.info "[UsFoods]   Page text (first 400): #{page_snapshot['page_text'][0..400]}"
+      logger.info "[UsFoods]   Buttons: #{page_snapshot['buttons']}"
+      logger.info "[UsFoods]   Clickable elements: #{page_snapshot['clickables']}"
+      logger.info "[UsFoods]   Visible modals: #{page_snapshot['modals']}"
+
+      # If a modal/popup appeared with date or delivery options, handle it
+      if page_snapshot['modals']&.any?
+        logger.info "[UsFoods] Modal detected — attempting to select delivery date"
+        handle_delivery_date_modal
+        sleep 2
+      end
+
+      # After any modal handling, verify we're on the order page and the order exists.
+      # Navigate back to /desktop/order to check.
+      navigate_to("#{BASE_URL}/desktop/order")
+      sleep 2
+
+      post_state = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('ion-button, button');
+          var visible = Array.from(buttons).filter(function(b) { return b.offsetParent !== null; });
+          var texts = visible.map(function(b) { return (b.innerText || '').trim(); });
+
+          var hasStartOrder = texts.some(function(t) { return t.toLowerCase().includes('start an order'); });
+          var hasAddProducts = texts.some(function(t) { return t.toLowerCase() === 'add products'; });
+          var cartButton = texts.find(function(t) { return t.match(/Cart:/); });
+          var pageText = document.body ? document.body.innerText : '';
+          var total = pageText.match(/Total:\s*\$(\S+)/);
+
+          return {
+            has_start_order: hasStartOrder,
+            has_add_products: hasAddProducts,
+            cart_button: cartButton,
+            total: total ? total[1] : null,
+            buttons: texts.filter(function(t) { return t.length > 0; }).slice(0, 15)
+          };
+        })()
+      JS
+      logger.info "[UsFoods] Order page after creation: #{post_state}"
+
+      if post_state && post_state['has_start_order']
+        logger.warn '[UsFoods] ⚠️ Order creation FAILED — "Start An Order" still visible on order page'
+        logger.warn '[UsFoods] The order may not have been created. Items added via search may not be tracked.'
+      else
+        logger.info '[UsFoods] ✅ Order created successfully — ready to add items'
+      end
+    end
+
+    # Handle a delivery date selection modal that may appear after clicking "Create Order"
+    def handle_delivery_date_modal
+      date_selected = browser.evaluate(<<~JS)
+        (function() {
+          var datePattern = /\\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\b/i;
+          var monthPattern = /\\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\b/i;
+          var numDatePattern = /\\b\\d{1,2}\\/\\d{1,2}\\b/;
+
+          // Look for clickable date elements inside modals first, then page-wide
+          var containers = document.querySelectorAll(
+            'ion-modal, ion-alert, ion-popover, ion-action-sheet, [role="dialog"]'
+          );
+          var searchIn = [];
+          for (var c of containers) {
+            if (c.offsetParent !== null || getComputedStyle(c).display !== 'none') {
+              searchIn.push(c);
+            }
+          }
+          // Also search full page if no visible modals
+          if (searchIn.length === 0) searchIn.push(document);
+
+          for (var container of searchIn) {
+            var elements = container.querySelectorAll(
+              'ion-card, ion-item, ion-chip, ion-segment-button, ion-button, button, ' +
+              '[class*="date"], [class*="delivery"], [class*="tile"], [class*="option"], ' +
+              '[role="button"], [role="option"], [role="radio"], [role="listbox"] *'
+            );
+
+            for (var el of elements) {
+              if (el.offsetParent === null) continue;
+              var text = (el.innerText || '').trim();
+              // Skip nav/header buttons
+              if (text.match(/Products & Deals|My Business|My Orders|My Lists|Cancel|Create Order/i)) continue;
+              if (text.match(datePattern) || text.match(monthPattern) || text.match(numDatePattern)) {
+                el.click();
+                return { clicked: true, text: text.substring(0, 80), method: 'date-in-modal' };
+              }
+            }
+
+            // Try Pronto/delivery type
+            for (var el of elements) {
+              if (el.offsetParent === null) continue;
+              var text = (el.innerText || '').trim().toLowerCase();
+              if (text.includes('pronto') || text.includes('next day') || text.includes('regular')) {
+                el.click();
+                return { clicked: true, text: (el.innerText || '').trim().substring(0, 80), method: 'delivery-type' };
+              }
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+      logger.info "[UsFoods] Delivery date modal selection: #{date_selected}"
+
+      if date_selected && date_selected['clicked']
+        sleep 1
+
+        # Click any confirm/done/ok button in the modal
+        confirmed = browser.evaluate(<<~JS)
+          (function() {
+            var targets = ['confirm', 'done', 'ok', 'select', 'continue', 'start order', 'submit', 'save'];
+            // Check modals first
+            var modals = document.querySelectorAll('ion-modal, ion-alert, ion-popover, [role="dialog"]');
+            for (var modal of modals) {
+              var btns = modal.querySelectorAll('button, ion-button, [role="button"]');
+              for (var btn of btns) {
+                if (btn.offsetParent === null) continue;
+                var text = (btn.innerText || '').trim().toLowerCase();
+                for (var t of targets) {
+                  if (text === t || text.includes(t)) {
+                    btn.click();
+                    return { clicked: true, text: btn.innerText.trim() };
+                  }
+                }
+              }
+            }
+            // Fallback: page-wide
+            var allBtns = document.querySelectorAll('ion-button, button');
+            for (var btn of allBtns) {
+              if (btn.offsetParent === null) continue;
+              var text = (btn.innerText || '').trim().toLowerCase();
+              for (var t of targets) {
+                if (text === t || text.includes(t)) {
+                  if (btn.classList.contains('next-delivery-button')) continue;
+                  if (btn.classList.contains('header-buttons')) continue;
+                  btn.click();
+                  return { clicked: true, text: btn.innerText.trim() };
+                }
+              }
+            }
+            return { clicked: false };
+          })()
+        JS
+        logger.info "[UsFoods] Modal confirmation: #{confirmed}"
+      end
+    end
+
+    # Add a single item to the active order on US Foods.
+    #
+    # On US Foods, "Add To List" adds to a *shopping list*, not the order.
+    # The actual mechanism to add items to an active order is:
+    #   1. Set quantity in the product card's ion-input.quantity-input-box
+    #   2. Press Enter (or the Ionic change event triggers an add)
+    #   3. If a modal appears (order selection), select the active order
+    #
+    # We also try clicking per-product add buttons if found, and fall back
+    # to navigating directly to the product page where the order-add UI
+    # may be different from the search results page.
+    def add_item_to_order(sku, quantity)
+      # Search for the product by SKU
       navigate_to("#{BASE_URL}/desktop/search2?searchText=#{sku}")
-      sleep 3
+      sleep 2
 
       # Verify product was found
       page_text = begin
@@ -906,136 +1366,328 @@ module Scrapers
         ''
       end
       if page_text.include?("couldn't find any matches") || page_text.include?('No results')
-        raise ScrapingError, "Product SKU #{sku} not found"
+        raise ScrapingError, "Product SKU #{sku} not found on US Foods"
       end
 
-      # Set quantity in the input field
-      qty_set = browser.evaluate(<<~JS)
+      # DOM discovery: log the product card structure (inputs, buttons within the card)
+      card_info = browser.evaluate(<<~JS)
         (function() {
-          // Find the quantity input - US Foods uses ion-input with class "quantity-input-box"
-          var ionInput = document.querySelector('ion-input.quantity-input-box');
-          if (ionInput) {
-            var nativeInput = ionInput.querySelector('input.native-input');
-            if (nativeInput) {
-              nativeInput.value = '#{quantity}';
-              nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
-              nativeInput.dispatchEvent(new Event('change', { bubbles: true }));
-              ionInput.value = '#{quantity}';
-              return true;
+          // US Foods product rows in search results
+          var cards = document.querySelectorAll(
+            'app-product-row, app-product-list-item, [data-cy*="product"], ' +
+            '.product-card, .search-result-item, ion-card, .product-row'
+          );
+          var card = cards.length > 0 ? cards[0] : null;
+
+          // Also find all quantity-related inputs on the page
+          var qtyInputs = document.querySelectorAll('ion-input.quantity-input-box, input[type="number"], input[type="tel"]');
+          var qtyInfo = Array.from(qtyInputs).map(function(el) {
+            var rect = el.getBoundingClientRect();
+            return {
+              tag: el.tagName, class: el.className.substring(0, 80),
+              value: el.value || '', visible: rect.width > 0
+            };
+          });
+
+          // Find all clickable elements near quantity inputs (potential add buttons)
+          var nearbyButtons = [];
+          qtyInputs.forEach(function(qi) {
+            var parent = qi.closest('app-product-row, app-product-list-item, ion-card, .product-row') || qi.parentElement;
+            if (parent) {
+              var btns = parent.querySelectorAll('ion-button, button, ion-icon, [role="button"]');
+              btns.forEach(function(b) {
+                nearbyButtons.push({
+                  tag: b.tagName, text: (b.innerText || '').trim().substring(0, 40),
+                  class: b.className ? b.className.substring(0, 60) : '',
+                  icon: b.querySelector('ion-icon') ? b.querySelector('ion-icon').getAttribute('name') || '' : ''
+                });
+              });
             }
+          });
+
+          return {
+            card_count: cards.length,
+            card_tag: card ? card.tagName : null,
+            card_text: card ? card.innerText.substring(0, 300) : null,
+            qty_inputs: qtyInfo,
+            nearby_buttons: nearbyButtons.slice(0, 10)
+          };
+        })()
+      JS
+      logger.info "[UsFoods] Product card DOM for SKU #{sku}: #{card_info}"
+
+      # Check if the product is out of stock on US Foods.
+      # The product card will show "Out of Stock" text when the item is unavailable.
+      # We detect this BEFORE trying to add, to avoid crashing the whole order later.
+      if card_info && card_info['card_text']&.match?(/out of stock/i)
+        oos_message = card_info['card_text'][0..100]
+        logger.warn "[UsFoods] SKU #{sku} is OUT OF STOCK on US Foods: #{oos_message}"
+        raise ItemUnavailableError.new(
+          "SKU #{sku} is out of stock on US Foods",
+          items: [{ sku: sku.to_s, name: oos_message.strip }]
+        )
+      end
+
+      # Capture order count badge BEFORE adding (to detect changes after)
+      order_count_before = browser.evaluate(<<~JS)
+        (function() {
+          // Look for order count badge in header
+          var badges = document.querySelectorAll('[data-cy*="order-count"], [data-cy*="cart-count"], .badge, ion-badge');
+          for (var b of badges) {
+            var num = parseInt(b.innerText);
+            if (!isNaN(num)) return num;
           }
-          return false;
+          return null;
         })()
       JS
 
-      raise ScrapingError, "Could not set quantity for SKU #{sku}" unless qty_set
+      # Use Ferrum's CDP keyboard simulation to type the quantity.
+      # JavaScript event dispatch (native setter + dispatchEvent) does NOT
+      # trigger Angular/Ionic's change detection — the framework only responds
+      # to real browser keyboard events sent through CDP's Input.dispatchKeyEvent.
 
+      # Step 1: Focus and click the quantity input via JavaScript
+      focused = browser.evaluate(<<~JS)
+        (function() {
+          var ionInput = document.querySelector('ion-input.quantity-input-box');
+          if (!ionInput) return { ok: false, error: 'no ion-input.quantity-input-box found' };
+
+          var nativeInput = ionInput.querySelector('input.native-input') || ionInput.querySelector('input');
+          if (!nativeInput) return { ok: false, error: 'no native input inside ion-input' };
+
+          // Click and focus the native input
+          nativeInput.click();
+          nativeInput.focus();
+
+          // Select all existing text so typing replaces it
+          nativeInput.select();
+
+          return { ok: true, currentValue: nativeInput.value };
+        })()
+      JS
+      logger.info "[UsFoods] Input focus for SKU #{sku}: #{focused}"
+
+      unless focused && focused['ok']
+        raise ScrapingError, "Could not focus quantity input for SKU #{sku}: #{focused&.dig('error')}"
+      end
+
+      sleep 0.3
+
+      # Step 2: Type the quantity using REAL keyboard events via CDP
+      # This sends keyDown + keyUp through Chrome's input pipeline,
+      # which Angular/Ionic's event listeners will detect.
+      quantity_str = quantity.to_s
+      browser.keyboard.type(*quantity_str.chars)
+      logger.info "[UsFoods] Typed '#{quantity_str}' via CDP keyboard for SKU #{sku}"
+
+      sleep 0.5
+
+      # Step 3: Press Tab to trigger blur → this confirms the add on US Foods
+      browser.keyboard.type(:Tab)
+      logger.info "[UsFoods] Pressed Tab to confirm add for SKU #{sku}"
+
+      # Wait for the add to process
+      sleep 2
+
+      # Check if an order selection modal appeared (happens when multiple orders exist)
+      modal_appeared = wait_for_order_modal(timeout: 3)
+
+      if modal_appeared
+        logger.info '[UsFoods] Order selection modal appeared — selecting active order'
+        handle_order_selection_modal
+        sleep 1
+      end
+
+      # DON'T navigate away to verify — this interrupts async adds.
+      # Instead, check for immediate success indicators on the current page.
+      # Bulk verification happens in add_to_cart after ALL items are added.
+      check_immediate_add_result(sku, order_count_before)
+    end
+
+    # Handle the "Add to Order" modal — select the active order and confirm
+    def handle_order_selection_modal
+      # Select the active/existing order in the modal
+      selected = browser.evaluate(<<~JS)
+        (function() {
+          var items = document.querySelectorAll(
+            'ion-item, [class*="order-option"], ion-radio, ion-label, ion-radio-group ion-item'
+          );
+          // Prefer existing order (has a date like "2/23" or says "existing")
+          for (var item of items) {
+            var text = (item.innerText || '').trim();
+            if (text.match(/existing/i) || text.match(/\\d{1,2}\\/\\d{1,2}/)) {
+              item.click();
+              return { selected: true, text: text.substring(0, 50), method: 'existing' };
+            }
+          }
+          // Fallback: click first order option
+          for (var item of items) {
+            var text = (item.innerText || '').trim();
+            if (text.match(/order/i)) {
+              item.click();
+              return { selected: true, text: text.substring(0, 50), method: 'first-order' };
+            }
+          }
+          return { selected: false };
+        })()
+      JS
+      logger.info "[UsFoods] Order selection: #{selected}"
       sleep 1
 
-      # Click the "Add To List" button (which opens the order modal)
-      clicked = browser.evaluate(<<~JS)
+      # Click confirm/add button in the modal
+      confirmed = browser.evaluate(<<~JS)
         (function() {
-          var buttons = document.querySelectorAll('ion-button');
+          var buttons = document.querySelectorAll('ion-button, button');
+          var targets = ['Add Product', 'Add Item', 'Add', 'Save', 'Confirm', 'Done', 'OK'];
           for (var btn of buttons) {
-            var text = btn.innerText?.trim();
-            if (text === 'Add To List' || text === 'Add to List') {
-              // Make sure it's the one in the content area, not header
-              var rect = btn.getBoundingClientRect();
-              if (rect.top > 150) { // Below header
+            if (btn.offsetParent === null) continue;
+            var text = (btn.innerText || '').trim();
+            for (var target of targets) {
+              if (text === target || text.toLowerCase() === target.toLowerCase()) {
                 btn.click();
-                return true;
+                return { clicked: true, text: text };
               }
             }
           }
-          // Fallback: click any Add To List button
-          for (var btn of buttons) {
-            if (btn.innerText?.includes('Add To List') || btn.innerText?.includes('Add to List')) {
-              btn.click();
-              return true;
-            }
+          return { clicked: false };
+        })()
+      JS
+      logger.info "[UsFoods] Modal confirm: #{confirmed}"
+    end
+
+    # Quick check for immediate success indicators WITHOUT navigating away.
+    # We trust the add and do bulk verification later in add_to_cart.
+    def check_immediate_add_result(sku, count_before)
+      # Check 1: Success toast with actual text (not just a badge number)
+      toast_text = browser.evaluate(<<~JS)
+        (function() {
+          // Only check ion-toast (actual toast messages), not notification badges
+          var toasts = document.querySelectorAll('ion-toast, [class*="toast-message"], [class*="snackbar"]');
+          for (var t of toasts) {
+            var text = (t.innerText || '').trim();
+            // Must be a real message (more than just a number)
+            if (text.length > 3) return text.substring(0, 150);
           }
-          return false;
+          return null;
         })()
       JS
 
-      raise ScrapingError, "Could not find Add To List button for SKU #{sku}" unless clicked
+      if toast_text
+        logger.info "[UsFoods] Toast message after add: #{toast_text}"
+        if toast_text.match?(/added|updated|success/i)
+          logger.info "[UsFoods] Item #{sku} confirmed added via toast"
+          return true
+        end
+      end
 
-      # Wait for the "Add Product to Order" modal to appear
-      sleep 2
-      modal_appeared = wait_for_order_modal(timeout: 5)
+      # Check 2: Order count badge increased
+      order_count_after = browser.evaluate(<<~JS)
+        (function() {
+          var badges = document.querySelectorAll('[data-cy*="order-count"], [data-cy*="cart-count"], .badge, ion-badge');
+          for (var b of badges) {
+            var num = parseInt(b.innerText);
+            if (!isNaN(num)) return num;
+          }
+          return null;
+        })()
+      JS
 
-      unless modal_appeared
-        # Modal might not appear if item was added directly
-        logger.info '[UsFoods] No modal appeared - item may have been added directly'
+      if count_before && order_count_after && order_count_after > count_before
+        logger.info "[UsFoods] Item #{sku} added — order count: #{count_before} → #{order_count_after}"
         return true
       end
 
-      # Select order type: create new or add to existing
-      if create_new_order
-        # Click "Create new order"
-        browser.evaluate(<<~JS)
-          (function() {
-            var items = document.querySelectorAll('ion-item, [class*="order-option"]');
-            for (var item of items) {
-              if (item.innerText && item.innerText.includes('Create new order')) {
-                item.click();
-                return true;
-              }
-            }
-            return false;
-          })()
-        JS
-        logger.info "[UsFoods] Selected 'Create new order'"
-
-        # Select the delivery date if specified
-        sleep 1
-        select_delivery_date_in_modal if @target_delivery_date
-      else
-        # Click "Add to existing order" if available
-        browser.evaluate(<<~JS)
-          (function() {
-            var items = document.querySelectorAll('ion-item, [class*="order-option"]');
-            for (var item of items) {
-              if (item.innerText && item.innerText.includes('existing order')) {
-                item.click();
-                return true;
-              }
-            }
-            // Fallback to Create new order if no existing
-            for (var item of items) {
-              if (item.innerText && item.innerText.includes('Create new order')) {
-                item.click();
-                return true;
-              }
-            }
-            return false;
-          })()
-        JS
-        logger.info '[UsFoods] Selected existing order (or new if none available)'
-      end
-      sleep 1
-
-      # Click the "Add Product" button to confirm
-      add_product_clicked = browser.evaluate(<<~JS)
+      # Check 3: See if the quantity input now shows the value we set
+      # (on US Foods, a filled quantity input means the item is on the order)
+      qty_value = browser.evaluate(<<~JS)
         (function() {
-          var buttons = document.querySelectorAll('ion-button, button');
-          for (var btn of buttons) {
-            var text = btn.innerText?.trim();
-            if (text === 'Add Product') {
-              btn.click();
-              return true;
-            }
-          }
-          return false;
+          var input = document.querySelector('ion-input.quantity-input-box input.native-input') ||
+                      document.querySelector('ion-input.quantity-input-box input');
+          return input ? input.value : null;
         })()
       JS
 
-      raise ScrapingError, "Could not click 'Add Product' button for SKU #{sku}" unless add_product_clicked
+      if qty_value.present? && qty_value.to_i > 0
+        logger.info "[UsFoods] Quantity input shows #{qty_value} for SKU #{sku} — likely added"
+        return true
+      end
 
-      # Wait for modal to close and confirmation
-      sleep 2
-      logger.info '[UsFoods] Product added to order'
-      true
+      # No immediate confirmation — log it but DON'T fail.
+      # The add may be processing async. We'll verify all items in bulk.
+      logger.warn "[UsFoods] No immediate confirmation for SKU #{sku} — will verify in bulk later"
+      true # Optimistic — bulk verify will catch failures
+    end
+
+    # Verify all expected SKUs are on the order page. Called once after all
+    # items have been added (avoids navigating away between adds).
+    def verify_items_on_order_page(expected_skus)
+      navigate_to("#{BASE_URL}/desktop/order")
+      sleep 3
+
+      # Poll until order items render (Angular/Ionic loads them async)
+      # Look for ion-card elements, quantity inputs, or SKU text appearing
+      order_page_text = ''
+      attempts = 0
+      max_attempts = 10 # 10 × 2s = 20s max wait
+
+      loop do
+        attempts += 1
+        order_page_text = browser.evaluate('(document.body.innerText || "")') rescue ''
+
+        # Check if any expected SKU is visible — means items have rendered
+        any_sku_found = expected_skus.any? { |sku| order_page_text.include?(sku.to_s) }
+
+        # Also check for order item indicators (quantity inputs, product cards)
+        items_rendered = browser.evaluate(<<~JS) rescue 0
+          (function() {
+            var inputs = document.querySelectorAll('.quantity-input-box, [data-cy*="order-item"], ion-card .product-name');
+            return inputs.length;
+          })()
+        JS
+
+        if any_sku_found || items_rendered > 0
+          logger.info "[UsFoods] Order page loaded: #{order_page_text.length} chars, #{items_rendered} item elements (attempt #{attempts})"
+          break
+        end
+
+        if attempts >= max_attempts
+          logger.warn "[UsFoods] Order page items did not render after #{attempts * 2}s (text_length=#{order_page_text.length})"
+          break
+        end
+
+        sleep 2
+      end
+
+      found_skus = []
+      missing_skus = []
+
+      expected_skus.each do |sku|
+        if order_page_text.include?(sku.to_s)
+          found_skus << sku
+        else
+          missing_skus << sku
+        end
+      end
+
+      logger.info "[UsFoods] Order page verification: #{found_skus.size}/#{expected_skus.size} SKUs found"
+
+      if missing_skus.any?
+        # Log order page DOM for debugging
+        dom_state = browser.evaluate(<<~JS)
+          (function() {
+            var rows = document.querySelectorAll('[data-cy*="order-item"], [data-cy*="product-row"], .order-item, .line-item, ion-card');
+            return {
+              url: location.href,
+              page_text_length: document.body.innerText.length,
+              visible_items: rows.length,
+              first_500: document.body.innerText.substring(0, 500)
+            };
+          })()
+        JS
+        logger.warn "[UsFoods] Missing SKUs: #{missing_skus}. DOM: #{dom_state}"
+      end
+
+      { found: found_skus, missing: missing_skus }
     end
 
     # Wait for the "Add Product to Order" modal to appear
@@ -1173,59 +1825,294 @@ module Scrapers
       end
     end
 
-    def checkout
-      with_browser do
-        navigate_to("#{BASE_URL}/cart")
-        wait_for_selector(".cart-contents, .cart-items, [data-testid='cart']")
+    def checkout(dry_run: false)
+      effective_dry_run = dry_run || !CHECKOUT_LIVE
+      logger.info "[UsFoods] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
 
-        # Pre-checkout validations
-        validate_cart_before_checkout
+      # Reuse the persistent browser from add_to_cart (order context is preserved)
+      ensure_order_browser!
 
-        # Check order minimum
-        minimum_check = check_order_minimum_at_checkout
-        unless minimum_check[:met]
+      begin
+        # Step 2: Navigate to order/cart page
+        # US Foods uses an order-based model — try the orders page first
+        navigate_to("#{BASE_URL}/desktop/order")
+        sleep 3
+
+        # Step 3: DOM discovery logging
+        page_url = browser.current_url rescue 'unknown'
+        page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+        logger.info "[UsFoods] Cart/Order page URL: #{page_url}"
+        logger.info "[UsFoods] Cart/Order page text (first 500): #{page_text[0..500]}"
+
+        dom_info = browser.evaluate(<<~JS)
+          (function() {
+            return {
+              url: window.location.href,
+              title: document.title,
+              has_price: !!document.body.innerText.match(/\\$\\d+\\.\\d{2}/),
+              buttons: Array.from(document.querySelectorAll('ion-button, button'))
+                .filter(function(b) { return b.offsetParent !== null; })
+                .slice(0, 20)
+                .map(function(b) { return { tag: b.tagName, text: (b.innerText||'').trim().substring(0, 50), classes: (b.className||'').substring(0, 80) }; }),
+              inputs: Array.from(document.querySelectorAll('input'))
+                .filter(function(i) { return i.offsetParent !== null; })
+                .slice(0, 10)
+                .map(function(i) { return { type: i.type, name: i.name, value: i.value, classes: (i.className||'').substring(0, 50) }; })
+            };
+          })()
+        JS
+        logger.info "[UsFoods] Cart/Order page DOM: #{dom_info.inspect}"
+
+        # Step 4: Extract cart/order data
+        cart_data = extract_cart_data_usf
+        logger.info "[UsFoods] Cart: #{cart_data[:item_count]} items, subtotal=#{cart_data[:subtotal]}"
+
+        # Step 5: Validate cart
+        raise ScrapingError, 'Cart/order is empty' if cart_data[:item_count] == 0
+
+        # Step 6: Check order minimum
+        if cart_data[:subtotal] > 0 && cart_data[:subtotal] < ORDER_MINIMUM
           raise OrderMinimumError.new(
             'Order minimum not met',
-            minimum: minimum_check[:minimum],
-            current_total: minimum_check[:current]
+            minimum: ORDER_MINIMUM,
+            current_total: cart_data[:subtotal]
           )
         end
 
-        # Check for unavailable items
-        unavailable = detect_unavailable_items_in_cart
-        if unavailable.any?
-          raise ItemUnavailableError.new(
-            "#{unavailable.count} item(s) are unavailable",
-            items: unavailable
-          )
+        # Step 7: Handle unavailable items — log a warning but DON'T crash the order.
+        # If some items are OOS, the remaining items may still meet the minimum.
+        # We'll report them in the dry run summary so the user knows.
+        if cart_data[:unavailable_items].any?
+          oos_names = cart_data[:unavailable_items].map { |i| i[:name] || i[:sku] }
+          logger.warn "[UsFoods] #{cart_data[:unavailable_items].count} unavailable item(s) in cart: #{oos_names.join(', ')}"
+          # Don't crash — just note them. The order total from the Cart button
+          # already excludes OOS items (US Foods grays them out but keeps them visible).
         end
 
-        # Check for price changes
-        price_changes = detect_price_changes_in_cart
-        if price_changes.any?
-          raise PriceChangedError.new(
-            "Prices have changed for #{price_changes.count} item(s)",
-            changes: price_changes
-          )
+        # Step 8: Navigate to checkout/review page
+        proceed_to_checkout_page_usf
+
+        # Step 9: Extract checkout data
+        checkout_data = extract_checkout_data_usf
+        logger.info "[UsFoods] Checkout: total=#{checkout_data[:total]}, delivery=#{checkout_data[:delivery_date]}"
+
+        # ═══════════════════════════════════════════
+        # ═══ SAFETY GATE — DRY RUN CHECK ══════════
+        # ═══════════════════════════════════════════
+        if effective_dry_run
+          logger.info "[UsFoods] DRY RUN COMPLETE — stopping before final submit"
+          logger.info "[UsFoods] Would have placed order: total=#{checkout_data[:total]}"
+
+          return {
+            confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+            total: checkout_data[:total] || cart_data[:subtotal],
+            delivery_date: checkout_data[:delivery_date],
+            dry_run: true,
+            cart_items: cart_data[:items],
+            checkout_summary: checkout_data
+          }
         end
 
-        # Proceed to checkout
-        click(".checkout-button, .proceed-to-checkout, [data-testid='checkout']")
-        wait_for_selector(".order-review, .checkout-summary, [data-testid='order-review']")
+        # Step 10: LIVE ORDER — Click final submit
+        logger.warn "[UsFoods] PLACING LIVE ORDER — clicking submit"
+        click_place_order_button_usf
 
-        # Verify delivery date is available
-        raise DeliveryUnavailableError, 'No delivery dates available for your location' unless delivery_date_available?
+        # Step 11: Wait for confirmation
+        confirmation = wait_for_order_confirmation_usf
 
-        # Place order
-        click(".place-order-button, .submit-order, [data-testid='place-order']")
-        wait_for_confirmation_or_error
-
-        {
-          confirmation_number: extract_text(".confirmation-number, .order-number, [data-testid='confirmation']"),
-          total: extract_price(extract_text('.order-total, .total-amount')),
-          delivery_date: extract_text('.delivery-date, .estimated-delivery')
-        }
+        logger.info "[UsFoods] Order placed: #{confirmation[:confirmation_number]}"
+        confirmation
+      ensure
+        close_order_browser!
       end
+    end
+
+    def clear_cart
+      logger.info '[UsFoods] Clearing cart/order...'
+
+      # Use persistent order browser (same one add_to_cart and checkout will use)
+      ensure_order_browser!
+
+      # Navigate to orders page
+      navigate_to("#{BASE_URL}/desktop/order")
+      sleep 2
+
+      # Check if there's an existing order with items by reading the Cart button
+      cart_info = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('ion-button, button');
+          for (var btn of buttons) {
+            var text = (btn.innerText || '').trim();
+            // "Cart: $279.38 (4)" pattern
+            var match = text.match(/Cart:\\s*\\$(\\S+)\\s*\\((\\d+)\\)/);
+            if (match) return { total: match[1], count: parseInt(match[2]), text: text };
+          }
+          return null;
+        })()
+      JS
+
+      if cart_info
+        logger.info "[UsFoods] Existing order found: #{cart_info['text']}"
+      else
+        logger.info '[UsFoods] No existing cart/order detected — nothing to clear'
+        return
+      end
+
+      # "Cancel Order" button is often below the items list (scrolled off-screen).
+      # Scroll to the bottom of the page first, then search ALL buttons
+      # (including those not initially in view). Don't filter by offsetParent
+      # since the button may have been lazily rendered.
+      browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+      sleep 1.5
+
+      cleared = browser.evaluate(<<~JS)
+        (function() {
+          // Search ALL buttons (visible or not) — "Cancel Order" may be
+          // off-screen or just scrolled into view after our scroll.
+          var buttons = document.querySelectorAll('ion-button, button');
+          var targets = ['cancel order', 'empty order', 'clear order', 'delete order', 'remove all'];
+          for (var btn of buttons) {
+            var text = (btn.innerText || '').trim().toLowerCase();
+            for (var target of targets) {
+              if (text.includes(target)) {
+                // Scroll it into view and click
+                btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                btn.click();
+                return { cleared: true, text: btn.innerText.trim() };
+              }
+            }
+          }
+          return { cleared: false };
+        })()
+      JS
+
+      if cleared && cleared['cleared']
+        logger.info "[UsFoods] Clicked '#{cleared['text']}' to cancel order"
+        sleep 2
+
+        # Handle confirmation dialog — US Foods asks "Are you sure?"
+        # Try multiple times since the modal may take a moment to appear
+        3.times do |attempt|
+          confirmed = browser.evaluate(<<~JS)
+            (function() {
+              // Check for modal/dialog/alert overlay
+              var overlays = document.querySelectorAll(
+                'ion-alert, ion-modal, [class*="alert"], [class*="dialog"], [class*="modal"], [role="dialog"]'
+              );
+              for (var overlay of overlays) {
+                var btns = overlay.querySelectorAll('button, ion-button, [class*="alert-button"]');
+                for (var btn of btns) {
+                  var text = (btn.innerText || '').trim().toLowerCase();
+                  if (text === 'yes' || text.includes('yes') || text === 'confirm' ||
+                      text === 'ok' || text === 'delete' || text.includes('cancel order')) {
+                    btn.click();
+                    return { confirmed: true, text: btn.innerText.trim() };
+                  }
+                }
+              }
+
+              // Fallback: check all visible buttons on page
+              var allBtns = document.querySelectorAll('ion-button, button');
+              for (var btn of allBtns) {
+                if (btn.offsetParent === null) continue;
+                var text = (btn.innerText || '').trim().toLowerCase();
+                if (text === 'yes' || text === 'yes, cancel' || text === 'confirm') {
+                  btn.click();
+                  return { confirmed: true, text: btn.innerText.trim() };
+                }
+              }
+              return { confirmed: false };
+            })()
+          JS
+
+          if confirmed && confirmed['confirmed']
+            logger.info "[UsFoods] Cancellation confirmed: #{confirmed['text']}"
+            sleep 2
+            break
+          end
+          sleep 1
+        end
+
+        # Verify the order was actually cancelled
+        sleep 1
+        post_cancel = browser.evaluate(<<~JS)
+          (function() {
+            var buttons = document.querySelectorAll('ion-button, button');
+            for (var btn of buttons) {
+              var text = (btn.innerText || '').trim();
+              if (text.match(/Cart:/)) return { cart: text };
+              if (text.match(/Start An Order/i)) return { empty: true };
+            }
+            return { unknown: true };
+          })()
+        JS
+        logger.info "[UsFoods] Post-cancel state: #{post_cancel}"
+      else
+        # "Cancel Order" not found even after scrolling.
+        # Fall back: set all item quantities to 0 to empty the order.
+        logger.warn '[UsFoods] Cancel Order button not found — clearing items by setting quantities to 0'
+
+        items_cleared = browser.evaluate(<<~JS)
+          (function() {
+            var inputs = document.querySelectorAll('ion-input.quantity-input-box input.native-input');
+            var count = 0;
+            var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            for (var input of inputs) {
+              if (input.value && parseInt(input.value) > 0) {
+                nativeSetter.call(input, '0');
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+                count++;
+              }
+            }
+            return count;
+          })()
+        JS
+        logger.info "[UsFoods] Set #{items_cleared} item quantities to 0"
+        sleep 2
+
+        # Also try scrolling to find Cancel Order one more time
+        browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        sleep 1
+
+        retry_cancel = browser.evaluate(<<~JS)
+          (function() {
+            var buttons = document.querySelectorAll('ion-button, button');
+            for (var btn of buttons) {
+              var text = (btn.innerText || '').trim().toLowerCase();
+              if (text.includes('cancel order')) {
+                btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                btn.click();
+                return { found: true, text: btn.innerText.trim() };
+              }
+            }
+            return { found: false };
+          })()
+        JS
+
+        if retry_cancel && retry_cancel['found']
+          logger.info "[UsFoods] Found Cancel Order on retry: #{retry_cancel['text']}"
+          sleep 2
+          # Confirm
+          browser.evaluate(<<~JS)
+            (function() {
+              var btns = document.querySelectorAll('ion-button, button, [class*="alert-button"]');
+              for (var btn of btns) {
+                var text = (btn.innerText || '').trim().toLowerCase();
+                if (text === 'yes' || text.includes('yes') || text === 'confirm') {
+                  btn.click(); return true;
+                }
+              }
+              return false;
+            })()
+          JS
+          sleep 2
+        end
+      end
+
+      logger.info '[UsFoods] Cart clearing complete'
     end
 
     protected
@@ -2193,6 +3080,263 @@ module Scrapers
         in_stock: product_data['in_stock'] != false,
         scraped_at: Time.current
       }
+    end
+
+    # ─── Checkout helper methods ───────────────────────────────────
+
+    def extract_cart_data_usf
+      cart_data = browser.evaluate(<<~JS)
+        (function() {
+          var result = { items: [], subtotal: 0, item_count: 0, unavailable: [] };
+          var pageText = document.body ? document.body.innerText : '';
+
+          // PRIMARY: Extract total from "Cart: $655.55 (9)" button
+          var buttons = document.querySelectorAll('ion-button, button');
+          for (var btn of buttons) {
+            var text = (btn.innerText || '').trim();
+            var cartMatch = text.match(/Cart:\\s*\\$([\\d,]+\\.\\d{2})\\s*\\((\\d+)\\)/);
+            if (cartMatch) {
+              result.subtotal = parseFloat(cartMatch[1].replace(',', ''));
+              result.item_count = parseInt(cartMatch[2]);
+              break;
+            }
+          }
+
+          // FALLBACK: Extract from "Total Products: N" and dollar amount
+          if (result.subtotal === 0) {
+            var totalMatch = pageText.match(/\\$(\\d[\\d,]*\\.\\d{2})\\s*$/m);
+            if (totalMatch) result.subtotal = parseFloat(totalMatch[1].replace(',', ''));
+
+            var prodCount = pageText.match(/Total Products:\\s*(\\d+)/i);
+            if (prodCount) result.item_count = parseInt(prodCount[1]);
+          }
+
+          // Extract individual items from ion-card elements.
+          // Only include cards that have a quantity input with value > 0
+          // (items actually on the order, NOT "Did You Forget?" recommendations).
+          var cards = document.querySelectorAll('ion-card');
+          cards.forEach(function(card) {
+            var qtyInput = card.querySelector('ion-input.quantity-input-box input.native-input') ||
+                           card.querySelector('ion-input.quantity-input-box input');
+            if (!qtyInput) return;
+
+            var qty = parseInt(qtyInput.value);
+            if (!qty || qty <= 0) return; // Skip items not on the order
+
+            var text = card.innerText || '';
+            var skuMatch = text.match(/#(\\d{5,})/);
+            var nameLines = text.split('\\n').filter(function(l) { return l.trim().length > 0; });
+
+            // Extract case price — "$XX.XX cs" pattern
+            var price = null;
+            var csMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*cs/i);
+            if (csMatch) {
+              price = parseFloat(csMatch[1].replace(',', ''));
+            } else {
+              // Fallback: first dollar amount that's not a per-unit price
+              var prices = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})(?!\\s*\\/)/g);
+              if (prices && prices.length > 0) {
+                price = parseFloat(prices[0].replace(/[\\$,]/g, ''));
+              }
+            }
+
+            var isUnavailable = /out of stock|unavailable|discontinued/i.test(text);
+
+            var item = {
+              name: (nameLines[0] + ' ' + (nameLines[1] || '')).trim().substring(0, 80),
+              sku: skuMatch ? skuMatch[1] : null,
+              price: price || 0,
+              quantity: qty
+            };
+
+            result.items.push(item);
+            if (isUnavailable) result.unavailable.push(item);
+          });
+
+          // If we found items from cards, use that count
+          if (result.items.length > 0 && result.item_count === 0) {
+            result.item_count = result.items.length;
+          }
+
+          return result;
+        })()
+      JS
+
+      logger.info "[UsFoods] Cart extraction: items=#{(cart_data['items'] || []).size}, subtotal=#{cart_data['subtotal']}, count=#{cart_data['item_count']}"
+
+      {
+        items: (cart_data['items'] || []).map { |i| { name: i['name'], sku: i['sku'], price: i['price'], quantity: i['quantity'] } },
+        subtotal: cart_data['subtotal'] || 0,
+        item_count: cart_data['item_count'] || 0,
+        unavailable_items: (cart_data['unavailable'] || []).map { |i| { name: i['name'], sku: i['sku'], message: 'Unavailable' } }
+      }
+    end
+
+    def proceed_to_checkout_page_usf
+      # US Foods may have "Submit Order" / "Checkout" / "Review Order" button
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var exclude = /search|clear|close|cancel|filter|back/i;
+          var targets = ['submit order', 'checkout', 'review order', 'proceed', 'place order'];
+          var elements = document.querySelectorAll('ion-button, button, a[class*="btn"]');
+
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            var text = (el.innerText || '').trim().toLowerCase();
+            if (exclude.test(text)) continue;
+            for (var target of targets) {
+              if (text.includes(target)) {
+                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                el.click();
+                return { clicked: true, text: el.innerText.trim(), tag: el.tagName, method: 'text-match' };
+              }
+            }
+          }
+
+          // Phase 2: data-cy attributes
+          var dcElements = document.querySelectorAll('[data-cy*="submit"], [data-cy*="checkout"], [data-cy*="review-order"]');
+          for (var el of dcElements) {
+            if (el.offsetParent !== null) {
+              el.click();
+              return { clicked: true, text: el.innerText.trim(), dataCy: el.getAttribute('data-cy'), method: 'data-cy' };
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      if clicked && clicked['clicked']
+        logger.info "[UsFoods] Clicked checkout button: #{clicked.inspect}"
+      else
+        logger.warn '[UsFoods] Could not find checkout button — may already be on review page'
+      end
+
+      sleep 3
+
+      # Log the checkout/review page state
+      page_url = browser.current_url rescue 'unknown'
+      page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+      logger.info "[UsFoods] Checkout page URL: #{page_url}"
+      logger.info "[UsFoods] Checkout page text (first 500): #{page_text[0..500]}"
+    end
+
+    def extract_checkout_data_usf
+      checkout_data = browser.evaluate(<<~JS)
+        (function() {
+          var text = document.body ? document.body.innerText : '';
+          var result = { total: 0, delivery_date: null, summary_text: text.substring(0, 1000) };
+
+          // Total extraction
+          var totalPatterns = [
+            /order\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /estimated\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /subtotal[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /total[:\\s]*\\$([\\d,]+\\.\\d{2})/i
+          ];
+          for (var p of totalPatterns) {
+            var m = text.match(p);
+            if (m) { result.total = parseFloat(m[1].replace(',', '')); break; }
+          }
+
+          // Delivery date extraction
+          var datePatterns = [
+            /deliver(?:y|s)?[:\\s]*(\\w+day,?\\s*\\w+\\s+\\d{1,2})/i,
+            /deliver(?:y|s)?\\s*(?:date)?[:\\s]*(\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})/i,
+            /deliver(?:y|s)?\\s*(?:date)?[:\\s]*(\\w+\\s+\\d{1,2},?\\s*\\d{4})/i,
+            /(\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})/
+          ];
+          for (var p of datePatterns) {
+            var m = text.match(p);
+            if (m) { result.delivery_date = m[1]; break; }
+          }
+
+          // Buttons for diagnostics
+          result.buttons = Array.from(document.querySelectorAll('ion-button, button'))
+            .filter(function(b) { return b.offsetParent !== null; })
+            .slice(0, 15)
+            .map(function(b) { return { text: (b.innerText||'').trim().substring(0, 50), tag: b.tagName, classes: (b.className||'').substring(0, 80) }; });
+
+          return result;
+        })()
+      JS
+
+      logger.info "[UsFoods] Checkout data: #{checkout_data.inspect}"
+
+      {
+        total: checkout_data['total'] || 0,
+        delivery_date: checkout_data['delivery_date'],
+        summary_text: checkout_data['summary_text'],
+        buttons: checkout_data['buttons'] || []
+      }
+    end
+
+    def click_place_order_button_usf
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var exclude = /search|clear|close|cancel|filter|back|add/i;
+          var targets = ['place order', 'submit order', 'confirm order', 'complete order'];
+          var elements = document.querySelectorAll('ion-button, button');
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            var text = (el.innerText || '').trim().toLowerCase();
+            if (exclude.test(text)) continue;
+            for (var target of targets) {
+              if (text.includes(target)) {
+                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                el.click();
+                return { clicked: true, text: el.innerText.trim() };
+              }
+            }
+          }
+
+          // Fallback: data-cy
+          var dcElements = document.querySelectorAll('[data-cy*="place-order"], [data-cy*="submit-order"], [data-cy*="confirm-order"]');
+          for (var el of dcElements) {
+            if (el.offsetParent !== null) {
+              el.click();
+              return { clicked: true, text: el.innerText.trim(), method: 'data-cy' };
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      raise ScrapingError, 'Could not find place order button' unless clicked && clicked['clicked']
+
+      logger.info "[UsFoods] Clicked place order: #{clicked.inspect}"
+    end
+
+    def wait_for_order_confirmation_usf
+      start_time = Time.current
+      timeout = 30
+
+      loop do
+        page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+
+        if page_text.match?(/confirmation|order\s*(?:placed|submitted|received)|thank\s*you|order\s*#/i)
+          conf_match = page_text.match(/order\s*#?\s*[:\s]*([A-Z0-9-]+)/i) ||
+                       page_text.match(/confirmation\s*#?\s*[:\s]*([A-Z0-9-]+)/i) ||
+                       page_text.match(/#(\d{5,})/)
+          total_match = page_text.match(/total[:\s]*\$([\d,]+\.\d{2})/i)
+          date_match = page_text.match(/deliver(?:y|s)?[:\s]*([\w\s,]+\d{1,2})/i)
+
+          return {
+            confirmation_number: conf_match ? conf_match[1] : "USF-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+            total: total_match ? total_match[1].gsub(',', '').to_f : nil,
+            delivery_date: date_match ? date_match[1] : nil
+          }
+        end
+
+        if page_text.match?(/error|failed|could not|unable to/i) && !page_text.match?(/confirmation|success|submitted/i)
+          raise ScrapingError, "Checkout failed: #{page_text[0..300]}"
+        end
+
+        raise ScrapingError, 'Checkout confirmation timeout (30s)' if Time.current - start_time > timeout
+
+        sleep 1
+      end
     end
 
     def check_order_minimum_at_checkout

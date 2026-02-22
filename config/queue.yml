@@ -4,7 +4,7 @@ default: &default
       batch_size: 100
   workers:
     - queues: [critical]
-      threads: 1
+      threads: 4
       processes: 1
       polling_interval: 1
     - queues: [default]

@@ -15,10 +15,14 @@ class PlaceOrderJob < ApplicationJob
     )
 
     if result[:success]
-      # Send success notification
-      OrderMailer.order_confirmed(order).deliver_later
-      
-      Rails.logger.info "[PlaceOrderJob] Order #{order.id} placed successfully"
+      if result[:dry_run]
+        # Dry run — no real order placed, don't send confirmation email
+        Rails.logger.info "[PlaceOrderJob] Order #{order.id} DRY RUN complete for #{order.supplier.name} (checkout not enabled)"
+      else
+        # Real order placed — send confirmation
+        OrderMailer.order_confirmed(order).deliver_later
+        Rails.logger.info "[PlaceOrderJob] Order #{order.id} placed successfully"
+      end
     else
       handle_failure(order, result)
     end

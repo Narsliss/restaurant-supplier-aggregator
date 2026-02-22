@@ -203,9 +203,22 @@
           </div>
         </div>
 
-        <%# Delivery date & notes %>
+        <%# Delivery address & date %>
+        <% supplier_address = order.supplier_delivery_address %>
         <% needs_delivery_date = order.delivery_date.blank? %>
         <div class="px-4 py-3 border-b flex flex-col sm:flex-row gap-3 <%= needs_delivery_date ? 'bg-amber-50 border-amber-200' : 'bg-gray-50' %>">
+          <div class="flex-1">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Delivers to</label>
+            <p class="text-sm" data-order-review-target="deliveryAddress" data-order-id="<%= order.id %>">
+              <% if supplier_address.present? %>
+                <span class="text-gray-900 text-sm"><%= supplier_address %></span>
+              <% elsif order.verifying? %>
+                <span class="text-gray-400 text-xs italic">Checking with supplier...</span>
+              <% else %>
+                <span class="text-gray-400 text-xs italic">Not available from <%= supplier.name %></span>
+              <% end %>
+            </p>
+          </div>
           <div class="flex-1">
             <label class="block text-xs font-medium <%= needs_delivery_date ? 'text-amber-700' : 'text-gray-500' %> mb-1">
               Delivery Date
@@ -296,8 +309,15 @@
                     data-item-id="<%= item.id %>"
                     data-order-id="<%= order.id %>"
                     data-unit-price="<%= item.unit_price %>"
-                    data-sku="<%= item.supplier_sku %>">
-                  <td class="px-4 py-2 text-sm text-gray-900"><%= item.supplier_product.supplier_name %></td>
+                    data-sku="<%= item.supplier_sku %>"
+                    data-in-stock="<%= item.supplier_product.in_stock? %>"
+                    class="<%= 'bg-red-50' unless item.supplier_product.in_stock? %>">
+                  <td class="px-4 py-2 text-sm text-gray-900">
+                    <%= item.supplier_product.supplier_name %>
+                    <% unless item.supplier_product.in_stock? %>
+                      <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
+                    <% end %>
+                  </td>
                   <td class="px-4 py-2 text-sm text-gray-500"><%= item.supplier_sku %></td>
                   <td class="px-4 py-2 text-center">
                     <div class="inline-flex items-center gap-1">
@@ -353,15 +373,21 @@
         <%# Mobile cards %>
         <div class="sm:hidden divide-y divide-gray-200">
           <% review[:items].each do |item| %>
-            <div class="p-3"
+            <div class="p-3 <%= 'bg-red-50' unless item.supplier_product.in_stock? %>"
                  data-order-review-target="itemRow"
                  data-item-id="<%= item.id %>"
                  data-order-id="<%= order.id %>"
                  data-unit-price="<%= item.unit_price %>"
-                 data-sku="<%= item.supplier_sku %>">
+                 data-sku="<%= item.supplier_sku %>"
+                 data-in-stock="<%= item.supplier_product.in_stock? %>">
               <div class="flex justify-between items-start mb-2">
                 <div class="flex-1 min-w-0 mr-3">
-                  <p class="text-sm font-medium text-gray-900"><%= item.supplier_product.supplier_name %></p>
+                  <p class="text-sm font-medium text-gray-900">
+                    <%= item.supplier_product.supplier_name %>
+                    <% unless item.supplier_product.in_stock? %>
+                      <span class="inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
+                    <% end %>
+                  </p>
                   <p class="text-xs text-gray-400">SKU: <%= item.supplier_sku %></p>
                 </div>
                 <div class="flex items-center gap-2">

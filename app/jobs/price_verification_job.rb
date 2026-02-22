@@ -29,6 +29,12 @@ class PriceVerificationJob < ApplicationJob
     service = Orders::PriceVerificationService.new(order)
     result = service.verify!
 
+    # Store delivery address if extracted during verification
+    if result[:delivery_address].present?
+      order.update!(supplier_delivery_address: result[:delivery_address])
+      Rails.logger.info "[PriceVerificationJob] Order ##{order_id} delivery address: #{result[:delivery_address]}"
+    end
+
     if result[:success]
       case result[:verification_status]
       when "verified", "skipped"

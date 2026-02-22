@@ -45,18 +45,22 @@ class ProductMatch < ApplicationRecord
   end
 
   # Price comparison across matched items
+  # Uses supplier_list_item.price (from the order guide) as the primary source —
+  # this is the case/pack price the user actually pays when ordering.
+  # Falls back to supplier_product.current_price only when no SLI price exists.
   def prices_by_supplier
-    product_match_items.includes(:supplier_list_item, :supplier).map do |pmi|
+    product_match_items.map do |pmi|
       item = pmi.supplier_list_item
+      sp = item.supplier_product
       {
         supplier: pmi.supplier,
         item: item,
-        price: item.price,
-        pack_size: item.pack_size,
+        price: item.price || sp&.current_price,
+        pack_size: item.pack_size || sp&.pack_size,
         per_unit_price: item.per_unit_price,
         normalized_unit: item.normalized_unit,
         formatted_per_unit: item.formatted_per_unit_price,
-        in_stock: item.in_stock
+        in_stock: sp ? sp.in_stock : item.in_stock
       }
     end
   end

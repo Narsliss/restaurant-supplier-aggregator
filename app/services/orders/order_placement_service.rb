@@ -8,7 +8,13 @@ module Orders
 
     def place_order(accept_price_changes: false, skip_warnings: false, skip_pre_validation: false)
       # Step 1: Run pre-submission validations
+      # (validate_item_availability may auto-remove out-of-stock items via destroy_all)
       validate_order!(skip_warnings: skip_warnings)
+
+      # Reload association — validation may have removed OOS items from the DB,
+      # but the in-memory association cache still holds the deleted records.
+      order.order_items.reload
+      order.recalculate_totals! if order.respond_to?(:recalculate_totals!)
 
       # Step 2: Run thorough pre-order validation (stock, price, minimum, delivery)
       unless skip_pre_validation
@@ -25,28 +31,52 @@ module Orders
       order.update!(status: 'processing')
 
       begin
-        # Step 4: Add items to cart with delivery date
+        # Step 4: Clear any existing cart items, then add our items
+        scraper.clear_cart if scraper.respond_to?(:clear_cart)
         cart_items = build_cart_items
-        scraper.add_to_cart(cart_items, delivery_date: order.delivery_date)
+        cart_result = scraper.add_to_cart(cart_items, delivery_date: order.delivery_date)
 
-        # Step 5: Attempt checkout with error handling
-        result = scraper.checkout
+        # Handle items that couldn't be added (e.g., out of stock on supplier site)
+        if cart_result.is_a?(Hash) && cart_result[:failed]&.any?
+          handle_skipped_cart_items(cart_result[:failed])
+        end
 
-        # Step 6: Record success
-        order.update!(
-          status: 'submitted',
-          confirmation_number: result[:confirmation_number],
-          total_amount: result[:total],
-          submitted_at: Time.current,
-          delivery_date: result[:delivery_date]
-        )
+        # Re-check: if item removal dropped us below the order minimum, fail early
+        recheck_order_minimum_after_removals!
 
-        # Mark all items as added
-        order.order_items.update_all(status: 'added')
+        # Step 5: Attempt checkout (with dry_run if checkout not enabled for this supplier)
+        dry_run = !order.supplier.checkout_enabled?
+        result = scraper.checkout(dry_run: dry_run)
 
-        Rails.logger.info "[OrderPlacement] Order #{order.id} submitted successfully: #{result[:confirmation_number]}"
+        # Step 6: Record result
+        if result[:dry_run]
+          order.update!(
+            status: 'dry_run_complete',
+            confirmation_number: result[:confirmation_number],
+            total_amount: result[:total],
+            submitted_at: Time.current,
+            delivery_date: result[:delivery_date] || order.delivery_date,
+            notes: [order.notes, dry_run_summary(result)].compact.join("\n\n")
+          )
+          order.order_items.update_all(status: 'pending')
 
-        { success: true, order: order.reload }
+          Rails.logger.info "[OrderPlacement] Order #{order.id} DRY RUN complete for #{order.supplier.name}"
+
+          { success: true, order: order.reload, dry_run: true }
+        else
+          order.update!(
+            status: 'submitted',
+            confirmation_number: result[:confirmation_number],
+            total_amount: result[:total],
+            submitted_at: Time.current,
+            delivery_date: result[:delivery_date]
+          )
+          order.order_items.update_all(status: 'added')
+
+          Rails.logger.info "[OrderPlacement] Order #{order.id} submitted: #{result[:confirmation_number]}"
+
+          { success: true, order: order.reload }
+        end
       rescue Scrapers::BaseScraper::OrderMinimumError => e
         handle_order_minimum_error(e)
       rescue Scrapers::BaseScraper::ItemUnavailableError => e
@@ -77,6 +107,29 @@ module Orders
     end
 
     private
+
+    def dry_run_summary(result)
+      lines = ["[DRY RUN — #{Time.current.strftime('%b %d, %Y %I:%M %p')}]"]
+      lines << "Checkout flow completed without placing order."
+      lines << "Extracted total: $#{'%.2f' % result[:total]}" if result[:total]
+
+      # Detect surcharges/fees: compare our item subtotal to the platform's total
+      our_subtotal = order.calculated_subtotal
+      if result[:total] && result[:total] > our_subtotal && our_subtotal > 0
+        difference = result[:total] - our_subtotal
+        lines << "Item subtotal: $#{'%.2f' % our_subtotal}"
+        lines << "⚠️  Platform surcharge/fees: $#{'%.2f' % difference} (below-minimum or delivery fee)"
+      end
+
+      lines << "Delivery date: #{result[:delivery_date]}" if result[:delivery_date]
+      if result[:cart_items]&.any?
+        lines << "Cart items verified: #{result[:cart_items].count}"
+        result[:cart_items].each do |item|
+          lines << "  - #{item['name']} (#{item['sku']}): qty #{item['quantity']} @ $#{item['price']}"
+        end
+      end
+      lines.join("\n")
+    end
 
     def run_pre_order_validation
       # Build a temporary order list from the order items for validation
@@ -218,6 +271,7 @@ module Orders
       order.order_items.includes(:supplier_product).map do |item|
         {
           sku: item.supplier_product.supplier_sku,
+          name: item.supplier_product.supplier_name,
           quantity: item.quantity.to_i,
           expected_price: item.unit_price
         }
@@ -256,11 +310,21 @@ module Orders
         error_message: "#{error.items.count} item(s) are unavailable: #{item_names}"
       )
 
-      # Mark specific items as failed
+      # Mark specific items as failed and update supplier product stock status
       error.items.each do |item|
         order_item = order.order_items.joins(:supplier_product)
                           .find_by(supplier_products: { supplier_sku: item[:sku] })
-        order_item&.mark_failed!(item[:message])
+        next unless order_item
+
+        order_item.mark_failed!(item[:message])
+
+        # Update supplier_product in_stock to false so future orders
+        # won't include items that the platform says are unavailable
+        sp = order_item.supplier_product
+        if sp&.in_stock
+          sp.update!(in_stock: false)
+          Rails.logger.info "[OrderPlacement] Marked #{sp.supplier_name} (#{sp.supplier_sku}) as out of stock"
+        end
       end
 
       Rails.logger.warn "[OrderPlacement] Order #{order.id} failed: items unavailable"
@@ -397,6 +461,82 @@ module Orders
       end
 
       order.recalculate_totals!
+    end
+
+    # When scraper.add_to_cart skips items (e.g., unavailable on supplier site),
+    # remove those order_items so totals are accurate and checkout matches the cart.
+    # Also update supplier_product stock status for future orders.
+    def handle_skipped_cart_items(failed_items)
+      skipped_names = []
+
+      failed_items.each do |fi|
+        order_item = order.order_items.joins(:supplier_product)
+                          .find_by(supplier_products: { supplier_sku: fi[:sku] })
+        next unless order_item
+
+        # Update supplier_product stock status so future orders know
+        sp = order_item.supplier_product
+        if sp&.in_stock
+          sp.update!(in_stock: false)
+          Rails.logger.info "[OrderPlacement] Marked #{sp.supplier_name} (#{sp.supplier_sku}) as out of stock"
+        end
+
+        skipped_names << (fi[:name] || sp&.supplier_name)
+        order_item.destroy!
+      end
+
+      if skipped_names.any?
+        order.order_items.reload
+        order.recalculate_totals! if order.respond_to?(:recalculate_totals!)
+
+        note = "[Auto-removed] #{skipped_names.size} item(s) unavailable on supplier site: #{skipped_names.join(', ')}"
+        order.update!(notes: [order.notes, note].compact.join("\n\n"))
+
+        # Create a structured validation record so the UI can display
+        # a prominent alert about removed items.
+        # Note: order_items were already destroyed above, so look up
+        # supplier_product directly by SKU for the name.
+        removed_details = failed_items.map do |fi|
+          sp = SupplierProduct.find_by(
+            supplier: order.supplier,
+            supplier_sku: fi[:sku]
+          )
+          {
+            sku: fi[:sku],
+            name: sp&.supplier_name || fi[:name] || "SKU #{fi[:sku]}",
+            reason: fi[:error] || 'Out of stock on supplier site'
+          }
+        end
+
+        OrderValidation.create!(
+          order: order,
+          validation_type: 'items_removed',
+          passed: true, # warning, not blocking
+          message: "#{skipped_names.size} item(s) were removed because they are unavailable on #{order.supplier.name}: #{skipped_names.join(', ')}",
+          details: { removed_items: removed_details },
+          validated_at: Time.current
+        )
+
+        Rails.logger.info "[OrderPlacement] Order #{order.id}: #{note}"
+      end
+    end
+
+    # After OOS items are removed (by validation or add_to_cart), re-check
+    # that the remaining total still meets the supplier's order minimum.
+    def recheck_order_minimum_after_removals!
+      minimum = order.supplier.order_minimum
+      return unless minimum
+
+      current_total = order.calculated_subtotal
+      return if current_total >= minimum
+
+      difference = minimum - current_total
+      raise Scrapers::BaseScraper::OrderMinimumError.new(
+        "Order fell below minimum after removing unavailable items. " \
+        "Minimum: #{format_currency(minimum)}, Current: #{format_currency(current_total)}.",
+        minimum: minimum,
+        current_total: current_total
+      )
     end
 
     def format_currency(amount)

@@ -19,6 +19,7 @@ class OrderValidation < ApplicationRecord
     item_minimum
     item_maximum
     item_unavailable
+    items_removed
     cutoff_passed
     cutoff_approaching
     delivery_unavailable

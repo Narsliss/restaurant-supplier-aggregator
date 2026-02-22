@@ -100,6 +100,16 @@ class SupplierListItem < ApplicationRecord
     UnitParser.format_per_unit(per_unit_price, normalized_unit)
   end
 
+  # Stock status: prefer the linked supplier_product (updated during imports)
+  # over the list item's own in_stock column (only set at list sync time).
+  def in_stock
+    supplier_product ? supplier_product.in_stock : super
+  end
+
+  def in_stock?
+    !!in_stock
+  end
+
   # Price display
   def formatted_price
     return 'N/A' unless price

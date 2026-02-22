@@ -7,7 +7,7 @@ export default class extends Controller {
     "summaryOrders", "summaryItems", "summaryTotal", "summarySavings",
     "minimumBadge", "minimumWarning", "minimumShortfall",
     "warningsArea", "submitAllBtn", "supplierSubmitBtn", "summaryBar",
-    "deliveryDate",
+    "deliveryDate", "deliveryAddress",
     // Verification targets
     "verificationBanner", "verificationProgress",
     "priceChangeBanner", "verificationFailedBanner", "verificationFailedMessage",
@@ -73,6 +73,13 @@ export default class extends Controller {
   }
 
   _onQuantityChange(itemId, orderId, quantity) {
+    // Sync quantity across desktop + mobile duplicate inputs for this item
+    this.quantityInputTargets.forEach(input => {
+      if (input.dataset.itemId === itemId) {
+        input.value = quantity
+      }
+    })
+
     // Instant client-side update
     this._updateLineTotal(itemId, quantity)
     this._recalculateOrderTotals(orderId)
@@ -84,11 +91,16 @@ export default class extends Controller {
   }
 
   _updateLineTotal(itemId, quantity) {
-    const row = this._rowForItem(itemId)
-    if (!row) return
-    const unitPrice = parseFloat(row.dataset.unitPrice) || 0
+    // Find unit price from any row for this item (desktop or mobile)
+    let unitPrice = 0
+    this.itemRowTargets.forEach(row => {
+      if (row.dataset.itemId === itemId && parseFloat(row.dataset.unitPrice)) {
+        unitPrice = parseFloat(row.dataset.unitPrice)
+      }
+    })
     const lineTotal = unitPrice * quantity
 
+    // Update ALL line total displays for this item (desktop + mobile)
     this.lineTotalTargets.forEach(el => {
       if (el.dataset.itemId === itemId) {
         el.textContent = this._formatCurrency(lineTotal)
@@ -683,6 +695,16 @@ export default class extends Controller {
           this._showOrderSkipped(orderId, order.verification_error) // show skip reason
           break
       }
+
+      // Update delivery address if received from supplier
+      if (order.supplier_delivery_address) {
+        this._updateDeliveryAddress(orderId, order.supplier_delivery_address)
+      }
+
+      // Mark out-of-stock items (from verification)
+      if (order.unavailable_items && order.unavailable_items.length > 0) {
+        this._markUnavailableItems(orderId, order.unavailable_items)
+      }
     })
 
     // Update top-level banners
@@ -718,6 +740,65 @@ export default class extends Controller {
     this.verifyingIndicatorTargets.forEach(el => {
       if (el.dataset.orderId === orderId) el.classList.remove("hidden")
     })
+  }
+
+  _updateDeliveryAddress(orderId, address) {
+    this.deliveryAddressTargets.forEach(el => {
+      if (el.dataset.orderId === orderId) {
+        el.innerHTML = `<span class="text-gray-900 text-sm">${this._escapeHtml(address)}</span>`
+      }
+    })
+  }
+
+  _markUnavailableItems(orderId, unavailableItems) {
+    const itemIds = unavailableItems.map(i => String(i.id))
+
+    this.itemRowTargets.forEach(row => {
+      if (row.offsetParent === null) return // skip hidden (mobile/desktop dual render)
+      const itemId = row.dataset.itemId
+      if (!itemIds.includes(itemId)) return
+
+      // Mark row with red background
+      row.classList.add("bg-red-50")
+      row.dataset.inStock = "false"
+
+      // Add "Out of stock" badge if not already present
+      const existingBadge = row.querySelector("[data-order-review-target='stockBadge']")
+      if (!existingBadge) {
+        const nameCell = row.querySelector("td, .flex-1")
+        if (nameCell) {
+          const badge = document.createElement("span")
+          badge.className = "inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700"
+          badge.dataset.orderReviewTarget = "stockBadge"
+          badge.dataset.itemId = itemId
+          badge.textContent = "Out of stock"
+          const nameEl = nameCell.querySelector("p, span") || nameCell
+          nameEl.appendChild(badge)
+        }
+      }
+    })
+
+    // Show warning banner for this order
+    if (unavailableItems.length > 0) {
+      const card = this._cardForOrder(orderId)
+      if (card && !card.querySelector(".unavailable-banner")) {
+        const itemsTable = card.querySelector("table, .divide-y")
+        if (itemsTable) {
+          const banner = document.createElement("div")
+          banner.className = "unavailable-banner mx-4 mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
+          const names = unavailableItems.map(i => i.name).join(", ")
+          banner.innerHTML = `
+            <div class="flex items-start gap-2">
+              <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"/></svg>
+              <div><strong>${unavailableItems.length} item${unavailableItems.length > 1 ? 's' : ''} out of stock:</strong> ${this._escapeHtml(names)}. Remove ${unavailableItems.length > 1 ? 'them' : 'it'} to submit this order.</div>
+            </div>
+          `
+          itemsTable.parentNode.insertBefore(banner, itemsTable)
+        }
+      }
+    }
+
+    this._updateSubmitStates()
   }
 
   _showOrderVerified(orderId) {
@@ -890,7 +971,9 @@ export default class extends Controller {
     const card = this._cardForOrder(orderId)
     if (!card) return
 
-    const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
+    // Filter to visible rows only — page has both desktop (table) and mobile (card) markup
+    const rows = Array.from(card.querySelectorAll("[data-order-review-target='itemRow']"))
+      .filter(row => row.offsetParent !== null)
     let subtotal = 0
     let itemCount = 0
 
@@ -927,7 +1010,9 @@ export default class extends Controller {
     let totalAmount = 0
 
     cards.forEach(card => {
-      const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
+      // Filter to visible rows only — avoid double-counting desktop + mobile markup
+      const rows = Array.from(card.querySelectorAll("[data-order-review-target='itemRow']"))
+        .filter(row => row.offsetParent !== null)
       rows.forEach(row => {
         const unitPrice = parseFloat(row.dataset.unitPrice) || 0
         const input = row.querySelector("[data-order-review-target='quantityInput']")
@@ -949,8 +1034,9 @@ export default class extends Controller {
       const orderId = card.dataset.orderId
       const minimum = parseFloat(card.dataset.minimum) || 0
 
-      // Calculate current subtotal for this card
-      const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
+      // Calculate current subtotal for this card (visible rows only)
+      const rows = Array.from(card.querySelectorAll("[data-order-review-target='itemRow']"))
+        .filter(row => row.offsetParent !== null)
       let subtotal = 0
       rows.forEach(row => {
         const unitPrice = parseFloat(row.dataset.unitPrice) || 0
@@ -1060,7 +1146,8 @@ export default class extends Controller {
       const meetsMinimum = minimum === 0 || subtotal >= minimum
       const hasDate = this._hasValidDeliveryDate(orderId)
       const isVerified = ["verified", "price_changed", "skipped"].includes(verificationStatus)
-      const canSubmit = meetsMinimum && hasDate && isVerified
+      const hasNoUnavailable = !card.querySelector("[data-in-stock='false']")
+      const canSubmit = meetsMinimum && hasDate && isVerified && hasNoUnavailable
 
       if (!canSubmit) allCanSubmit = false
 

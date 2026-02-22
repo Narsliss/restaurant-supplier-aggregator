@@ -85,35 +85,40 @@
                 <% @suppliers.each do |supplier| %>
                   <td class="px-4 py-3">
                     <% item = match.item_for_supplier(supplier) %>
-                    <% if item && item.price %>
-                      <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-                      <% is_most_expensive = most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-                      <% is_default = cheapest && cheapest[:supplier] == supplier %>
-                      <div class="cursor-pointer rounded-md px-1.5 py-1 -mx-1.5 -my-1 transition-all
-                                  <%= is_default ? 'ring-2 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
-                           data-action="click->order-builder#selectSupplier"
-                           data-supplier-price="<%= item.price %>"
-                           data-supplier-id-value="<%= supplier.id %>"
-                           data-match-id="<%= match.id %>"
-                           data-order-builder-target="supplierCell"
-                           data-default="<%= is_default %>">
-                        <span class="text-sm font-semibold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
-                          <%= item.formatted_price %>
-                        </span>
-                        <% if item.pack_size.present? %>
-                          <span class="block text-xs text-gray-500"><%= item.pack_size %></span>
-                        <% end %>
-                        <% if item.formatted_per_unit_price %>
-                          <span class="block text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
-                            <%= item.formatted_per_unit_price %>
+                    <% if item %>
+                      <% sp = item.supplier_product %>
+                      <% effective_price = item.price || sp&.current_price %>
+                      <% effective_pack_size = item.pack_size || sp&.pack_size %>
+                      <% if effective_price %>
+                        <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+                        <% is_most_expensive = most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+                        <% is_default = cheapest && cheapest[:supplier] == supplier %>
+                        <div class="cursor-pointer rounded-md px-1.5 py-1 -mx-1.5 -my-1 transition-all
+                                    <%= is_default ? 'ring-2 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
+                             data-action="click->order-builder#selectSupplier"
+                             data-supplier-price="<%= effective_price %>"
+                             data-supplier-id-value="<%= supplier.id %>"
+                             data-match-id="<%= match.id %>"
+                             data-order-builder-target="supplierCell"
+                             data-default="<%= is_default %>">
+                          <span class="text-sm font-semibold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
+                            <%= number_to_currency(effective_price) %>
                           </span>
-                        <% end %>
-                        <% unless item.in_stock %>
-                          <span class="block text-xs text-red-500">Out of stock</span>
-                        <% end %>
-                      </div>
-                    <% elsif item %>
-                      <span class="text-sm text-gray-400">No price</span>
+                          <% if effective_pack_size.present? %>
+                            <span class="block text-xs text-gray-500"><%= effective_pack_size %></span>
+                          <% end %>
+                          <% if item.formatted_per_unit_price %>
+                            <span class="block text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
+                              <%= item.formatted_per_unit_price %>
+                            </span>
+                          <% end %>
+                          <% unless sp ? sp.in_stock : item.in_stock %>
+                            <span class="block text-xs text-red-500">Out of stock</span>
+                          <% end %>
+                        </div>
+                      <% else %>
+                        <span class="text-sm text-gray-400">No price</span>
+                      <% end %>
                     <% else %>
                       <span class="text-sm text-gray-300">&mdash;</span>
                     <% end %>
@@ -177,29 +182,34 @@
             <div class="flex flex-wrap gap-2 mb-3">
               <% @suppliers.each do |supplier| %>
                 <% item = match.item_for_supplier(supplier) %>
-                <% if item && item.price %>
-                  <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-                  <% is_default = cheapest && cheapest[:supplier] == supplier %>
-                  <div class="text-xs cursor-pointer rounded px-1.5 py-0.5 transition-all
-                              <%= is_default ? 'ring-1 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
-                       data-action="click->order-builder#selectSupplier"
-                       data-supplier-price="<%= item.price %>"
-                       data-supplier-id-value="<%= supplier.id %>"
-                       data-match-id="<%= match.id %>"
-                       data-order-builder-target="supplierCell"
-                       data-default="<%= is_default %>">
-                    <span class="text-gray-500"><%= supplier.name %>:</span>
-                    <span class="font-semibold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>"><%= item.formatted_price %></span>
-                    <% if item.pack_size.present? %>
-                      <span class="text-gray-400">(<%= item.pack_size %>)</span>
-                    <% end %>
-                    <% if item.formatted_per_unit_price %>
-                      <span class="<%= is_cheapest ? 'text-green-600' : 'text-gray-400' %>"><%= item.formatted_per_unit_price %></span>
-                    <% end %>
-                    <% unless item.in_stock %>
-                      <span class="text-red-500">(OOS)</span>
-                    <% end %>
-                  </div>
+                <% if item %>
+                  <% sp = item.supplier_product %>
+                  <% effective_price = item.price || sp&.current_price %>
+                  <% effective_pack_size = item.pack_size || sp&.pack_size %>
+                  <% if effective_price %>
+                    <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+                    <% is_default = cheapest && cheapest[:supplier] == supplier %>
+                    <div class="text-xs cursor-pointer rounded px-1.5 py-0.5 transition-all
+                                <%= is_default ? 'ring-1 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
+                         data-action="click->order-builder#selectSupplier"
+                         data-supplier-price="<%= effective_price %>"
+                         data-supplier-id-value="<%= supplier.id %>"
+                         data-match-id="<%= match.id %>"
+                         data-order-builder-target="supplierCell"
+                         data-default="<%= is_default %>">
+                      <span class="text-gray-500"><%= supplier.name %>:</span>
+                      <span class="font-semibold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>"><%= number_to_currency(effective_price) %></span>
+                      <% if effective_pack_size.present? %>
+                        <span class="text-gray-400">(<%= effective_pack_size %>)</span>
+                      <% end %>
+                      <% if item.formatted_per_unit_price %>
+                        <span class="<%= is_cheapest ? 'text-green-600' : 'text-gray-400' %>"><%= item.formatted_per_unit_price %></span>
+                      <% end %>
+                      <% unless sp ? sp.in_stock : item.in_stock %>
+                        <span class="text-red-500">(OOS)</span>
+                      <% end %>
+                    </div>
+                  <% end %>
                 <% end %>
               <% end %>
             </div>

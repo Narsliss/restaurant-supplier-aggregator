@@ -4,6 +4,7 @@ module Scrapers
     PLATFORM_URL = 'https://whatchefswant.cutanddry.com'.freeze
     LOGIN_URL = "#{BASE_URL}/customer-login/".freeze
     ORDER_MINIMUM = 150.00
+    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live WCW orders
 
     # What Chefs Want (Cut+Dry platform) categories for catalog browsing
     # Categories are browsed via filter buttons on the order page
@@ -267,14 +268,22 @@ module Scrapers
       end
 
       if failed_items.any?
-        close_order_browser!
-        raise ItemUnavailableError.new(
-          "#{failed_items.count} item(s) could not be added",
-          items: failed_items
-        )
+        if added_items.empty?
+          # ALL items failed — nothing in the cart, can't proceed
+          close_order_browser!
+          raise ItemUnavailableError.new(
+            "#{failed_items.count} item(s) could not be added",
+            items: failed_items
+          )
+        else
+          # Some items failed but others succeeded — log warning and continue
+          # with the items that were successfully added to the cart
+          logger.warn "[WhatChefsWant] #{failed_items.count} item(s) skipped (unavailable): " \
+                      "#{failed_items.map { |i| i[:sku] }.join(', ')}"
+        end
       end
 
-      { added: added_items.count }
+      { added: added_items.count, failed: failed_items }
     end
 
     private
@@ -370,7 +379,10 @@ module Scrapers
 
     public
 
-    def checkout
+    def checkout(dry_run: false)
+      effective_dry_run = dry_run || !CHECKOUT_LIVE
+      logger.info "[WhatChefsWant] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
+
       # Reuse the browser from add_to_cart (cart doesn't persist across sessions)
       ensure_order_browser!
 
@@ -432,8 +444,49 @@ module Scrapers
 
         logger.info "[WhatChefsWant] Review: #{item_count} items, total: $#{order_total}, delivery: #{delivery_info}"
 
+        # DOM discovery logging for review page
+        dom_info = browser.evaluate(<<~JS)
+          (function() {
+            return {
+              url: window.location.href,
+              buttons: Array.from(document.querySelectorAll('button'))
+                .filter(function(b) { return b.offsetParent !== null; })
+                .slice(0, 15)
+                .map(function(b) { return { text: b.innerText.trim().substring(0, 50), classes: b.className.substring(0, 80) }; }),
+              page_text_preview: document.body.innerText.substring(0, 500)
+            };
+          })()
+        JS
+        logger.info "[WhatChefsWant] Review page DOM: #{dom_info.inspect}"
+
         # Check for unavailable items
-        logger.warn '[WhatChefsWant] Some items may be unavailable' if page_text.include?('Currently not available')
+        has_unavailable = page_text.include?('Currently not available')
+        logger.warn '[WhatChefsWant] Some items may be unavailable' if has_unavailable
+
+        # ═══════════════════════════════════════════
+        # ═══ SAFETY GATE — DRY RUN CHECK ══════════
+        # ═══════════════════════════════════════════
+        if effective_dry_run
+          logger.info "[WhatChefsWant] DRY RUN COMPLETE — stopping before Submit Order"
+          logger.info "[WhatChefsWant] Would have placed order: total=$#{order_total}"
+
+          return {
+            confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+            total: order_total,
+            delivery_date: delivery_info,
+            dry_run: true,
+            cart_items: [],
+            checkout_summary: {
+              total: order_total,
+              delivery_date: delivery_info,
+              item_count: item_count,
+              has_unavailable_items: has_unavailable
+            }
+          }
+        end
+
+        # ═══ LIVE ORDER — Submit ══════════════════
+        logger.warn '[WhatChefsWant] PLACING LIVE ORDER — clicking Submit Order'
 
         # Click "Submit Order" button
         submit_result = browser.evaluate(<<~JS)
@@ -491,6 +544,12 @@ module Scrapers
       ensure
         close_order_browser!
       end
+    end
+
+    def clear_cart
+      # WCW uses ephemeral in-memory cart on Cut+Dry platform.
+      # Fresh browser session = empty cart. No action needed.
+      logger.info '[WhatChefsWant] clear_cart: no-op (ephemeral cart on Cut+Dry)'
     end
 
     # Scrape the order guide from What Chefs Want (Cut+Dry platform).
@@ -573,12 +632,17 @@ module Scrapers
               var packMatch = packText.match(/(\\d+[x/]\\d+[\\s]*\\w+(?:\\s+\\w+)?|\\d+\\s*(?:LB|OZ|CS|EA|CT|GAL|COUNT)\\b[^\\n]*)/i);
               var packSize = packMatch ? packMatch[1].trim() : '';
 
-              // Price
+              // Price — prefer case/CS price when dual pricing shown
+              // e.g. "$13.99/LB\\n$83.94/CS" → take $83.94 (case price users pay)
               var priceText = cells[4] ? cells[4].innerText.trim() : '';
               var price = null;
-              // May have "$13.99" or "$13.99/LB" or "$13.99/LB\\n$83.94/CS"
-              var priceMatch = priceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
-              if (priceMatch) price = parseFloat(priceMatch[1].replace(',', ''));
+              var csMatch = priceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*\\/?\\s*(?:CS|case)/i);
+              if (csMatch) {
+                price = parseFloat(csMatch[1].replace(',', ''));
+              } else {
+                var priceMatch = priceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+                if (priceMatch) price = parseFloat(priceMatch[1].replace(',', ''));
+              }
 
               results.push({
                 sku: sku,
@@ -1005,9 +1069,17 @@ module Scrapers
         price_line = lines.find { |l| l.match?(/\$[\d,.]+/) }
         price = nil
         if price_line
-          # Handle "$7.50/lb ($195.00/cs)" - take the per-unit price
-          price_match = price_line.match(/\$([\d,.]+)/)
-          price = price_match[1].gsub(',', '').to_f if price_match
+          # Prefer case/CS price when dual pricing is shown
+          # e.g. "$6.85/lb ($43.85/cs)" → take $43.85 (the case price)
+          # The case price is what the user actually pays when ordering
+          cs_match = price_line.match(/\$([\d,.]+)\s*\/?\s*(?:cs|case)/i)
+          if cs_match
+            price = cs_match[1].gsub(',', '').to_f
+          else
+            # No case price found — take the first price (may be per-unit or flat)
+            price_match = price_line.match(/\$([\d,.]+)/)
+            price = price_match[1].gsub(',', '').to_f if price_match
+          end
         end
 
         # Find unit type (Case, Each, Pound)

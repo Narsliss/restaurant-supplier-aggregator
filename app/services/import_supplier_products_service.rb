@@ -6,6 +6,13 @@ class ImportSupplierProductsService
   # from incorrectly incrementing miss counters on the entire catalog.
   MINIMUM_SCRAPE_THRESHOLD = 50
 
+  # Minimum percentage of existing products that must be seen in a scrape before
+  # we record misses for the unseen ones. A catalog scrape that only finds 5% of
+  # existing products is clearly a partial scan — not evidence that the other 95%
+  # were discontinued. Set high enough to prevent category-browsing partial scrapes
+  # from penalizing the full catalog.
+  MINIMUM_SEEN_PERCENTAGE = 60
+
   def initialize(credential)
     @credential = credential
     @supplier = credential.supplier
@@ -264,17 +271,32 @@ class ImportSupplierProductsService
   # which suggests a partial failure rather than genuine catalog changes.
   def record_misses_for_unseen_products
     total_seen = @seen_skus.size
+    total_existing = @existing_by_sku.size
 
+    # Safety check 1: absolute minimum
     if total_seen < MINIMUM_SCRAPE_THRESHOLD
       Rails.logger.info "[ImportProducts] Skipping miss tracking for #{supplier.name} — " \
                         "only #{total_seen} products seen (threshold: #{MINIMUM_SCRAPE_THRESHOLD})"
       return
     end
 
+    # Safety check 2: percentage-based — if the scrape only covers a small fraction
+    # of existing products, it's a partial scan (e.g., category browsing) not a full
+    # catalog check. Don't penalize unseen products.
+    if total_existing > 0
+      seen_pct = (total_seen.to_f / total_existing * 100).round(1)
+      if seen_pct < MINIMUM_SEEN_PERCENTAGE
+        Rails.logger.info "[ImportProducts] Skipping miss tracking for #{supplier.name} — " \
+                          "only #{seen_pct}% of catalog seen (#{total_seen}/#{total_existing}, " \
+                          "threshold: #{MINIMUM_SEEN_PERCENTAGE}%)"
+        return
+      end
+    end
+
     unseen_skus = @existing_by_sku.keys - @seen_skus.to_a
 
     if unseen_skus.empty?
-      Rails.logger.info "[ImportProducts] All #{@existing_by_sku.size} existing products were seen in scrape for #{supplier.name}"
+      Rails.logger.info "[ImportProducts] All #{total_existing} existing products were seen in scrape for #{supplier.name}"
       return
     end
 

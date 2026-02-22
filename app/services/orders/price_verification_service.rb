@@ -57,6 +57,7 @@ module Orders
       end
 
       verified_prices = fetch_prices(scraper, skus)
+      @delivery_address = scraper.last_delivery_address
       compare_prices(verified_prices)
 
       build_result
@@ -198,7 +199,8 @@ module Orders
         price_change_amount: total_change.round(2),
         has_price_changes: has_changes && !within_threshold?(total_change),
         results: @results,
-        verification_status: order.reload.verification_status
+        verification_status: order.reload.verification_status,
+        delivery_address: @delivery_address
       }
     end
 

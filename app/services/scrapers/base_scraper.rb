@@ -39,7 +39,7 @@ module Scrapers
     class RateLimitedError < StandardError; end
     class MaintenanceError < StandardError; end
 
-    attr_reader :credential, :browser, :logger
+    attr_reader :credential, :browser, :logger, :last_delivery_address
 
     def initialize(credential)
       @credential = credential
@@ -201,8 +201,22 @@ module Scrapers
       raise NotImplementedError, 'Subclass must implement #add_to_cart'
     end
 
-    def checkout
+    # Clear all items from the supplier cart before adding new ones.
+    # Override in subclasses. Default is a no-op (for suppliers without cart state).
+    def clear_cart
+      logger.info "[#{self.class.name.demodulize}] clear_cart not implemented — skipping"
+    end
+
+    def checkout(dry_run: false)
       raise NotImplementedError, 'Subclass must implement #checkout'
+    end
+
+    # Extract delivery address from supplier account page.
+    # Called inside an existing with_browser block (browser already open & authenticated).
+    # Subclasses override to navigate to the account/addresses page and extract the address.
+    # Stores result in @last_delivery_address. Returns nil by default.
+    def extract_delivery_address
+      @last_delivery_address = nil
     end
 
     def logged_in?

@@ -10,7 +10,7 @@ class Order < ApplicationRecord
 
   # Validations
   validates :status, presence: true, inclusion: {
-    in: %w[pending verifying price_changed processing pending_review pending_manual submitted confirmed failed cancelled]
+    in: %w[pending verifying price_changed processing pending_review pending_manual submitted confirmed failed cancelled dry_run_complete]
   }
   validates :verification_status, inclusion: {
     in: %w[pending verifying verified price_changed failed skipped],
@@ -43,7 +43,8 @@ class Order < ApplicationRecord
     submitted: "submitted",
     confirmed: "confirmed",
     failed: "failed",
-    cancelled: "cancelled"
+    cancelled: "cancelled",
+    dry_run_complete: "dry_run_complete"
   }.freeze
 
   VERIFICATION_STATUSES = %w[pending verifying verified price_changed failed skipped].freeze
@@ -84,8 +85,12 @@ class Order < ApplicationRecord
     status == "cancelled"
   end
 
+  def dry_run_complete?
+    status == "dry_run_complete"
+  end
+
   def completed?
-    submitted? || confirmed?
+    submitted? || confirmed? || dry_run_complete?
   end
 
   def editable?

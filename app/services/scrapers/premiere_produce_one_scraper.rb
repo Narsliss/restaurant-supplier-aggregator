@@ -3,6 +3,7 @@ module Scrapers
     BASE_URL = 'https://premierproduceone.pepr.app'.freeze
     LOGIN_URL = "#{BASE_URL}/".freeze
     ORDER_MINIMUM = 0.00
+    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live PPO orders
 
     # PPO categories for catalog browsing
     # Categories are browsed via URL pattern with category parameter
@@ -659,130 +660,548 @@ module Scrapers
         end
 
         if failed_items.any?
-          raise ItemUnavailableError.new(
-            "#{failed_items.count} item(s) could not be added",
-            items: failed_items
-          )
+          if added_items.empty?
+            # ALL items failed — nothing in the cart, can't proceed
+            raise ItemUnavailableError.new(
+              "#{failed_items.count} item(s) could not be added",
+              items: failed_items
+            )
+          else
+            # Some items failed but others succeeded — log warning and continue
+            logger.warn "[PremiereProduceOne] #{failed_items.count} item(s) skipped (unavailable): " \
+                        "#{failed_items.map { |i| i[:sku] }.join(', ')}"
+          end
         end
 
-        { added: added_items.count }
+        { added: added_items.count, failed: failed_items }
       end
     end
 
     private
 
     def add_single_item_to_cart(item)
-      # PPO is a React SPA - search for the product using the search input
-      search_input = browser.at_css("input[placeholder='Search']")
+      # PPO Pepper (pepr.app) Order Guide UI flow:
+      # 1. Search for SKU → order guide filters to matching item(s)
+      # 2. Click the product ROW → detail modal opens showing "Case • SKU", price, and orange + button
+      # 3. Click orange + button in modal to add to cart
+      # 4. For qty > 1, click "Increase quantity" button additional times in the modal
+      # 5. Close modal, repeat for next item
+      #
+      # CRITICAL: The + button is ONLY inside the modal — never on the order guide list page.
+      # NEVER click any "Increase quantity" button on the main page — those belong to unknown products.
 
+      search_input = browser.at_css("input[placeholder='Search']")
       unless search_input
-        # Navigate to catalog to get search input
         ensure_catalog_page_loaded
         search_input = browser.at_css("input[placeholder='Search']")
       end
-
       raise ScrapingError, 'Search input not found' unless search_input
 
-      # Search for the product by SKU
+      # Clear previous search first, then search for the new SKU.
+      # Without clearing, React may not re-filter when overwriting the input value.
       search_input.focus
+      set_react_input_value(search_input, '')
+      sleep 1 # Let React process the cleared input and show all items
       set_react_input_value(search_input, item[:sku].to_s)
-      sleep 3 # Wait for React to filter results
+      sleep 4 # Wait for React to filter/search results
 
-      # PPO displays products in a list with format:
-      # Product Name | Brand: X | Pack Size: Y | Case • SKU | [+] button
-      # Find the product row containing our SKU and click its "+" button
-      quantity_to_add = item[:quantity].to_i
-      quantity_to_add = 1 if quantity_to_add < 1
+      # Log page state after search for debugging
+      page_text = browser.evaluate("document.body ? document.body.innerText.substring(0, 600) : ''") || ''
+      logger.info "[PremiereProduceOne] After search for SKU '#{item[:sku]}' (name: #{item[:name]}): #{page_text.first(250).inspect}"
 
-      # Click the "Increase quantity" button for the matching product
-      # Each click adds 1 to the quantity, so we click multiple times for quantity > 1
-      quantity_to_add.times do |i|
-        clicked = browser.evaluate(<<~JS)
+      # Step 2: Click the product row to open the detail modal
+      modal_opened = open_product_modal_ppo(item[:sku], item[:name])
+      raise ScrapingError, "Could not open product modal for SKU #{item[:sku]}" unless modal_opened
+
+      # Step 3: Click the + button in the modal
+      quantity_to_add = [item[:quantity].to_i, 1].max
+
+      # First click: the orange + (add) button
+      add_clicked = click_modal_add_button_ppo(item[:sku])
+      raise ScrapingError, "Could not click add button in modal for SKU #{item[:sku]}" unless add_clicked
+      logger.info "[PremiereProduceOne] Clicked + for SKU #{item[:sku]} (1/#{quantity_to_add})"
+
+      # CRITICAL: Wait for React to process the add-to-cart action.
+      # Without this pause, closing the modal immediately can cancel the add.
+      # Items with no fulfillment history (never ordered) take longer to register.
+      sleep 1.5
+
+      # Verify the + click actually registered: after adding, the modal should show
+      # a quantity display (e.g., "1") and the + button changes to "Increase quantity".
+      # Also check if a "Decrease quantity" button appeared (indicates item was added).
+      add_verified = browser.evaluate(<<~JS)
+        (function() {
+          var modalContainers = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+          if (modalContainers.length === 0) return { verified: false, reason: 'no modal' };
+          var modal = modalContainers[modalContainers.length - 1];
+          var text = (modal.textContent || '').trim();
+          var buttons = modal.querySelectorAll('button, [role="button"]');
+          var hasDecrease = false;
+          var hasIncrease = false;
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+            if (aria.includes('decrease')) hasDecrease = true;
+            if (aria.includes('increase')) hasIncrease = true;
+          }
+          return {
+            verified: hasDecrease,
+            has_decrease: hasDecrease,
+            has_increase: hasIncrease,
+            modal_text_preview: text.substring(0, 200)
+          };
+        })()
+      JS
+
+      logger.info "[PremiereProduceOne] Add verification for SKU #{item[:sku]}: #{add_verified.inspect}"
+
+      # If add didn't register, try clicking + again
+      unless add_verified&.dig('verified')
+        logger.warn "[PremiereProduceOne] Add not verified for SKU #{item[:sku]}, retrying + click"
+        retry_clicked = click_modal_add_button_ppo(item[:sku])
+        if retry_clicked
+          sleep 1.5
+          logger.info "[PremiereProduceOne] Retry + click for SKU #{item[:sku]} completed"
+        else
+          logger.warn "[PremiereProduceOne] Retry + click failed for SKU #{item[:sku]}"
+        end
+      end
+
+      # Additional clicks for qty > 1: after first add, the modal shows decrease/increase buttons
+      if quantity_to_add > 1
+        sleep 0.5 # Wait for UI to update after first add
+        (quantity_to_add - 1).times do |i|
+          # Find the "Increase quantity" button coordinates, then use CDP mouse click
+          increase_result = browser.evaluate(<<~JS)
+            (function() {
+              var modalContainers = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+              var searchIn = modalContainers.length > 0 ? modalContainers[modalContainers.length - 1] : document;
+
+              var buttons = searchIn.querySelectorAll('button, [role="button"]');
+              for (var btn of buttons) {
+                if (btn.offsetParent === null) continue;
+                var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                if (aria.includes('increase quantity')) {
+                  var rect = btn.getBoundingClientRect();
+                  return { found: true, aria: aria,
+                           x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                }
+              }
+
+              // Fallback: look near the SKU text
+              var targetSku = '#{item[:sku]}';
+              var allButtons = document.querySelectorAll('button, [role="button"]');
+              for (var btn of allButtons) {
+                if (btn.offsetParent === null) continue;
+                var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                if (aria.includes('increase quantity')) {
+                  var parent = btn.parentElement;
+                  for (var j = 0; j < 15 && parent; j++) {
+                    if ((parent.textContent || '').includes(targetSku)) {
+                      var rect = btn.getBoundingClientRect();
+                      return { found: true, aria: aria, method: 'sku-match',
+                               x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                    }
+                    parent = parent.parentElement;
+                  }
+                }
+              }
+
+              return { found: false, reason: 'No increase button found in modal' };
+            })()
+          JS
+
+          if increase_result && increase_result['found']
+            browser.mouse.click(x: increase_result['x'].to_f, y: increase_result['y'].to_f)
+          else
+            logger.warn "[PremiereProduceOne] Could only add #{i + 1} of #{quantity_to_add} for SKU #{item[:sku]}: " \
+                        "#{increase_result&.dig('reason') || 'unknown'}"
+            break
+          end
+
+          logger.info "[PremiereProduceOne] Clicked + for SKU #{item[:sku]} (#{i + 2}/#{quantity_to_add})" if i == quantity_to_add - 2
+          sleep 0.3
+        end
+      end
+
+      # Wait for the last qty click to register before closing modal
+      sleep 1
+
+      # Step 5: Close the modal
+      close_product_modal_ppo
+
+      logger.info "[PremiereProduceOne] Added SKU #{item[:sku]} qty #{quantity_to_add} to cart"
+      sleep 1 # Brief pause before next item
+    end
+
+    # Open the product detail modal by clicking the product row in the order guide.
+    # After SKU search, the order guide shows matching items as clickable rows.
+    # Clicking a row opens a modal with "Case • SKU", price, and orange + button.
+    #
+    # KEY LESSONS from debugging:
+    # 1. Product names in DB may be longer than Pepper (e.g., "CALIFORNIA JUMBO CARROTS GRIMMWAY FARMS"
+    #    vs just "CALIFORNIA JUMBO CARROTS" on screen). Must match bi-directionally.
+    # 2. Prefer the SMALLEST matching element — large containers include product name + navigation text.
+    # 3. Skip navigation items: "Order Guide", "Catalog", "Cart", etc.
+    # 4. React Native Web's Pressable uses pointer events — el.click() does NOTHING.
+    #    Must use Ferrum's browser.mouse.click(x:, y:) which sends real CDP mouse events.
+    def open_product_modal_ppo(sku, product_name = nil)
+      5.times do |attempt|
+        # Find the best element to click via JS, return its coordinates
+        result = browser.evaluate(<<~JS)
           (function() {
-            // Find all elements that contain "Case • SKU" pattern
+            var targetSku = '#{sku}';
+            var productName = #{product_name ? "'#{product_name.gsub("'", "\\\\'")}'" : 'null'};
+            var navSkipWords = ['order guide', 'catalog', 'cart', 'sign in', 'sign up', 'log out',
+                                'menu', 'settings', 'account', 'no results', 'search'];
+
+            // First: check if modal is already open with our SKU
+            var body = document.body ? document.body.innerText : '';
+            var skuPattern = new RegExp('(?:Case|Each|Piece|Pack|Bag|Box|Unit)\\\\s*[•·]\\\\s*' + targetSku);
+            if (skuPattern.test(body)) {
+              return { already_open: true };
+            }
+
+            function isNavText(text) {
+              var lower = text.toLowerCase();
+              for (var w of navSkipWords) {
+                if (lower === w || (lower.length < 30 && lower.includes(w))) return true;
+              }
+              return false;
+            }
+
+            // Strategy 1: Find the SMALLEST element matching the product name
+            if (productName) {
+              var nameUpper = productName.toUpperCase();
+              var nameWords = nameUpper.split(/\\s+/);
+              var shortName = nameWords.length > 3 ? nameWords.slice(0, Math.ceil(nameWords.length * 0.6)).join(' ') : nameUpper;
+
+              var allElements = document.querySelectorAll('div, span, p, li, a');
+              var nameMatches = [];
+
+              for (var el of allElements) {
+                if (el.offsetParent === null) continue;
+                var text = (el.textContent || '').trim();
+                var textUpper = text.toUpperCase();
+                if (text.length < 5 || text.length > 200) continue;
+                if (isNavText(text)) continue;
+
+                var matches = textUpper.includes(nameUpper) ||
+                              nameUpper.includes(textUpper) ||
+                              textUpper.includes(shortName) ||
+                              shortName.includes(textUpper);
+
+                if (matches) {
+                  var rect = el.getBoundingClientRect();
+                  if (rect.width > 30 && rect.height > 10) {
+                    nameMatches.push({
+                      text: text,
+                      textLen: text.length,
+                      x: rect.left + rect.width / 2,
+                      y: rect.top + rect.height / 2,
+                      width: rect.width,
+                      height: rect.height
+                    });
+                  }
+                }
+              }
+
+              // Sort by text length (shortest first = most specific element)
+              nameMatches.sort(function(a, b) { return a.textLen - b.textLen; });
+
+              if (nameMatches.length > 0) {
+                var best = nameMatches[0];
+                // Scroll the element into view first
+                var scrollEl = document.elementFromPoint(best.x, best.y);
+                if (scrollEl) scrollEl.scrollIntoView({ behavior: 'instant', block: 'center' });
+                // Recalculate position after scroll
+                var allEls2 = document.querySelectorAll('div, span, p, li, a');
+                for (var el2 of allEls2) {
+                  if (el2.offsetParent === null) continue;
+                  var t2 = (el2.textContent || '').trim();
+                  if (t2 === best.text.trim()) {
+                    var r2 = el2.getBoundingClientRect();
+                    best.x = r2.left + r2.width / 2;
+                    best.y = r2.top + r2.height / 2;
+                    break;
+                  }
+                }
+                return {
+                  found: true, strategy: 'product-name',
+                  text: best.text.substring(0, 80), matchLen: best.textLen,
+                  x: best.x, y: best.y,
+                  matches_found: nameMatches.length
+                };
+              }
+            }
+
+            // Strategy 2: Find clickable elements with cursor:pointer
+            var candidates = [];
+            var allDivs = document.querySelectorAll('div, li, span');
+            for (var div of allDivs) {
+              if (div.offsetParent === null) continue;
+              var style = window.getComputedStyle(div);
+              if (style.cursor !== 'pointer') continue;
+
+              var text = (div.textContent || '').trim();
+              if (text.length < 5 || text.length > 100) continue;
+              if (isNavText(text)) continue;
+
+              var rect = div.getBoundingClientRect();
+              if (rect.width > 100 && rect.height > 20 && rect.height < 200 && rect.top > 50) {
+                candidates.push({
+                  text: text.substring(0, 80),
+                  textLen: text.length,
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2
+                });
+              }
+            }
+
+            candidates.sort(function(a, b) { return a.textLen - b.textLen; });
+
+            if (candidates.length > 0) {
+              var c = candidates[0];
+              return {
+                found: true, strategy: 'cursor-pointer',
+                text: c.text, x: c.x, y: c.y,
+                candidates_count: candidates.length
+              };
+            }
+
+            return {
+              found: false,
+              reason: 'No product element found',
+              body_preview: body.substring(0, 300)
+            };
+          })()
+        JS
+
+        logger.info "[PremiereProduceOne] open_product_modal attempt #{attempt + 1}: #{result.inspect}"
+
+        return true if result&.dig('already_open')
+
+        if result&.dig('found')
+          x = result['x'].to_f
+          y = result['y'].to_f
+
+          # Use Ferrum's real mouse click (CDP Input.dispatchMouseEvent)
+          # This triggers React Native Web's Pressable event handlers
+          logger.info "[PremiereProduceOne] Clicking at (#{x.round(1)}, #{y.round(1)}) via CDP mouse — #{result['strategy']}: #{result['text']}"
+          browser.mouse.click(x: x, y: y)
+
+          sleep 2 # Wait for modal animation
+
+          # Check if modal opened with our SKU
+          modal_check = browser.evaluate(<<~JS)
+            (function() {
+              var targetSku = '#{sku}';
+              var body = document.body ? document.body.innerText : '';
+              var skuPattern = new RegExp('(?:Case|Each|Piece|Pack|Bag|Box|Unit)\\\\s*[•·]\\\\s*' + targetSku);
+              var hasModal = document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length > 0;
+              // Also search for just the raw SKU number near a bullet/dot
+              var rawSkuPattern = new RegExp('[•·]\\\\s*' + targetSku);
+              // And look for dialog content specifically
+              var dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+              var dialogText = '';
+              for (var d of dialogs) { dialogText += (d.textContent || '') + ' '; }
+              return {
+                has_sku_text: skuPattern.test(body),
+                has_raw_sku: rawSkuPattern.test(body),
+                has_sku_in_dialog: dialogText.includes(targetSku),
+                has_modal_role: hasModal,
+                dialog_text: dialogText.substring(0, 300),
+                body_preview: body.substring(0, 600)
+              };
+            })()
+          JS
+
+          logger.info "[PremiereProduceOne] Modal check: sku_text=#{modal_check&.dig('has_sku_text')}, " \
+                      "raw_sku=#{modal_check&.dig('has_raw_sku')}, " \
+                      "sku_in_dialog=#{modal_check&.dig('has_sku_in_dialog')}, " \
+                      "modal_role=#{modal_check&.dig('has_modal_role')}, " \
+                      "dialog=#{modal_check&.dig('dialog_text')&.first(150)&.inspect}"
+
+          # Accept the modal if SKU text is found in any form
+          sku_found = modal_check&.dig('has_sku_text') || modal_check&.dig('has_raw_sku') || modal_check&.dig('has_sku_in_dialog')
+
+          if sku_found
+            logger.info "[PremiereProduceOne] Modal opened with SKU #{sku}"
+            return true
+          end
+
+          # Modal didn't open or wrong product — close anything and retry
+          close_product_modal_ppo
+          sleep 1
+        else
+          sleep 1
+        end
+      end
+
+      logger.error "[PremiereProduceOne] Failed to open product modal for SKU #{sku} after 5 attempts"
+      false
+    end
+
+    # Click the orange + (add to cart) button inside the product detail modal.
+    # The modal shows: product name, "Case • SKU", price, and an orange + button.
+    # After clicking, the + button transforms into decrease/qty/increase controls.
+    # Uses Ferrum's CDP mouse click since React Native Web Pressable ignores el.click().
+    def click_modal_add_button_ppo(sku)
+      3.times do |attempt|
+        # Find the + button coordinates via JS
+        result = browser.evaluate(<<~JS)
+          (function() {
+            var targetSku = '#{sku}';
+
+            // Scope to modal container if one exists
+            var modalContainers = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+            var searchIn = modalContainers.length > 0 ? modalContainers[modalContainers.length - 1] : document;
+
+            // Look for "Increase quantity" or "Add" button
+            var buttons = searchIn.querySelectorAll('button, [role="button"]');
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              var text = (btn.textContent || '').trim();
+              if (aria.includes('increase quantity') || aria.includes('add to cart') ||
+                  aria === 'add' || text === '+') {
+                var rect = btn.getBoundingClientRect();
+                return { found: true, method: 'aria-match', aria: aria, text: text,
+                         x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+              }
+            }
+
+            // Try any button with SVG (skip known non-add buttons)
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              var svg = btn.querySelector('svg');
+              if (!svg) continue;
+              var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              if (aria.includes('decrease') || aria.includes('trash') ||
+                  aria.includes('remove') || aria.includes('note') ||
+                  aria.includes('essential') || aria.includes('close') ||
+                  aria.includes('navigate') || aria.includes('back')) continue;
+              var rect = btn.getBoundingClientRect();
+              return { found: true, method: 'svg-button', aria: aria,
+                       x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            }
+
+            // Fallback: find "Case • SKU" text, walk up to container, find + button
             var allElements = document.querySelectorAll('*');
-            var targetSku = '#{item[:sku]}';
-
             for (var el of allElements) {
-              // Skip elements with many children (we want leaf/near-leaf nodes)
-              if (el.children.length > 5) continue;
-
-              var text = el.innerText || '';
-              // Match "Case • SKU" or "Each • SKU" or "Piece • SKU"
-              var match = text.match(/(?:Case|Each|Piece)\\s*[•·]\\s*(\\d+)/);
+              if (el.children.length > 3) continue;
+              if (el.offsetParent === null) continue;
+              var text = (el.textContent || '').trim();
+              var match = text.match(/^(?:Case|Each|Piece|Pack|Bag|Box|Unit)\\s*[•·]\\s*(\\d+)$/);
               if (match && match[1] === targetSku) {
-                // Found the SKU! Now find the "+" button in the same product row
-                // Walk up to find the product container, then find the button
                 var container = el;
-                for (var j = 0; j < 10 && container; j++) {
+                for (var j = 0; j < 15 && container; j++) {
                   container = container.parentElement;
                   if (!container) break;
-
-                  // Look for button with "+" or aria-label containing "increase" or "add"
-                  var buttons = container.querySelectorAll('button');
-                  for (var btn of buttons) {
-                    var btnText = (btn.innerText || '').trim();
-                    var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-
-                    // PPO uses a "+" button or "Increase quantity" button
-                    if (btnText === '+' ||
-                        btnText === '' && btn.querySelector('svg') || // Icon button
-                        ariaLabel.includes('increase') ||
-                        ariaLabel.includes('add')) {
-                      btn.click();
-                      return { found: true, clicked: true, sku: targetSku };
+                  var btns = container.querySelectorAll('button, [role="button"]');
+                  for (var btn of btns) {
+                    if (btn.offsetParent === null) continue;
+                    var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    if (aria.includes('increase') || aria.includes('add')) {
+                      var rect = btn.getBoundingClientRect();
+                      return { found: true, method: 'sku-walk-up', aria: aria,
+                               x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
                     }
                   }
                 }
               }
             }
 
-            // Fallback: If there's only one product visible (from search), click the first "+" button
-            var plusButtons = document.querySelectorAll('button');
-            for (var btn of plusButtons) {
-              var ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-              if (ariaLabel.includes('increase quantity')) {
-                btn.click();
-                return { found: true, clicked: true, method: 'fallback' };
-              }
+            // Log available buttons for debugging
+            var btnList = [];
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              btnList.push({
+                aria: (btn.getAttribute('aria-label') || ''),
+                text: (btn.textContent || '').trim().substring(0, 30),
+                hasSvg: !!btn.querySelector('svg')
+              });
             }
-
-            return { found: false };
+            return { found: false, reason: 'No add/increase button found',
+                     available_buttons: btnList.slice(0, 10) };
           })()
         JS
 
-        unless clicked && clicked['clicked']
-          raise ScrapingError, "Product not found or could not click add button for SKU #{item[:sku]}" if i == 0
+        logger.info "[PremiereProduceOne] click_modal_add_button attempt #{attempt + 1}: #{result.inspect}"
 
-          logger.warn "[PremiereProduceOne] Could only add #{i} of #{quantity_to_add} for SKU #{item[:sku]}"
-          break
-
+        if result && result['found']
+          x = result['x'].to_f
+          y = result['y'].to_f
+          logger.info "[PremiereProduceOne] Clicking + button at (#{x.round(1)}, #{y.round(1)}) via CDP mouse — #{result['method']}"
+          browser.mouse.click(x: x, y: y)
+          sleep 0.5
+          return true
         end
 
-        # Small delay between clicks for quantity > 1
-        sleep 0.3 if i < quantity_to_add - 1
+        sleep 1
       end
 
-      logger.info "[PremiereProduceOne] Clicked + button #{quantity_to_add} time(s) for SKU #{item[:sku]}"
-
-      # Wait for cart confirmation
-      wait_for_cart_confirmation
+      false
     end
 
-    def wait_for_cart_confirmation
-      wait_for_any_selector(
-        '.cart-added',
-        '.success-message',
-        '.cart-updated',
-        '.cart-notification',
-        '.toast',
-        "[class*='success']",
-        timeout: 5
-      )
-      sleep 1
-    rescue ScrapingError
-      logger.debug '[PremiereProduceOne] No confirmation modal, checking cart state'
-      sleep 1
+    # Close the product detail modal using real CDP events (React Native Web ignores JS-based events)
+    def close_product_modal_ppo
+      # Strategy 1: Find close/X/back button and CDP mouse click it
+      close_btn = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('button, [role="button"]');
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+            var text = (btn.textContent || '').trim().toLowerCase();
+            if (aria.includes('close') || aria.includes('back') || aria.includes('dismiss') ||
+                aria === 'x' || text === '×' || text === 'x' || text === 'close') {
+              var rect = btn.getBoundingClientRect();
+              return { found: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
+                       aria: aria, text: text };
+            }
+          }
+          return { found: false };
+        })()
+      JS
+
+      if close_btn && close_btn['found']
+        logger.debug "[PremiereProduceOne] Closing modal via close button at (#{close_btn['x']}, #{close_btn['y']})"
+        browser.mouse.click(x: close_btn['x'].to_f, y: close_btn['y'].to_f)
+        sleep 0.5
+      end
+
+      # Strategy 2: Click outside the modal (far left edge where backdrop is)
+      # React modals typically have a backdrop that closes on click
+      has_modal = browser.evaluate("document.querySelectorAll('[role=\"dialog\"], [aria-modal=\"true\"]').length > 0")
+      if has_modal
+        logger.debug '[PremiereProduceOne] Modal still open, clicking backdrop at (10, 400)'
+        browser.mouse.click(x: 10.0, y: 400.0)
+        sleep 0.5
+      end
+
+      # Strategy 3: Navigate back to close any overlay
+      has_modal = browser.evaluate("document.querySelectorAll('[role=\"dialog\"], [aria-modal=\"true\"]').length > 0")
+      if has_modal
+        logger.debug '[PremiereProduceOne] Modal still open, pressing Escape via CDP keyboard'
+        # Send real Escape via CDP keyboard API
+        begin
+          browser.keyboard.type(:Escape)
+        rescue StandardError
+          # Fallback to JS dispatch
+          browser.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, keyCode: 27 }));")
+        end
+        sleep 0.5
+      end
+
+      # Strategy 4: Navigate away and back to force-close any modal
+      has_modal = browser.evaluate("document.querySelectorAll('[role=\"dialog\"], [aria-modal=\"true\"]').length > 0")
+      if has_modal
+        logger.debug '[PremiereProduceOne] Modal STILL open after 3 strategies, navigating away to force close'
+        browser.evaluate("window.history.back()")
+        sleep 1
+        wait_for_react_render(timeout: 5)
+      end
     end
 
     def wait_for_any_selector(*selectors, timeout: 10)
@@ -802,32 +1221,367 @@ module Scrapers
 
     public
 
-    def checkout
+    def checkout(dry_run: false)
+      effective_dry_run = dry_run || !CHECKOUT_LIVE
+      logger.info "[PremiereProduceOne] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
+
       with_browser do
-        navigate_to("#{BASE_URL}/cart")
-        wait_for_selector('.cart-container, .shopping-cart, .cart-page')
+        # Step 1: Session restore + login (replicate from add_to_cart)
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          wait_for_react_render(timeout: 15)
+        end
 
-        validate_cart_before_checkout
+        unless logged_in?
+          logger.info '[PremiereProduceOne] Not logged in, performing login'
+          perform_login_steps
 
-        unavailable = detect_unavailable_items_in_cart
-        if unavailable.any?
+          if two_fa_page?
+            code = wait_for_user_code(attempt: 1, resent: false)
+            raise AuthenticationError, 'Verification timed out' unless code
+
+            type_code_and_submit(code)
+            sleep 5
+            wait_for_page_load
+
+            raise AuthenticationError, 'Login failed after 2FA' unless logged_in?
+
+            save_session
+            credential.mark_active!
+            mark_2fa_request_verified!
+            TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
+          end
+
+          save_session
+        end
+
+        # Step 2: Navigate to cart page
+        navigate_to_cart_page_ppo
+
+        # Step 3: Extract cart data
+        cart_data = extract_cart_data_ppo
+        logger.info "[PremiereProduceOne] Cart: #{cart_data[:item_count]} items, subtotal=#{cart_data[:subtotal]}"
+
+        # Step 4: Validate cart — Pepper may not expose item count via inputs,
+        # so also check subtotal as an indicator the cart has items.
+        if cart_data[:item_count] == 0 && cart_data[:subtotal] == 0
+          raise ScrapingError, 'Cart is empty'
+        end
+        if cart_data[:item_count] == 0 && cart_data[:subtotal] > 0
+          logger.warn "[PremiereProduceOne] item_count=0 but subtotal=$#{cart_data[:subtotal]} — Pepper may not expose qty inputs. Proceeding."
+        end
+
+        # Step 5: Check for unavailable items
+        if cart_data[:unavailable_items].any?
           raise ItemUnavailableError.new(
-            "#{unavailable.count} item(s) are unavailable",
-            items: unavailable
+            "#{cart_data[:unavailable_items].count} item(s) are unavailable",
+            items: cart_data[:unavailable_items]
           )
         end
 
-        click(".checkout, .btn-checkout, [data-action='checkout']")
-        wait_for_selector('.checkout-page, .order-review')
+        # Step 6: Navigate to checkout/review page
+        proceed_to_checkout_page_ppo
 
-        click(".place-order, .btn-submit-order, [data-action='place-order']")
-        wait_for_confirmation_or_error
+        # Step 7: Extract checkout data
+        checkout_data = extract_checkout_data_ppo
+        logger.info "[PremiereProduceOne] Checkout: total=#{checkout_data[:total]}, delivery=#{checkout_data[:delivery_date]}"
 
-        {
-          confirmation_number: extract_text('.order-id, .confirmation-number, .order-ref'),
-          total: extract_price(extract_text('.total, .order-total')),
-          delivery_date: extract_text('.delivery-date, .expected-delivery')
-        }
+        # ═══════════════════════════════════════════
+        # ═══ SAFETY GATE — DRY RUN CHECK ══════════
+        # ═══════════════════════════════════════════
+        if effective_dry_run
+          logger.info "[PremiereProduceOne] DRY RUN COMPLETE — stopping before final submit"
+          logger.info "[PremiereProduceOne] Would have placed order: total=#{checkout_data[:total]}"
+
+          return {
+            confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+            total: checkout_data[:total] || cart_data[:subtotal],
+            delivery_date: checkout_data[:delivery_date],
+            dry_run: true,
+            cart_items: cart_data[:items],
+            checkout_summary: checkout_data
+          }
+        end
+
+        # Step 8: LIVE ORDER — Click final submit
+        logger.warn "[PremiereProduceOne] PLACING LIVE ORDER — clicking submit"
+        click_place_order_button_ppo
+
+        # Step 9: Wait for confirmation
+        confirmation = wait_for_order_confirmation_ppo
+
+        logger.info "[PremiereProduceOne] Order placed: #{confirmation[:confirmation_number]}"
+        confirmation
+      end
+    end
+
+    def clear_cart
+      logger.info '[PremiereProduceOne] Clearing cart...'
+
+      with_browser do
+        # Restore session
+        navigate_to(BASE_URL)
+        if restore_session
+          browser.refresh
+          wait_for_react_render(timeout: 15)
+        end
+
+        unless logged_in?
+          logger.warn '[PremiereProduceOne] Cannot clear cart: not logged in (2FA required)'
+          return
+        end
+
+        # IMPORTANT: In Pepper, /cart shows the Order Guide (NOT the shopping cart).
+        # The actual cart is a MODAL/PANEL opened by clicking the "View Order" button
+        # (cart icon with $ total) in the top-right nav bar.
+        # We must click that button via CDP mouse to open the cart panel.
+
+        # First check if "View Order" button exists (indicates items in cart)
+        view_order = browser.evaluate(<<~JS)
+          (function() {
+            var buttons = document.querySelectorAll('button, [role="button"]');
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              if (aria.includes('view order')) {
+                var text = (btn.textContent || '').trim();
+                var rect = btn.getBoundingClientRect();
+                return { found: true, text: text, aria: aria,
+                         x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+              }
+            }
+            return { found: false };
+          })()
+        JS
+
+        if !view_order || !view_order['found']
+          logger.info '[PremiereProduceOne] No "View Order" button found — cart appears empty'
+          save_session
+          return
+        end
+
+        logger.info "[PremiereProduceOne] Found View Order button: #{view_order['text'].inspect} at (#{view_order['x']}, #{view_order['y']})"
+
+        # Click the View Order button to open the cart panel
+        browser.mouse.click(x: view_order['x'].to_f, y: view_order['y'].to_f)
+        sleep 2
+        wait_for_react_render(timeout: 10)
+
+        # Verify cart panel opened — should now have decrease/trash buttons
+        page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+        logger.info "[PremiereProduceOne] Cart panel text (first 300): #{page_text[0..300]}"
+
+        # Check if cart panel shows empty
+        if page_text.match?(/cart is empty|no items|your cart is empty/i)
+          logger.info '[PremiereProduceOne] Cart panel shows empty'
+          save_session
+          return
+        end
+
+        # Log what buttons are now available in the cart panel
+        cart_buttons = browser.evaluate(<<~JS)
+          (function() {
+            var results = [];
+            var buttons = document.querySelectorAll('button, [role="button"]');
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              if (aria.includes('decrease') || aria.includes('increase') ||
+                  aria.includes('trash') || aria.includes('remove') || aria.includes('delete')) {
+                results.push(aria);
+              }
+            }
+            return { total: buttons.length, cart_buttons: results.slice(0, 20) };
+          })()
+        JS
+        logger.info "[PremiereProduceOne] Cart panel buttons: #{cart_buttons.inspect}"
+
+        # ── Pepper cart removal strategy (CDP mouse clicks) ──
+        # Pepper (React Native Web) cart items have qty controls:
+        #   - When qty > 1: "Decrease quantity" button (minus icon) + qty display + "Increase quantity" button
+        #   - When qty = 1: trash/delete button (replaces the minus) + qty display + "Increase quantity" button
+        # To remove an item: click decrease until qty=1, then click trash.
+        #
+        # CRITICAL: React Native Web Pressable components ignore el.click().
+        # We MUST use Ferrum's browser.mouse.click(x:, y:) which sends real
+        # CDP Input.dispatchMouseEvent — same pattern used in open_product_modal_ppo.
+        #
+        # SAFETY: We NEVER click "Increase quantity". We only click buttons whose
+        # aria-label matches "Decrease quantity" or trash/remove/delete patterns.
+
+        removed_count = 0
+        total_clicks = 0
+        max_total_clicks = 2000 # absolute safety limit
+        stale_rounds = 0
+
+        loop do
+          break if total_clicks >= max_total_clicks
+
+          # Scan ALL visible buttons for decrease/trash — return COORDINATES, not click in JS
+          result = browser.evaluate(<<~JS)
+            (function() {
+              var buttons = document.querySelectorAll('button, [role="button"]');
+              for (var btn of buttons) {
+                if (btn.offsetParent === null) continue;
+                var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                var btnText = (btn.textContent || '').trim().toLowerCase();
+
+                // Match: "Decrease quantity" (the minus button) or trash/remove/delete
+                if (aria.includes('decrease') || aria.includes('trash') ||
+                    aria.includes('remove') || aria.includes('delete') ||
+                    btnText === 'remove' || btnText === 'delete') {
+                  btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                  var rect = btn.getBoundingClientRect();
+                  return {
+                    found: true, aria: aria, btnText: btnText,
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                  };
+                }
+              }
+              return { found: false, reason: 'no decrease/trash buttons on page' };
+            })()
+          JS
+
+          # No decrease/trash buttons left → cart is empty
+          if result.nil? || !result['found']
+            reason = result&.dig('reason') || 'unknown'
+
+            # Maybe buttons haven't rendered yet — retry a few times
+            stale_rounds += 1
+            if stale_rounds >= 3
+              logger.info "[PremiereProduceOne] No decrease/trash buttons found after #{stale_rounds} checks — cart should be empty (#{removed_count} items removed, #{total_clicks} clicks)"
+              break
+            end
+
+            sleep 1
+            wait_for_react_render(timeout: 5)
+            next
+          end
+
+          stale_rounds = 0
+          total_clicks += 1
+
+          # Log progress
+          aria = result['aria'] || ''
+          is_trash = aria.include?('trash') || aria.include?('remove') || aria.include?('delete')
+
+          if is_trash
+            removed_count += 1
+            logger.info "[PremiereProduceOne] Removed item #{removed_count} via trash at (#{result['x']}, #{result['y']}) (click ##{total_clicks})"
+          elsif total_clicks <= 5 || total_clicks % 20 == 0
+            logger.info "[PremiereProduceOne] Decreasing qty at (#{result['x']}, #{result['y']}) (click ##{total_clicks}, aria=#{aria})"
+          end
+
+          # CDP mouse click — the ONLY way to trigger React Native Web Pressable
+          browser.mouse.click(x: result['x'].to_f, y: result['y'].to_f)
+
+          # Brief pause for React to update the button state
+          sleep 0.3
+
+          # Handle any confirmation modal after trash click
+          if is_trash
+            sleep 0.5
+            confirm_pepper_modal
+            sleep 0.5
+            wait_for_react_render(timeout: 5)
+          end
+
+          # Periodic longer wait for React to catch up
+          if total_clicks % 50 == 0
+            sleep 1
+            wait_for_react_render(timeout: 5)
+          end
+        end
+
+        logger.info "[PremiereProduceOne] Cart clearing complete: #{removed_count} items removed, #{total_clicks} total clicks"
+
+        # Verify cart is empty
+        sleep 2
+        page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+
+        # Check for the "Place order" button or any dollar amount — indicates items remain
+        has_place_order = page_text.match?(/place order/i)
+        has_price = page_text.match?(/\$\d+\.\d{2}/)
+
+        if page_text.match?(/cart is empty|no items/i)
+          logger.info '[PremiereProduceOne] Cart confirmed empty!'
+        elsif has_place_order || has_price
+          logger.warn "[PremiereProduceOne] Cart may still have items (place_order=#{has_place_order}, has_price=#{has_price})"
+          logger.warn "[PremiereProduceOne] Cart text: #{page_text[0..200]}"
+        else
+          logger.info '[PremiereProduceOne] Cart appears cleared (no Place Order button or prices found)'
+        end
+
+        save_session
+      end
+    end
+
+    # Discover the button layout for a single cart item.
+    # Returns info about how many buttons per item and their roles.
+    def discover_cart_item_buttons
+      browser.evaluate(<<~JS)
+        (function() {
+          // Find first SKU element
+          var allEls = document.querySelectorAll('*');
+          for (var el of allEls) {
+            if (el.children.length > 5 || el.offsetParent === null) continue;
+            var text = (el.textContent || '').trim();
+            if (!/^(?:Case|Each|Piece)\\s*[•·]\\s*\\d{3,}$/.test(text)) continue;
+
+            // Walk up to item container
+            var container = el;
+            for (var i = 0; i < 10 && container; i++) {
+              container = container.parentElement;
+              if (!container) break;
+              var buttons = container.querySelectorAll('button');
+              if (buttons.length >= 3) break;
+            }
+            if (!container) continue;
+
+            var buttons = container.querySelectorAll('button');
+            var info = [];
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              info.push({
+                text: (btn.textContent || '').trim().substring(0, 30),
+                has_svg: !!btn.querySelector('svg'),
+                classes: (btn.className || '').substring(0, 60),
+                aria: (btn.getAttribute('aria-label') || '').substring(0, 30)
+              });
+            }
+            return { sku_text: text, button_count: info.length, buttons: info };
+          }
+          return null;
+        })()
+      JS
+    end
+
+    # Click "Yes" / "Confirm" / "OK" in Pepper confirmation modals.
+    # Uses CDP mouse click since React Native Web Pressable ignores el.click().
+    def confirm_pepper_modal
+      result = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('button, [role="button"]');
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            var text = (btn.textContent || btn.innerText || '').trim().toLowerCase();
+            if (text === 'yes' || text === 'confirm' || text === 'clear' || text === 'ok' ||
+                text === 'remove' || text === 'delete') {
+              var rect = btn.getBoundingClientRect();
+              return { found: true, text: text,
+                       x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            }
+          }
+          return { found: false };
+        })()
+      JS
+
+      if result && result['found']
+        logger.debug "[PremiereProduceOne] Confirming modal: clicking '#{result['text']}' at (#{result['x']}, #{result['y']})"
+        browser.mouse.click(x: result['x'].to_f, y: result['y'].to_f)
+        sleep 0.3
       end
     end
 
@@ -2063,6 +2817,571 @@ module Scrapers
       end
     rescue StandardError => e
       logger.debug "[PremiereProduceOne] save_trusted_device error: #{e.message}"
+    end
+
+    # ─── Checkout helper methods ───────────────────────────────────
+
+    def navigate_to_cart_page_ppo
+      # Try /cart first (Pepper platform standard)
+      navigate_to("#{BASE_URL}/cart")
+      sleep 3
+      wait_for_react_render(timeout: 10)
+
+      page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+
+      # If we're not on a cart-looking page, try clicking the cart icon
+      unless page_text.match?(/cart|checkout|order|subtotal|\$\d+\.\d{2}/i)
+        logger.info '[PremiereProduceOne] /cart did not show cart content, trying cart icon'
+        browser.evaluate(<<~JS)
+          (function() {
+            var els = document.querySelectorAll('a[href*="cart"], button[class*="cart"], [aria-label*="cart" i], [aria-label*="Cart"]');
+            for (var el of els) {
+              if (el.offsetParent !== null) { el.click(); return true; }
+            }
+            var svgs = document.querySelectorAll('svg');
+            for (var svg of svgs) {
+              var parent = svg.closest('a, button');
+              var ariaLabel = parent ? (parent.getAttribute('aria-label') || '').toLowerCase() : '';
+              if (ariaLabel.includes('cart') || ariaLabel.includes('basket')) {
+                parent.click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        sleep 3
+        wait_for_react_render(timeout: 10)
+        page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+      end
+
+      logger.info "[PremiereProduceOne] Cart page URL: #{browser.current_url rescue 'unknown'}"
+      logger.info "[PremiereProduceOne] Cart page text (first 300): #{page_text[0..300]}"
+
+      # Scroll to bottom to reveal sticky footer / submit button
+      browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+      sleep 2
+
+      # Enhanced DOM discovery for Pepper React Native Web:
+      # - Use textContent (not innerText) because RN Web nests text in <div>s
+      # - Log buttons at both top and bottom of page
+      # - Check for fixed/sticky elements (footer with submit button)
+      dom_info = browser.evaluate(<<~JS)
+        (function() {
+          var allButtons = Array.from(document.querySelectorAll('button, [role="button"]'))
+            .filter(function(b) { return b.offsetParent !== null; });
+
+          // Get buttons with non-empty textContent (these are actionable buttons)
+          var namedButtons = allButtons
+            .filter(function(b) {
+              var tc = (b.textContent || '').trim();
+              return tc.length > 0 && tc.length < 60;
+            })
+            .map(function(b) {
+              var rect = b.getBoundingClientRect();
+              return {
+                text: (b.textContent || '').trim().substring(0, 60),
+                innerText: (b.innerText || '').trim().substring(0, 40),
+                classes: (b.className || '').substring(0, 60),
+                aria: (b.getAttribute('aria-label') || '').substring(0, 40),
+                has_svg: !!b.querySelector('svg'),
+                y: Math.round(rect.top),
+                fixed: window.getComputedStyle(b).position === 'fixed' ||
+                       window.getComputedStyle(b.parentElement || b).position === 'fixed'
+              };
+            });
+
+          // Find fixed/sticky positioned elements (likely footer with submit)
+          var fixedEls = Array.from(document.querySelectorAll('*'))
+            .filter(function(el) {
+              var style = window.getComputedStyle(el);
+              return (style.position === 'fixed' || style.position === 'sticky') &&
+                     el.offsetParent !== null &&
+                     el.getBoundingClientRect().bottom > window.innerHeight * 0.7;
+            })
+            .slice(0, 5)
+            .map(function(el) {
+              return {
+                tag: el.tagName,
+                text: (el.textContent || '').trim().substring(0, 200),
+                classes: (el.className || '').substring(0, 80)
+              };
+            });
+
+          // Page bottom text (last 500 chars of page)
+          var fullText = document.body ? document.body.innerText : '';
+          var bottomText = fullText.substring(Math.max(0, fullText.length - 500));
+
+          return {
+            url: window.location.href,
+            title: document.title,
+            total_buttons: allButtons.length,
+            named_buttons: namedButtons,
+            fixed_elements: fixedEls,
+            bottom_text: bottomText,
+            input_count: document.querySelectorAll('input').length
+          };
+        })()
+      JS
+      logger.info "[PremiereProduceOne] Cart DOM: #{(dom_info || {}).except('bottom_text').inspect}"
+      logger.info "[PremiereProduceOne] Cart bottom text: #{dom_info&.dig('bottom_text')}"
+      logger.info "[PremiereProduceOne] Fixed elements: #{dom_info&.dig('fixed_elements')&.inspect}"
+
+      # Scroll back to top for cart extraction
+      browser.evaluate('window.scrollTo(0, 0)')
+      sleep 1
+    end
+
+    def extract_cart_data_ppo
+      cart_data = browser.evaluate(<<~JS)
+        (function() {
+          var result = { items: [], subtotal: 0, item_count: 0, unavailable: [] };
+          var pageText = document.body ? document.body.innerText : '';
+
+          // Subtotal: check for aria-label="View Order" button first (Pepper's cart total button)
+          var viewOrderBtn = document.querySelector('[aria-label="View Order"]');
+          if (viewOrderBtn) {
+            var btnText = (viewOrderBtn.textContent || '').trim();
+            var m = btnText.match(/\\$([\\d,]+\\.\\d{2})/);
+            if (m) result.subtotal = parseFloat(m[1].replace(',', ''));
+          }
+
+          // Fallback subtotal from page text
+          if (result.subtotal === 0) {
+            var subtotalPatterns = [
+              /subtotal[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+              /cart\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+              /total[:\\s]*\\$([\\d,]+\\.\\d{2})/i
+            ];
+            for (var p of subtotalPatterns) {
+              var m = pageText.match(p);
+              if (m) { result.subtotal = parseFloat(m[1].replace(',', '')); break; }
+            }
+          }
+
+          // Pepper does NOT use standard <input> elements for quantities.
+          // Parse cart items from page text instead.
+          // PPO cart format per item:
+          //   PRODUCT NAME
+          //   Brand: X | Pack Size: Y
+          //   Case • SKU
+          //   $XX.XX
+          //   Add note
+          var lines = pageText.split('\\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+          var i = 0;
+          while (i < lines.length) {
+            var line = lines[i];
+            // Look for "Case • NNNNN" or "Each • NNNNN" pattern (SKU line)
+            var skuMatch = line.match(/^(?:Case|Each|Piece)\\s*[•·]\\s*(\\d{3,})$/);
+            if (skuMatch) {
+              var sku = skuMatch[1];
+              // Name is 2-3 lines above the SKU line
+              var name = '';
+              for (var j = i - 1; j >= Math.max(0, i - 4); j--) {
+                var candidate = lines[j];
+                if (candidate.length > 3 && candidate.length < 100 &&
+                    !candidate.match(/^Brand:/i) && !candidate.match(/^\\$/) &&
+                    !candidate.match(/^\\d+ fulfilled/i) && !candidate.match(/^Add note/i) &&
+                    !candidate.match(/^(?:Case|Each|Piece)\\s*[•·]/)) {
+                  name = candidate;
+                  break;
+                }
+              }
+
+              // Price is on the line after SKU
+              var price = 0;
+              for (var k = i + 1; k < Math.min(lines.length, i + 3); k++) {
+                var priceMatch = lines[k].match(/^\\$([\\d,]+\\.\\d{2})/);
+                if (priceMatch) {
+                  price = parseFloat(priceMatch[1].replace(',', ''));
+                  break;
+                }
+              }
+
+              var isUnavailable = false;
+              // Check nearby lines for out of stock
+              for (var m = Math.max(0, i - 2); m < Math.min(lines.length, i + 4); m++) {
+                if (/out of stock|unavailable|discontinued/i.test(lines[m])) {
+                  isUnavailable = true;
+                  break;
+                }
+              }
+
+              var item = { name: name.substring(0, 80), sku: sku, price: price, quantity: 1 };
+              result.items.push(item);
+              if (isUnavailable) result.unavailable.push(item);
+            }
+            i++;
+          }
+
+          result.item_count = result.items.length;
+
+          // Calculate subtotal from items if the View Order button wasn't found
+          if (result.subtotal === 0 && result.items.length > 0) {
+            result.subtotal = result.items.reduce(function(s, it) { return s + it.price * it.quantity; }, 0);
+          }
+
+          // Last resort: largest $ amount on page
+          if (result.subtotal === 0) {
+            var amounts = (pageText.match(/\\$[\\d,]+\\.\\d{2}/g) || [])
+              .map(function(p) { return parseFloat(p.replace(/[\\$,]/g, '')); });
+            if (amounts.length > 0) result.subtotal = Math.max.apply(null, amounts);
+          }
+
+          return result;
+        })()
+      JS
+
+      logger.info "[PremiereProduceOne] Cart extraction: items=#{(cart_data['items'] || []).size}, subtotal=#{cart_data['subtotal']}, item_count=#{cart_data['item_count']}"
+
+      {
+        items: (cart_data['items'] || []).map { |i| { name: i['name'], sku: i['sku'], price: i['price'], quantity: i['quantity'] } },
+        subtotal: cart_data['subtotal'] || 0,
+        item_count: [cart_data['item_count'] || 0, (cart_data['items'] || []).size].max,
+        unavailable_items: (cart_data['unavailable'] || []).map { |i| { name: i['name'], sku: i['sku'], message: 'Unavailable' } }
+      }
+    end
+
+    def proceed_to_checkout_page_ppo
+      # Pepper cart flow:
+      # 1. /cart page shows items + a "View Order" button (shows as "$X.XX" with aria-label="View Order")
+      # 2. Clicking "View Order" takes you to the order review/submit page
+      # 3. Review page has "Submit Order" button
+      #
+      # The "View Order" button is at the TOP of the page (sticky header at y=0).
+      # It has aria-label="View Order" and textContent like "$1,396.20".
+
+      # Step 1: Look for the "View Order" button by aria-label (most reliable for Pepper)
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var elements = document.querySelectorAll('button, [role="button"], a');
+
+          // Priority 1: aria-label based detection (Pepper uses "View Order")
+          var ariaTargets = ['view order', 'review order', 'checkout', 'view cart', 'order summary'];
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            var aria = (el.getAttribute('aria-label') || '').toLowerCase();
+            if (!aria) continue;
+            for (var target of ariaTargets) {
+              if (aria.includes(target)) {
+                el.click();
+                return {
+                  clicked: true,
+                  text: (el.textContent || '').trim().substring(0, 60),
+                  aria: aria,
+                  method: 'aria-label'
+                };
+              }
+            }
+          }
+
+          // Priority 2: textContent match for submit/checkout/review
+          var exclude = /search|clear|close|cancel|filter|back|sign|log|add note/i;
+          var textTargets = ['submit order', 'place order', 'checkout', 'proceed to checkout',
+                             'review order', 'view order', 'continue to checkout', 'submit', 'complete order'];
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            var text = (el.textContent || '').trim().toLowerCase();
+            if (text.length > 60 || text.length === 0) continue;
+            if (exclude.test(text)) continue;
+            for (var target of textTargets) {
+              if (text.includes(target)) {
+                el.click();
+                return { clicked: true, text: text, tag: el.tagName, method: 'textContent-match' };
+              }
+            }
+          }
+
+          // Priority 3: Button containing $ amount with SVG (the cart total button)
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            var text = (el.textContent || '').trim();
+            var hasSvg = !!el.querySelector('svg');
+            if (text.match(/^\\$[\\d,]+\\.\\d{2}$/) && hasSvg) {
+              el.click();
+              return { clicked: true, text: text, method: 'price-button-with-svg' };
+            }
+          }
+
+          // Priority 4: href-based links
+          var links = document.querySelectorAll('a[href*="checkout"], a[href*="review"], a[href*="order"]');
+          for (var link of links) {
+            if (link.offsetParent !== null) {
+              var text = (link.textContent || '').trim().toLowerCase();
+              if (!exclude.test(text) && text.length < 40) {
+                link.click();
+                return { clicked: true, text: text, href: link.href, method: 'href-match' };
+              }
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      if clicked && clicked['clicked']
+        logger.info "[PremiereProduceOne] Clicked checkout/review button: #{clicked.inspect}"
+      else
+        logger.warn '[PremiereProduceOne] Could not find checkout/review button'
+        named_buttons = browser.evaluate(<<~JS)
+          Array.from(document.querySelectorAll('button, [role="button"]'))
+            .filter(function(b) {
+              return b.offsetParent !== null &&
+                ((b.textContent || '').trim().length > 0 || (b.getAttribute('aria-label') || '').length > 0);
+            })
+            .slice(0, 20)
+            .map(function(b) {
+              return {
+                text: (b.textContent || '').trim().substring(0, 60),
+                aria: (b.getAttribute('aria-label') || '').substring(0, 40),
+                y: Math.round(b.getBoundingClientRect().top)
+              };
+            })
+        JS
+        logger.info "[PremiereProduceOne] All actionable buttons: #{named_buttons&.inspect}"
+      end
+
+      sleep 5
+      wait_for_react_render(timeout: 15)
+
+      # Log the resulting page state — we should now be on the review page
+      current_url = browser.current_url rescue 'unknown'
+      logger.info "[PremiereProduceOne] Post-click URL: #{current_url}"
+
+      page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+      logger.info "[PremiereProduceOne] Review page text (first 500): #{page_text[0..500]}"
+      logger.info "[PremiereProduceOne] Review page text (last 500): #{page_text.length > 500 ? page_text[-500..] : ''}"
+    end
+
+    def extract_checkout_data_ppo
+      # On Pepper, the cart page IS the checkout page. The total is in the page
+      # text (or in a sticky footer). Scroll to bottom to ensure total is visible.
+      browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+      sleep 2
+
+      checkout_data = browser.evaluate(<<~JS)
+        (function() {
+          var text = document.body ? document.body.innerText : '';
+          var result = { total: 0, delivery_date: null, summary_text: '' };
+
+          // Get the bottom portion of page text (where totals live)
+          result.summary_text = text.substring(Math.max(0, text.length - 1500));
+
+          // Total extraction — try bottom of page first, then full text
+          var totalPatterns = [
+            /order\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /grand\\s*total[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /subtotal[:\\s]*\\$([\\d,]+\\.\\d{2})/i,
+            /total[:\\s]*\\$([\\d,]+\\.\\d{2})/i
+          ];
+          // Search bottom text first (more likely to have the total)
+          var bottomText = text.substring(Math.max(0, text.length - 2000));
+          for (var p of totalPatterns) {
+            var m = bottomText.match(p);
+            if (m) { result.total = parseFloat(m[1].replace(',', '')); break; }
+          }
+
+          // If no labeled total found, find the largest $ amount in the page
+          // (likely the subtotal/order total)
+          if (result.total === 0) {
+            var amounts = (text.match(/\\$[\\d,]+\\.\\d{2}/g) || [])
+              .map(function(p) { return parseFloat(p.replace(/[\\$,]/g, '')); });
+            if (amounts.length > 0) result.total = Math.max.apply(null, amounts);
+          }
+
+          // Also check fixed/sticky elements for total
+          if (result.total === 0) {
+            var fixedEls = Array.from(document.querySelectorAll('*')).filter(function(el) {
+              var style = window.getComputedStyle(el);
+              return (style.position === 'fixed' || style.position === 'sticky') &&
+                     el.offsetParent !== null;
+            });
+            for (var el of fixedEls) {
+              var tc = (el.textContent || '');
+              var m = tc.match(/\\$([\\d,]+\\.\\d{2})/);
+              if (m) {
+                var amt = parseFloat(m[1].replace(',', ''));
+                if (amt > result.total) result.total = amt;
+              }
+            }
+          }
+
+          // Delivery date extraction
+          var datePatterns = [
+            /deliver(?:y|s)?[:\\s]*(\\w+day,?\\s*\\w+\\s+\\d{1,2})/i,
+            /deliver(?:y|s)?\\s*(?:date)?[:\\s]*(\\w+\\s+\\d{1,2},?\\s*\\d{4})/i,
+            /deliver(?:y|s)?\\s*(?:date)?[:\\s]*(\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})/i,
+            /available\\s*(\\w+\\s+\\d{1,2})/i
+          ];
+          for (var p of datePatterns) {
+            var m = text.match(p);
+            if (m) { result.delivery_date = m[1]; break; }
+          }
+
+          // Named buttons for diagnostics (with textContent)
+          result.buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
+            .filter(function(b) {
+              return b.offsetParent !== null && (b.textContent || '').trim().length > 0;
+            })
+            .slice(0, 15)
+            .map(function(b) {
+              return {
+                text: (b.textContent || '').trim().substring(0, 60),
+                y: Math.round(b.getBoundingClientRect().top)
+              };
+            });
+
+          return result;
+        })()
+      JS
+
+      logger.info "[PremiereProduceOne] Checkout: total=#{checkout_data['total']}, delivery=#{checkout_data['delivery_date']}"
+      logger.info "[PremiereProduceOne] Checkout bottom text: #{(checkout_data['summary_text'] || '')[0..500]}"
+
+      {
+        total: checkout_data['total'] || 0,
+        delivery_date: checkout_data['delivery_date'],
+        summary_text: checkout_data['summary_text'],
+        buttons: checkout_data['buttons'] || []
+      }
+    end
+
+    def click_place_order_button_ppo
+      # Scroll to bottom where the submit button lives
+      browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+      sleep 2
+
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var exclude = /search|clear|close|cancel|filter|back|sign|log|add note/i;
+          var targets = ['place order', 'submit order', 'complete order', 'confirm order', 'submit'];
+          var elements = document.querySelectorAll('button, [role="button"]');
+
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            // Use textContent for React Native Web
+            var text = (el.textContent || el.innerText || '').trim().toLowerCase();
+            if (text.length > 60 || text.length === 0) continue;
+            if (exclude.test(text)) continue;
+            for (var target of targets) {
+              if (text.includes(target)) {
+                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                el.click();
+                return { clicked: true, text: text };
+              }
+            }
+          }
+
+          // Check fixed/sticky footer
+          var fixedEls = Array.from(document.querySelectorAll('*')).filter(function(el) {
+            var style = window.getComputedStyle(el);
+            return (style.position === 'fixed' || style.position === 'sticky') && el.offsetParent !== null;
+          });
+          for (var fixedEl of fixedEls) {
+            var btns = fixedEl.querySelectorAll('button, [role="button"]');
+            for (var btn of btns) {
+              var text = (btn.textContent || '').trim().toLowerCase();
+              if (text.length > 0 && text.length < 60 && !exclude.test(text)) {
+                for (var target of targets) {
+                  if (text.includes(target)) {
+                    btn.click();
+                    return { clicked: true, text: text, method: 'fixed-footer' };
+                  }
+                }
+              }
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      raise ScrapingError, 'Could not find place order button' unless clicked && clicked['clicked']
+
+      logger.info "[PremiereProduceOne] Clicked place order: #{clicked.inspect}"
+    end
+
+    def wait_for_order_confirmation_ppo
+      start_time = Time.current
+      timeout = 30
+
+      loop do
+        page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+
+        if page_text.match?(/confirmation|order\s*(?:placed|submitted|received)|thank\s*you|order\s*#/i)
+          conf_match = page_text.match(/order\s*#?\s*[:\s]*([A-Z0-9-]+)/i) ||
+                       page_text.match(/confirmation\s*#?\s*[:\s]*([A-Z0-9-]+)/i) ||
+                       page_text.match(/#(\d{4,})/)
+          total_match = page_text.match(/total[:\s]*\$([\d,]+\.\d{2})/i)
+          date_match = page_text.match(/deliver(?:y|s)?[:\s]*([\w\s,]+\d{1,2})/i)
+
+          return {
+            confirmation_number: conf_match ? conf_match[1] : "PPO-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+            total: total_match ? total_match[1].gsub(',', '').to_f : nil,
+            delivery_date: date_match ? date_match[1].strip : nil
+          }
+        end
+
+        if page_text.match?(/error|failed|could not|unable to/i) && !page_text.match?(/confirmation|success|submitted/i)
+          raise ScrapingError, "Checkout failed: #{page_text[0..300]}"
+        end
+
+        raise ScrapingError, 'Checkout confirmation timeout (30s)' if Time.current - start_time > timeout
+
+        sleep 1
+      end
+    end
+
+    def remove_all_cart_items_ppo
+      # Pepper React Native Web cart removal:
+      #   - When qty > 1: "Decrease quantity" button (minus icon)
+      #   - When qty = 1: trash/delete button replaces the minus
+      # Strategy: click decrease/trash buttons ONLY. NEVER click "Increase quantity".
+      max_clicks = 2000 # Safety limit for total clicks
+      removed_count = 0
+      click_count = 0
+
+      loop do
+        break if click_count >= max_clicks
+
+        result = browser.evaluate(<<~JS)
+          (function() {
+            var buttons = document.querySelectorAll('button, [role="button"]');
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+              var text = (btn.textContent || '').trim().toLowerCase();
+
+              // Match decrease quantity, trash, remove, delete buttons
+              if (aria.includes('decrease') || aria.includes('trash') ||
+                  aria.includes('remove') || aria.includes('delete') ||
+                  text === 'remove' || text === 'delete') {
+                btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                btn.click();
+                return { clicked: true, aria: aria, text: text };
+              }
+            }
+            return { clicked: false };
+          })()
+        JS
+
+        break if result.nil? || !result['clicked']
+
+        click_count += 1
+        is_trash = (result['aria'] || '').match?(/trash|remove|delete/)
+        removed_count += 1 if is_trash
+
+        sleep 0.3
+        if is_trash
+          sleep 0.5
+          confirm_pepper_modal
+          sleep 0.5
+        end
+
+        logger.info "[PremiereProduceOne] Cart item click ##{click_count}: aria=#{result['aria']}" if click_count <= 5 || click_count % 20 == 0
+      end
+
+      logger.info "[PremiereProduceOne] Removed #{removed_count} cart items (#{click_count} total clicks)"
     end
   end
 end

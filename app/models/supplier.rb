@@ -67,4 +67,8 @@ class Supplier < ApplicationRecord
   def product_by_sku(sku)
     supplier_products.find_by(supplier_sku: sku)
   end
+
+  def checkout_enabled?
+    checkout_enabled
+  end
 end

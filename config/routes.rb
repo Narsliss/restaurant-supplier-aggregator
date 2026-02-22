@@ -105,6 +105,7 @@ Rails.application.routes.draw do
       post :submit
       post :cancel
       post :reorder
+      get :placement_status
     end
     collection do
       get :split_preview
@@ -116,6 +117,8 @@ Rails.application.routes.draw do
       post :accept_price_changes
       post :retry_verification
       post :skip_verification
+      get :batch_progress
+      get :batch_placement_status
     end
     resources :order_items, only: [:create, :update, :destroy]
   end

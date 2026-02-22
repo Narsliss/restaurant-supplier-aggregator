@@ -39,10 +39,11 @@ module Orders
       @errors = []
       @warnings = []
 
+      # Item availability first — may remove OOS items, changing the total
+      validate_item_availability
       validate_order_minimum
       validate_item_minimums
       validate_item_maximums
-      validate_item_availability
       validate_delivery_schedule
       validate_cutoff_time
       validate_account_status
@@ -121,16 +122,29 @@ module Orders
         .where(supplier_products: { in_stock: false })
         .includes(:supplier_product)
 
-      unavailable_items.each do |item|
-        add_error(
-          type: "item_unavailable",
-          message: "#{item.supplier_product.supplier_name} is currently out of stock.",
-          details: {
-            product_id: item.supplier_product.id,
-            product_name: item.supplier_product.supplier_name
-          }
-        )
+      return if unavailable_items.empty?
+
+      # If ALL items are unavailable, error — nothing to order
+      if unavailable_items.count == order.order_items.count
+        unavailable_items.each do |item|
+          add_error(
+            type: "item_unavailable",
+            message: "#{item.supplier_product.supplier_name} is currently out of stock.",
+            details: { product_id: item.supplier_product.id, product_name: item.supplier_product.supplier_name }
+          )
+        end
+        return
       end
+
+      # Some items available — auto-remove the unavailable ones and continue
+      removed_names = unavailable_items.map { |i| i.supplier_product.supplier_name }
+      unavailable_items.destroy_all
+
+      add_warning(
+        type: "items_removed",
+        message: "Removed #{removed_names.size} out-of-stock item#{'s' if removed_names.size > 1}: #{removed_names.join(', ')}",
+        details: { removed_items: removed_names }
+      )
     end
 
     def validate_delivery_schedule

@@ -102,7 +102,7 @@ module Orders
           supplier_id: chosen[:supplier].id,
           supplier_product_id: supplier_product.id,
           quantity: qty,
-          unit_price: supplier_product.current_price || supplier_list_item.price,
+          unit_price: supplier_list_item.price || supplier_product.current_price,
           worst_price: most_expensive&.dig(:price)
         }
       end
