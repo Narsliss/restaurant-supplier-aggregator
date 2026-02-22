@@ -12,5 +12,11 @@ class AiProductMatchJob < ApplicationJob
 
     service = AiProductMatcherService.new(aggregated_list)
     service.call
+
+    # Auto-chain catalog search if there are unmatched items
+    if aggregated_list.reload.matched? && aggregated_list.unmatched_count > 0
+      aggregated_list.mark_searching_catalog!
+      CatalogSearchJob.perform_later(aggregated_list.id)
+    end
   end
 end
