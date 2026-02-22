@@ -59,7 +59,7 @@ class SupplierListsController < ApplicationController
     ImportSupplierListsJob.perform_later(@supplier_list.supplier_credential_id)
     @supplier_list.update(sync_status: 'syncing')
 
-    redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Updating #{@supplier_list.supplier.name} lists..."
+    redirect_to supplier_lists_path(syncing: Time.current.to_i)
   end
 
   def sync_all
@@ -68,7 +68,7 @@ class SupplierListsController < ApplicationController
       ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id)
     end
 
-    redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Updating lists for #{credentials.count} suppliers..."
+    redirect_to supplier_lists_path(syncing: Time.current.to_i)
   end
 
   private

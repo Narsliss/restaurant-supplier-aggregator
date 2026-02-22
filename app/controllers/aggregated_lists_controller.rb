@@ -126,7 +126,7 @@ class AggregatedListsController < ApplicationController
       # Re-run matching if lists changed
       AiProductMatchJob.perform_later(@aggregated_list.id) if @aggregated_list.supplier_lists.count >= 2
 
-      redirect_to @aggregated_list, notice: "#{@aggregated_list.name} updated. Re-matching products..."
+      redirect_to @aggregated_list
     else
       @available_lists = available_supplier_lists
       render :edit, status: :unprocessable_entity
@@ -142,7 +142,7 @@ class AggregatedListsController < ApplicationController
   def run_matching
     @aggregated_list.update(match_status: 'matching')
     AiProductMatchJob.perform_later(@aggregated_list.id)
-    redirect_to @aggregated_list, notice: 'Re-running product matching...'
+    redirect_to @aggregated_list
   end
 
   def search_catalog
@@ -153,7 +153,7 @@ class AggregatedListsController < ApplicationController
 
     @aggregated_list.mark_searching_catalog!
     CatalogSearchJob.perform_later(@aggregated_list.id)
-    redirect_to @aggregated_list, notice: "Searching full catalog for unmatched products..."
+    redirect_to @aggregated_list
   end
 
   def order_builder
