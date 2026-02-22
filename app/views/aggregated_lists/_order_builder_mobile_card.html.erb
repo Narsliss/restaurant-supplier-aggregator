@@ -1,0 +1,91 @@
+<% cheapest = match.cheapest_supplier %>
+<% most_expensive = match.most_expensive_supplier %>
+<% comparable = match.per_unit_comparable? %>
+<% cheapest_price = cheapest&.dig(:price) || 0 %>
+<% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
+
+<div class="bg-white shadow rounded-lg p-4" data-order-builder-row data-product-name="<%= match.display_name.downcase %>">
+  <div class="flex justify-between items-start mb-2">
+    <div class="flex-1 min-w-0 mr-3">
+      <h3 class="text-sm font-medium text-gray-900 flex items-center gap-1">
+        <button type="button"
+                class="flex-shrink-0 focus:outline-none"
+                data-action="click->order-builder#toggleFavorite"
+                data-supplier-product-id="<%= match_sp_id %>"
+                data-favorited="<%= user_favorited ? 'true' : 'false' %>">
+          <% if frequently_ordered || user_favorited %>
+            <svg class="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+            </svg>
+          <% else %>
+            <svg class="w-4 h-4 text-gray-300 hover:text-amber-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 20 20">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+            </svg>
+          <% end %>
+        </button>
+        <span><%= match.display_name %></span>
+      </h3>
+    </div>
+    <span class="text-sm font-medium text-gray-900" data-order-builder-target="lineTotal">&mdash;</span>
+  </div>
+
+  <%# Supplier prices (tappable to override) %>
+  <div class="flex flex-wrap gap-2 mb-3">
+    <% suppliers.each do |supplier| %>
+      <% item = match.item_for_supplier(supplier) %>
+      <% if item %>
+        <% sp = item.supplier_product %>
+        <% effective_price = item.price || sp&.current_price %>
+        <% effective_pack_size = item.pack_size || sp&.pack_size %>
+        <% if effective_price %>
+          <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+          <% is_default = cheapest && cheapest[:supplier] == supplier %>
+          <div class="text-xs cursor-pointer rounded px-1.5 py-0.5 transition-all
+                      <%= is_default ? 'ring-1 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
+               data-action="click->order-builder#selectSupplier"
+               data-supplier-price="<%= effective_price %>"
+               data-supplier-id-value="<%= supplier.id %>"
+               data-match-id="<%= match.id %>"
+               data-order-builder-target="supplierCell"
+               data-default="<%= is_default %>">
+            <span class="text-gray-500"><%= supplier.name %>:</span>
+            <span class="font-semibold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>"><%= number_to_currency(effective_price) %></span>
+            <% if effective_pack_size.present? %>
+              <span class="text-gray-400">(<%= effective_pack_size %>)</span>
+            <% end %>
+            <% if item.formatted_per_unit_price %>
+              <span class="<%= is_cheapest ? 'text-green-600' : 'text-gray-400' %>"><%= item.formatted_per_unit_price %></span>
+            <% end %>
+            <% unless sp ? sp.in_stock : item.in_stock %>
+              <span class="text-red-500">(OOS)</span>
+            <% end %>
+          </div>
+        <% end %>
+      <% end %>
+    <% end %>
+  </div>
+
+  <%# Quantity controls %>
+  <div class="flex items-center justify-center gap-2">
+    <button type="button"
+            data-action="order-builder#decrement"
+            class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors">
+      &minus;
+    </button>
+    <input type="number"
+           value="<%= quantities[match.id.to_s] || 0 %>"
+           min="0"
+           class="w-16 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+           data-order-builder-target="quantityInput"
+           data-action="input->order-builder#updateTotals"
+           data-price="<%= cheapest_price %>"
+           data-supplier-id="<%= cheapest_supplier_id %>"
+           data-match-id="<%= match.id %>"
+           data-mobile="true">
+    <button type="button"
+            data-action="order-builder#increment"
+            class="w-8 h-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-200 hover:border-gray-400 hover:text-gray-900 active:bg-gray-300 transition-colors">
+      +
+    </button>
+  </div>
+</div>

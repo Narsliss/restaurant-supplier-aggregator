@@ -76,6 +76,13 @@ Rails.application.routes.draw do
   # Product Match Item create + update (manual supplier item assignment)
   resources :product_match_items, only: [:create, :update]
 
+  # Favorite Products (toggle from order builder)
+  resources :favorite_products, only: [] do
+    collection do
+      post :toggle
+    end
+  end
+
   # Products
   resources :products do
     collection do

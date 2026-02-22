@@ -121,6 +121,70 @@ class AggregatedListsController < ApplicationController
         batch_orders.destroy_all
       end
     end
+
+    # --- Category grouping ---
+    # Bulk-fetch categories via SupplierProduct → Product (single query, no N+1)
+    sp_ids = @product_matches.flat_map { |pm|
+      pm.product_match_items.filter_map { |pmi| pmi.supplier_list_item.supplier_product_id }
+    }
+    categories_by_sp_id = Product.joins(:supplier_products)
+                                 .where(supplier_products: { id: sp_ids })
+                                 .where.not(category: [nil, ""])
+                                 .pluck("supplier_products.id", "products.category")
+                                 .to_h
+
+    @match_category = {}
+    @product_matches.each do |pm|
+      raw = pm.product_match_items.filter_map { |pmi|
+        categories_by_sp_id[pmi.supplier_list_item.supplier_product_id]
+      }.first
+      @match_category[pm.id] = ::CategoryNormalizable.normalize(raw)
+    end
+
+    # --- Frequently ordered & user favorites (stars) ---
+    frequency_counts = OrderItem.joins(:order)
+                                .where(orders: { organization_id: @aggregated_list.organization_id,
+                                                 status: %w[submitted confirmed] })
+                                .group(:supplier_product_id)
+                                .count
+
+    # User's manually-favorited supplier_product IDs (single query)
+    favorited_sp_ids = current_user.favorite_products.pluck(:supplier_product_id).to_set
+
+    @frequently_ordered = {}  # match_id → true if starred (frequency OR manual fav)
+    @user_favorited     = {}  # match_id → true if user manually favorited
+    @match_sp_ids       = {}  # match_id → first supplier_product_id (for toggle endpoint)
+
+    @product_matches.each do |pm|
+      first_sp_id = nil
+      freq = false
+      fav  = false
+
+      pm.product_match_items.each do |pmi|
+        sp_id = pmi.supplier_list_item.supplier_product_id
+        next unless sp_id
+        first_sp_id ||= sp_id
+        freq = true if (frequency_counts[sp_id] || 0) >= 3
+        fav  = true if favorited_sp_ids.include?(sp_id)
+      end
+
+      @frequently_ordered[pm.id] = freq || fav
+      @user_favorited[pm.id]     = fav
+      @match_sp_ids[pm.id]       = first_sp_id
+    end
+
+    # Split frequently ordered / favorited into their own section
+    frequent_matches = @product_matches.select { |pm| @frequently_ordered[pm.id] }
+    remaining_matches = @product_matches.reject { |pm| @frequently_ordered[pm.id] }
+
+    @grouped_matches = remaining_matches.group_by { |pm| @match_category[pm.id] || "Other" }
+    @sorted_categories = @grouped_matches.keys.sort_by { |c| c == "Other" ? "zzz" : c.downcase }
+
+    # Prepend "Frequently Ordered" section if any exist
+    if frequent_matches.any?
+      @grouped_matches = { "Frequently Ordered" => frequent_matches }.merge(@grouped_matches)
+      @sorted_categories.unshift("Frequently Ordered")
+    end
   end
 
   private

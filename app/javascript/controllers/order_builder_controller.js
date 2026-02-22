@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell"]
+  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "categoryContent", "chevron"]
 
   connect() {
     this.updateTotals()
@@ -26,36 +26,40 @@ export default class extends Controller {
     this._fixedBar.innerHTML = `<div style="max-width:72rem;margin:0 auto;">${cmdBar.innerHTML}</div>`
     document.body.appendChild(this._fixedBar)
 
-    // Wire up the cloned submit button to submit the real form
-    const clonedSubmit = this._fixedBar.querySelector("button[type='submit']")
-    if (clonedSubmit) {
-      clonedSubmit.addEventListener("click", (e) => {
+    // Wire up the cloned submit buttons to submit the real form
+    this._fixedBar.querySelectorAll("button[type='submit']").forEach(btn => {
+      btn.addEventListener("click", (e) => {
         e.preventDefault()
         const form = document.getElementById("order-form")
         if (form) form.requestSubmit()
       })
-    }
+    })
 
-    // Store refs to cloned KPI elements for updating
-    this._fixedItemCount = this._fixedBar.querySelector("[data-order-builder-target='itemCount']")
-    this._fixedRunningTotal = this._fixedBar.querySelector("[data-order-builder-target='runningTotal']")
-    this._fixedSupplierCount = this._fixedBar.querySelector("[data-order-builder-target='supplierCount']")
-    this._fixedSubmitButton = clonedSubmit
-    this._fixedDeliveryDate = this._fixedBar.querySelector("input[name='delivery_date']")
+    // Store refs to cloned KPI elements for updating (querySelectorAll for mobile+desktop duplicates)
+    this._fixedItemCounts = this._fixedBar.querySelectorAll("[data-order-builder-target='itemCount']")
+    this._fixedRunningTotals = this._fixedBar.querySelectorAll("[data-order-builder-target='runningTotal']")
+    this._fixedSupplierCounts = this._fixedBar.querySelectorAll("[data-order-builder-target='supplierCount']")
+    this._fixedSubmitButtons = this._fixedBar.querySelectorAll("button[type='submit']")
+    this._fixedDeliveryDates = this._fixedBar.querySelectorAll("input[name='delivery_date']")
 
-    // Sync delivery date changes between original (hidden) and fixed bar clone
-    if (this._fixedDeliveryDate && this.hasDeliveryDateTarget) {
-      this._fixedDeliveryDate.addEventListener("change", () => {
-        this.deliveryDateTarget.value = this._fixedDeliveryDate.value
+    // Sync delivery date changes between all cloned date inputs and original (hidden) targets
+    this._fixedDeliveryDates.forEach(dateInput => {
+      dateInput.addEventListener("change", () => {
+        // Sync to all other cloned date inputs and original targets
+        const val = dateInput.value
+        this._fixedDeliveryDates.forEach(d => { if (d !== dateInput) d.value = val })
+        this.deliveryDateTargets.forEach(d => d.value = val)
         this._clearDateHighlight()
         this.updateTotals()
       })
-      this.deliveryDateTarget.addEventListener("change", () => {
-        this._fixedDeliveryDate.value = this.deliveryDateTarget.value
+    })
+    this.deliveryDateTargets.forEach(dateTarget => {
+      dateTarget.addEventListener("change", () => {
+        this._fixedDeliveryDates.forEach(d => d.value = dateTarget.value)
         this._clearDateHighlight()
         this.updateTotals()
       })
-    }
+    })
 
     // Remove Stimulus target attributes from clones (they're not in controller scope)
     this._fixedBar.querySelectorAll("[data-order-builder-target]").forEach(el => {
@@ -169,10 +173,10 @@ export default class extends Controller {
     if (this.hasItemCountTarget) this.itemCountTarget.textContent = itemCount
     if (this.hasSupplierCountTarget) this.supplierCountTarget.textContent = supplierIds.size
 
-    // Update cloned fixed bar elements
-    if (this._fixedItemCount) this._fixedItemCount.textContent = itemCount
-    if (this._fixedRunningTotal) this._fixedRunningTotal.textContent = `$${total.toFixed(2)}`
-    if (this._fixedSupplierCount) this._fixedSupplierCount.textContent = supplierIds.size
+    // Update cloned fixed bar elements (multiple for mobile+desktop)
+    if (this._fixedItemCounts) this._fixedItemCounts.forEach(el => el.textContent = itemCount)
+    if (this._fixedRunningTotals) this._fixedRunningTotals.forEach(el => el.textContent = `$${total.toFixed(2)}`)
+    if (this._fixedSupplierCounts) this._fixedSupplierCounts.forEach(el => el.textContent = supplierIds.size)
 
     // Check delivery date
     const hasDate = this._hasValidDeliveryDate()
@@ -187,8 +191,11 @@ export default class extends Controller {
       tooltip = "To create orders, " + reasons.join(" and ")
     }
 
-    // Enable/disable both submit buttons
-    const buttons = [this.hasSubmitButtonTarget ? this.submitButtonTarget : null, this._fixedSubmitButton].filter(Boolean)
+    // Enable/disable all submit buttons (original targets + cloned mobile/desktop)
+    const buttons = [
+      ...(this.hasSubmitButtonTarget ? this.submitButtonTargets : []),
+      ...(this._fixedSubmitButtons || [])
+    ]
     buttons.forEach(btn => {
       if (canSubmit) {
         btn.disabled = false
@@ -212,8 +219,9 @@ export default class extends Controller {
   }
 
   _hasValidDeliveryDate() {
-    const input = this._fixedDeliveryDate || (this.hasDeliveryDateTarget ? this.deliveryDateTarget : null)
-    if (!input || !input.value) return false
+    const allDates = [...(this._fixedDeliveryDates || []), ...(this.hasDeliveryDateTarget ? this.deliveryDateTargets : [])]
+    const input = allDates.find(d => d.value)
+    if (!input) return false
     const selected = new Date(input.value + "T00:00:00")
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -221,14 +229,14 @@ export default class extends Controller {
   }
 
   _highlightDate() {
-    const inputs = [this._fixedDeliveryDate].filter(Boolean)
+    const inputs = [...(this._fixedDeliveryDates || [])]
     inputs.forEach(input => {
       input.classList.add("ring-2", "ring-brand-orange", "border-brand-orange")
     })
   }
 
   _clearDateHighlight() {
-    const inputs = [this._fixedDeliveryDate].filter(Boolean)
+    const inputs = [...(this._fixedDeliveryDates || [])]
     inputs.forEach(input => {
       input.classList.remove("ring-2", "ring-brand-orange", "border-brand-orange")
     })
@@ -295,6 +303,85 @@ export default class extends Controller {
       // Set all inputs for this match (desktop + mobile) to the new value
       this._setMatchQuantity(input.dataset.matchId, newValue)
       this.updateTotals()
+    }
+  }
+
+  // === Feature 1: Search/Filter ===
+  filterProducts() {
+    const query = this.hasSearchInputTarget ? this.searchInputTarget.value.toLowerCase().trim() : ""
+
+    this.element.querySelectorAll("[data-order-builder-row]").forEach(row => {
+      const name = row.dataset.productName || ""
+      row.style.display = (query === "" || name.includes(query)) ? "" : "none"
+    })
+
+    // Hide empty category sections
+    if (this.hasCategorySectionTarget) {
+      this.categorySectionTargets.forEach(section => {
+        const visibleRows = section.querySelectorAll("[data-order-builder-row]:not([style*='display: none'])")
+        section.style.display = visibleRows.length === 0 ? "none" : ""
+      })
+    }
+  }
+
+  // === Feature 3: Favorite Toggle ===
+  async toggleFavorite(event) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const button = event.currentTarget
+    const spId = button.dataset.supplierProductId
+    if (!spId) return
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+
+    try {
+      const response = await fetch("/favorite_products/toggle", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ supplier_product_id: spId })
+      })
+
+      if (!response.ok) return
+
+      const data = await response.json()
+      const favorited = data.favorited
+
+      // Update ALL star buttons for this supplier product (desktop + mobile)
+      document.querySelectorAll(`button[data-supplier-product-id="${spId}"]`).forEach(btn => {
+        btn.dataset.favorited = favorited ? "true" : "false"
+        if (favorited) {
+          btn.innerHTML = `<svg class="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+          </svg>`
+        } else {
+          btn.innerHTML = `<svg class="w-4 h-4 text-gray-300 hover:text-amber-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 20 20">
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+          </svg>`
+        }
+      })
+    } catch (error) {
+      console.error("Failed to toggle favorite:", error)
+    }
+  }
+
+  // === Feature 2: Accordion Toggle ===
+  toggleSection(event) {
+    const button = event.currentTarget
+    const section = button.closest("[data-order-builder-target='categorySection']")
+    const content = section.querySelector("[data-order-builder-target='categoryContent']")
+    const chevron = button.querySelector("[data-order-builder-target='chevron']")
+
+    if (content.style.display === "none") {
+      content.style.display = ""
+      if (chevron) chevron.style.transform = ""
+    } else {
+      content.style.display = "none"
+      if (chevron) chevron.style.transform = "rotate(-90deg)"
     }
   }
 }

@@ -19,6 +19,7 @@ class User < ApplicationRecord
   has_many :subscriptions, dependent: :destroy
   has_many :invoices, dependent: :destroy
   has_many :billing_events, dependent: :nullify
+  has_many :favorite_products, dependent: :destroy
 
   # Invitations sent by this user
   has_many :sent_invitations, class_name: 'OrganizationInvitation', foreign_key: :invited_by_id

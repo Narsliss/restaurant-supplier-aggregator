@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_21_185039) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_22_170941) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -52,6 +52,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_21_185039) do
     t.index ["stripe_event_id"], name: "index_billing_events_on_stripe_event_id", unique: true
     t.index ["subscription_id"], name: "index_billing_events_on_subscription_id"
     t.index ["user_id"], name: "index_billing_events_on_user_id"
+  end
+
+  create_table "favorite_products", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "supplier_product_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["supplier_product_id"], name: "index_favorite_products_on_supplier_product_id"
+    t.index ["user_id", "supplier_product_id"], name: "index_favorite_products_on_user_id_and_supplier_product_id", unique: true
+    t.index ["user_id"], name: "index_favorite_products_on_user_id"
   end
 
   create_table "invoices", force: :cascade do |t|
@@ -688,6 +698,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_21_185039) do
   add_foreign_key "aggregated_lists", "users", column: "created_by_id"
   add_foreign_key "billing_events", "subscriptions"
   add_foreign_key "billing_events", "users"
+  add_foreign_key "favorite_products", "supplier_products"
+  add_foreign_key "favorite_products", "users"
   add_foreign_key "invoices", "organizations"
   add_foreign_key "invoices", "subscriptions"
   add_foreign_key "invoices", "users"
