@@ -1117,18 +1117,21 @@ module Scrapers
       logger.info "[WhatChefsWant] Initial extraction: #{result['total']} products"
 
       # Scroll and extract
+      # WCW's React/Cut+Dry SPA needs more render time per scroll than Angular-based
+      # sites. 0.3s was too fast — rows hadn't rendered before the next extraction,
+      # causing false "stale" detection and early exit (15 items instead of 136).
       stale_rounds = 0
       max_scrolls = 80
 
       max_scrolls.times do |round|
         browser.evaluate('window.scrollBy(0, Math.round(window.innerHeight * 0.75))')
-        sleep 0.3
+        sleep 0.8
 
         result = browser.evaluate(extract_js)
 
         if result['newInRound'] == 0
           stale_rounds += 1
-          break if stale_rounds >= 2
+          break if stale_rounds >= 3
         else
           stale_rounds = 0
         end
