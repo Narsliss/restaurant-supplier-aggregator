@@ -98,7 +98,10 @@ class AggregatedListsController < ApplicationController
       update_list_mappings
 
       # Trigger AI matching in background
-      AiProductMatchJob.perform_later(@aggregated_list.id) if @aggregated_list.supplier_lists.count >= 2
+      if @aggregated_list.supplier_lists.count >= 2
+        @aggregated_list.update(match_status: 'matching')
+        AiProductMatchJob.perform_later(@aggregated_list.id)
+      end
 
       if params[:return_to] == "supplier_lists"
         redirect_to supplier_lists_path, notice: "#{@aggregated_list.name} created. Matching products..."
@@ -124,7 +127,10 @@ class AggregatedListsController < ApplicationController
     if @aggregated_list.update(aggregated_list_params)
       update_list_mappings
       # Re-run matching if lists changed
-      AiProductMatchJob.perform_later(@aggregated_list.id) if @aggregated_list.supplier_lists.count >= 2
+      if @aggregated_list.supplier_lists.count >= 2
+        @aggregated_list.update(match_status: 'matching')
+        AiProductMatchJob.perform_later(@aggregated_list.id)
+      end
 
       redirect_to @aggregated_list
     else
@@ -140,8 +146,10 @@ class AggregatedListsController < ApplicationController
   end
 
   def run_matching
-    @aggregated_list.update(match_status: 'matching')
-    AiProductMatchJob.perform_later(@aggregated_list.id)
+    unless @aggregated_list.matching?
+      @aggregated_list.update(match_status: 'matching')
+      AiProductMatchJob.perform_later(@aggregated_list.id)
+    end
     redirect_to @aggregated_list
   end
 
