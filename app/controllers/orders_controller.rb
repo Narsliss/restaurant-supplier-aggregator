@@ -1,5 +1,5 @@
 class OrdersController < ApplicationController
-  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status]
+  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status, :retry_order]
 
   def index
     orders_scope = current_user.orders
@@ -155,6 +155,28 @@ class OrdersController < ApplicationController
       status: @order.status,
       processing: @order.processing?
     }
+  end
+
+  # Reset a failed order so the user can edit items and resubmit.
+  # Removes any items marked unavailable during the failed attempt.
+  def retry_order
+    unless @order.failed?
+      redirect_to @order, alert: "Only failed orders can be retried."
+      return
+    end
+
+    # Remove items that were marked unavailable during the failed attempt
+    @order.order_items.where(status: "unavailable").destroy_all
+
+    # Reset order to pending so items can be edited
+    @order.update!(
+      status: "pending",
+      error_message: nil,
+      confirmation_number: nil
+    )
+    @order.recalculate_totals!
+
+    redirect_to order_path(@order), notice: "Order reset — edit items below, then submit when ready."
   end
 
   # Reorder: clone a completed order's items into a new pending order at current prices

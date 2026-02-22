@@ -106,6 +106,7 @@ Rails.application.routes.draw do
       post :cancel
       post :reorder
       get :placement_status
+      post :retry_order
     end
     collection do
       get :split_preview

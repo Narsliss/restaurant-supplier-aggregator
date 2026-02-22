@@ -15,6 +15,7 @@ import OrderBuilderController from "./order_builder_controller"
 import OrderReviewController from "./order_review_controller"
 import ThemeController from "./theme_controller"
 import OrderStatusController from "./order_status_controller"
+import OrderEditController from "./order_edit_controller"
 import BatchProgressController from "./batch_progress_controller"
 
 application.register("two-factor", TwoFactorController)
@@ -32,4 +33,5 @@ application.register("order-builder", OrderBuilderController)
 application.register("order-review", OrderReviewController)
 application.register("theme", ThemeController)
 application.register("order-status", OrderStatusController)
+application.register("order-edit", OrderEditController)
 application.register("batch-progress", BatchProgressController)

@@ -129,6 +129,12 @@ export default class extends Controller {
         total.textContent = `$${order.total_amount.toFixed(2)}`
       }
     }
+
+    // Hide/show retry button based on status
+    const retryWrapper = card.querySelector("[data-retry-wrapper]")
+    if (retryWrapper) {
+      retryWrapper.classList.toggle("hidden", order.status !== "failed")
+    }
   }
 
   _statusLabel(status) {
