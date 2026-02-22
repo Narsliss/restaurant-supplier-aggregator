@@ -17,6 +17,7 @@ import ThemeController from "./theme_controller"
 import OrderStatusController from "./order_status_controller"
 import OrderEditController from "./order_edit_controller"
 import BatchProgressController from "./batch_progress_controller"
+import AutoRefreshController from "./auto_refresh_controller"
 
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
@@ -35,3 +36,4 @@ application.register("theme", ThemeController)
 application.register("order-status", OrderStatusController)
 application.register("order-edit", OrderEditController)
 application.register("batch-progress", BatchProgressController)
+application.register("auto-refresh", AutoRefreshController)
