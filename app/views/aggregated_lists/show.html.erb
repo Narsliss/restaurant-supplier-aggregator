@@ -13,11 +13,37 @@
       </p>
     </div>
     <div class="flex gap-3">
-      <%= link_to "Edit", edit_aggregated_list_path(@aggregated_list),
-          class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
-      <%= button_to "Re-match", run_matching_aggregated_list_path(@aggregated_list),
-          method: :post,
-          class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
+      <% if @aggregated_list.matching? %>
+        <span class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">
+          <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Processing...
+        </span>
+      <% else %>
+        <%= link_to "Edit", edit_aggregated_list_path(@aggregated_list),
+            class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+        <%= button_to "Re-match", run_matching_aggregated_list_path(@aggregated_list),
+            method: :post,
+            class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
+        <% if @aggregated_list.matched? && @aggregated_list.unmatched_count > 0 %>
+          <%= button_to search_catalog_aggregated_list_path(@aggregated_list),
+              method: :post,
+              class: "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border border-indigo-500 text-indigo-600 hover:bg-indigo-500 hover:text-white transition-colors" do %>
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            Search Catalog
+          <% end %>
+        <% end %>
+        <% if @aggregated_list.matched? %>
+          <%= link_to supplier_lists_path(notice: "#{@aggregated_list.name} matching approved."),
+              class: "inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-md bg-brand-green text-white hover:bg-brand-green-dark transition-colors shadow-sm" do %>
+            ✓ Approve Matching
+          <% end %>
+        <% end %>
+      <% end %>
     </div>
   </div>
 
@@ -38,9 +64,26 @@
   </div>
 
   <% if @aggregated_list.matching? %>
-    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-      <p class="text-sm text-blue-800">Product matching is in progress. This page will update when complete.</p>
+    <div class="relative overflow-hidden rounded-lg bg-brand-orange/10 border-2 border-brand-orange p-5 mb-6 shadow-md">
+      <!-- Animated progress bar at top -->
+      <div class="absolute top-0 left-0 h-1 w-full bg-brand-orange/20">
+        <div class="h-full w-1/3 bg-brand-orange rounded-r animate-progress-bar"></div>
+      </div>
+      <div class="flex items-center gap-4">
+        <!-- Spinning loader -->
+        <div class="shrink-0">
+          <svg class="h-8 w-8 animate-spin text-brand-orange" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        <div>
+          <p class="text-base font-semibold text-gray-900">Processing — please wait</p>
+          <p class="text-sm text-gray-600 mt-0.5">Product matching is running. This can take up to 2 minutes. The page will refresh automatically when complete.</p>
+        </div>
+      </div>
     </div>
+    <meta http-equiv="refresh" content="10">
   <% end %>
 
   <!-- Match comparison table -->
@@ -84,7 +127,12 @@
                     <% is_most_expensive = most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
 
                     <div class="text-sm text-gray-900"><%= item.name.truncate(60) %></div>
-                    <div class="text-xs text-gray-500"><%= item.pack_size %></div>
+                    <div class="text-xs text-gray-500">
+                      <%= item.pack_size %>
+                      <% if item.catalog_search? %>
+                        <span class="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium bg-indigo-100 text-indigo-700">catalog</span>
+                      <% end %>
+                    </div>
                     <div class="mt-1">
                       <span class="text-sm font-semibold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
                         <%= item.formatted_price %>
@@ -101,7 +149,8 @@
                             <%= render "aggregated_lists/searchable_select",
                                        field_name: "product_match_item[supplier_list_item_id]",
                                        items: available_items,
-                                       selected_id: item.id %>
+                                       selected_id: item.id,
+                                       show_no_match: true %>
                           <% end %>
                         </div>
                       </details>
@@ -165,6 +214,33 @@
   <% else %>
     <div class="bg-white shadow rounded-lg p-8 text-center">
       <p class="text-gray-500">No product matches yet. Add supplier lists and run matching.</p>
+    </div>
+  <% end %>
+
+  <!-- Approve / Next Steps bar -->
+  <% if @product_matches.any? && !@aggregated_list.matching? %>
+    <div class="mt-8 bg-white shadow rounded-lg p-6">
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 class="text-lg font-heading font-semibold text-gray-900">Ready to continue?</h3>
+          <p class="text-sm text-gray-500 mt-1">
+            <%= @aggregated_list.matched_product_count %> matched products across <%= @suppliers.size %> suppliers
+          </p>
+        </div>
+        <div class="flex gap-3 w-full sm:w-auto">
+          <% if @aggregated_list.matched? %>
+            <%= link_to order_builder_aggregated_list_path(@aggregated_list),
+                data: { turbo: false },
+                class: "flex-1 sm:flex-initial text-center rounded-md bg-brand-green px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" do %>
+              Create Order →
+            <% end %>
+          <% end %>
+          <%= link_to supplier_lists_path,
+              class: "flex-1 sm:flex-initial text-center rounded-md border border-gray-300 bg-white px-6 py-3 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors" do %>
+            ← Back to Lists
+          <% end %>
+        </div>
+      </div>
     </div>
   <% end %>
 </div>

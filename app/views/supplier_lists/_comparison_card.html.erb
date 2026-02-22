@@ -1,5 +1,5 @@
-<div class="bg-white shadow rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col">
-  <%= link_to aggregated_list_path(aggregated_list), class: "block flex-1" do %>
+<div class="bg-white shadow rounded-lg p-6 flex flex-col">
+  <div class="flex-1">
     <div class="flex justify-between items-start">
       <h3 class="text-lg font-heading font-medium text-gray-900"><%= aggregated_list.name %></h3>
       <% case aggregated_list.match_status %>
@@ -40,18 +40,23 @@
         <p class="text-gray-500">Unmatched</p>
       </div>
     </div>
-  <% end %>
+  </div>
 
-  <div class="mt-4 pt-4 border-t border-gray-100">
+  <div class="mt-4 pt-4 border-t border-gray-100 flex gap-2">
+    <%= link_to edit_aggregated_list_path(aggregated_list),
+        class: "flex-1 text-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors" do %>
+      Edit Order List
+    <% end %>
+
     <% if aggregated_list.matched? %>
       <%= link_to order_builder_aggregated_list_path(aggregated_list),
           data: { turbo: false },
-          class: "block w-full text-center rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" do %>
+          class: "flex-1 text-center rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" do %>
         Create Order
       <% end %>
     <% else %>
       <%= link_to aggregated_list_path(aggregated_list),
-          class: "block w-full text-center rounded-md bg-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 shadow-sm hover:bg-gray-300 transition-colors" do %>
+          class: "flex-1 text-center rounded-md bg-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 shadow-sm hover:bg-gray-300 transition-colors" do %>
         View Matching
       <% end %>
     <% end %>

@@ -21,16 +21,24 @@ class ProductNormalizer
     beemster
     caputo king\ arthur gold\ medal
     trident blu\ lux fjord\ fresh
-    cross\ valley labelle ibp bella\ bella broadleaf marrunga
+    cross\ valley cross\ valley\ farms labelle ibp bella\ bella broadleaf marrunga
     sasanian caviar\ star
     marzetti metro\ deli langs restaurantware roastworks viele\ street
     grand\ reserve plugra bridor cacao\ barry chocoa dawn\ foods
-    vertical\ acres\ farm andy\ boy manns taylor\ farms
+    vertical\ acres\ farm andy\ boy manns mann taylor\ farms
     dairyland frenchs fryfoods stock\ yards swift lanning\ foods
     allen\ brothers michaels avieta wholesome\ sweeteners classic\ cake
     minute\ maid coke sprite seagrams great\ lakes
     nounos\ creamery vermont\ creamery elle\ vire mitica spoleto teo
     fossil\ farms agrumato cargill
+    premierproduce\ one premierproduce premiere\ produce\ one premiere\ produce
+    patuxent\ farms patuxent
+    belaria montchevre carmelina natalies nataly
+    recca borden harvest\ value roseli
+    glenview
+    kraft belgioioso perfect\ puree pacific\ jade
+    bazzini rykoff\ sexton hoffmaster sinatra
+    weaver lecoq\ cuisine matisse mariblu
   ].freeze
 
   # Size/weight/count patterns to remove (package sizes, not product characteristics)
@@ -74,7 +82,11 @@ class ProductNormalizer
     ready previously fresh-to-frozen iqf ivp
     random
     prints print
-    the a an and or of for with by
+    cultured natural choice premium jumbo colossal
+    concentrate cvp tub carton jug clamshell
+    greenhouse style scent embossed individual
+    std sk local number no
+    the a an all and or of for with by
   ].freeze
 
   # Grade/size letters to preserve (these distinguish products)
@@ -86,6 +98,7 @@ class ProductNormalizer
     swiss dress process moss floss
     fries grits grains oats
     sous jus
+    gloves olives stoves doves groves
   ].freeze
 
   # Processing/preparation descriptors - keep these as they affect identity
@@ -349,6 +362,39 @@ class ProductNormalizer
 
       # Jaccard similarity
       intersection.size.to_f / union.size
+    end
+
+    # Asymmetric "best" similarity that handles cases where one name is
+    # much longer than the other (e.g. "Sour Cream" vs
+    # "Glenview Farms Sour Cream, Cultured All Natural Tub Ref").
+    # Uses the higher of Jaccard and a capped containment score.
+    def best_similarity(name1, name2)
+      n1 = new(name1)
+      n2 = new(name2)
+
+      set1 = n1.canonical_name.downcase.split.to_set
+      set2 = n2.canonical_name.downcase.split.to_set
+
+      return 0.0 if set1.empty? || set2.empty?
+
+      intersection = set1 & set2
+      union = set1 | set2
+
+      jaccard = intersection.size.to_f / union.size
+
+      # Containment: how much of the smaller set is contained in the larger?
+      # "sour cream" (2 words) ⊂ "sour cream cultured natural tub" (5 words)
+      # = 2/2 = 1.0
+      # Only use containment when intersection has 2+ words to avoid
+      # false positives on generic 1-word matches like "puree" or "half"
+      min_size = [set1.size, set2.size].min
+      if intersection.size >= 2 && min_size >= 2
+        containment = intersection.size.to_f / min_size
+        # Cap containment at 0.85 so full Jaccard matches are still preferred
+        [jaccard, containment * 0.85].max
+      else
+        jaccard
+      end
     end
 
     # Check if two products are likely the same (>= 0.75 similarity)

@@ -60,6 +60,7 @@ Rails.application.routes.draw do
   resources :aggregated_lists, except: [:index] do
     member do
       post :run_matching
+      post :search_catalog
       get :order_builder
     end
     resources :product_matches, only: %i[index] do

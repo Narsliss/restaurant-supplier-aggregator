@@ -37,9 +37,45 @@ class ProductMatchItemsController < ApplicationController
 
     new_item_id = params.dig(:product_match_item, :supplier_list_item_id)
 
+    # "No Match" — user wants to remove this supplier's item from the match group
     if new_item_id.blank?
-      redirect_back fallback_location: aggregated_list_path(@aggregated_list),
-                    alert: 'Please select a product.'
+      old_item = @product_match_item.supplier_list_item
+      old_supplier = @product_match_item.supplier
+      @product_match_item.destroy!
+
+      # If the match now has zero or one assigned items, update status
+      remaining = @product_match.product_match_items.reload.count
+      if remaining == 0
+        @product_match.destroy!
+      else
+        @product_match.update!(match_status: remaining <= 1 ? 'unmatched' : 'manual')
+      end
+
+      # Create a standalone unmatched row for the orphaned item so it doesn't vanish
+      if old_item
+        max_pos = @aggregated_list.product_matches.maximum(:position) || 0
+        new_match = @aggregated_list.product_matches.create!(
+          canonical_name: old_item.name,
+          match_status: 'unmatched',
+          confidence_score: 0,
+          position: max_pos + 1
+        )
+        new_match.product_match_items.create!(
+          supplier_list_item: old_item,
+          supplier: old_supplier
+        )
+      end
+
+      respond_to do |format|
+        format.html do
+          redirect_to aggregated_list_path(@aggregated_list),
+                      notice: "Removed match#{old_item ? ": #{old_item.name.truncate(40)}" : ''}"
+        end
+        format.turbo_stream do
+          redirect_to aggregated_list_path(@aggregated_list),
+                      notice: "Removed match#{old_item ? ": #{old_item.name.truncate(40)}" : ''}"
+        end
+      end
       return
     end
 

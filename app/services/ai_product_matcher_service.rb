@@ -2,7 +2,7 @@
 # Uses a multi-pass strategy:
 #   Pass 1: Shared Product link (both items link to same canonical Product)
 #   Pass 2: Exact normalized name match via ProductNormalizer
-#   Pass 3: Jaccard similarity >= 0.6 (lower for cross-supplier matching)
+#   Pass 3: Best similarity >= 0.45 (Jaccard + containment scoring)
 #   Pass 4: AI matching via Groq for remaining unmatched items
 #
 # Usage:
@@ -13,7 +13,7 @@
 class AiProductMatcherService
   GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'.freeze
   MODEL = 'llama-3.3-70b-versatile'.freeze
-  SIMILARITY_THRESHOLD = 0.6
+  SIMILARITY_THRESHOLD = 0.45
   AI_CONFIDENCE_THRESHOLD = 0.7
   BATCH_SIZE = 10
 
@@ -158,12 +158,12 @@ class AiProductMatcherService
       return [candidate, 0.9] if anchor_normalized.present? && anchor_normalized == candidate_normalized
     end
 
-    # Pass 3: Jaccard similarity
+    # Pass 3: Best similarity (Jaccard + containment scoring)
     best_candidate = nil
     best_score = 0
 
     candidates.each do |candidate|
-      score = ProductNormalizer.similarity(anchor_item.name, candidate.name)
+      score = ProductNormalizer.best_similarity(anchor_item.name, candidate.name)
       if score > best_score
         best_score = score
         best_candidate = candidate
@@ -180,9 +180,14 @@ class AiProductMatcherService
   end
 
   def find_match_with_ai(anchor_item, candidates)
-    return nil if candidates.empty? || candidates.size > 20
+    return nil if candidates.empty?
 
-    candidate_list = candidates.first(15).map.with_index do |c, i|
+    # Pre-sort candidates by similarity so the most likely matches go to AI first
+    sorted_candidates = candidates.sort_by do |c|
+      -ProductNormalizer.best_similarity(anchor_item.name, c.name)
+    end
+
+    candidate_list = sorted_candidates.first(15).map.with_index do |c, i|
       "#{i + 1}. #{c.name} (#{c.pack_size})"
     end.join("\n")
 
@@ -195,16 +200,16 @@ class AiProductMatcherService
       Candidates:
       #{candidate_list}
 
-      Reply with ONLY the number (1-#{[candidates.size, 15].min}) of the matching product, or "NONE".
+      Reply with ONLY the number (1-#{[sorted_candidates.size, 15].min}) of the matching product, or "NONE".
     PROMPT
 
     response = call_groq(prompt)
     return nil if response.blank? || response.upcase.include?('NONE')
 
     match_num = response.scan(/\d+/).first&.to_i
-    return nil unless match_num&.between?(1, [candidates.size, 15].min)
+    return nil unless match_num&.between?(1, [sorted_candidates.size, 15].min)
 
-    [candidates[match_num - 1], AI_CONFIDENCE_THRESHOLD]
+    [sorted_candidates[match_num - 1], AI_CONFIDENCE_THRESHOLD]
   rescue StandardError => e
     Rails.logger.warn "[AiMatcher] AI matching failed: #{e.message}"
     nil

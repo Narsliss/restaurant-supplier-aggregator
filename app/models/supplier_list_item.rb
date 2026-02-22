@@ -11,6 +11,9 @@ class SupplierListItem < ApplicationRecord
   validates :price, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
   validates :quantity, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
 
+  # Source constants
+  SOURCES = %w[order_guide catalog_search].freeze
+
   # Scopes
   scope :in_stock, -> { where(in_stock: true) }
   scope :out_of_stock, -> { where(in_stock: false) }
@@ -18,6 +21,12 @@ class SupplierListItem < ApplicationRecord
   scope :by_position, -> { order(:position) }
   scope :linked, -> { where.not(supplier_product_id: nil) }
   scope :unlinked, -> { where(supplier_product_id: nil) }
+  scope :from_order_guide, -> { where(source: 'order_guide') }
+  scope :from_catalog_search, -> { where(source: 'catalog_search') }
+
+  def catalog_search?
+    source == 'catalog_search'
+  end
 
   # Delegations
   delegate :supplier, to: :supplier_list

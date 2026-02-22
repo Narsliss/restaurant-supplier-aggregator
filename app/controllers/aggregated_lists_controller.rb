@@ -1,5 +1,5 @@
 class AggregatedListsController < ApplicationController
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching order_builder]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder]
 
   def show
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
@@ -77,6 +77,16 @@ class AggregatedListsController < ApplicationController
     @aggregated_list.update(match_status: 'matching')
     AiProductMatchJob.perform_later(@aggregated_list.id)
     redirect_to @aggregated_list, notice: 'Re-running product matching...'
+  end
+
+  def search_catalog
+    unless @aggregated_list.matched?
+      redirect_to @aggregated_list, alert: 'Run product matching first before searching the catalog.'
+      return
+    end
+
+    CatalogSearchJob.perform_later(@aggregated_list.id)
+    redirect_to @aggregated_list, notice: "Searching full catalog for #{@aggregated_list.unmatched_count} unmatched products..."
   end
 
   def order_builder

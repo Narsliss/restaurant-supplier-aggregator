@@ -39,6 +39,32 @@
   --font-body: 'Open Sans', sans-serif;
 }
 
+/* Flash toast slide-down animation */
+@keyframes slide-down {
+  from {
+    transform: translate(-50%, -120%);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+@utility animate-slide-down {
+  animation: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Processing banner progress bar animation */
+@keyframes progress-bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+@utility animate-progress-bar {
+  animation: progress-bar 1.5s ease-in-out infinite;
+}
+
 @layer base {
   body {
     font-family: var(--font-body);

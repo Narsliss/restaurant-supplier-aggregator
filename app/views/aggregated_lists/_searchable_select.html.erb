@@ -1,19 +1,35 @@
 <%# Searchable select for product assignment.
     Shows all items in a scrollable list with a search filter at top.
-    Locals: field_name (string), items (ActiveRecord collection), selected_id (integer or nil) %>
+    Locals: field_name (string), items (ActiveRecord collection), selected_id (integer or nil)
+            show_no_match (boolean, optional) — adds a "No Match" option at top %>
 <div data-controller="searchable-select" class="relative">
   <input type="hidden"
          data-searchable-select-target="hidden"
          name="<%= field_name %>"
          value="<%= selected_id %>">
-  <input type="text"
-         data-searchable-select-target="input"
-         data-action="input->searchable-select#filter"
-         placeholder="Type to filter..."
-         autocomplete="off"
-         class="block w-full text-xs rounded-md border-gray-300 shadow-sm focus:border-brand-orange focus:ring-brand-orange">
+  <div class="relative">
+    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5">
+      <svg class="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+      </svg>
+    </div>
+    <input type="text"
+           data-searchable-select-target="input"
+           data-action="input->searchable-select#filter"
+           placeholder="Search items..."
+           autocomplete="off"
+           class="block w-full rounded-md border-gray-300 bg-gray-50 pl-8 pr-3 py-2 text-sm shadow-sm focus:border-brand-orange focus:ring-brand-orange focus:bg-white transition-colors">
+  </div>
   <ul data-searchable-select-target="list"
       class="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md bg-white shadow-lg ring-1 ring-black/5 text-xs">
+    <% if local_assigns[:show_no_match] %>
+      <li data-value=""
+          data-no-filter="true"
+          data-action="click->searchable-select#select"
+          class="cursor-pointer px-3 py-1.5 text-red-500 font-medium hover:bg-red-50 hover:text-red-700 border-b border-gray-100">
+        ✕ No Match — Remove from group
+      </li>
+    <% end %>
     <% items.each do |opt| %>
       <li data-value="<%= opt.id %>"
           data-action="click->searchable-select#select"
