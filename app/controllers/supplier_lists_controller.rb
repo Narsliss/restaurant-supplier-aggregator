@@ -56,10 +56,7 @@ class SupplierListsController < ApplicationController
     ImportSupplierListsJob.perform_later(@supplier_list.supplier_credential_id)
     @supplier_list.update(sync_status: 'syncing')
 
-    respond_to do |format|
-      format.html { redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Updating #{@supplier_list.supplier.name} lists..." }
-      format.turbo_stream
-    end
+    redirect_to supplier_lists_path(syncing: Time.current.to_i), notice: "Updating #{@supplier_list.supplier.name} lists..."
   end
 
   def sync_all
