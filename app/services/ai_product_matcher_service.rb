@@ -23,6 +23,7 @@ class AiProductMatcherService
     @aggregated_list = aggregated_list
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
     @results = { matched: 0, unmatched: 0, total: 0, errors: [] }
+    @ai_disabled = false  # Set true on rate limit to skip AI for rest of run
   end
 
   def call
@@ -173,7 +174,8 @@ class AiProductMatcherService
     return [best_candidate, best_score] if best_score >= SIMILARITY_THRESHOLD
 
     # Pass 4: AI matching (for remaining difficult cases)
-    return [nil, 0] unless @api_key.present?
+    # Skip if no API key or if rate limited during this run
+    return [nil, 0] unless @api_key.present? && !@ai_disabled
 
     ai_match = find_match_with_ai(anchor_item, candidates)
     ai_match || [nil, 0]
@@ -252,6 +254,12 @@ class AiProductMatcherService
 
     if response.success?
       response.body.dig('choices', 0, 'message', 'content')
+    elsif response.status == 429
+      # Rate limited — disable AI matching for the rest of this run
+      # rather than hammering the API with hundreds more doomed requests
+      Rails.logger.warn "[AiMatcher] Groq rate limited (429). Disabling AI matching for remainder of this run."
+      @ai_disabled = true
+      nil
     else
       Rails.logger.error "[AiMatcher] Groq API error: #{response.status}"
       nil

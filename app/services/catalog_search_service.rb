@@ -24,6 +24,7 @@ class CatalogSearchService
     @aggregated_list = aggregated_list
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
     @results = { found: 0, searched: 0, created_sli_ids: [], errors: [] }
+    @ai_disabled = false
   end
 
   def call
@@ -171,8 +172,8 @@ class CatalogSearchService
 
     return [best_entry[:sp], best_score] if best_entry && best_score >= CATALOG_SIMILARITY_THRESHOLD
 
-    # Pass 4: AI matching (optional, only if API key present)
-    return nil unless @api_key.present?
+    # Pass 4: AI matching (optional, only if API key present and not rate limited)
+    return nil unless @api_key.present? && !@ai_disabled
 
     find_catalog_match_with_ai(anchor_item, catalog_entries)
   end
@@ -275,6 +276,10 @@ class CatalogSearchService
 
     if response.success?
       response.body.dig('choices', 0, 'message', 'content')
+    elsif response.status == 429
+      Rails.logger.warn "[CatalogSearch] Groq rate limited (429). Disabling AI matching for remainder of this run."
+      @ai_disabled = true
+      nil
     else
       Rails.logger.error "[CatalogSearch] Groq API error: #{response.status}"
       nil
