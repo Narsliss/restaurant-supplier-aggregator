@@ -15,12 +15,15 @@ class SupplierListsController < ApplicationController
     has_syncing_lists = @supplier_lists.where(sync_status: 'syncing').exists?
 
     # Also check for pending/running import jobs in Solid Queue
-    # (covers the gap between job enqueue and when lists get marked as syncing)
+    # (covers the gap between job enqueue and when lists get marked as syncing).
+    # Ignore jobs older than 30 minutes — they're orphans from worker restarts
+    # that were killed mid-flight but never marked finished.
     credential_ids = @credentials.pluck(:id)
     pending_job_credential_ids = []
     if credential_ids.any?
       SolidQueue::Job
         .where(class_name: 'ImportSupplierListsJob', finished_at: nil)
+        .where('created_at > ?', 30.minutes.ago)
         .pluck(:arguments)
         .each do |args|
           cred_id = (JSON.parse(args)["arguments"]&.first rescue nil)
