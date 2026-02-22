@@ -1,7 +1,8 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "categoryContent", "chevron"]
+  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "categoryContent", "chevron", "mobileSupplierDetail"]
+  static values = { supplierMinimums: Object }
 
   connect() {
     this.updateTotals()
@@ -41,6 +42,40 @@ export default class extends Controller {
     this._fixedSupplierCounts = this._fixedBar.querySelectorAll("[data-order-builder-target='supplierCount']")
     this._fixedSubmitButtons = this._fixedBar.querySelectorAll("button[type='submit']")
     this._fixedDeliveryDates = this._fixedBar.querySelectorAll("input[name='delivery_date']")
+
+    // Store refs to supplier breakdown elements in the clone
+    this._fixedSupplierCards = {}
+    this._fixedSupplierSubtotals = {}
+    this._fixedSupplierProgressBars = {}
+    this._fixedSupplierMinLabels = {}
+    this._fixedBar.querySelectorAll("[data-supplier-breakdown-id]").forEach(el => {
+      const id = el.dataset.supplierBreakdownId
+      if (!this._fixedSupplierCards[id]) this._fixedSupplierCards[id] = []
+      this._fixedSupplierCards[id].push(el)
+    })
+    this._fixedBar.querySelectorAll("[data-supplier-subtotal]").forEach(el => {
+      const id = el.dataset.supplierSubtotal
+      if (!this._fixedSupplierSubtotals[id]) this._fixedSupplierSubtotals[id] = []
+      this._fixedSupplierSubtotals[id].push(el)
+    })
+    this._fixedBar.querySelectorAll("[data-supplier-progress-bar]").forEach(el => {
+      const id = el.dataset.supplierProgressBar
+      if (!this._fixedSupplierProgressBars[id]) this._fixedSupplierProgressBars[id] = []
+      this._fixedSupplierProgressBars[id].push(el)
+    })
+    this._fixedBar.querySelectorAll("[data-supplier-minimum-label]").forEach(el => {
+      const id = el.dataset.supplierMinimumLabel
+      if (!this._fixedSupplierMinLabels[id]) this._fixedSupplierMinLabels[id] = []
+      this._fixedSupplierMinLabels[id].push(el)
+    })
+
+    // Store ref to mobile supplier detail panel in the clone
+    this._fixedMobileSupplierDetail = this._fixedBar.querySelector("[data-order-builder-target='mobileSupplierDetail']")
+
+    // Wire up the mobile supplier toggle in the cloned bar
+    this._fixedBar.querySelectorAll("[data-action*='toggleMobileSupplierDetail']").forEach(el => {
+      el.addEventListener("click", () => this.toggleMobileSupplierDetail())
+    })
 
     // Sync delivery date changes between all cloned date inputs and original (hidden) targets
     this._fixedDeliveryDates.forEach(dateInput => {
@@ -141,6 +176,7 @@ export default class extends Controller {
     let total = 0
     let itemCount = 0
     const supplierIds = new Set()
+    const supplierTotals = {}
     const seenMatches = new Set()
 
     this.quantityInputTargets.forEach((input, index) => {
@@ -163,7 +199,10 @@ export default class extends Controller {
         if (qty > 0) {
           total += lineTotal
           itemCount++
-          if (supplierId) supplierIds.add(supplierId)
+          if (supplierId) {
+            supplierIds.add(supplierId)
+            supplierTotals[supplierId] = (supplierTotals[supplierId] || 0) + lineTotal
+          }
         }
       }
     })
@@ -178,8 +217,12 @@ export default class extends Controller {
     if (this._fixedRunningTotals) this._fixedRunningTotals.forEach(el => el.textContent = `$${total.toFixed(2)}`)
     if (this._fixedSupplierCounts) this._fixedSupplierCounts.forEach(el => el.textContent = supplierIds.size)
 
+    // Update per-supplier breakdown (mini-cards + progress bars)
+    this._updateSupplierBreakdown(supplierTotals)
+
     // Check delivery date
     const hasDate = this._hasValidDeliveryDate()
+
     const canSubmit = itemCount > 0 && hasDate
 
     // Build tooltip explaining why submit is disabled
@@ -303,6 +346,83 @@ export default class extends Controller {
       // Set all inputs for this match (desktop + mobile) to the new value
       this._setMatchQuantity(input.dataset.matchId, newValue)
       this.updateTotals()
+    }
+  }
+
+  // === Per-supplier breakdown (progress bars + subtotals) ===
+  _updateSupplierBreakdown(supplierTotals) {
+    const minimums = this.supplierMinimumsValue || {}
+
+    for (const [supplierId, config] of Object.entries(minimums)) {
+      const subtotal = supplierTotals[supplierId] || 0
+      const minimum = config.minimum
+      const formattedSubtotal = `$${subtotal.toFixed(0)}`
+
+      // Show/hide supplier card based on whether it has items
+      const cardEls = [
+        ...this.element.querySelectorAll(`[data-supplier-breakdown-id="${supplierId}"]`),
+        ...(this._fixedSupplierCards?.[supplierId] || [])
+      ]
+      cardEls.forEach(el => {
+        if (subtotal > 0) {
+          el.classList.remove("hidden")
+        } else {
+          el.classList.add("hidden")
+        }
+      })
+
+      // Update subtotal text in both original and cloned elements
+      const subtotalEls = [
+        ...this.element.querySelectorAll(`[data-supplier-subtotal="${supplierId}"]`),
+        ...(this._fixedSupplierSubtotals?.[supplierId] || [])
+      ]
+      subtotalEls.forEach(el => el.textContent = formattedSubtotal)
+
+      // Update progress bar and colors
+      if (minimum && minimum > 0) {
+        const percent = Math.min(100, (subtotal / minimum) * 100)
+        const met = subtotal >= minimum
+
+        const progressEls = [
+          ...this.element.querySelectorAll(`[data-supplier-progress-bar="${supplierId}"]`),
+          ...(this._fixedSupplierProgressBars?.[supplierId] || [])
+        ]
+        progressEls.forEach(bar => {
+          bar.style.width = `${percent}%`
+          bar.classList.remove("bg-brand-green", "bg-brand-orange", "bg-gray-300")
+          if (subtotal === 0) {
+            bar.classList.add("bg-gray-300")
+          } else if (met) {
+            bar.classList.add("bg-brand-green")
+          } else {
+            bar.classList.add("bg-brand-orange")
+          }
+        })
+
+        // Update the minimum label: checkmark when met, fraction when not
+        const labelEls = [
+          ...this.element.querySelectorAll(`[data-supplier-minimum-label="${supplierId}"]`),
+          ...(this._fixedSupplierMinLabels?.[supplierId] || [])
+        ]
+        labelEls.forEach(el => {
+          if (met) {
+            el.innerHTML = `<span class="text-brand-green font-medium">&#10003;</span>`
+          } else {
+            el.textContent = `/ $${minimum.toFixed(0)}`
+          }
+        })
+      }
+    }
+  }
+
+  toggleMobileSupplierDetail() {
+    // Toggle in the cloned fixed bar
+    if (this._fixedMobileSupplierDetail) {
+      this._fixedMobileSupplierDetail.classList.toggle("hidden")
+    }
+    // Toggle in the original (hidden) bar too for consistency
+    if (this.hasMobileSupplierDetailTarget) {
+      this.mobileSupplierDetailTarget.classList.toggle("hidden")
     }
   }
 

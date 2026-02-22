@@ -91,6 +91,17 @@ class AggregatedListsController < ApplicationController
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     @suppliers = @aggregated_list.suppliers
 
+    # --- Per-supplier minimums for command bar progress indicators ---
+    @supplier_minimums = {}
+    @suppliers.each do |supplier|
+      req = supplier.supplier_requirements.find_by(requirement_type: 'order_minimum', active: true)
+      @supplier_minimums[supplier.id] = {
+        name: supplier.name,
+        minimum: req&.numeric_value&.to_f,
+        is_blocking: req&.is_blocking || false
+      }
+    end
+
     # Pre-fill quantities from existing pending batch orders (when returning from review page)
     @quantities = {}
     @delivery_date = nil
