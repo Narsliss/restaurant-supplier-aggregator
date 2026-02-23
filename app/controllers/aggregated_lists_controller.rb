@@ -234,7 +234,18 @@ class AggregatedListsController < ApplicationController
       raw = pm.product_match_items.filter_map { |pmi|
         categories_by_sp_id[pmi.supplier_list_item.supplier_product_id]
       }.first
-      @match_category[pm.id] = ::CategoryNormalizable.normalize(raw)
+      normalized = ::CategoryNormalizable.normalize(raw)
+
+      # Fallback: if no category from DB chain, use rule-based categorizer on product name
+      if normalized.blank?
+        name = pm.canonical_name.presence || pm.product_match_items.first&.supplier_list_item&.name
+        if name.present?
+          result = AiProductCategorizer.rule_based_categorize(name)
+          normalized = result[:category] if result[:confidence] >= 0.7
+        end
+      end
+
+      @match_category[pm.id] = normalized
     end
 
     # --- Frequently ordered & user favorites (stars) ---
