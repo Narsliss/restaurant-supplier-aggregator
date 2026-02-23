@@ -299,8 +299,7 @@ class OrdersController < ApplicationController
       end
     end
 
-    # Reload to pick up status changes from start_verification!
-    @orders.each(&:reload) if orders_needing_verification.any?
+    # No reload needed — start_verification! already updated the in-memory objects
 
     # Check if any are currently verifying (for UI state)
     @verifying = @orders.any?(&:verifying?)
@@ -320,9 +319,9 @@ class OrdersController < ApplicationController
       {
         order: order,
         supplier: order.supplier,
-        items: order.order_items.includes(supplier_product: :product),
+        items: order.order_items,
         subtotal: order.subtotal || order.calculated_subtotal,
-        item_count: order.order_items.count,
+        item_count: order.order_items.size,
         minimum: minimum,
         meets_minimum: meets_minimum,
         amount_to_minimum: minimum ? [minimum - (order.subtotal || 0), 0].max : 0,

@@ -37,24 +37,33 @@ module Orders
             batch_id: batch_id
           )
 
+          # Bulk-insert order items (single INSERT instead of N individual queries)
+          now = Time.current
+          subtotal = 0
           order_savings = 0
-          items.each do |item|
-            order.order_items.create!(
-              supplier_product_id: item[:supplier_product_id],
-              quantity: item[:quantity],
-              unit_price: item[:unit_price],
-              line_total: item[:unit_price] * item[:quantity],
-              status: "pending"
-            )
 
-            # Savings = what you'd pay at the most expensive supplier minus what you're actually paying
+          rows = items.map do |item|
+            line_total = item[:unit_price] * item[:quantity]
+            subtotal += line_total
+
             if item[:worst_price] && item[:worst_price] > item[:unit_price]
               order_savings += (item[:worst_price] - item[:unit_price]) * item[:quantity]
             end
+
+            {
+              order_id: order.id,
+              supplier_product_id: item[:supplier_product_id],
+              quantity: item[:quantity],
+              unit_price: item[:unit_price],
+              line_total: line_total,
+              status: "pending",
+              created_at: now,
+              updated_at: now
+            }
           end
 
-          order.recalculate_totals!
-          order.update!(savings_amount: order_savings.round(2))
+          OrderItem.insert_all!(rows)
+          order.update!(subtotal: subtotal, total_amount: subtotal, savings_amount: order_savings.round(2))
           orders << order
         end
       end
@@ -75,26 +84,23 @@ module Orders
         qty = quantities[pm.id.to_s]
         next if qty.nil? || qty <= 0
 
-        # Check if user overrode the supplier for this match
+        # Compute prices once per match (avoid 3x recalculation via cheapest/most_expensive)
+        prices = pm.prices_by_supplier
+        in_stock_prices = prices.select { |p| p[:price].present? && p[:in_stock] }
+
         override_supplier_id = supplier_overrides[pm.id.to_s]
         chosen = if override_supplier_id
-          pm.prices_by_supplier.find { |p| p[:supplier].id == override_supplier_id && p[:price].present? }
+          prices.find { |p| p[:supplier].id == override_supplier_id && p[:price].present? }
         end
-        chosen ||= pm.cheapest_supplier
+        chosen ||= in_stock_prices.min_by { |p| p[:price] } if in_stock_prices.any?
         next unless chosen
 
-        most_expensive = pm.most_expensive_supplier
+        most_expensive = in_stock_prices.max_by { |p| p[:price] }
 
         supplier_list_item = chosen[:item]
         supplier_product = supplier_list_item.supplier_product
 
-        # Attempt to link via SKU match if not already linked
-        unless supplier_product
-          supplier_list_item.link_to_supplier_product!
-          supplier_product = supplier_list_item.reload.supplier_product
-        end
-
-        # Skip items without a linked SupplierProduct (OrderItem requires it)
+        # Skip items without a linked SupplierProduct — linking belongs in the matching phase
         next unless supplier_product
 
         selected << {
