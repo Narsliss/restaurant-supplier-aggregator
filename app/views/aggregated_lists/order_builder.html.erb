@@ -7,9 +7,14 @@
   <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
       <h1 class="text-2xl font-heading font-bold text-gray-900">Build Order</h1>
-      <p class="mt-1 text-sm text-gray-500">
-        <%= @aggregated_list.name %> &middot; <%= @suppliers.map(&:name).join(" vs ") %>
-      </p>
+      <p class="mt-1 text-sm text-gray-500"><%= @aggregated_list.name %></p>
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <% @suppliers.each do |supplier| %>
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+            <%= supplier.name %>
+          </span>
+        <% end %>
+      </div>
     </div>
     <%= link_to "View Matches", aggregated_list_path(@aggregated_list),
         class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
