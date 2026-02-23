@@ -146,7 +146,7 @@
                     </div>
                     <div class="mt-1">
                       <span class="text-sm font-semibold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
-                        <%= item.formatted_price %>
+                        <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                       </span>
                       <% unless item.in_stock %>
                         <span class="ml-1 text-xs text-red-500">Out of stock</span>

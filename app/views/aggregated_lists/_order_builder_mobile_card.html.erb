@@ -49,7 +49,7 @@
                data-order-builder-target="supplierCell"
                data-default="<%= is_default %>">
             <span class="text-gray-500"><%= supplier.name %>:</span>
-            <span class="font-semibold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>"><%= number_to_currency(effective_price) %></span>
+            <span class="font-semibold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>"><%= number_to_currency(effective_price) %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %></span>
             <% if effective_pack_size.present? %>
               <span class="text-gray-400">(<%= effective_pack_size %>)</span>
             <% end %>

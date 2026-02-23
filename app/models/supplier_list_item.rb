@@ -14,6 +14,9 @@ class SupplierListItem < ApplicationRecord
   # Source constants
   SOURCES = %w[order_guide catalog_search].freeze
 
+  # Price change tracking
+  PRICE_CHANGE_DISPLAY_WINDOW = 48.hours
+
   # Scopes
   scope :in_stock, -> { where(in_stock: true) }
   scope :out_of_stock, -> { where(in_stock: false) }
@@ -107,6 +110,29 @@ class SupplierListItem < ApplicationRecord
 
   def formatted_per_unit_price
     UnitParser.format_per_unit(per_unit_price, normalized_unit)
+  end
+
+  # Price change detection (mirrors SupplierProduct pattern)
+  def price_changed?
+    previous_price.present? && price != previous_price
+  end
+
+  def price_increased?
+    price_changed? && price > previous_price
+  end
+
+  def price_decreased?
+    price_changed? && price < previous_price
+  end
+
+  def price_change_recent?
+    price_changed? && price_updated_at.present? && price_updated_at > PRICE_CHANGE_DISPLAY_WINDOW.ago
+  end
+
+  def price_direction
+    return nil unless price_change_recent?
+
+    price_increased? ? :up : :down
   end
 
   # Stock status: prefer the linked supplier_product (updated during imports)

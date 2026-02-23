@@ -98,6 +98,13 @@ class ImportSupplierListsService
     item = supplier_list.supplier_list_items.find_or_initialize_by(sku: sku)
     is_new = item.new_record?
 
+    # Track price change on existing items before overwriting
+    new_price = item_data[:price]
+    if !is_new && new_price.present? && item.price.present? && new_price != item.price
+      item.previous_price = item.price
+      item.price_updated_at = Time.current
+    end
+
     item.assign_attributes(
       name: item_data[:name].to_s.truncate(255),
       price: item_data[:price],

@@ -1,0 +1,9 @@
+<% if direction == :up %>
+  <svg class="inline h-3 w-3 text-red-500 ml-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 19.5v-15m0 0l-6.75 6.75M12 4.5l6.75 6.75" />
+  </svg>
+<% elsif direction == :down %>
+  <svg class="inline h-3 w-3 text-green-600 ml-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0l6.75-6.75M12 19.5l-6.75-6.75" />
+  </svg>
+<% end %>
