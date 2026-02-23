@@ -1,4 +1,6 @@
 class ApplicationController < ActionController::Base
+  include OrganizationAuthorization
+
   before_action :authenticate_user!
   # TODO: Re-enable subscription enforcement when ready for production
   # before_action :require_subscription, unless: :skip_subscription_check?
@@ -15,23 +17,22 @@ class ApplicationController < ActionController::Base
 
   def current_location
     return @current_location if defined?(@current_location)
-    
-    @current_location = if session[:current_location_id]
-      current_user.locations.find_by(id: session[:current_location_id])
+
+    if session[:current_location_id]
+      loc = accessible_locations.find_by(id: session[:current_location_id])
+      @current_location = loc if loc
     end
+
+    # Chefs always get their assigned restaurant
+    @current_location ||= current_user.assigned_location if chef?
+
+    # Fallback to first accessible location
     @current_location ||= current_user.default_location
   end
 
   def set_current_location(location)
     session[:current_location_id] = location&.id
     @current_location = location
-  end
-
-  def require_admin!
-    unless current_user&.admin?
-      flash[:alert] = "You are not authorized to access this page."
-      redirect_to root_path
-    end
   end
 
   def require_super_admin
@@ -46,8 +47,8 @@ class ApplicationController < ActionController::Base
     return unless current_user
     return if current_user.subscribed?
 
-    # Allow admins to bypass subscription check
-    return if current_user.admin?
+    # Allow super_admins to bypass subscription check
+    return if current_user.super_admin?
 
     # Redirect to subscription page
     flash[:alert] = "Please subscribe to access SupplierHub."

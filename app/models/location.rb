@@ -1,16 +1,18 @@
 class Location < ApplicationRecord
-  # Associations
-  belongs_to :user
+  # Associations — locations are now org-owned ("restaurants")
+  belongs_to :organization
+  belongs_to :user, optional: true           # Legacy: kept for backward compat
+  belongs_to :created_by, class_name: 'User', optional: true
+
+  has_many :membership_locations, dependent: :destroy
+  has_many :memberships, through: :membership_locations
   has_many :supplier_delivery_schedules, dependent: :destroy
   has_many :orders, dependent: :nullify
+  has_many :order_lists, dependent: :nullify
 
   # Validations
   validates :name, presence: true
-  validates :name, uniqueness: { scope: :user_id }
-
-  # Callbacks
-  before_save :ensure_single_default
-  after_create :set_as_default_if_first
+  validates :name, uniqueness: { scope: :organization_id }
 
   # Scopes
   scope :default_first, -> { order(is_default: :desc, created_at: :asc) }
@@ -20,22 +22,7 @@ class Location < ApplicationRecord
     [address, city, state, zip_code].compact.join(", ")
   end
 
-  def set_as_default!
-    transaction do
-      user.locations.where.not(id: id).update_all(is_default: false)
-      update!(is_default: true)
-    end
-  end
-
-  private
-
-  def ensure_single_default
-    if is_default? && is_default_changed?
-      user.locations.where.not(id: id).update_all(is_default: false)
-    end
-  end
-
-  def set_as_default_if_first
-    set_as_default! if user.locations.count == 1
+  def assigned_members
+    memberships.where(active: true).includes(:user)
   end
 end

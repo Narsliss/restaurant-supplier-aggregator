@@ -64,6 +64,7 @@ module Orders
           order = user.orders.create!(
             supplier: supplier,
             location: location,
+            organization_id: user.current_organization_id,
             order_list: order_list,
             status: 'pending',
             delivery_date: delivery_date,

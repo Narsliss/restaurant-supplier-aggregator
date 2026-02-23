@@ -1,0 +1,158 @@
+<div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Reports</h1>
+      <p class="text-gray-600 mt-1">Spending and order analytics</p>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-8">
+    <%= form_with url: reports_path, method: :get, local: true, class: "flex flex-wrap items-end gap-4" do |f| %>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">From</label>
+        <input type="date" name="start_date" value="<%= @start_date %>" class="rounded-md border-gray-300 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">To</label>
+        <input type="date" name="end_date" value="<%= @end_date %>" class="rounded-md border-gray-300 text-sm">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Restaurant</label>
+        <select name="location_id" class="rounded-md border-gray-300 text-sm">
+          <option value="">All Restaurants</option>
+          <% @locations.each do |loc| %>
+            <option value="<%= loc.id %>" <%= 'selected' if @selected_location_id == loc.id %>><%= loc.name %></option>
+          <% end %>
+        </select>
+      </div>
+      <button type="submit" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
+        Apply
+      </button>
+    <% end %>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Total Spent</p>
+      <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(@summary[:total_spent]) %></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Total Savings</p>
+      <p class="text-2xl font-bold text-green-600"><%= number_to_currency(@summary[:total_savings]) %></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Orders</p>
+      <p class="text-2xl font-bold text-gray-900"><%= @summary[:order_count] %></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Avg Order Size</p>
+      <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(@summary[:avg_order_size]) %></p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <!-- By Restaurant -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">By Restaurant</h2>
+      </div>
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Restaurant</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spent</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Savings</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @by_restaurant.each do |row| %>
+            <tr>
+              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:location].name %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
+              <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
+              <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- By Supplier -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">By Supplier</h2>
+      </div>
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spent</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Savings</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @by_supplier.each do |row| %>
+            <tr>
+              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:supplier].name %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
+              <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
+              <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- By Team Member -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">By Team Member</h2>
+      </div>
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spent</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @by_member.each do |row| %>
+            <tr>
+              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:user].full_name %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
+              <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Weekly Trend -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Weekly Spending</h2>
+      </div>
+      <div class="p-6">
+        <% max_total = @weekly_trend.map { |w| w[:total] }.max || 1 %>
+        <div class="flex items-end justify-between h-48 gap-2">
+          <% @weekly_trend.each do |week| %>
+            <div class="flex flex-col items-center flex-1">
+              <div class="w-full bg-primary-100 rounded-t relative" style="height: <%= [(week[:total] / max_total.to_f * 100).round, 2].max %>%">
+                <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 whitespace-nowrap">
+                  <%= number_to_currency(week[:total], precision: 0) %>
+                </div>
+                <div class="w-full h-full bg-primary-500 rounded-t"></div>
+              </div>
+              <p class="text-xs text-gray-500 mt-2"><%= week[:label] %></p>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

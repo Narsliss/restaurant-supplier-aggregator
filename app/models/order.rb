@@ -17,7 +17,15 @@ class Order < ApplicationRecord
     allow_nil: true
   }
 
+  # Organization scoping
+  belongs_to :organization, optional: true
+
+  before_validation :set_organization_from_user, on: :create
+
   # Scopes
+  scope :for_location, ->(loc) { where(location: loc) }
+  scope :for_locations, ->(locs) { where(location_id: locs.select(:id)) }
+  scope :for_organization, ->(org) { where(organization_id: org.id) }
   scope :pending, -> { where(status: "pending") }
   scope :verifying, -> { where(status: "verifying") }
   scope :price_changed, -> { where(status: "price_changed") }
@@ -269,5 +277,11 @@ class Order < ApplicationRecord
 
   def validation_warnings
     order_validations.where(passed: true).where.not(message: nil).pluck(:message)
+  end
+
+  private
+
+  def set_organization_from_user
+    self.organization_id ||= user&.current_organization_id
   end
 end

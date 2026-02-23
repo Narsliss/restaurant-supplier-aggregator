@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -89,7 +89,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
   end
 
   create_table "locations", force: :cascade do |t|
-    t.bigint "user_id", null: false
+    t.bigint "user_id"
     t.string "name", null: false
     t.text "address"
     t.string "city"
@@ -99,10 +99,22 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
     t.boolean "is_default", default: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.bigint "organization_id"
+    t.bigint "organization_id", null: false
+    t.bigint "created_by_id"
+    t.index ["created_by_id"], name: "index_locations_on_created_by_id"
+    t.index ["organization_id", "name"], name: "index_locations_on_org_and_name", unique: true
     t.index ["organization_id"], name: "index_locations_on_organization_id"
-    t.index ["user_id", "is_default"], name: "index_locations_on_user_id_and_is_default"
     t.index ["user_id"], name: "index_locations_on_user_id"
+  end
+
+  create_table "membership_locations", force: :cascade do |t|
+    t.bigint "membership_id", null: false
+    t.bigint "location_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["location_id"], name: "index_membership_locations_on_location_id"
+    t.index ["membership_id", "location_id"], name: "index_membership_locations_on_membership_id_and_location_id", unique: true
+    t.index ["membership_id"], name: "index_membership_locations_on_membership_id"
   end
 
   create_table "memberships", force: :cascade do |t|
@@ -163,6 +175,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.bigint "organization_id"
+    t.bigint "location_id"
+    t.index ["location_id"], name: "index_order_lists_on_location_id"
+    t.index ["organization_id"], name: "index_order_lists_on_org"
     t.index ["organization_id"], name: "index_order_lists_on_organization_id"
     t.index ["user_id", "is_favorite"], name: "index_order_lists_on_user_id_and_is_favorite"
     t.index ["user_id", "last_used_at"], name: "index_order_lists_on_user_id_and_last_used_at"
@@ -213,6 +228,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"
     t.index ["order_list_id"], name: "index_orders_on_order_list_id"
+    t.index ["organization_id", "location_id"], name: "index_orders_on_org_and_location"
     t.index ["organization_id"], name: "index_orders_on_organization_id"
     t.index ["status"], name: "index_orders_on_status"
     t.index ["submitted_at"], name: "index_orders_on_submitted_at"
@@ -233,7 +249,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
     t.datetime "accepted_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "location_id"
+    t.jsonb "location_ids", default: []
     t.index ["invited_by_id"], name: "index_organization_invitations_on_invited_by_id"
+    t.index ["location_id"], name: "index_organization_invitations_on_location_id"
     t.index ["organization_id", "email"], name: "index_organization_invitations_on_organization_id_and_email", unique: true
     t.index ["organization_id"], name: "index_organization_invitations_on_organization_id"
     t.index ["token"], name: "index_organization_invitations_on_token", unique: true
@@ -254,6 +273,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
     t.datetime "suspended_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "max_seats", default: 5, null: false
+    t.integer "additional_seats", default: 0, null: false
     t.index ["slug"], name: "index_organizations_on_slug", unique: true
     t.index ["stripe_customer_id"], name: "index_organizations_on_stripe_customer_id", unique: true
   end
@@ -708,13 +729,17 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
   add_foreign_key "invoices", "subscriptions"
   add_foreign_key "invoices", "users"
   add_foreign_key "locations", "organizations"
+  add_foreign_key "locations", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "locations", "users", on_delete: :cascade
+  add_foreign_key "membership_locations", "locations", on_delete: :cascade
+  add_foreign_key "membership_locations", "memberships", on_delete: :cascade
   add_foreign_key "memberships", "organizations"
   add_foreign_key "memberships", "users"
   add_foreign_key "order_items", "orders", on_delete: :cascade
   add_foreign_key "order_items", "supplier_products", on_delete: :restrict
   add_foreign_key "order_list_items", "order_lists", on_delete: :cascade
   add_foreign_key "order_list_items", "products", on_delete: :cascade
+  add_foreign_key "order_lists", "locations", on_delete: :nullify
   add_foreign_key "order_lists", "organizations"
   add_foreign_key "order_lists", "users", on_delete: :cascade
   add_foreign_key "order_validations", "orders", on_delete: :cascade
@@ -723,6 +748,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_174000) do
   add_foreign_key "orders", "organizations"
   add_foreign_key "orders", "suppliers", on_delete: :restrict
   add_foreign_key "orders", "users", on_delete: :cascade
+  add_foreign_key "organization_invitations", "locations"
   add_foreign_key "organization_invitations", "organizations"
   add_foreign_key "organization_invitations", "users", column: "invited_by_id"
   add_foreign_key "product_match_items", "product_matches", on_delete: :cascade

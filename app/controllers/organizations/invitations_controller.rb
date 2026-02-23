@@ -1,7 +1,7 @@
 module Organizations
   class InvitationsController < ApplicationController
     before_action :set_organization, except: [:accept]
-    before_action :require_admin!, except: [:accept]
+    before_action :require_owner!, except: [:accept]
     skip_before_action :authenticate_user!, only: [:accept]
 
     def create
@@ -88,14 +88,8 @@ module Organizations
       redirect_to root_path, alert: "No organization selected." unless @organization
     end
 
-    def require_admin!
-      unless current_user.admin_of?(@organization)
-        redirect_to organization_path, alert: "You don't have permission to manage invitations."
-      end
-    end
-
     def invitation_params
-      params.require(:organization_invitation).permit(:email, :role)
+      params.require(:organization_invitation).permit(:email, :role, :location_id, location_ids: [])
     end
   end
 end

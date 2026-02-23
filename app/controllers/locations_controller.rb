@@ -1,22 +1,26 @@
 class LocationsController < ApplicationController
+  before_action :require_organization!
+  before_action :require_owner!, only: [:new, :create, :edit, :update, :destroy]
   before_action :set_location, only: [:show, :edit, :update, :destroy]
 
   def index
-    @locations = current_user.locations.default_first
+    @locations = accessible_locations.default_first
   end
 
   def show
+    @assigned_members = @location.assigned_members
   end
 
   def new
-    @location = current_user.locations.new
+    @location = current_user.current_organization.locations.new
   end
 
   def create
-    @location = current_user.locations.new(location_params)
+    @location = current_user.current_organization.locations.new(location_params)
+    @location.created_by = current_user
 
     if @location.save
-      redirect_to locations_path, notice: "Location created successfully."
+      redirect_to locations_path, notice: "Restaurant created successfully."
     else
       render :new, status: :unprocessable_entity
     end
@@ -27,28 +31,29 @@ class LocationsController < ApplicationController
 
   def update
     if @location.update(location_params)
-      redirect_to locations_path, notice: "Location updated successfully."
+      redirect_to locations_path, notice: "Restaurant updated successfully."
     else
       render :edit, status: :unprocessable_entity
     end
   end
 
   def destroy
-    if current_user.locations.count > 1
+    org = current_user.current_organization
+    if org.locations.count > 1
       @location.destroy
-      redirect_to locations_path, notice: "Location deleted."
+      redirect_to locations_path, notice: "Restaurant deleted."
     else
-      redirect_to locations_path, alert: "You must have at least one location."
+      redirect_to locations_path, alert: "You must have at least one restaurant."
     end
   end
 
   private
 
   def set_location
-    @location = current_user.locations.find(params[:id])
+    @location = accessible_locations.find(params[:id])
   end
 
   def location_params
-    params.require(:location).permit(:name, :address, :city, :state, :zip_code, :phone, :is_default)
+    params.require(:location).permit(:name, :address, :city, :state, :zip_code, :phone)
   end
 end

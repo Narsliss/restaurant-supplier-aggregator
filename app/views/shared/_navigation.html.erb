@@ -20,19 +20,32 @@
           <% end %>
           <%= link_to "Suppliers", supplier_credentials_path,
               class: "inline-flex items-center border-b-2 #{controller_name == 'supplier_credentials' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% if manager_or_owner? %>
+            <%= link_to "Reports", reports_path,
+                class: "inline-flex items-center border-b-2 #{controller_name == 'reports' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
         </div>
       </div>
 
       <div class="hidden sm:ml-6 sm:flex sm:items-center">
-        <% if current_user.locations.any? %>
+        <% locations = current_user.accessible_locations %>
+        <% if locations.any? %>
           <div class="mr-4">
-            <select id="location-selector"
-                    class="rounded-md bg-brand-green/80 border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green"
-                    data-controller="location-selector">
-              <% current_user.locations.each do |location| %>
-                <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
-              <% end %>
-            </select>
+            <% if chef? %>
+              <%# Chefs see their restaurant name (static, no dropdown) %>
+              <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-brand-green/80 text-white">
+                <%= current_location&.name || "No restaurant" %>
+              </span>
+            <% else %>
+              <%# Owners/managers see dropdown of accessible locations %>
+              <select id="location-selector"
+                      class="rounded-md bg-brand-green/80 border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green"
+                      data-controller="location-selector">
+                <% locations.each do |location| %>
+                  <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
+                <% end %>
+              </select>
+            <% end %>
           </div>
         <% end %>
         <div class="relative ml-3" data-controller="dropdown">
@@ -49,7 +62,7 @@
             <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-            <%= link_to "Locations", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+            <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <% if current_user.super_admin? %>
               <%= link_to "Jobs", mission_control_jobs.root_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <% end %>

@@ -1,13 +1,22 @@
 class OrderList < ApplicationRecord
   # Associations
   belongs_to :user
+  belongs_to :organization, optional: true
+  belongs_to :location, optional: true
   has_many :order_list_items, dependent: :destroy
   has_many :products, through: :order_list_items
   has_many :orders, dependent: :nullify
 
+  before_validation :set_organization_from_user, on: :create
+
   # Validations
   validates :name, presence: true
   validates :name, uniqueness: { scope: :user_id }
+
+  # Organization scopes
+  scope :for_location, ->(loc) { where(location: loc) }
+  scope :for_locations, ->(locs) { where(location_id: locs.select(:id)) }
+  scope :for_organization, ->(org) { where(organization_id: org.id) }
 
   # Scopes
   scope :favorites, -> { where(is_favorite: true) }
@@ -92,5 +101,11 @@ class OrderList < ApplicationRecord
 
   def remove_product!(product)
     order_list_items.find_by(product: product)&.destroy
+  end
+
+  private
+
+  def set_organization_from_user
+    self.organization_id ||= user&.current_organization_id
   end
 end

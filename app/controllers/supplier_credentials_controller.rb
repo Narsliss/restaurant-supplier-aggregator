@@ -3,11 +3,13 @@ class SupplierCredentialsController < ApplicationController
                 only: %i[show edit update destroy validate refresh_session import_products import_lists submit_2fa_code
                          status]
   before_action :set_suppliers, only: %i[new create edit update]
+  before_action :require_credential_edit_access!, only: %i[new create edit update destroy]
 
   def index
-    @credentials = current_user.supplier_credentials
+    @credentials = scoped_credentials
                                .includes(:supplier)
                                .order('suppliers.name')
+    @read_only = current_role == 'manager'
 
     # Load any active 2FA requests so we can show inline code entry.
     # Include "pending" (waiting for code) and "submitted" (code entered, verifying).
@@ -394,12 +396,18 @@ class SupplierCredentialsController < ApplicationController
   private
 
   def set_credential
-    @credential = current_user.supplier_credentials.find_by(id: params[:id])
+    @credential = scoped_credentials.find_by(id: params[:id])
 
     return if @credential
 
     Rails.logger.warn "[SupplierCredentials] Credential ##{params[:id]} not found for user #{current_user.id}"
     redirect_to supplier_credentials_path, alert: 'Credential not found. It may have been deleted.'
+  end
+
+  def require_credential_edit_access!
+    if current_role == 'manager'
+      redirect_to supplier_credentials_path, alert: "Managers have read-only access to credentials."
+    end
   end
 
   def set_suppliers

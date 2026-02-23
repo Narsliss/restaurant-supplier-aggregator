@@ -45,8 +45,12 @@ class Organization < ApplicationRecord
     users.joins(:memberships).where(memberships: { role: 'owner', organization_id: id })
   end
 
-  def admins
-    users.joins(:memberships).where(memberships: { role: %w[owner admin], organization_id: id })
+  def managers
+    users.joins(:memberships).where(memberships: { role: 'manager', organization_id: id, active: true })
+  end
+
+  def chefs
+    users.joins(:memberships).where(memberships: { role: 'chef', organization_id: id, active: true })
   end
 
   def active_members
@@ -55,6 +59,23 @@ class Organization < ApplicationRecord
 
   def member_count
     memberships.where(active: true).count
+  end
+
+  # Seat management
+  def seat_count
+    memberships.where(active: true).where.not(role: 'owner').count
+  end
+
+  def seat_limit
+    max_seats + additional_seats
+  end
+
+  def seats_available?
+    seat_count < seat_limit
+  end
+
+  def seats_remaining
+    [seat_limit - seat_count, 0].max
   end
 
   # Check if user is a member
@@ -71,12 +92,15 @@ class Organization < ApplicationRecord
     role_for(user) == 'owner'
   end
 
-  def admin?(user)
-    %w[owner admin].include?(role_for(user))
+  def manager?(user)
+    %w[owner manager].include?(role_for(user))
   end
 
-  def manager?(user)
-    %w[owner admin manager].include?(role_for(user))
+  # Returns locations a specific user can access within this org
+  def locations_for(user)
+    membership = memberships.find_by(user: user, active: true)
+    return Location.none unless membership
+    membership.assigned_locations
   end
 
   # Stripe methods

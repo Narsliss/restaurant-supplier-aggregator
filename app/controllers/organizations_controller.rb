@@ -1,10 +1,13 @@
 class OrganizationsController < ApplicationController
   before_action :set_organization, only: [:show, :edit, :update]
-  before_action :require_admin!, only: [:edit, :update]
+  before_action :require_owner!, only: [:edit, :update]
 
   def show
-    @members = @organization.memberships.active.includes(:user).order(:role, :created_at)
+    @members = @organization.memberships.active.includes(:user, :locations).order(:role, :created_at)
     @pending_invitations = @organization.organization_invitations.pending
+    @locations = @organization.locations
+    @seat_count = @organization.seat_count
+    @seat_limit = @organization.seat_limit
   end
 
   def new
@@ -52,12 +55,6 @@ class OrganizationsController < ApplicationController
   def set_organization
     @organization = current_user.current_organization
     redirect_to new_organization_path, alert: "Please create or join an organization first." unless @organization
-  end
-
-  def require_admin!
-    unless current_user.admin_of?(@organization)
-      redirect_to organization_path, alert: "You don't have permission to do that."
-    end
   end
 
   def organization_params

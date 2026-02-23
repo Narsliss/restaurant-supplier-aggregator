@@ -2,9 +2,9 @@ class OrdersController < ApplicationController
   before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status, :retry_order]
 
   def index
-    orders_scope = current_user.orders
+    orders_scope = scoped_orders
       .where(status: %w[submitted confirmed dry_run_complete])
-      .includes(:supplier, :location, :order_items, :order_list)
+      .includes(:supplier, :location, :order_items, :order_list, :user)
       .order(submitted_at: :desc)
 
     # Default date range: last 30 days
@@ -594,7 +594,7 @@ class OrdersController < ApplicationController
   private
 
   def set_order
-    @order = current_user.orders.find(params[:id])
+    @order = scoped_orders.find(params[:id])
   end
 
   def order_params

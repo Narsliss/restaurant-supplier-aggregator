@@ -12,6 +12,7 @@ module Orders
     def build
       order = user.orders.new(
         location: location,
+        organization_id: user.current_organization_id,
         supplier: supplier,
         order_list: order_list,
         status: "pending"

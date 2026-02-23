@@ -1,8 +1,8 @@
 module Organizations
   class MembershipsController < ApplicationController
     before_action :set_organization
-    before_action :require_admin!
-    before_action :set_membership, only: [:update, :destroy]
+    before_action :require_owner!
+    before_action :set_membership, only: [:update, :destroy, :update_locations]
 
     def update
       # Can't change owner role
@@ -17,11 +17,34 @@ module Organizations
         return
       end
 
+      # Only manager and chef roles allowed
+      unless %w[manager chef].include?(params[:role])
+        redirect_to organization_path, alert: "Invalid role."
+        return
+      end
+
       if @membership.update(role: params[:role])
         redirect_to organization_path, notice: "#{@membership.user.full_name}'s role updated to #{@membership.role_display}."
       else
         redirect_to organization_path, alert: "Unable to update role."
       end
+    end
+
+    # Update restaurant assignments for a member
+    def update_locations
+      if @membership.owner?
+        redirect_to organization_path, alert: "Owner has access to all restaurants."
+        return
+      end
+
+      location_ids = params[:location_ids] || []
+      @membership.membership_locations.destroy_all
+      location_ids.each do |lid|
+        location = @organization.locations.find_by(id: lid)
+        MembershipLocation.create!(membership: @membership, location: location) if location
+      end
+
+      redirect_to organization_path, notice: "Restaurant assignments updated for #{@membership.user.full_name}."
     end
 
     def destroy
@@ -46,12 +69,6 @@ module Organizations
     def set_organization
       @organization = current_user.current_organization
       redirect_to root_path, alert: "No organization selected." unless @organization
-    end
-
-    def require_admin!
-      unless current_user.admin_of?(@organization)
-        redirect_to organization_path, alert: "You don't have permission to manage team members."
-      end
     end
 
     def set_membership

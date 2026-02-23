@@ -57,8 +57,33 @@ class User < ApplicationRecord
     [first_name, last_name].compact.join(' ').presence || email
   end
 
+  # Location access — scoped through organization membership
+  def accessible_locations
+    return Location.none unless current_organization
+
+    membership = membership_for(current_organization)
+    return Location.none unless membership
+
+    membership.assigned_locations
+  end
+
+  # For chefs: their single assigned restaurant
+  def assigned_location
+    return nil unless current_organization
+
+    membership = membership_for(current_organization)
+    return nil unless membership&.chef?
+
+    membership.locations.first
+  end
+
   def default_location
-    locations.find_by(is_default: true) || locations.first
+    # Use org-scoped location if available
+    if current_organization
+      accessible_locations.first
+    else
+      locations.find_by(is_default: true) || locations.first
+    end
   end
 
   def active_credentials
@@ -100,12 +125,12 @@ class User < ApplicationRecord
     role_in(org) == 'owner'
   end
 
-  def admin_of?(org)
-    super_admin? || %w[owner admin].include?(role_in(org))
+  def manager_of?(org)
+    super_admin? || %w[owner manager].include?(role_in(org))
   end
 
-  def manager_of?(org)
-    super_admin? || %w[owner admin manager].include?(role_in(org))
+  def chef_in?(org)
+    role_in(org) == 'chef'
   end
 
   def member_of?(org)
@@ -141,15 +166,13 @@ class User < ApplicationRecord
     update!(current_organization: org)
   end
 
-  # Subscription methods (now delegates to organization when present)
+  # Subscription methods (org-level only)
   def current_subscription
-    # Check organization subscription first, fall back to personal
-    current_organization&.current_subscription || subscriptions.active_or_trialing.order(created_at: :desc).first
+    current_organization&.current_subscription
   end
 
   def subscribed?
-    # Check organization subscription first, fall back to personal
-    current_organization&.subscribed? || current_subscription&.allows_access? || false
+    current_organization&.subscribed? || false
   end
 
   def subscription_status
@@ -161,7 +184,7 @@ class User < ApplicationRecord
   end
 
   def subscription_past_due?
-    subscriptions.past_due.exists?
+    current_organization&.subscriptions&.past_due&.exists? || false
   end
 
   def trial_days_remaining

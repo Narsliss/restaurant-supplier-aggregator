@@ -22,11 +22,16 @@ Rails.application.routes.draw do
   # Organizations & Team Management
   resource :organization, only: %i[show new create edit update] do
     post :switch, on: :member
-    resources :memberships, only: %i[update destroy], module: :organizations
+    resources :memberships, only: %i[update destroy], module: :organizations do
+      patch :update_locations, on: :member
+    end
     resources :invitations, only: %i[create destroy], module: :organizations do
       post :resend, on: :member
     end
   end
+
+  # Reports (owners + managers)
+  resources :reports, only: [:index]
 
   # Accept invitation (public route)
   get 'invitations/:token/accept', to: 'organizations/invitations#accept', as: :accept_invitation

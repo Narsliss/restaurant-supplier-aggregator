@@ -1,5 +1,6 @@
 class SubscriptionsController < ApplicationController
   before_action :authenticate_user!
+  before_action :require_owner!, only: [:create, :billing_portal, :cancel_subscription, :reactivate]
   # TODO: Re-enable when subscription enforcement is active
   # skip_before_action :require_subscription, only: [:new, :create, :success, :cancel]
 
