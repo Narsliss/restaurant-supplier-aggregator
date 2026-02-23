@@ -44,12 +44,12 @@ class ProductMatch < ApplicationRecord
     update!(match_status: 'rejected')
   end
 
-  # Price comparison across matched items
+  # Price comparison across matched items (memoized — safe to call repeatedly).
   # Uses supplier_list_item.price (from the order guide) as the primary source —
   # this is the case/pack price the user actually pays when ordering.
   # Falls back to supplier_product.current_price only when no SLI price exists.
   def prices_by_supplier
-    product_match_items.map do |pmi|
+    @prices_by_supplier ||= product_match_items.map do |pmi|
       item = pmi.supplier_list_item
       sp = item.supplier_product
       {
@@ -67,48 +67,54 @@ class ProductMatch < ApplicationRecord
 
   # Are per-unit prices comparable across suppliers? (same normalized unit)
   def per_unit_comparable?
+    return @per_unit_comparable if defined?(@per_unit_comparable)
     items = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
     units = items.filter_map { |p| p[:normalized_unit] }.uniq
-    units.size == 1
+    @per_unit_comparable = (units.size == 1)
   end
 
   def cheapest_supplier
-    prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
-    return nil if prices.empty?
-
-    # Use per-unit price when all items share the same normalized unit
-    if per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
-      prices.min_by { |p| p[:per_unit_price] }
-    else
-      prices.min_by { |p| p[:price] }
+    @cheapest_supplier ||= begin
+      prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
+      if prices.empty?
+        nil
+      elsif per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
+        prices.min_by { |p| p[:per_unit_price] }
+      else
+        prices.min_by { |p| p[:price] }
+      end
     end
   end
 
   def most_expensive_supplier
-    prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
-    return nil if prices.empty?
-
-    if per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
-      prices.max_by { |p| p[:per_unit_price] }
-    else
-      prices.max_by { |p| p[:price] }
+    @most_expensive_supplier ||= begin
+      prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
+      if prices.empty?
+        nil
+      elsif per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
+        prices.max_by { |p| p[:per_unit_price] }
+      else
+        prices.max_by { |p| p[:price] }
+      end
     end
   end
 
   def price_spread
+    return @price_spread if defined?(@price_spread)
     prices = prices_by_supplier.select { |p| p[:price].present? }
-    return nil if prices.size < 2
-
-    if per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
+    @price_spread = if prices.size < 2
+      nil
+    elsif per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
       prices.map { |p| p[:per_unit_price] }.max - prices.map { |p| p[:per_unit_price] }.min
     else
       prices.map { |p| p[:price] }.max - prices.map { |p| p[:price] }.min
     end
   end
 
-  # Get the item for a specific supplier
+  # Get the item for a specific supplier — uses in-memory detect (not find_by)
+  # to avoid N+1 queries when product_match_items are already preloaded.
   def item_for_supplier(supplier)
-    product_match_items.find_by(supplier: supplier)&.supplier_list_item
+    product_match_items.detect { |pmi| pmi.supplier_id == supplier.id }&.supplier_list_item
   end
 
   # Display name
@@ -118,7 +124,8 @@ class ProductMatch < ApplicationRecord
 
   private
 
+  # Uses detect on the preloaded collection instead of find_by (which always hits DB)
   def primary_item
-    product_match_items.find_by(is_primary: true)&.supplier_list_item
+    product_match_items.detect { |pmi| pmi.is_primary }&.supplier_list_item
   end
 end

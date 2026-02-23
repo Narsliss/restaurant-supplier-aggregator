@@ -171,10 +171,15 @@ class AggregatedListsController < ApplicationController
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     @suppliers = @aggregated_list.suppliers
 
-    # --- Per-supplier minimums for command bar progress indicators ---
+    # --- Per-supplier minimums for command bar progress indicators (single query) ---
+    supplier_ids = @suppliers.map(&:id)
+    minimums_by_supplier = SupplierRequirement
+      .where(supplier_id: supplier_ids, requirement_type: 'order_minimum', active: true)
+      .index_by(&:supplier_id)
+
     @supplier_minimums = {}
     @suppliers.each do |supplier|
-      req = supplier.supplier_requirements.find_by(requirement_type: 'order_minimum', active: true)
+      req = minimums_by_supplier[supplier.id]
       @supplier_minimums[supplier.id] = {
         name: supplier.name,
         minimum: req&.numeric_value&.to_f,
