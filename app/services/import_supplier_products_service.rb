@@ -165,6 +165,17 @@ class ImportSupplierProductsService
 
       supplier_product.update!(attrs)
       results[:updated] += 1
+
+      # Backfill category on the linked Product if still nil
+      product = supplier_product.product
+      if product && product.category.blank?
+        cat = item[:category]
+        unless cat.present?
+          result = AiProductCategorizer.rule_based_categorize(item[:supplier_name])
+          cat = result[:category] if result[:confidence] >= 0.7
+        end
+        product.update!(category: cat, subcategory: item[:subcategory]) if cat.present?
+      end
     end
   rescue StandardError => e
     results[:errors] << "#{item[:supplier_name]}: #{e.message}"
