@@ -126,11 +126,6 @@ class AggregatedListsController < ApplicationController
   def update
     if @aggregated_list.update(aggregated_list_params)
       update_list_mappings
-      # Re-run matching if lists changed
-      if @aggregated_list.supplier_lists.count >= 2
-        @aggregated_list.update(match_status: 'matching')
-        AiProductMatchJob.perform_later(@aggregated_list.id)
-      end
 
       redirect_to @aggregated_list
     else
