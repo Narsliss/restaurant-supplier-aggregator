@@ -64,7 +64,7 @@
   <div class="flex justify-end gap-3">
     <%= link_to "Cancel", supplier_lists_path,
         class: "rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50" %>
-    <%= f.submit aggregated_list.persisted? ? "Save Changes" : "Create & Match Products",
+    <%= f.submit aggregated_list.persisted? ? "Save & Review Matching" : "Create & Match Products",
         class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors cursor-pointer" %>
   </div>
 <% end %>
