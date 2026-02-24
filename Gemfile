@@ -63,6 +63,7 @@ group :development do
   gem "spring"
   gem "annotate"
   gem "rubocop-rails", require: false
+  gem "letter_opener"
 end
 
 group :test do
