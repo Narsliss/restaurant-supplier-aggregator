@@ -6,40 +6,12 @@ development: {}
 test: {}
 
 production:
-  # Daily safety-net catalog import (per-user list syncing is the primary data source)
-  staggered_supplier_import:
-    class: StaggeredSupplierImportJob
-    queue: scraping
-    schedule: "0 5 * * *"
-    description: "Daily supplier product catalog import at 5 AM (safety net)"
-
-  # Weekly deep category browsing for US Foods (supplement to list syncing)
-  deep_catalog_import:
-    class: DeepCatalogImportJob
-    queue: scraping
-    schedule: "0 2 * * 0"
-    description: "US Foods deep category browse weekly on Sunday at 2 AM"
-
-  # Proactive session keepalive for all suppliers
+  # Proactive session keepalive for all suppliers (especially Chef's Warehouse)
   refresh_sessions:
     class: RefreshAllSessionsJob
     queue: default
     schedule: "0 */2 * * *"
     description: "Refresh supplier sessions every 2 hours"
-
-  # Mark products as discontinued if missing from 3+ consecutive imports
-  discontinue_stale_products:
-    class: DiscontinueStaleProductsJob
-    queue: low
-    schedule: "0 3 * * *"
-    description: "Discontinue stale products daily at 3 AM"
-
-  # Primary data source: sync all user ordering lists every 4 hours
-  sync_all_lists:
-    class: SyncAllListsJob
-    queue: scraping
-    schedule: "0 */4 * * *"
-    description: "Sync supplier lists/order guides for all credentials every 4 hours"
 
   # Expire old 2FA requests every 5 minutes
   expire_2fa_requests:
@@ -47,3 +19,21 @@ production:
     queue: low
     schedule: "*/5 * * * *"
     description: "Expire old 2FA requests every 5 minutes"
+
+  # Daily catalog import via super_admin credentials (once per day, staggered)
+  staggered_supplier_import:
+    class: StaggeredSupplierImportJob
+    queue: scraping
+    schedule: "0 5 * * *"
+    description: "Daily supplier product catalog import at 5 AM"
+
+  # Daily list/order guide sync for all organization credentials
+  sync_all_lists:
+    class: SyncAllListsJob
+    queue: scraping
+    schedule: "0 6 * * *"
+    description: "Sync supplier lists/order guides once daily at 6 AM"
+
+  # Disabled — only run on explicit user request:
+  #   DeepCatalogImportJob (US Foods deep category browse — 1-3 hrs)
+  #   DiscontinueStaleProductsJob (stale product cleanup — no value without frequent imports)
