@@ -6,6 +6,8 @@ class Location < ApplicationRecord
 
   has_many :membership_locations, dependent: :destroy
   has_many :memberships, through: :membership_locations
+  has_many :supplier_credentials, dependent: :nullify
+  has_many :supplier_lists, dependent: :nullify
   has_many :supplier_delivery_schedules, dependent: :destroy
   has_many :orders, dependent: :nullify
   has_many :order_lists, dependent: :nullify
@@ -13,13 +15,14 @@ class Location < ApplicationRecord
   # Validations
   validates :name, presence: true
   validates :name, uniqueness: { scope: :organization_id }
+  validates :address, :city, :state, :zip_code, presence: true
 
   # Scopes
   scope :default_first, -> { order(is_default: :desc, created_at: :asc) }
 
   # Methods
   def full_address
-    [address, city, state, zip_code].compact.join(", ")
+    [address, city, state, zip_code].map(&:presence).compact.join(", ")
   end
 
   def assigned_members

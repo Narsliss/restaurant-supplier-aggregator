@@ -1,4 +1,99 @@
 <div class="max-w-2xl mx-auto">
-  <h1 class="text-2xl font-bold text-gray-900 mb-6">Add Location</h1>
-  <%= render "form", location: @location %>
+  <% if onboarding_incomplete? %>
+    <% if params[:added].present? %>
+      <%# ====== POST-ADD STATE: show success + choices ====== %>
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Restaurants</h1>
+        <p class="mt-1 text-sm text-gray-500">Manage your delivery locations.</p>
+      </div>
+
+      <%# Success banner %>
+      <div class="mb-6 rounded-xl bg-green-50 border border-green-200 p-5">
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+            <svg class="h-6 w-6 text-green-600" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-base font-semibold text-green-900"><%= params[:added] %> added!</p>
+            <p class="text-sm text-green-700">Restaurant saved to your organization.</p>
+          </div>
+        </div>
+      </div>
+
+      <%# Current restaurants list %>
+      <% org_locations = current_user.current_organization.locations %>
+      <div class="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-100">
+          <p class="text-sm font-semibold text-gray-700">Your Restaurants (<%= org_locations.count %>)</p>
+        </div>
+        <ul class="divide-y divide-gray-100">
+          <% org_locations.each do |loc| %>
+            <li class="flex items-center gap-3 px-5 py-3">
+              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green/10 flex-shrink-0">
+                <svg class="h-4 w-4 text-brand-green-dark" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                </svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-900"><%= loc.name.presence || "Unnamed Restaurant" %></p>
+                <% if loc.full_address.present? %>
+                  <p class="text-xs text-gray-500"><%= loc.full_address %></p>
+                <% else %>
+                  <p class="text-xs text-amber-500 italic">No address — click edit to add one</p>
+                <% end %>
+              </div>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <%= link_to edit_location_path(loc), class: "text-gray-400 hover:text-brand-green-dark transition-colors", title: "Edit" do %>
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                  </svg>
+                <% end %>
+                <% if org_locations.count > 1 %>
+                  <%= button_to location_path(loc), method: :delete, data: { turbo_confirm: "Delete #{loc.name}?" }, class: "text-gray-400 hover:text-red-600 transition-colors", title: "Delete" do %>
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                  <% end %>
+                <% end %>
+              </div>
+            </li>
+          <% end %>
+        </ul>
+      </div>
+
+      <%# Two prominent action buttons %>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <%= link_to new_location_path, class: "flex items-center justify-center gap-2 px-5 py-4 rounded-xl border-2 border-dashed border-gray-300 text-gray-600 hover:border-brand-green hover:text-brand-green-dark hover:bg-brand-green/5 transition-colors" do %>
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          <span class="text-sm font-semibold">Add Another Restaurant</span>
+        <% end %>
+
+        <%= link_to root_path, class: "flex items-center justify-center gap-2 px-5 py-4 rounded-xl bg-brand-orange text-white hover:bg-brand-orange-light transition-colors shadow-sm" do %>
+          <span class="text-sm font-semibold">Continue Setup</span>
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+          </svg>
+        <% end %>
+      </div>
+
+    <% else %>
+      <%# ====== FRESH ADD STATE: show form ====== %>
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Add a Restaurant</h1>
+        <p class="mt-1 text-sm text-gray-500">Where should suppliers deliver? Add each restaurant location.</p>
+      </div>
+
+      <%= render "form", location: @location %>
+    <% end %>
+
+  <% else %>
+    <%# ====== NORMAL (non-onboarding) STATE ====== %>
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">Add Restaurant</h1>
+    <%= render "form", location: @location %>
+  <% end %>
 </div>

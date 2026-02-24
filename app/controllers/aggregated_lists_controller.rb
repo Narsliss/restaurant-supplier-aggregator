@@ -1,4 +1,5 @@
 class AggregatedListsController < ApplicationController
+  before_action :require_location_context!
   before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder]
 
   def show
@@ -104,13 +105,13 @@ class AggregatedListsController < ApplicationController
       end
 
       if params[:return_to] == "supplier_lists"
-        redirect_to supplier_lists_path, notice: "#{@aggregated_list.name} created. Matching products..."
+        redirect_to supplier_lists_path
       else
-        redirect_to @aggregated_list, notice: "#{@aggregated_list.name} created. Matching products..."
+        redirect_to @aggregated_list
       end
     else
       if params[:return_to] == "supplier_lists"
-        redirect_to supplier_lists_path, alert: @aggregated_list.errors.full_messages.join(", ")
+        redirect_to supplier_lists_path
       else
         @available_lists = available_supplier_lists
         render :new, status: :unprocessable_entity
@@ -137,7 +138,7 @@ class AggregatedListsController < ApplicationController
   def destroy
     name = @aggregated_list.name
     @aggregated_list.destroy
-    redirect_to supplier_lists_path, notice: "#{name} deleted."
+    redirect_to supplier_lists_path
   end
 
   def run_matching
@@ -150,7 +151,7 @@ class AggregatedListsController < ApplicationController
 
   def search_catalog
     unless @aggregated_list.matched?
-      redirect_to @aggregated_list, alert: 'Run product matching first before searching the catalog.'
+      redirect_to @aggregated_list
       return
     end
 
@@ -161,7 +162,7 @@ class AggregatedListsController < ApplicationController
 
   def order_builder
     unless @aggregated_list.matched?
-      redirect_to @aggregated_list, alert: "Product matching must be complete before creating an order."
+      redirect_to @aggregated_list
       return
     end
 
@@ -191,7 +192,7 @@ class AggregatedListsController < ApplicationController
     @quantities = {}
     @delivery_date = nil
     if params[:batch_id].present?
-      batch_orders = current_user.orders.for_batch(params[:batch_id]).pending
+      batch_orders = scoped_orders.for_batch(params[:batch_id]).pending
                        .includes(order_items: :supplier_product)
       if batch_orders.any?
         @delivery_date = batch_orders.first.delivery_date
@@ -309,15 +310,9 @@ class AggregatedListsController < ApplicationController
   end
 
   def available_supplier_lists
-    if current_user.current_organization
-      SupplierList.for_organization(current_user.current_organization)
-                  .includes(:supplier)
-                  .order('suppliers.name ASC, supplier_lists.name ASC')
-    else
-      SupplierList.joins(:supplier_credential)
-                  .where(supplier_credentials: { user_id: current_user.id })
-                  .includes(:supplier)
-    end
+    scoped_supplier_lists
+      .includes(:supplier)
+      .order('suppliers.name ASC, supplier_lists.name ASC')
   end
 
   def aggregated_list_params

@@ -8,6 +8,7 @@ class SupplierCredential < ApplicationRecord
   belongs_to :user
   belongs_to :supplier
   belongs_to :organization, optional: true
+  belongs_to :location, optional: true
   has_many :supplier_2fa_requests, dependent: :destroy
   has_many :supplier_lists, dependent: :destroy
 
@@ -15,8 +16,8 @@ class SupplierCredential < ApplicationRecord
   validates :username, presence: true
   validates :password, presence: true, unless: :supplier_no_password?
   validates :supplier_id, uniqueness: {
-    scope: :user_id,
-    message: 'credential already exists for this supplier'
+    scope: [:user_id, :location_id],
+    message: 'credential already exists for this supplier at this location'
   }
   validates :status, inclusion: {
     in: %w[pending active expired failed hold]
@@ -40,6 +41,7 @@ class SupplierCredential < ApplicationRecord
   scope :active, -> { where(status: 'active') }
   scope :needs_refresh, -> { where('last_login_at < ?', 6.hours.ago) }
   scope :for_supplier, ->(supplier) { where(supplier: supplier) }
+  scope :for_location, ->(loc) { where(location: loc) }
 
   # Status constants
   STATUSES = {

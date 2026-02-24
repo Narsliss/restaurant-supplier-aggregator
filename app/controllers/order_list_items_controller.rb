@@ -1,4 +1,5 @@
 class OrderListItemsController < ApplicationController
+  before_action :require_location_context!
   before_action :set_order_list
   before_action :set_item, only: [:update, :destroy]
 
@@ -7,13 +8,13 @@ class OrderListItemsController < ApplicationController
 
     if @item.save
       respond_to do |format|
-        format.html { redirect_to redirect_path, notice: "Item added." }
+        format.html { redirect_to redirect_path }
         format.turbo_stream
         format.json { render json: @item, status: :created }
       end
     else
       respond_to do |format|
-        format.html { redirect_to redirect_path, alert: @item.errors.full_messages.join(", ") }
+        format.html { redirect_to redirect_path }
         format.json { render json: { errors: @item.errors }, status: :unprocessable_entity }
       end
     end
@@ -22,13 +23,13 @@ class OrderListItemsController < ApplicationController
   def update
     if @item.update(item_params)
       respond_to do |format|
-        format.html { redirect_to @order_list, notice: "Item updated." }
+        format.html { redirect_to @order_list }
         format.turbo_stream
         format.json { render json: @item }
       end
     else
       respond_to do |format|
-        format.html { redirect_to @order_list, alert: @item.errors.full_messages.join(", ") }
+        format.html { redirect_to @order_list }
         format.json { render json: { errors: @item.errors }, status: :unprocessable_entity }
       end
     end
@@ -38,7 +39,7 @@ class OrderListItemsController < ApplicationController
     @item.destroy
 
     respond_to do |format|
-      format.html { redirect_to @order_list, notice: "Item removed." }
+      format.html { redirect_to @order_list }
       format.turbo_stream
       format.json { head :no_content }
     end
@@ -47,7 +48,7 @@ class OrderListItemsController < ApplicationController
   private
 
   def set_order_list
-    @order_list = current_user.order_lists.find(params[:order_list_id])
+    @order_list = scoped_order_lists.find(params[:order_list_id])
   end
 
   def set_item

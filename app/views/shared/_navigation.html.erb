@@ -1,3 +1,8 @@
+<% onboarding = onboarding_incomplete? %>
+<% all_locations_mode = viewing_all_locations? %>
+<%# Operational pages are disabled during onboarding OR when owner is in "All Locations" mode %>
+<% ops_disabled = onboarding || all_locations_mode %>
+
 <nav class="bg-brand-green-dark shadow-lg" data-controller="mobile-menu">
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="flex h-16 justify-between">
@@ -8,19 +13,54 @@
           <% end %>
         </div>
         <div class="hidden sm:ml-8 sm:flex sm:space-x-6">
+          <%# Dashboard — always visible %>
           <%= link_to "Dashboard", root_path,
               class: "inline-flex items-center border-b-2 #{current_page?(root_path) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-          <%= link_to "Order Lists", supplier_lists_path,
-              class: "inline-flex items-center border-b-2 #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-          <%= link_to "Order History", orders_path,
-              class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-          <% if current_user.super_admin? %>
+
+          <%# Consistent link order: Order Lists, Order History, Products, Suppliers %>
+          <%# When ops_disabled, location-scoped items render as disabled spans in the same position %>
+
+          <%# — Order Lists %>
+          <% if ops_disabled %>
+            <% unless chef? || current_role == 'manager' %>
+              <span class="inline-flex items-center border-b-2 border-transparent px-1 pt-1 text-sm font-medium text-gray-500 cursor-not-allowed" title="<%= onboarding ? 'Complete account setup first' : 'Select a specific restaurant' %>">Order Lists</span>
+            <% end %>
+          <% elsif operator? %>
+            <%= link_to "Order Lists", supplier_lists_path,
+                class: "inline-flex items-center border-b-2 #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
+
+          <%# — Order History %>
+          <% if ops_disabled %>
+            <% if !onboarding && manager_or_owner? %>
+              <%= link_to "Order History", orders_path,
+                  class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+            <% else %>
+              <span class="inline-flex items-center border-b-2 border-transparent px-1 pt-1 text-sm font-medium text-gray-500 cursor-not-allowed" title="Complete account setup first">Order History</span>
+            <% end %>
+          <% else %>
+            <%= link_to "Order History", orders_path,
+                class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
+
+          <%# — Products (super_admin only, not location-scoped) %>
+          <% if !ops_disabled && current_user.super_admin? %>
             <%= link_to "Products", products_path,
                 class: "inline-flex items-center border-b-2 #{controller_name == 'products' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
-          <%= link_to "Suppliers", supplier_credentials_path,
-              class: "inline-flex items-center border-b-2 #{controller_name == 'supplier_credentials' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
-          <% if manager_or_owner? %>
+
+          <%# — Suppliers %>
+          <% if ops_disabled %>
+            <% unless chef? || current_role == 'manager' %>
+              <span class="inline-flex items-center border-b-2 border-transparent px-1 pt-1 text-sm font-medium text-gray-500 cursor-not-allowed" title="<%= onboarding ? 'Complete account setup first' : 'Select a specific restaurant' %>">Suppliers</span>
+            <% end %>
+          <% elsif operator? %>
+            <%= link_to "Suppliers", supplier_credentials_path,
+                class: "inline-flex items-center border-b-2 #{controller_name == 'supplier_credentials' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
+
+          <%# Reports — visible to owners and managers (always, not affected by location context) %>
+          <% if !onboarding && manager_or_owner? %>
             <%= link_to "Reports", reports_path,
                 class: "inline-flex items-center border-b-2 #{controller_name == 'reports' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
@@ -28,26 +68,32 @@
       </div>
 
       <div class="hidden sm:ml-6 sm:flex sm:items-center">
-        <% locations = current_user.accessible_locations %>
-        <% if locations.any? %>
-          <div class="mr-4">
-            <% if chef? %>
-              <%# Chefs see their restaurant name (static, no dropdown) %>
-              <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-brand-green/80 text-white">
-                <%= current_location&.name || "No restaurant" %>
-              </span>
-            <% else %>
-              <%# Owners/managers see dropdown of accessible locations %>
-              <select id="location-selector"
-                      class="rounded-md bg-brand-green/80 border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green"
-                      data-controller="location-selector">
-                <% locations.each do |location| %>
-                  <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
-                <% end %>
-              </select>
-            <% end %>
-          </div>
+        <% unless onboarding %>
+          <% locations = current_user.accessible_locations %>
+          <% if locations.any? %>
+            <div class="mr-4" data-controller="location-selector">
+              <% if chef? %>
+                <%# Chefs see their restaurant name (static, no dropdown) %>
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-brand-green/80 text-white">
+                  <%= current_location&.name || "No restaurant" %>
+                </span>
+              <% else %>
+                <%# Owners/managers see dropdown %>
+                <select class="rounded-md bg-brand-green/80 border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green"
+                        data-action="change->location-selector#change">
+                  <% if owner? %>
+                    <option value="all" <%= 'selected' if viewing_all_locations? %>>All Locations</option>
+                  <% end %>
+                  <% locations.each do |location| %>
+                    <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
+                  <% end %>
+                </select>
+              <% end %>
+            </div>
+          <% end %>
         <% end %>
+
+        <%# Avatar dropdown menu %>
         <div class="relative ml-3" data-controller="dropdown">
           <button type="button"
                   class="flex rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-brand-green focus:ring-offset-2 focus:ring-offset-brand-green-dark"
@@ -58,11 +104,20 @@
           </button>
           <div class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black/5"
                data-dropdown-target="menu">
-            <div class="px-4 py-2 text-sm text-brand-green-dark font-medium border-b border-gray-100"><%= current_user.full_name %></div>
+            <div class="px-4 py-2 text-sm text-brand-green-dark font-medium border-b border-gray-100">
+              <%= current_user.full_name %>
+              <span class="block text-xs text-gray-400 font-normal"><%= current_role&.titleize %></span>
+            </div>
             <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-            <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-            <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-            <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+            <% if onboarding %>
+              <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Team</span>
+              <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Billing</span>
+              <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Restaurants</span>
+            <% elsif owner? %>
+              <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+            <% end %>
             <% if current_user.super_admin? %>
               <%= link_to "Jobs", mission_control_jobs.root_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <% end %>
@@ -70,15 +125,12 @@
               <button type="button"
                       data-action="click->theme#cycle"
                       class="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark">
-                <%# Sun icon (light mode) %>
                 <svg data-theme-target="lightIcon" class="w-4 h-4 mr-2 hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
                 </svg>
-                <%# Moon icon (dark mode) %>
                 <svg data-theme-target="darkIcon" class="w-4 h-4 mr-2 hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
                 </svg>
-                <%# Monitor icon (system mode) %>
                 <svg data-theme-target="systemIcon" class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25z" />
                 </svg>
@@ -111,26 +163,61 @@
     <div class="space-y-1 px-2 pb-3 pt-2">
       <%= link_to "Dashboard", root_path,
           class: "block rounded-md px-3 py-2 text-base font-medium #{current_page?(root_path) ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
-      <%= link_to "Order Lists", supplier_lists_path,
-          class: "block rounded-md px-3 py-2 text-base font-medium #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
-      <%= link_to "Order History", orders_path,
-          class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'orders' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
-      <% if current_user.super_admin? %>
-        <%= link_to "Products", products_path,
-            class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'products' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <%# Mobile: same consistent order as desktop — Order Lists, Order History, Suppliers %>
+
+      <%# — Order Lists %>
+      <% if ops_disabled %>
+        <% unless current_role == 'manager' %>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Order Lists</span>
+        <% end %>
+      <% elsif operator? %>
+        <%= link_to "Order Lists", supplier_lists_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
       <% end %>
-      <%= link_to "Suppliers", supplier_credentials_path,
-          class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'supplier_credentials' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+
+      <%# — Order History %>
+      <% if ops_disabled %>
+        <% if !onboarding && manager_or_owner? %>
+          <%= link_to "Order History", orders_path,
+              class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'orders' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+        <% else %>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Order History</span>
+        <% end %>
+      <% else %>
+        <%= link_to "Order History", orders_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'orders' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <% end %>
+
+      <%# — Suppliers %>
+      <% if ops_disabled %>
+        <% unless current_role == 'manager' %>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Suppliers</span>
+        <% end %>
+      <% elsif operator? %>
+        <%= link_to "Suppliers", supplier_credentials_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'supplier_credentials' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <% end %>
+      <% if !onboarding && manager_or_owner? %>
+        <%= link_to "Reports", reports_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'reports' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <% end %>
     </div>
     <div class="border-t border-white/10 px-4 pb-3 pt-4">
-      <% if current_user.locations.any? %>
-        <div class="mb-3">
-          <select class="w-full rounded-md bg-brand-green/80 border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green">
-            <% current_user.locations.each do |location| %>
-              <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
-            <% end %>
-          </select>
-        </div>
+      <% unless onboarding %>
+        <% locations = current_user.accessible_locations %>
+        <% if locations.any? && !chef? %>
+          <div class="mb-3" data-controller="location-selector">
+            <select class="w-full rounded-md bg-brand-green/80 border-white/20 text-sm text-white focus:border-brand-green focus:ring-brand-green"
+                    data-action="change->location-selector#change">
+              <% if owner? %>
+                <option value="all" <%= 'selected' if viewing_all_locations? %>>All Locations</option>
+              <% end %>
+              <% locations.each do |location| %>
+                <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
+              <% end %>
+            </select>
+          </div>
+        <% end %>
       <% end %>
       <div class="flex items-center mb-3">
         <span class="inline-flex h-10 w-10 items-center justify-center rounded-full bg-brand-orange">
@@ -143,24 +230,27 @@
       </div>
       <div class="space-y-1">
         <%= link_to "Settings", edit_user_registration_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
-        <%= link_to "Team", organization_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
-        <%= link_to "Billing", subscription_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
-        <%= link_to "Locations", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+        <% if onboarding %>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Team</span>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Billing</span>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Restaurants</span>
+        <% elsif owner? %>
+          <%= link_to "Team", organization_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+          <%= link_to "Billing", subscription_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+          <%= link_to "Restaurants", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+        <% end %>
         <% if current_user.super_admin? %>
           <%= link_to "Jobs", mission_control_jobs.root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
         <% end %>
         <button type="button"
                 data-action="click->theme#cycle"
                 class="flex w-full items-center rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white">
-          <%# Sun icon (light mode) %>
           <svg data-theme-target="lightIcon" class="w-5 h-5 mr-2 hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
           </svg>
-          <%# Moon icon (dark mode) %>
           <svg data-theme-target="darkIcon" class="w-5 h-5 mr-2 hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
           </svg>
-          <%# Monitor icon (system mode) %>
           <svg data-theme-target="systemIcon" class="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25z" />
           </svg>

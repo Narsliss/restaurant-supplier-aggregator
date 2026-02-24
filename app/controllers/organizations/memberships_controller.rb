@@ -7,33 +7,33 @@ module Organizations
     def update
       # Can't change owner role
       if @membership.owner?
-        redirect_to organization_path, alert: "Cannot change the owner's role."
+        redirect_to organization_path
         return
       end
 
       # Can't promote to owner
       if params[:role] == "owner"
-        redirect_to organization_path, alert: "Cannot promote to owner."
+        redirect_to organization_path
         return
       end
 
       # Only manager and chef roles allowed
       unless %w[manager chef].include?(params[:role])
-        redirect_to organization_path, alert: "Invalid role."
+        redirect_to organization_path
         return
       end
 
       if @membership.update(role: params[:role])
-        redirect_to organization_path, notice: "#{@membership.user.full_name}'s role updated to #{@membership.role_display}."
+        redirect_to organization_path
       else
-        redirect_to organization_path, alert: "Unable to update role."
+        redirect_to organization_path
       end
     end
 
     # Update restaurant assignments for a member
     def update_locations
       if @membership.owner?
-        redirect_to organization_path, alert: "Owner has access to all restaurants."
+        redirect_to organization_path
         return
       end
 
@@ -44,31 +44,31 @@ module Organizations
         MembershipLocation.create!(membership: @membership, location: location) if location
       end
 
-      redirect_to organization_path, notice: "Restaurant assignments updated for #{@membership.user.full_name}."
+      redirect_to organization_path
     end
 
     def destroy
       # Can't remove owner
       if @membership.owner?
-        redirect_to organization_path, alert: "Cannot remove the organization owner."
+        redirect_to organization_path
         return
       end
 
       # Can't remove yourself
       if @membership.user == current_user
-        redirect_to organization_path, alert: "You cannot remove yourself. Transfer ownership first."
+        redirect_to organization_path
         return
       end
 
       @membership.deactivate!
-      redirect_to organization_path, notice: "#{@membership.user.full_name} has been removed from the organization."
+      redirect_to organization_path
     end
 
     private
 
     def set_organization
       @organization = current_user.current_organization
-      redirect_to root_path, alert: "No organization selected." unless @organization
+      redirect_to root_path unless @organization
     end
 
     def set_membership

@@ -1,23 +1,21 @@
 class SupplierListsController < ApplicationController
+  before_action :require_organization!
+  before_action :require_location_context!
   before_action :set_supplier_list, only: %i[show sync]
+  before_action :require_operator!, only: %i[sync sync_all]
 
   def index
-    @supplier_lists = current_organization_lists
+    @supplier_lists = scoped_supplier_lists
                       .includes(:supplier, :supplier_credential)
                       .order('suppliers.name ASC, supplier_lists.name ASC')
 
     @lists_by_supplier = @supplier_lists.group_by(&:supplier)
-    @credentials = current_user.supplier_credentials.active.includes(:supplier)
+    @credentials = scoped_credentials.active.includes(:supplier)
+    @read_only = current_role == 'manager'
 
-    # Detect if a sync is still in progress.
-    # Show the banner whenever any list is actively syncing OR the syncing param
-    # was recently set (covers the brief window before the job marks lists as syncing).
+    # Detect if a sync is still in progress
     has_syncing_lists = @supplier_lists.where(sync_status: 'syncing').exists?
 
-    # Also check for pending/running import jobs in Solid Queue
-    # (covers the gap between job enqueue and when lists get marked as syncing).
-    # Ignore jobs older than 30 minutes — they're orphans from worker restarts
-    # that were killed mid-flight but never marked finished.
     credential_ids = @credentials.pluck(:id)
     pending_job_credential_ids = []
     if credential_ids.any?
@@ -40,7 +38,6 @@ class SupplierListsController < ApplicationController
       @syncing = has_syncing_lists || has_pending_import_jobs
     end
 
-    # Track which supplier credentials are currently syncing (for disabling buttons)
     @syncing_credential_ids = Set.new(pending_job_credential_ids)
     @syncing_credential_ids += @supplier_lists.where(sync_status: 'syncing').pluck(:supplier_credential_id)
 
@@ -63,7 +60,7 @@ class SupplierListsController < ApplicationController
   end
 
   def sync_all
-    credentials = current_user.supplier_credentials.active
+    credentials = scoped_credentials.active
     credentials.each_with_index do |credential, index|
       ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id)
     end
@@ -74,15 +71,7 @@ class SupplierListsController < ApplicationController
   private
 
   def set_supplier_list
-    @supplier_list = current_organization_lists.find(params[:id])
-  end
-
-  def current_organization_lists
-    if current_user.current_organization
-      SupplierList.for_organization(current_user.current_organization)
-    else
-      SupplierList.joins(:supplier_credential).where(supplier_credentials: { user_id: current_user.id })
-    end
+    @supplier_list = scoped_supplier_lists.find(params[:id])
   end
 
   def current_organization_aggregated_lists

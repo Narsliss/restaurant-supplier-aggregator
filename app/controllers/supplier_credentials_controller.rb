@@ -3,7 +3,8 @@ class SupplierCredentialsController < ApplicationController
                 only: %i[show edit update destroy validate refresh_session import_products import_lists submit_2fa_code
                          status]
   before_action :set_suppliers, only: %i[new create edit update]
-  before_action :require_credential_edit_access!, only: %i[new create edit update destroy]
+  before_action :require_operator!, only: %i[new create edit update destroy]
+  before_action :require_location_context!
 
   def index
     @credentials = scoped_credentials
@@ -28,6 +29,9 @@ class SupplierCredentialsController < ApplicationController
 
   def create
     @credential = current_user.supplier_credentials.new(credential_params)
+    @credential.organization = current_user.current_organization
+    # Owners can pick a location from the form; chefs use their current location
+    @credential.location ||= current_location
 
     # Validate supplier exists and is active
     if @credential.supplier_id.present?
@@ -42,14 +46,15 @@ class SupplierCredentialsController < ApplicationController
       end
     end
 
-    # Check for duplicate credentials
+    # Check for duplicate credentials at this location
     existing = current_user.supplier_credentials.find_by(
-      supplier_id: @credential.supplier_id
+      supplier_id: @credential.supplier_id,
+      location_id: @credential.location_id
     )
     if existing
       supplier_name = existing.supplier.name
       @credential.errors.add(:base,
-                             "You already have credentials for #{supplier_name}. Please edit the existing credential instead.")
+                             "You already have credentials for #{supplier_name} at this location. Please edit the existing credential instead.")
       render :new, status: :unprocessable_entity and return
     end
 
@@ -67,7 +72,7 @@ class SupplierCredentialsController < ApplicationController
                   "#{@credential.supplier.name} credentials saved. Validating now — this usually takes 15-30 seconds."
                 end
 
-      redirect_to supplier_credentials_path, notice: message
+      redirect_to supplier_credentials_path
     else
       Rails.logger.warn "[SupplierCredentials] Failed to create credential: #{@credential.errors.full_messages.join(', ')}"
       render :new, status: :unprocessable_entity
@@ -103,7 +108,7 @@ class SupplierCredentialsController < ApplicationController
                   "#{@credential.supplier.name} credentials updated. Re-validating now — this usually takes 15-30 seconds."
                 end
 
-      redirect_to supplier_credentials_path, notice: message
+      redirect_to supplier_credentials_path
     else
       Rails.logger.warn "[SupplierCredentials] Failed to update credential ##{@credential.id}: #{@credential.errors.full_messages.join(', ')}"
       render :edit, status: :unprocessable_entity
@@ -173,7 +178,7 @@ class SupplierCredentialsController < ApplicationController
 
     respond_to do |format|
       format.html do
-        redirect_to supplier_credentials_path, notice: message
+        redirect_to supplier_credentials_path
       end
       format.json do
         render json: { status: 'validating', credential_id: @credential.id, supplier: @credential.supplier.name }
@@ -223,7 +228,7 @@ class SupplierCredentialsController < ApplicationController
 
     if code.blank?
       respond_to do |format|
-        format.html { redirect_to supplier_credentials_path, alert: 'Please enter a verification code.' }
+        format.html { redirect_to supplier_credentials_path }
         format.json do
           render json: { status: 'error', message: 'Please enter a verification code.' }, status: :unprocessable_entity
         end
@@ -247,7 +252,7 @@ class SupplierCredentialsController < ApplicationController
       msg = "No pending verification request found for #{@credential.supplier.name}. Please click Validate to start again."
       Rails.logger.warn "[2FA] No pending request found for credential #{@credential.id}"
       respond_to do |format|
-        format.html { redirect_to supplier_credentials_path, alert: msg }
+        format.html { redirect_to supplier_credentials_path }
         format.json { render json: { status: 'error', message: msg }, status: :not_found }
       end
       return
@@ -401,24 +406,25 @@ class SupplierCredentialsController < ApplicationController
     return if @credential
 
     Rails.logger.warn "[SupplierCredentials] Credential ##{params[:id]} not found for user #{current_user.id}"
-    redirect_to supplier_credentials_path, alert: 'Credential not found. It may have been deleted.'
-  end
-
-  def require_credential_edit_access!
-    if current_role == 'manager'
-      redirect_to supplier_credentials_path, alert: "Managers have read-only access to credentials."
-    end
+    redirect_to supplier_credentials_path
   end
 
   def set_suppliers
-    existing_supplier_ids = current_user.supplier_credentials.pluck(:supplier_id)
+    # Only exclude suppliers already connected at the current location
+    # (same user can connect the same supplier at different locations)
+    existing_supplier_ids = if current_location
+      current_user.supplier_credentials.where(location: current_location).pluck(:supplier_id)
+    else
+      current_user.supplier_credentials.pluck(:supplier_id)
+    end
 
     @available_suppliers = Supplier.active.where.not(id: existing_supplier_ids).order(:name)
     @all_suppliers = Supplier.active.order(:name)
+    @locations = current_user.current_organization&.locations || []
   end
 
   def credential_params
-    params.require(:supplier_credential).permit(:supplier_id, :username, :password)
+    params.require(:supplier_credential).permit(:supplier_id, :username, :password, :location_id)
   end
 
 end

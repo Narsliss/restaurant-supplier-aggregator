@@ -15,7 +15,7 @@ class PriceComparisonsController < ApplicationController
     service.refresh_prices!
 
     respond_to do |format|
-      format.html { redirect_to price_comparison_path(@order_list), notice: "Price refresh started..." }
+      format.html { redirect_to price_comparison_path(@order_list) }
       format.json { render json: { status: "refreshing" } }
     end
   end
@@ -23,6 +23,6 @@ class PriceComparisonsController < ApplicationController
   private
 
   def set_order_list
-    @order_list = current_user.order_lists.find(params[:id])
+    @order_list = scoped_order_lists.find(params[:id])
   end
 end

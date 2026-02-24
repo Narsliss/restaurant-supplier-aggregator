@@ -1,8 +1,11 @@
 class OrderListsController < ApplicationController
+  before_action :require_organization!
   before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison]
+  before_action :require_operator!, only: %i[new create edit update destroy duplicate]
+  before_action :require_location_context!
 
   def index
-    @order_lists = current_user.order_lists
+    @order_lists = scoped_order_lists
                                .includes(:order_list_items)
                                .recent
   end
@@ -31,14 +34,21 @@ class OrderListsController < ApplicationController
   end
 
   def new
-    @order_list = current_user.order_lists.new
+    @order_list = OrderList.new(
+      user: current_user,
+      organization: current_user.current_organization,
+      location: current_location
+    )
   end
 
   def create
-    @order_list = current_user.order_lists.new(order_list_params)
+    @order_list = OrderList.new(order_list_params)
+    @order_list.user = current_user
+    @order_list.organization = current_user.current_organization
+    @order_list.location = current_location
 
     if @order_list.save
-      redirect_to @order_list, notice: 'Order list created.'
+      redirect_to @order_list
     else
       render :new, status: :unprocessable_entity
     end
@@ -48,7 +58,7 @@ class OrderListsController < ApplicationController
 
   def update
     if @order_list.update(order_list_params)
-      redirect_to @order_list, notice: 'Order list updated.'
+      redirect_to @order_list
     else
       render :edit, status: :unprocessable_entity
     end
@@ -56,21 +66,21 @@ class OrderListsController < ApplicationController
 
   def destroy
     @order_list.destroy
-    redirect_to order_lists_path, notice: 'Order list deleted.'
+    redirect_to order_lists_path
   end
 
   def duplicate
     new_name = params[:name].presence || "#{@order_list.name} (Copy)"
     new_list = @order_list.duplicate!(new_name)
-    redirect_to new_list, notice: 'Order list duplicated.'
+    redirect_to new_list
   rescue StandardError => e
-    redirect_to @order_list, alert: "Failed to duplicate: #{e.message}"
+    redirect_to @order_list
   end
 
   def price_comparison
     @comparison = Orders::PriceComparisonService.new(@order_list).compare
     @suppliers = Supplier.active.where(
-      id: current_user.supplier_credentials.active.select(:supplier_id)
+      id: scoped_credentials.active.select(:supplier_id)
     )
 
     # Pre-compute split order preview for the best-price summary
@@ -86,7 +96,7 @@ class OrderListsController < ApplicationController
   private
 
   def set_order_list
-    @order_list = current_user.order_lists.find(params[:id])
+    @order_list = scoped_order_lists.find(params[:id])
   end
 
   def order_list_params

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_24_204222) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -176,6 +176,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
     t.datetime "updated_at", null: false
     t.bigint "organization_id"
     t.bigint "location_id"
+    t.index ["location_id", "name"], name: "idx_order_lists_location_name", unique: true, where: "(location_id IS NOT NULL)"
     t.index ["location_id"], name: "index_order_lists_on_location_id"
     t.index ["organization_id"], name: "index_order_lists_on_org"
     t.index ["organization_id"], name: "index_order_lists_on_organization_id"
@@ -561,10 +562,12 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
     t.string "import_status_text"
     t.datetime "last_deep_import_at"
     t.integer "refresh_failures", default: 0, null: false
+    t.bigint "location_id"
+    t.index ["location_id"], name: "index_supplier_credentials_on_location_id"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"
     t.index ["status"], name: "index_supplier_credentials_on_status"
     t.index ["supplier_id"], name: "index_supplier_credentials_on_supplier_id"
-    t.index ["user_id", "supplier_id"], name: "idx_supplier_creds_unique", unique: true
+    t.index ["user_id", "supplier_id", "location_id"], name: "idx_supplier_creds_unique", unique: true
     t.index ["user_id"], name: "index_supplier_credentials_on_user_id"
   end
 
@@ -619,6 +622,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
     t.text "sync_error"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "location_id"
+    t.index ["location_id"], name: "index_supplier_lists_on_location_id"
     t.index ["organization_id"], name: "index_supplier_lists_on_organization_id"
     t.index ["supplier_credential_id", "remote_list_id"], name: "idx_supplier_lists_cred_remote", unique: true
     t.index ["supplier_credential_id"], name: "index_supplier_lists_on_supplier_credential_id"
@@ -709,6 +714,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
     t.datetime "updated_at", null: false
     t.string "stripe_customer_id"
     t.bigint "current_organization_id"
+    t.datetime "onboarding_dismissed_at"
     t.index ["current_organization_id"], name: "index_users_on_current_organization_id"
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
@@ -767,6 +773,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
   add_foreign_key "subscriptions", "users"
   add_foreign_key "supplier_2fa_requests", "supplier_credentials", on_delete: :cascade
   add_foreign_key "supplier_2fa_requests", "users", on_delete: :cascade
+  add_foreign_key "supplier_credentials", "locations"
   add_foreign_key "supplier_credentials", "organizations"
   add_foreign_key "supplier_credentials", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_credentials", "users", on_delete: :cascade
@@ -774,6 +781,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_23_201948) do
   add_foreign_key "supplier_delivery_schedules", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_list_items", "supplier_lists", on_delete: :cascade
   add_foreign_key "supplier_list_items", "supplier_products", on_delete: :nullify
+  add_foreign_key "supplier_lists", "locations"
   add_foreign_key "supplier_lists", "organizations"
   add_foreign_key "supplier_lists", "supplier_credentials", on_delete: :cascade
   add_foreign_key "supplier_lists", "suppliers", on_delete: :cascade

@@ -12,7 +12,7 @@ class SubscriptionsController < ApplicationController
   def new
     # Show pricing page for users without subscription
     if current_user.subscribed?
-      redirect_to subscription_path, notice: "You already have an active subscription."
+      redirect_to subscription_path
     end
   end
 
@@ -25,7 +25,7 @@ class SubscriptionsController < ApplicationController
     redirect_to session.url, allow_other_host: true
   rescue Stripe::StripeError => e
     Rails.logger.error "[Stripe] Checkout error: #{e.message}"
-    redirect_to new_subscription_path, alert: "Unable to start checkout. Please try again."
+    redirect_to new_subscription_path
   end
 
   def success
@@ -49,12 +49,12 @@ class SubscriptionsController < ApplicationController
       end
     end
 
-    redirect_to root_path, notice: "Welcome to SupplierHub Pro! Your subscription is now active."
+    redirect_to root_path
   end
 
   def cancel
     # User canceled checkout
-    redirect_to new_subscription_path, notice: "Checkout was canceled. You can try again when you're ready."
+    redirect_to new_subscription_path
   end
 
   def billing_portal
@@ -65,12 +65,12 @@ class SubscriptionsController < ApplicationController
     redirect_to session.url, allow_other_host: true
   rescue Stripe::StripeError => e
     Rails.logger.error "[Stripe] Portal error: #{e.message}"
-    redirect_to subscription_path, alert: "Unable to access billing portal. Please try again."
+    redirect_to subscription_path
   end
 
   def cancel_subscription
     subscription = current_user.current_subscription
-    return redirect_to subscription_path, alert: "No active subscription found." unless subscription
+    return redirect_to subscription_path unless subscription
 
     begin
       Stripe::Subscription.update(
@@ -80,16 +80,16 @@ class SubscriptionsController < ApplicationController
 
       subscription.update!(cancel_at_period_end: true)
 
-      redirect_to subscription_path, notice: "Your subscription will be canceled at the end of the billing period."
+      redirect_to subscription_path
     rescue Stripe::StripeError => e
       Rails.logger.error "[Stripe] Cancel error: #{e.message}"
-      redirect_to subscription_path, alert: "Unable to cancel subscription. Please try again or contact support."
+      redirect_to subscription_path
     end
   end
 
   def reactivate
     subscription = current_user.subscriptions.find_by(cancel_at_period_end: true)
-    return redirect_to subscription_path, alert: "No subscription to reactivate." unless subscription
+    return redirect_to subscription_path unless subscription
 
     begin
       Stripe::Subscription.update(
@@ -99,10 +99,10 @@ class SubscriptionsController < ApplicationController
 
       subscription.update!(cancel_at_period_end: false)
 
-      redirect_to subscription_path, notice: "Your subscription has been reactivated!"
+      redirect_to subscription_path
     rescue Stripe::StripeError => e
       Rails.logger.error "[Stripe] Reactivate error: #{e.message}"
-      redirect_to subscription_path, alert: "Unable to reactivate subscription. Please try again."
+      redirect_to subscription_path
     end
   end
 end

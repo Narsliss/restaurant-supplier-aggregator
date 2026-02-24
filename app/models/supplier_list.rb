@@ -3,6 +3,7 @@ class SupplierList < ApplicationRecord
   belongs_to :supplier_credential
   belongs_to :supplier
   belongs_to :organization, optional: true
+  belongs_to :location, optional: true
   has_many :supplier_list_items, dependent: :destroy
   has_many :aggregated_list_mappings, dependent: :destroy
   has_many :aggregated_lists, through: :aggregated_list_mappings
@@ -18,6 +19,10 @@ class SupplierList < ApplicationRecord
   scope :needs_sync, -> { where(sync_status: %w[pending failed]) }
   scope :for_supplier, ->(supplier) { where(supplier: supplier) }
   scope :for_organization, ->(org) { where(organization: org) }
+  scope :for_location, ->(loc) { where(location: loc) }
+
+  # Auto-set location from credential
+  before_validation :set_location_from_credential, on: :create
 
   # Delegations
   delegate :user, to: :supplier_credential
@@ -67,5 +72,11 @@ class SupplierList < ApplicationRecord
     else
       "#{(distance / 86_400).round}d ago"
     end
+  end
+
+  private
+
+  def set_location_from_credential
+    self.location_id ||= supplier_credential&.location_id
   end
 end

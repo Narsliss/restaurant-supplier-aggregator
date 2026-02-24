@@ -1,0 +1,54 @@
+<div class="max-w-lg mx-auto py-8 px-4">
+  <h1 class="text-2xl font-bold text-gray-900 mb-2">Edit Invitation</h1>
+  <p class="text-sm text-gray-500 mb-6">Update the pending invitation for <strong><%= @invitation.email %></strong></p>
+
+  <% if @invitation.errors.any? %>
+    <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+      <h3 class="text-red-800 font-medium">Please fix the following errors:</h3>
+      <ul class="mt-2 list-disc list-inside text-sm text-red-700">
+        <% @invitation.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <%= form_with model: @invitation, url: organization_invitation_path(@invitation), method: :patch, local: true, class: "space-y-5", data: { controller: "invitation-form" } do |f| %>
+    <div>
+      <label class="block text-sm font-medium text-gray-700">Email</label>
+      <p class="mt-1 text-sm text-gray-900"><%= @invitation.email %></p>
+    </div>
+
+    <div>
+      <%= f.label :role, "Role", class: "block text-sm font-medium text-gray-700" %>
+      <%= f.select :role, [["Chef", "chef"], ["Manager", "manager"]], {}, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { action: "change->invitation-form#roleChanged", "invitation-form-target": "roleSelect" } %>
+    </div>
+
+    <%# Chef: single restaurant selector %>
+    <div data-invitation-form-target="chefLocation">
+      <label class="block text-sm font-medium text-gray-700">Restaurant</label>
+      <%= f.select :location_id, @locations.map { |l| [l.name, l.id] }, { include_blank: "Select a restaurant..." }, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+    </div>
+
+    <%# Manager: multi restaurant checkboxes %>
+    <% manager_ids = @invitation.location_ids&.map(&:to_i) || [] %>
+    <div data-invitation-form-target="managerLocations" class="hidden">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Restaurants</label>
+      <div class="space-y-1 mt-1 p-3 border border-gray-200 rounded-lg bg-gray-50">
+        <% @locations.each do |loc| %>
+          <label class="flex items-center py-1.5 text-sm text-gray-700 cursor-pointer hover:text-gray-900">
+            <input type="checkbox" name="organization_invitation[location_ids][]" value="<%= loc.id %>"
+                   <%= 'checked' if manager_ids.include?(loc.id) %>
+                   class="rounded border-gray-300 text-brand-green focus:ring-brand-green mr-2.5">
+            <%= loc.name %>
+          </label>
+        <% end %>
+      </div>
+    </div>
+
+    <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2">
+      <%= link_to "Cancel", organization_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
+      <%= f.submit "Update Invitation", class: "px-4 py-2 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark cursor-pointer" %>
+    </div>
+  <% end %>
+</div>

@@ -11,7 +11,7 @@ class OrderList < ApplicationRecord
 
   # Validations
   validates :name, presence: true
-  validates :name, uniqueness: { scope: :user_id }
+  validates :name, uniqueness: { scope: :location_id }
 
   # Organization scopes
   scope :for_location, ->(loc) { where(location: loc) }
@@ -65,7 +65,10 @@ class OrderList < ApplicationRecord
   end
 
   def duplicate!(new_name = nil)
-    new_list = user.order_lists.create!(
+    new_list = OrderList.create!(
+      user: user,
+      organization: organization,
+      location: location,
       name: new_name || "#{name} (Copy)",
       description: description,
       is_favorite: false

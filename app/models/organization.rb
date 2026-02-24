@@ -16,6 +16,7 @@ class Organization < ApplicationRecord
   validates :name, presence: true
   validates :slug, presence: true, uniqueness: true,
                    format: { with: /\A[a-z0-9-]+\z/, message: 'can only contain lowercase letters, numbers, and hyphens' }
+  validates :address, :city, :state, :zip_code, presence: true
 
   # Callbacks
   before_validation :generate_slug, on: :create
@@ -63,7 +64,8 @@ class Organization < ApplicationRecord
 
   # Seat management
   def seat_count
-    memberships.where(active: true).where.not(role: 'owner').count
+    memberships.where(active: true).where.not(role: 'owner').count +
+      organization_invitations.pending.count
   end
 
   def seat_limit

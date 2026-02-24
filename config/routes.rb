@@ -4,6 +4,7 @@ Rails.application.routes.draw do
   }
 
   root 'dashboard#index'
+  post 'onboarding/dismiss', to: 'dashboard#dismiss_onboarding', as: :dismiss_onboarding
 
   # Stripe Webhooks
   namespace :webhooks do
@@ -25,7 +26,7 @@ Rails.application.routes.draw do
     resources :memberships, only: %i[update destroy], module: :organizations do
       patch :update_locations, on: :member
     end
-    resources :invitations, only: %i[create destroy], module: :organizations do
+    resources :invitations, only: %i[create edit update destroy], module: :organizations do
       post :resend, on: :member
     end
   end
@@ -37,6 +38,7 @@ Rails.application.routes.draw do
   get 'invitations/:token/accept', to: 'organizations/invitations#accept', as: :accept_invitation
 
   # Locations
+  post 'locations/switch', to: 'locations#switch', as: :switch_location
   resources :locations
 
   # Supplier Credentials

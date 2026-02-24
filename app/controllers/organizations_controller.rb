@@ -4,7 +4,7 @@ class OrganizationsController < ApplicationController
 
   def show
     @members = @organization.memberships.active.includes(:user, :locations).order(:role, :created_at)
-    @pending_invitations = @organization.organization_invitations.pending
+    @pending_invitations = @organization.organization_invitations.pending.includes(:location)
     @locations = @organization.locations
     @seat_count = @organization.seat_count
     @seat_limit = @organization.seat_limit
@@ -24,7 +24,7 @@ class OrganizationsController < ApplicationController
       zip_code: organization_params[:zip_code]
     )
 
-    redirect_to organization_path(@organization), notice: "Organization created successfully!"
+    redirect_to root_path
   rescue ActiveRecord::RecordInvalid => e
     @organization = Organization.new(organization_params)
     @organization.errors.merge!(e.record.errors)
@@ -36,7 +36,7 @@ class OrganizationsController < ApplicationController
 
   def update
     if @organization.update(organization_params)
-      redirect_to organization_path(@organization), notice: "Organization updated successfully!"
+      redirect_to organization_path(@organization)
     else
       render :edit, status: :unprocessable_entity
     end
@@ -45,16 +45,16 @@ class OrganizationsController < ApplicationController
   def switch
     org = current_user.organizations.find(params[:id])
     current_user.switch_organization!(org)
-    redirect_to root_path, notice: "Switched to #{org.name}"
+    redirect_to root_path
   rescue ActiveRecord::RecordNotFound
-    redirect_to root_path, alert: "Organization not found"
+    redirect_to root_path
   end
 
   private
 
   def set_organization
     @organization = current_user.current_organization
-    redirect_to new_organization_path, alert: "Please create or join an organization first." unless @organization
+    redirect_to new_organization_path unless @organization
   end
 
   def organization_params

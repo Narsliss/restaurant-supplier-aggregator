@@ -108,7 +108,7 @@ class OrderItemsController < ApplicationController
   private
 
   def set_order
-    @order = current_user.orders.find(params[:order_id])
+    @order = scoped_orders.find(params[:order_id])
   end
 
   def set_order_item

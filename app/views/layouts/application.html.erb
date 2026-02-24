@@ -30,7 +30,6 @@
 
       <main class="<%= user_signed_in? ? 'py-10 flex-1' : 'flex-1' %>">
         <div class="<%= user_signed_in? ? 'mx-auto max-w-7xl px-4 sm:px-6 lg:px-8' : '' %>">
-          <%= render "shared/flash_messages" %>
           <%= yield %>
         </div>
       </main>

@@ -7,41 +7,52 @@
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <%= form_with model: @organization, url: organization_path, method: :post, local: true, class: "space-y-5" do |f| %>
+        <% if @organization.errors.any? %>
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+            <h3 class="text-red-800 font-medium">Please fix the following errors:</h3>
+            <ul class="mt-2 list-disc list-inside text-sm text-red-700">
+              <% @organization.errors.full_messages.each do |message| %>
+                <li><%= message %></li>
+              <% end %>
+            </ul>
+          </div>
+        <% end %>
+
         <div>
           <%= f.label :name, "Organization Name", class: "block text-sm font-medium text-gray-700" %>
-          <%= f.text_field :name, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500", placeholder: "My Restaurant", required: true, autofocus: true %>
+          <%= f.text_field :name, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", placeholder: "My Restaurant", required: true, autofocus: true %>
           <p class="mt-1 text-xs text-gray-500">This is typically your restaurant or company name.</p>
         </div>
 
         <div>
           <%= f.label :phone, "Phone Number", class: "block text-sm font-medium text-gray-700" %>
-          <%= f.telephone_field :phone, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500", placeholder: "(555) 123-4567" %>
+          <%= f.telephone_field :phone, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", placeholder: "(555) 123-4567" %>
         </div>
 
         <div>
           <%= f.label :address, "Address", class: "block text-sm font-medium text-gray-700" %>
-          <%= f.text_area :address, rows: 2, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500", placeholder: "123 Main Street" %>
+          <%= f.text_area :address, rows: 2, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", placeholder: "123 Main Street", required: true %>
         </div>
 
         <div class="grid grid-cols-6 gap-4">
           <div class="col-span-3">
             <%= f.label :city, class: "block text-sm font-medium text-gray-700" %>
-            <%= f.text_field :city, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500" %>
+            <%= f.text_field :city, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", required: true %>
           </div>
 
           <div class="col-span-1">
             <%= f.label :state, class: "block text-sm font-medium text-gray-700" %>
-            <%= f.text_field :state, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500", maxlength: 2, placeholder: "NY" %>
+            <%= f.text_field :state, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", maxlength: 2, placeholder: "NY", required: true %>
           </div>
 
           <div class="col-span-2">
             <%= f.label :zip_code, "ZIP", class: "block text-sm font-medium text-gray-700" %>
-            <%= f.text_field :zip_code, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500" %>
+            <%= f.text_field :zip_code, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", required: true %>
           </div>
         </div>
 
         <div class="pt-4">
-          <%= f.submit "Create Organization", class: "w-full px-4 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium cursor-pointer" %>
+          <%= f.submit "Create Organization", class: "w-full px-4 py-3 bg-brand-orange text-white rounded-lg hover:bg-brand-orange-light transition-colors font-medium cursor-pointer" %>
         </div>
       <% end %>
     </div>

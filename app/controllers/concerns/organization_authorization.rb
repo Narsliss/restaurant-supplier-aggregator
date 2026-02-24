@@ -3,7 +3,7 @@ module OrganizationAuthorization
 
   included do
     helper_method :current_membership, :current_role, :accessible_locations,
-                  :owner?, :manager_or_owner?, :chef?
+                  :owner?, :manager_or_owner?, :chef?, :operator?
   end
 
   private
@@ -37,55 +37,90 @@ module OrganizationAuthorization
     current_role == 'chef'
   end
 
-  # --- Scoped Queries ---
+  # Operators can create/edit things (owners + chefs). Managers cannot.
+  def operator?
+    %w[owner chef].include?(current_role)
+  end
 
-  # Orders visible to the current user
+  # --- Scoped Queries (location-context aware) ---
+
+  # Orders visible to the current user, filtered by current_location when set
   def scoped_orders
     org = current_user.current_organization
     return Order.none unless org
 
-    if owner?
-      org.orders
-    elsif manager_or_owner?
-      # Managers see orders for their assigned locations
-      org.orders.for_locations(accessible_locations)
+    base = if owner?
+      if current_location
+        org.orders.where(location: current_location)
+      else
+        org.orders # "All Locations" aggregate
+      end
+    elsif current_role == 'manager'
+      if current_location
+        org.orders.where(location: current_location)
+      else
+        org.orders.where(location_id: accessible_locations.select(:id))
+      end
     else
-      # Chefs see only their own orders
-      current_user.orders.for_organization(org)
+      # Chef: own orders only (always at their single location)
+      current_user.orders.where(organization: org)
     end
+
+    base
   end
 
-  # Order lists visible to the current user
+  # Order lists are shared per-location (not per-user)
   def scoped_order_lists
     org = current_user.current_organization
     return OrderList.none unless org
 
-    if owner?
+    if current_location
+      # All roles see the location's shared lists
+      OrderList.where(location: current_location, organization: org)
+    elsif owner?
+      # "All Locations" — show all org lists
       org.order_lists
-    elsif current_role == 'manager'
-      org.order_lists.for_locations(accessible_locations)
     else
-      current_user.order_lists.for_organization(org)
+      # Manager without specific location — show lists for assigned locations
+      org.order_lists.where(location_id: accessible_locations.select(:id))
     end
   end
 
-  # Supplier credentials visible to the current user
+  # Supplier credentials scoped to current location
   def scoped_credentials
     org = current_user.current_organization
     return SupplierCredential.none unless org
 
     if owner?
-      org.supplier_credentials
+      if current_location
+        org.supplier_credentials.where(location: current_location)
+      else
+        org.supplier_credentials # "All Locations" aggregate
+      end
     elsif current_role == 'manager'
-      # Managers see creds for users at their assigned locations (read-only)
-      user_ids = Membership.joins(:membership_locations)
-        .where(organization: org, active: true)
-        .where(membership_locations: { location_id: accessible_locations.select(:id) })
-        .pluck(:user_id)
-      SupplierCredential.where(user_id: user_ids, organization: org)
+      # Managers see credentials at their current location (read-only enforced in controller)
+      if current_location
+        org.supplier_credentials.where(location: current_location)
+      else
+        org.supplier_credentials.where(location_id: accessible_locations.select(:id))
+      end
     else
-      # Chefs see only their own
+      # Chef: own credentials only
       current_user.supplier_credentials.where(organization: org)
+    end
+  end
+
+  # Supplier lists scoped to current location (shared per restaurant)
+  def scoped_supplier_lists
+    org = current_user.current_organization
+    return SupplierList.none unless org
+
+    if current_location
+      SupplierList.where(location: current_location, organization: org)
+    elsif owner?
+      org.supplier_lists
+    else
+      org.supplier_lists.where(location_id: accessible_locations.select(:id))
     end
   end
 
@@ -93,19 +128,38 @@ module OrganizationAuthorization
 
   def require_owner!
     unless current_user&.super_admin? || owner?
-      redirect_to root_path, alert: "Only the organization owner can perform this action."
+      redirect_to root_path
     end
   end
 
   def require_owner_or_manager!
     unless current_user&.super_admin? || manager_or_owner?
-      redirect_to root_path, alert: "You don't have permission to perform this action."
+      redirect_to root_path
+    end
+  end
+
+  # Operators = owners + chefs (can create/edit/delete operational data)
+  # Managers are read-only and blocked by this guard
+  def require_operator!
+    unless current_user&.super_admin? || operator?
+      redirect_to root_path
+    end
+  end
+
+  # Requires a specific location to be selected (blocks "All Locations" mode)
+  def require_location_context!
+    return if current_user&.super_admin?
+
+    unless current_location
+      redirect_to root_path(context: "location_required")
     end
   end
 
   def require_organization!
+    return if current_user&.super_admin?
+
     unless current_user&.current_organization
-      redirect_to new_organization_path, alert: "Please create or join an organization first."
+      redirect_to new_organization_path
     end
   end
 end

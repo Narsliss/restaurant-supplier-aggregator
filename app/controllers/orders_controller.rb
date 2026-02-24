@@ -1,5 +1,7 @@
 class OrdersController < ApplicationController
+  before_action :require_organization!
   before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status, :retry_order]
+  before_action :require_operator!, only: [:new, :create, :edit, :update, :destroy, :submit, :reorder]
 
   def index
     orders_scope = scoped_orders
@@ -31,8 +33,6 @@ class OrdersController < ApplicationController
     @order_count = orders_scope.count
 
     # Group orders by order_list_id or batch_id for split/batch order display
-    # Orders with same order_list_id were part of one split order
-    # Orders with same batch_id were submitted together as a batch
     all_orders = orders_scope.to_a
     @order_groups = all_orders.group_by { |o| o.order_list_id || o.batch_id || "standalone_#{o.id}" }
       .values
@@ -40,7 +40,7 @@ class OrdersController < ApplicationController
       .reverse
 
     @suppliers = Supplier.joins(:orders)
-      .where(orders: { user_id: current_user.id, status: %w[submitted confirmed dry_run_complete] })
+      .merge(scoped_orders.where(status: %w[submitted confirmed dry_run_complete]))
       .distinct.order(:name)
   end
 
@@ -50,7 +50,7 @@ class OrdersController < ApplicationController
   end
 
   def new
-    @order_list = current_user.order_lists.find(params[:order_list_id]) if params[:order_list_id]
+    @order_list = scoped_order_lists.find(params[:order_list_id]) if params[:order_list_id]
     @supplier = Supplier.find(params[:supplier_id]) if params[:supplier_id]
 
     if @order_list && @supplier
@@ -63,16 +63,16 @@ class OrdersController < ApplicationController
       @preview = builder.preview
       @order = builder.build
     else
-      @order = current_user.orders.new
-      @order_lists = current_user.order_lists.recent
+      @order = Order.new(user: current_user, organization: current_user.current_organization, location: current_location)
+      @order_lists = scoped_order_lists.recent
       @suppliers = Supplier.active.where(
-        id: current_user.supplier_credentials.active.select(:supplier_id)
+        id: scoped_credentials.active.select(:supplier_id)
       )
     end
   end
 
   def create
-    @order_list = current_user.order_lists.find(params[:order][:order_list_id])
+    @order_list = scoped_order_lists.find(params[:order][:order_list_id])
     @supplier = Supplier.find(params[:order][:supplier_id])
     delivery_date = params[:order][:delivery_date]
 
@@ -89,21 +89,21 @@ class OrdersController < ApplicationController
         delivery_date: delivery_date,
         notes: params[:order][:notes]
       )
-      redirect_to @order, notice: "Order created. Review and submit when ready."
+      redirect_to @order
     rescue ArgumentError => e
-      redirect_to new_order_path(order_list_id: @order_list.id), alert: e.message
+      redirect_to new_order_path(order_list_id: @order_list.id)
     end
   end
 
   def edit
-    redirect_to @order, alert: "Cannot edit submitted orders." unless @order.pending?
+    redirect_to @order unless @order.pending?
   end
 
   def update
     if @order.editable? && @order.update(order_params)
       @order.recalculate_totals!
       respond_to do |format|
-        format.html { redirect_to @order, notice: "Order updated." }
+        format.html { redirect_to @order }
         format.json { render json: { success: true, order: { id: @order.id, delivery_date: @order.delivery_date, notes: @order.notes } } }
       end
     else
@@ -117,15 +117,15 @@ class OrdersController < ApplicationController
   def destroy
     if @order.pending?
       @order.destroy
-      redirect_to orders_path, notice: "Order deleted."
+      redirect_to orders_path
     else
-      redirect_to @order, alert: "Cannot delete submitted orders."
+      redirect_to @order
     end
   end
 
   def submit
     unless @order.can_submit?
-      redirect_to @order, alert: "This order cannot be submitted."
+      redirect_to @order
       return
     end
 
@@ -137,14 +137,14 @@ class OrdersController < ApplicationController
     )
 
     @order.update!(status: "processing")
-    redirect_to @order, notice: "Order is being submitted..."
+    redirect_to @order
   end
 
   def cancel
     if @order.cancel!
-      redirect_to @order, notice: "Order cancelled."
+      redirect_to @order
     else
-      redirect_to @order, alert: "Cannot cancel this order."
+      redirect_to @order
     end
   end
 
@@ -161,7 +161,7 @@ class OrdersController < ApplicationController
   # Removes any items marked unavailable during the failed attempt.
   def retry_order
     unless @order.failed?
-      redirect_to @order, alert: "Only failed orders can be retried."
+      redirect_to @order
       return
     end
 
@@ -176,13 +176,13 @@ class OrdersController < ApplicationController
     )
     @order.recalculate_totals!
 
-    redirect_to order_path(@order), notice: "Order reset — edit items below, then submit when ready."
+    redirect_to order_path(@order)
   end
 
   # Reorder: clone a completed order's items into a new pending order at current prices
   def reorder
     if @order.processing?
-      redirect_to @order, alert: "This order is still being processed."
+      redirect_to @order
       return
     end
 
@@ -190,7 +190,9 @@ class OrdersController < ApplicationController
     new_order = nil
 
     ActiveRecord::Base.transaction do
-      new_order = current_user.orders.create!(
+      new_order = Order.create!(
+        user: current_user,
+        organization: current_user.current_organization,
         supplier: @order.supplier,
         location: current_location,
         status: "pending",
@@ -227,7 +229,7 @@ class OrdersController < ApplicationController
     end
 
     if new_order.nil? || new_order.order_items.empty?
-      redirect_to @order, alert: "None of the items from this order are currently available."
+      redirect_to @order
       return
     end
 
@@ -268,24 +270,24 @@ class OrdersController < ApplicationController
   # Automatically kicks off price verification for any pending orders.
   def review
     unless params[:batch_id].present?
-      redirect_to orders_path, alert: "No batch specified."
+      redirect_to orders_path
       return
     end
 
     @batch_id = params[:batch_id]
     @aggregated_list_id = params[:aggregated_list_id]
-    @orders = current_user.orders
+    @orders = scoped_orders
       .for_batch(@batch_id)
       .where(status: %w[pending verifying price_changed])
       .includes(:supplier, order_items: { supplier_product: :product })
 
     if @orders.empty?
       # Check if they've all been submitted already
-      submitted = current_user.orders.for_batch(@batch_id).where(status: %w[processing submitted confirmed])
+      submitted = scoped_orders.for_batch(@batch_id).where(status: %w[processing submitted confirmed])
       if submitted.any?
-        redirect_to orders_path, notice: "All orders in this batch have been submitted."
+        redirect_to orders_path
       else
-        redirect_to orders_path, alert: "No orders found for this batch."
+        redirect_to orders_path
       end
       return
     end
@@ -351,14 +353,14 @@ class OrdersController < ApplicationController
     order_ids = params[:order_ids] # optional: submit specific orders only
 
     # Accept orders that are pending (verified) or have accepted price changes
-    orders = current_user.orders.for_batch(batch_id).where(status: %w[pending price_changed])
+    orders = scoped_orders.for_batch(batch_id).where(status: %w[pending price_changed])
 
     if order_ids.present?
       orders = orders.where(id: order_ids)
     end
 
     if orders.empty?
-      redirect_to orders_path, alert: "No pending orders found for this batch."
+      redirect_to orders_path
       return
     end
 
@@ -381,16 +383,16 @@ class OrdersController < ApplicationController
     # Single order: redirect to show page so user sees real-time processing status
     # Multiple orders: redirect to batch progress page for real-time tracking
     if orders.size == 1
-      redirect_to order_path(orders.first), notice: "Order is being submitted to #{orders.first.supplier.name}..."
+      redirect_to order_path(orders.first)
     else
-      redirect_to batch_progress_orders_path(batch_id: batch_id), notice: "#{orders.size} orders are being submitted..."
+      redirect_to batch_progress_orders_path(batch_id: batch_id)
     end
   end
 
   # JSON endpoint for polling verification status from the review page
   def verification_status
     batch_id = params[:batch_id]
-    orders = current_user.orders.for_batch(batch_id)
+    orders = scoped_orders.for_batch(batch_id)
       .includes(:supplier, order_items: :supplier_product)
 
     order_statuses = orders.map do |order|
@@ -458,7 +460,7 @@ class OrdersController < ApplicationController
     batch_id = params[:batch_id]
     order_ids = params[:order_ids] || []
 
-    orders = current_user.orders.for_batch(batch_id).where(status: "price_changed")
+    orders = scoped_orders.for_batch(batch_id).where(status: "price_changed")
     orders = orders.where(id: order_ids) if order_ids.present?
 
     if orders.empty?
@@ -483,7 +485,7 @@ class OrdersController < ApplicationController
     batch_id = params[:batch_id]
     order_ids = params[:order_ids] || []
 
-    orders = current_user.orders.for_batch(batch_id).where(verification_status: "failed")
+    orders = scoped_orders.for_batch(batch_id).where(verification_status: "failed")
     orders = orders.where(id: order_ids) if order_ids.present?
 
     orders.each do |order|
@@ -502,9 +504,9 @@ class OrdersController < ApplicationController
     batch_id = params[:batch_id]
     order_ids = params[:order_ids] || []
 
-    orders = current_user.orders.for_batch(batch_id)
+    orders = scoped_orders.for_batch(batch_id)
       .where(status: %w[verifying price_changed])
-      .or(current_user.orders.for_batch(batch_id).where(verification_status: "failed"))
+      .or(scoped_orders.for_batch(batch_id).where(verification_status: "failed"))
     orders = orders.where(id: order_ids) if order_ids.present?
 
     orders.each do |order|
@@ -520,14 +522,14 @@ class OrdersController < ApplicationController
 
   # Split order - preview
   def split_preview
-    @order_list = current_user.order_lists.find(params[:order_list_id])
+    @order_list = scoped_order_lists.find(params[:order_list_id])
     @service = Orders::SplitOrderService.new(@order_list, location: current_location)
     @preview = @service.preview
   end
 
   # Split order - create all orders
   def split_create
-    @order_list = current_user.order_lists.find(params[:order_list_id])
+    @order_list = scoped_order_lists.find(params[:order_list_id])
     delivery_date = params[:delivery_date]
 
     service = Orders::SplitOrderService.new(@order_list, location: current_location)
@@ -537,9 +539,9 @@ class OrdersController < ApplicationController
 
       if params[:submit_immediately] == "true"
         service.submit_all!(@orders)
-        redirect_to orders_path, notice: "#{@orders.size} orders created and submitted to suppliers."
+        redirect_to orders_path
       else
-        redirect_to orders_path, notice: "#{@orders.size} orders created. Review and submit when ready."
+        redirect_to orders_path
       end
     rescue Orders::SplitOrderService::OrderMinimumError => e
       redirect_to split_preview_orders_path(order_list_id: @order_list.id),
@@ -560,7 +562,7 @@ class OrdersController < ApplicationController
       .order(:id)
 
     if @orders.empty?
-      redirect_to orders_path, alert: "No orders found for this batch."
+      redirect_to orders_path
       return
     end
 
@@ -603,9 +605,9 @@ class OrdersController < ApplicationController
 
   def find_batch_orders
     if params[:batch_id].present?
-      current_user.orders.for_batch(params[:batch_id])
+      scoped_orders.for_batch(params[:batch_id])
     elsif params[:order_list_id].present?
-      current_user.orders.where(order_list_id: params[:order_list_id])
+      scoped_orders.where(order_list_id: params[:order_list_id])
     else
       Order.none
     end
