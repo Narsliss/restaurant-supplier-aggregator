@@ -16,7 +16,7 @@ Rails.application.configure do
   config.log_level = ENV.fetch('RAILS_LOG_LEVEL', 'info')
   config.action_mailer.perform_caching = false
   config.action_mailer.raise_delivery_errors = true
-  config.action_mailer.default_url_options = { host: 'web-production-0bed.up.railway.app', protocol: 'https' }
+  config.action_mailer.default_url_options = { host: 'pretty-friendship-production-7e4d.up.railway.app', protocol: 'https' }
   config.action_mailer.delivery_method = :smtp
   config.action_mailer.smtp_settings = {
     address: 'smtp.sendgrid.net',
@@ -24,7 +24,7 @@ Rails.application.configure do
     authentication: :plain,
     user_name: 'apikey',
     password: ENV['SENDGRID_API_KEY'],
-    domain: 'web-production-0bed.up.railway.app',
+    domain: 'pretty-friendship-production-7e4d.up.railway.app',
     enable_starttls_auto: true
   }
   config.i18n.fallbacks = true
@@ -33,9 +33,9 @@ Rails.application.configure do
   config.active_record.dump_schema_after_migration = false
 
   # ActionCable
-  config.action_cable.url = 'wss://web-production-0bed.up.railway.app/cable'
+  config.action_cable.url = 'wss://pretty-friendship-production-7e4d.up.railway.app/cable'
   config.action_cable.allowed_request_origins = [
-    'https://web-production-0bed.up.railway.app',
+    'https://pretty-friendship-production-7e4d.up.railway.app',
     %r{https://.*\.up\.railway\.app}
   ]
 end
