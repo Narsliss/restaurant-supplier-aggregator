@@ -11,7 +11,7 @@
         <%= render "shared/logo", variant: :login_mobile %>
       </div>
 
-      <% if @reset_email_sent %>
+      <% if params[:sent] %>
         <!-- Success state: persistent info message -->
         <div>
           <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50">

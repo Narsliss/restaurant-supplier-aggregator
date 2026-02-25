@@ -26,6 +26,10 @@ module RestaurantSupplierAggregator
     # Active Job configuration
     config.active_job.queue_adapter = :solid_queue
 
+    # Route mailer jobs to the default queue (instead of "mailers")
+    # so Solid Queue workers pick them up
+    config.action_mailer.deliver_later_queue_name = :default
+
     # Action Cable configuration
     config.action_cable.mount_path = "/cable"
   end

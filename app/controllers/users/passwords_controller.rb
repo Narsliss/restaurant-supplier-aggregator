@@ -6,10 +6,9 @@ class Users::PasswordsController < Devise::PasswordsController
     yield resource if block_given?
 
     if successfully_sent?(resource)
-      @reset_email_sent = true
-      # Re-render the form with success message instead of redirecting
-      self.resource = resource_class.new
-      render :new
+      # Redirect with query param so the view shows the "check your email" state
+      # This works with Turbo (which expects a redirect after POST)
+      redirect_to new_user_password_path(sent: true)
     else
       respond_with(resource)
     end
