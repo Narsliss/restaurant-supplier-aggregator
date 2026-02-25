@@ -10,6 +10,8 @@ class DashboardController < ApplicationController
       load_owner_dashboard
     elsif current_role == 'manager'
       load_manager_dashboard
+    elsif chef_needs_onboarding?
+      load_chef_onboarding_steps
     else
       load_chef_dashboard
     end
@@ -152,5 +154,48 @@ class DashboardController < ApplicationController
       order_lists: scoped_order_lists.count,
       total_savings: scoped_orders.sum(:savings_amount)
     }
+
+    # Getting-started cards for chefs (shown after at least one credential connected)
+    org = current_user.current_organization
+    @getting_started = [
+      { title: "Connect a supplier", description: "Link your supplier account to pull in pricing and order guides", done: true, path: new_supplier_credential_path, cta: "Connect" },
+      { title: "Import your order lists", description: "Pull in order guides and shopping lists from connected suppliers", done: scoped_supplier_lists.any?, path: supplier_lists_path, cta: "Import" }
+    ]
+    @getting_started = nil if @getting_started.all? { |s| s[:done] } || current_user.onboarding_dismissed_at?
+  end
+
+  def chef_needs_onboarding?
+    return false unless chef?
+
+    org = current_user.current_organization
+    return false unless org
+
+    current_user.supplier_credentials.where(organization: org).none?
+  end
+
+  def load_chef_onboarding_steps
+    org = current_user.current_organization
+    has_credentials = current_user.supplier_credentials.where(organization: org).any?
+
+    @chef_onboarding_steps = [
+      {
+        key: :connect_supplier,
+        title: "Connect a supplier account",
+        description: "Link your US Foods, Chef's Warehouse, or other supplier login so we can pull in your order guides",
+        done: has_credentials,
+        path: new_supplier_credential_path,
+        cta: "Connect Supplier"
+      },
+      {
+        key: :import_lists,
+        title: "Import your order lists",
+        description: "Pull in your order guides and saved lists from connected suppliers",
+        done: has_credentials && scoped_supplier_lists.any?,
+        path: supplier_lists_path,
+        cta: "Import Lists"
+      }
+    ]
+
+    @chef_onboarding_complete = false
   end
 end

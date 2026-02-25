@@ -115,13 +115,25 @@ module OrganizationAuthorization
     org = current_user.current_organization
     return SupplierList.none unless org
 
-    if current_location
+    base = if current_location
       SupplierList.where(location: current_location, organization: org)
     elsif owner?
       org.supplier_lists
     else
       org.supplier_lists.where(location_id: accessible_locations.select(:id))
     end
+
+    # Chefs only see lists from suppliers they have credentials for.
+    # Uses supplier_id (not supplier_credential_id) so if the owner imported
+    # lists and the chef has the same supplier connected, the chef sees them.
+    if chef?
+      chef_supplier_ids = current_user.supplier_credentials
+                            .where(organization: org)
+                            .select(:supplier_id)
+      base = base.where(supplier_id: chef_supplier_ids)
+    end
+
+    base
   end
 
   # --- Guards ---

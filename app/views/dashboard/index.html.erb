@@ -1,6 +1,93 @@
 <% content_for :title, "Dashboard" %>
 
-<% if @onboarding_steps.present? && !@onboarding_complete %>
+<% if @chef_onboarding_steps.present? && !@chef_onboarding_complete %>
+  <%# ============================================================= %>
+  <%# CHEF ONBOARDING — welcome state for chefs with no suppliers   %>
+  <%# ============================================================= %>
+  <div class="-mx-4 sm:-mx-6 lg:-mx-8 -mt-10 mb-8">
+    <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+      <img src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1920&q=80"
+           alt="Restaurant kitchen"
+           class="absolute inset-0 h-full w-full object-cover opacity-15"
+           onerror="this.style.display='none'">
+      <div class="relative px-6 py-12 sm:px-12 sm:py-16">
+        <h1 class="text-3xl sm:text-4xl font-heading font-bold text-white tracking-wide">
+          Welcome to SupplierHub, <%= current_user.first_name || current_user.email.split('@').first %>!
+        </h1>
+        <p class="mt-2 text-lg text-gray-300 font-body">Connect your supplier accounts to start comparing prices and managing orders<%= " at #{current_location.name}" if current_location %>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="max-w-2xl mx-auto">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-5 border-b border-gray-100">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-heading font-semibold text-gray-900">Get Started</h2>
+            <p class="mt-1 text-sm text-gray-500">Connect a supplier to unlock SupplierHub.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-gray-500">
+              <%= @chef_onboarding_steps.count { |s| s[:done] } %> / <%= @chef_onboarding_steps.size %>
+            </span>
+            <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div class="h-full bg-brand-green rounded-full transition-all duration-500"
+                   style="width: <%= (@chef_onboarding_steps.count { |s| s[:done] }.to_f / @chef_onboarding_steps.size * 100).round %>%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="divide-y divide-gray-100">
+        <% @chef_onboarding_steps.each_with_index do |step, i| %>
+          <li class="flex items-center gap-4 px-6 py-5 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
+            <%# Step indicator %>
+            <div class="flex-shrink-0">
+              <% if step[:done] %>
+                <div class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-green">
+                  <svg class="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                  </svg>
+                </div>
+              <% else %>
+                <div class="flex h-9 w-9 items-center justify-center rounded-full border-2 border-gray-300 text-sm font-semibold text-gray-500">
+                  <%= i + 1 %>
+                </div>
+              <% end %>
+            </div>
+
+            <%# Step content %>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>">
+                <%= step[:title] %>
+              </p>
+              <p class="mt-0.5 text-sm text-gray-500"><%= step[:description] %></p>
+            </div>
+
+            <%# Action button %>
+            <% if !step[:done] && step[:cta] %>
+              <%= link_to step[:cta], step[:path],
+                  class: "flex-shrink-0 inline-flex items-center rounded-md bg-brand-orange px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
+            <% elsif step[:done] %>
+              <span class="flex-shrink-0 inline-flex items-center gap-1 text-sm text-brand-green font-medium">
+                <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                </svg>
+                Done
+              </span>
+            <% end %>
+          </li>
+        <% end %>
+      </ol>
+    </div>
+
+    <p class="mt-4 text-center text-sm text-gray-400">
+      Need help? Reach out to <a href="mailto:support@supplierhub.com" class="text-brand-orange hover:underline">support@supplierhub.com</a>
+    </p>
+  </div>
+
+<% elsif @onboarding_steps.present? && !@onboarding_complete %>
   <%# ============================================================= %>
   <%# ONBOARDING — shown instead of normal dashboard until complete  %>
   <%# ============================================================= %>
