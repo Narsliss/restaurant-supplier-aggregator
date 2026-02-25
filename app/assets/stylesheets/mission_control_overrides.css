@@ -1,0 +1,97 @@
+/*
+ * SupplierHub theme overrides for Mission Control Jobs dashboard.
+ * Rethemes Bulma's default blue/purple to match brand colors.
+ *
+ * Brand palette:
+ *   Green dark: #3A6147
+ *   Green:      #4A7C59
+ *   Green light: #5E9B6E
+ *   Orange:     #D4943A
+ *   Orange dark: #B87D2F
+ *   Stone:      #F5F0EB
+ */
+
+:root {
+  /* Primary → brand green */
+  --bulma-primary-h: 140;
+  --bulma-primary-s: 28%;
+  --bulma-primary-l: 39%;
+
+  /* Link → brand green */
+  --bulma-link-h: 140;
+  --bulma-link-s: 28%;
+  --bulma-link-l: 39%;
+
+  /* Info → softer green */
+  --bulma-info-h: 140;
+  --bulma-info-s: 25%;
+  --bulma-info-l: 45%;
+
+  /* Warning → brand orange */
+  --bulma-warning-h: 33;
+  --bulma-warning-s: 65%;
+  --bulma-warning-l: 53%;
+
+  /* Success → green (keep close to default) */
+  --bulma-success-h: 140;
+  --bulma-success-s: 35%;
+  --bulma-success-l: 42%;
+
+  /* Background → warm stone tint */
+  --bulma-scheme-h: 28;
+  --bulma-scheme-s: 30%;
+  --bulma-body-background-color: #FAFAF8;
+}
+
+/* Active tab styling */
+.tabs a.is-active,
+.tabs li.is-active a {
+  color: #3A6147 !important;
+  border-bottom-color: #3A6147 !important;
+}
+
+/* Table header accents */
+.table thead th {
+  color: #3A6147;
+}
+
+/* Tag/badge overrides */
+.tag.is-link,
+.tag.is-primary {
+  background-color: #4A7C59 !important;
+}
+
+.tag.is-warning {
+  background-color: #D4943A !important;
+  color: white !important;
+}
+
+/* Button overrides */
+.button.is-primary,
+.button.is-link {
+  background-color: #4A7C59 !important;
+  border-color: #4A7C59 !important;
+}
+
+.button.is-primary:hover,
+.button.is-link:hover {
+  background-color: #3A6147 !important;
+  border-color: #3A6147 !important;
+}
+
+/* Navigation tabs hover */
+.tabs a:hover {
+  color: #3A6147;
+  border-bottom-color: #3A6147;
+}
+
+/* Progress bar colors */
+.progress.is-primary::-webkit-progress-value,
+.progress.is-link::-webkit-progress-value {
+  background-color: #4A7C59;
+}
+
+.progress.is-primary::-moz-progress-bar,
+.progress.is-link::-moz-progress-bar {
+  background-color: #4A7C59;
+}

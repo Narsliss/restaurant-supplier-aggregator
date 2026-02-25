@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SupplierHub Jobs - <%= page_title %></title>
+  <%= csrf_meta_tags %>
+  <%= csp_meta_tag %>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="turbo-cache-control" content="no-cache">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.1/css/bulma.min.css">
+  <%= stylesheet_link_tag "mission_control/jobs/application", "data-turbo-track": "reload" %>
+  <%= stylesheet_link_tag "mission_control_overrides", "data-turbo-track": "reload" %>
+  <%= javascript_importmap_tags "application-mcj" %>
+</head>
+<body>
+  <%# Branded header bar matching SupplierHub nav (inline styles to avoid Tailwind/Bulma conflicts) %>
+  <nav style="background-color: #3A6147; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 0.75rem;">
+      <a href="<%= main_app.root_path %>" style="display: flex; align-items: center; gap: 0.5rem; text-decoration: none;">
+        <%# Inline logo SVG (source: app/assets/images/logo-white.svg) %>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" style="width: 32px; height: 32px;">
+          <rect x="4" y="16" width="32" height="20" rx="2" fill="#D4943A"/>
+          <path d="M2 12C2 10.8954 2.89543 10 4 10H36C37.1046 10 38 10.8954 38 12V16H2V12Z" fill="white"/>
+          <rect x="17" y="10" width="6" height="26" fill="white" opacity="0.1"/>
+          <path d="M20 6C20 6 24 8 24 10H16C16 8 20 6 20 6Z" fill="#4A7C59"/>
+          <g transform="translate(14, 19)">
+            <rect x="0" y="0" width="1.5" height="8" rx="0.75" fill="white"/>
+            <rect x="3.5" y="0" width="1.5" height="8" rx="0.75" fill="white"/>
+            <rect x="7" y="0" width="1.5" height="8" rx="0.75" fill="white"/>
+            <rect x="0" y="7" width="8.5" height="2" rx="1" fill="white"/>
+            <rect x="3" y="8" width="2.5" height="5" rx="1" fill="white"/>
+          </g>
+          <circle cx="33" cy="11" r="5" fill="#4A7C59"/>
+          <path d="M30.5 11L32 12.5L35.5 9.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span style="color: white; font-weight: 700; font-size: 1.1rem; font-family: system-ui, -apple-system, sans-serif;">SupplierHub</span>
+      </a>
+      <span style="color: rgba(255,255,255,0.3); font-size: 1.25rem; font-weight: 300;">/</span>
+      <span style="color: rgba(255,255,255,0.85); font-size: 0.9rem; font-weight: 500; font-family: system-ui, -apple-system, sans-serif;">Jobs Dashboard</span>
+    </div>
+    <a href="<%= main_app.root_path %>" style="display: inline-flex; align-items: center; gap: 0.375rem; color: rgba(255,255,255,0.85); text-decoration: none; font-size: 0.875rem; font-weight: 500; font-family: system-ui, -apple-system, sans-serif; padding: 0.375rem 0.75rem; border-radius: 0.375rem; background: rgba(255,255,255,0.1); transition: background 0.15s;"
+       onmouseover="this.style.background='rgba(255,255,255,0.2)'"
+       onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="width: 16px; height: 16px;">
+        <path fill-rule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 011.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clip-rule="evenodd" />
+      </svg>
+      Back to Dashboard
+    </a>
+  </nav>
+
+  <section class="section">
+    <div class="container">
+      <%= render "layouts/mission_control/jobs/application_selection" %>
+      <%= render "layouts/mission_control/jobs/flash" %>
+      <%= render "layouts/mission_control/jobs/navigation" %>
+      <%= yield %>
+    </div>
+  </section>
+</body>
+</html>
