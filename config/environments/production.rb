@@ -15,6 +15,7 @@ Rails.application.configure do
   config.log_tags = [:request_id]
   config.log_level = ENV.fetch('RAILS_LOG_LEVEL', 'info')
   config.action_mailer.perform_caching = false
+  config.action_mailer.raise_delivery_errors = true
   config.action_mailer.default_url_options = { host: 'web-production-0bed.up.railway.app', protocol: 'https' }
   config.action_mailer.delivery_method = :smtp
   config.action_mailer.smtp_settings = {
