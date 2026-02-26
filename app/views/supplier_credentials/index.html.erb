@@ -114,9 +114,9 @@
           <% end %>
 
           <% if credential.last_import_at.present? %>
-            <p class="text-xs text-gray-400 mt-1">Products updated <%= time_ago_in_words(credential.last_import_at) %> ago</p>
+            <p class="text-xs text-gray-400 mt-1">Catalog synced <%= time_ago_in_words(credential.last_import_at) %> ago</p>
           <% elsif credential.active? %>
-            <p class="text-xs text-gray-400 mt-1">Products not yet imported</p>
+            <p class="text-xs text-gray-400 mt-1">Order guides ready · catalog sync pending</p>
           <% end %>
           <% if credential.last_login_at.present? %>
             <p class="text-xs text-gray-400 mt-0.5">

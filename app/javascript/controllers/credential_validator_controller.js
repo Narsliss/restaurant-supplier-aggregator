@@ -147,23 +147,27 @@ export default class extends Controller {
     const cred = data.credential
     const tfa = data.two_fa_request
 
-    // When there's an active 2FA request, always handle it first —
+    // When there's an active 2FA request, handle it first —
     // the credential may still be "active" while the background job waits for a code
     if (tfa) {
       if (tfa.status === "pending") {
         // Scraper is waiting for user code
         this.showState("awaiting_code", null, tfa)
+        return
       } else if (tfa.status === "submitted") {
         // Code submitted, scraper is verifying
         this.showState("verifying")
+        return
       } else if (tfa.status === "verified") {
-        this.stopPolling()
-        this.showState("success")
+        // 2FA code accepted! But the background job is still completing
+        // the login (clicking continue, saving session, etc.) and then
+        // starts imports. Fall through to credential status checks below
+        // so the user sees "Validating..." → "Importing..." → success.
       } else if (tfa.status === "failed" || tfa.status === "expired") {
         // Check if a new request replaced this one (retry flow)
         // Keep polling — the scraper may create a new request
+        return
       }
-      return
     }
 
     // No active 2FA request — check credential status
