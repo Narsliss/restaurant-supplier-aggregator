@@ -235,11 +235,12 @@ export default class extends Controller {
 
     switch (state) {
       case "importing":
+        this._sawImportingState = true
         this.updateBadge(message || "Importing...", "bg-blue-100 text-blue-800")
         this.disableValidateBtn(message || "Importing...")
         this.showStatusBlock(
-          message || "Importing products...",
-          "We're pulling in your product catalog from this supplier. This may take a minute or two."
+          message || "Importing order guides...",
+          "We're pulling in your order guides and products from this supplier. This may take a minute or two."
         )
         this.showImportBtn()
         this.disableImportBtn(message)
@@ -522,6 +523,14 @@ export default class extends Controller {
 
   // ── Success flash ────────────────────────────────────────────────
   showSuccessFlash() {
+    // Pick a message based on whether we went through an import cycle
+    const wasImporting = this._sawImportingState
+    this._sawImportingState = false
+
+    const message = wasImporting
+      ? "Supplier connected! Order guides have been imported."
+      : "Credentials verified successfully!"
+
     // Insert a temporary green flash at top of page
     const flash = document.createElement("div")
     flash.className = "fixed top-4 right-4 z-50 bg-green-50 border border-green-300 text-green-800 px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-2"
@@ -529,7 +538,7 @@ export default class extends Controller {
       <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      Credentials verified successfully!
+      ${message}
     `
     document.body.appendChild(flash)
     setTimeout(() => flash.remove(), 5000)

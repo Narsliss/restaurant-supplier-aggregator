@@ -51,7 +51,7 @@
                   </svg>
                 </div>
               <% else %>
-                <div class="flex h-9 w-9 items-center justify-center rounded-full border-2 border-gray-300 text-sm font-semibold text-gray-500">
+                <div class="flex h-9 w-9 items-center justify-center rounded-full border-2 <%= step[:required] ? 'border-brand-orange' : 'border-gray-300' %> text-sm font-semibold <%= step[:required] ? 'text-brand-orange' : 'text-gray-500' %>">
                   <%= i + 1 %>
                 </div>
               <% end %>
@@ -61,12 +61,16 @@
             <div class="flex-1 min-w-0">
               <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>">
                 <%= step[:title] %>
+                <% unless step[:required] %>
+                  <span class="ml-1 text-xs font-normal text-gray-400">Optional</span>
+                <% end %>
               </p>
               <p class="mt-0.5 text-sm text-gray-500"><%= step[:description] %></p>
             </div>
 
-            <%# Action button %>
-            <% if !step[:done] && step[:cta] %>
+            <%# Action button — hide CTA if a prior required step is incomplete %>
+            <% prior_required_incomplete = @chef_onboarding_steps[0...i].any? { |s| s[:required] && !s[:done] } %>
+            <% if !step[:done] && step[:cta] && !prior_required_incomplete %>
               <%= link_to step[:cta], step[:path],
                   class: "flex-shrink-0 inline-flex items-center rounded-md bg-brand-orange px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
             <% elsif step[:done] %>
@@ -87,9 +91,9 @@
     </p>
   </div>
 
-<% elsif @onboarding_steps.present? && !@onboarding_complete %>
+<% elsif @onboarding_steps.present? && !@onboarding_complete && @onboarding_hard_gate %>
   <%# ============================================================= %>
-  <%# ONBOARDING — shown instead of normal dashboard until complete  %>
+  <%# ONBOARDING HARD GATE — full-page wizard until org + restaurant %>
   <%# ============================================================= %>
   <div class="-mx-4 sm:-mx-6 lg:-mx-8 -mt-10 mb-8">
     <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
@@ -112,7 +116,7 @@
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-lg font-heading font-semibold text-gray-900">Account Setup</h2>
-            <p class="mt-1 text-sm text-gray-500">Complete these steps to unlock SupplierHub.</p>
+            <p class="mt-1 text-sm text-gray-500">Complete these steps to get started with SupplierHub.</p>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-gray-500">
@@ -138,7 +142,7 @@
                   </svg>
                 </div>
               <% else %>
-                <div class="flex h-9 w-9 items-center justify-center rounded-full border-2 border-gray-300 text-sm font-semibold text-gray-500">
+                <div class="flex h-9 w-9 items-center justify-center rounded-full border-2 <%= step[:required] ? 'border-brand-orange' : 'border-gray-300' %> text-sm font-semibold <%= step[:required] ? 'text-brand-orange' : 'text-gray-500' %>">
                   <%= i + 1 %>
                 </div>
               <% end %>
@@ -148,12 +152,16 @@
             <div class="flex-1 min-w-0">
               <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>">
                 <%= step[:title] %>
+                <% unless step[:required] %>
+                  <span class="ml-1 text-xs font-normal text-gray-400">Optional</span>
+                <% end %>
               </p>
               <p class="mt-0.5 text-sm text-gray-500"><%= step[:description] %></p>
             </div>
 
-            <%# Action button %>
-            <% if !step[:done] && step[:cta] %>
+            <%# Action button — hide CTA if a prior required step is incomplete %>
+            <% prior_required_incomplete = @onboarding_steps[0...i].any? { |s| s[:required] && !s[:done] } %>
+            <% if !step[:done] && step[:cta] && !prior_required_incomplete %>
               <%= link_to step[:cta], step[:path],
                   class: "flex-shrink-0 inline-flex items-center rounded-md bg-brand-orange px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
             <% elsif step[:done] %>
@@ -167,6 +175,13 @@
           </li>
         <% end %>
       </ol>
+
+      <% if @required_steps_complete %>
+        <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-center">
+          <%= button_to "Go to Dashboard →", dismiss_onboarding_path, method: :post,
+              class: "inline-flex items-center rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" %>
+        </div>
+      <% end %>
     </div>
 
     <p class="mt-4 text-center text-sm text-gray-400">
@@ -223,39 +238,68 @@
     </div>
   <% end %>
 
-  <!-- Getting Started -->
-  <% if @getting_started.present? %>
-    <div class="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-semibold text-gray-900">Finish setting up your account</h3>
-        <div class="flex items-center gap-3">
-          <span class="text-xs text-gray-500"><%= @getting_started.count { |s| s[:done] } %>/<%= @getting_started.size %> done</span>
-          <%= button_to dismiss_onboarding_path, method: :post, class: "text-xs text-gray-400 hover:text-gray-600" do %>
-            Dismiss
-          <% end %>
-        </div>
-      </div>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <% @getting_started.each do |step| %>
-          <div class="flex items-center gap-3 rounded-lg border p-3 <%= step[:done] ? 'border-green-200 bg-green-50/50' : 'border-gray-200' %>">
-            <% if step[:done] %>
-              <div class="flex-shrink-0 h-6 w-6 rounded-full bg-brand-green flex items-center justify-center">
-                <svg class="h-3.5 w-3.5 text-white" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
-                </svg>
+  <!-- Setup Wizard (inline) — shown until all steps complete or dismissed -->
+  <% if @onboarding_steps.present? && !@onboarding_complete %>
+    <div class="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-heading font-semibold text-white">Finish Setting Up</h3>
+            <p class="mt-0.5 text-sm text-white/70">Complete these steps to get the most out of SupplierHub.</p>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-white/80">
+                <%= @onboarding_steps.count { |s| s[:done] } %> / <%= @onboarding_steps.size %>
+              </span>
+              <div class="w-20 h-2 bg-white/20 rounded-full overflow-hidden">
+                <div class="h-full bg-white rounded-full transition-all duration-500"
+                     style="width: <%= (@onboarding_steps.count { |s| s[:done] }.to_f / @onboarding_steps.size * 100).round %>%"></div>
               </div>
-            <% else %>
-              <div class="flex-shrink-0 h-6 w-6 rounded-full border-2 border-gray-300"></div>
-            <% end %>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>"><%= step[:title] %></p>
             </div>
-            <% unless step[:done] %>
-              <%= link_to step[:cta], step[:path], class: "flex-shrink-0 text-xs font-medium text-brand-orange hover:text-brand-orange-dark" %>
+            <%= button_to dismiss_onboarding_path, method: :post, class: "text-sm text-white/60 hover:text-white transition-colors" do %>
+              Dismiss
             <% end %>
           </div>
-        <% end %>
+        </div>
       </div>
+
+      <ol class="divide-y divide-gray-100">
+        <% @onboarding_steps.each_with_index do |step, i| %>
+          <li class="flex items-center gap-4 px-6 py-4 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
+            <div class="flex-shrink-0">
+              <% if step[:done] %>
+                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green">
+                  <svg class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                  </svg>
+                </div>
+              <% else %>
+                <div class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 text-xs font-semibold text-gray-500">
+                  <%= i + 1 %>
+                </div>
+              <% end %>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>">
+                <%= step[:title] %>
+              </p>
+              <p class="mt-0.5 text-xs text-gray-500"><%= step[:description] %></p>
+            </div>
+            <% if !step[:done] && step[:cta] %>
+              <%= link_to step[:cta], step[:path],
+                  class: "flex-shrink-0 inline-flex items-center rounded-md bg-brand-orange px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
+            <% elsif step[:done] %>
+              <span class="flex-shrink-0 inline-flex items-center gap-1 text-xs text-brand-green font-medium">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                </svg>
+                Done
+              </span>
+            <% end %>
+          </li>
+        <% end %>
+      </ol>
     </div>
   <% end %>
 

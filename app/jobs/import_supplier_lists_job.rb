@@ -30,5 +30,11 @@ class ImportSupplierListsJob < ApplicationJob
       sync_status: 'failed', sync_error: "#{e.class}: #{e.message}"
     )
     raise # Let Solid Queue handle retries
+  ensure
+    # Clear the importing flag so the Stimulus UI transitions from
+    # "Importing order guides..." to the success state.
+    if credential&.persisted? && credential.importing?
+      credential.update_columns(importing: false, import_status_text: nil)
+    end
   end
 end

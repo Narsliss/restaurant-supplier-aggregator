@@ -5,5 +5,7 @@ en:
       signed_in: ""
       signed_out: ""
       already_signed_out: ""
+    registrations:
+      signed_up: ""
     failure:
       unauthenticated: ""

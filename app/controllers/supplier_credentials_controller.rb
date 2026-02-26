@@ -72,7 +72,7 @@ class SupplierCredentialsController < ApplicationController
                   "#{@credential.supplier.name} credentials saved. Validating now — this usually takes 15-30 seconds."
                 end
 
-      redirect_to supplier_credentials_path
+      redirect_to supplier_credentials_path, notice: message
     else
       Rails.logger.warn "[SupplierCredentials] Failed to create credential: #{@credential.errors.full_messages.join(', ')}"
       render :new, status: :unprocessable_entity
@@ -108,7 +108,7 @@ class SupplierCredentialsController < ApplicationController
                   "#{@credential.supplier.name} credentials updated. Re-validating now — this usually takes 15-30 seconds."
                 end
 
-      redirect_to supplier_credentials_path
+      redirect_to supplier_credentials_path, notice: message
     else
       Rails.logger.warn "[SupplierCredentials] Failed to update credential ##{@credential.id}: #{@credential.errors.full_messages.join(', ')}"
       render :edit, status: :unprocessable_entity
@@ -178,7 +178,7 @@ class SupplierCredentialsController < ApplicationController
 
     respond_to do |format|
       format.html do
-        redirect_to supplier_credentials_path
+        redirect_to supplier_credentials_path, notice: message
       end
       format.json do
         render json: { status: 'validating', credential_id: @credential.id, supplier: @credential.supplier.name }

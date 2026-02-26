@@ -79,7 +79,10 @@ class ApplicationController < ActionController::Base
   end
 
   # Onboarding gate — new users must complete setup before using the rest of the app
-  # Applies to: users with no org, or owners whose org is missing locations/suppliers
+  #
+  # Owners:  1) create org, 2) add restaurant, 3) invite at least one team member
+  # Chefs:   1) connect at least one supplier credential
+  # Managers: no gate (they can view data immediately)
   def onboarding_incomplete?
     return false unless current_user
     return false if current_user.super_admin?
@@ -87,10 +90,21 @@ class ApplicationController < ActionController::Base
     org = current_user.current_organization
     return true unless org # no org yet — definitely incomplete
 
-    # Only owners are gated; managers/chefs were invited so they're already set up
+    # Chefs must connect at least one supplier before using the app
+    if chef?
+      return current_user.supplier_credentials.where(organization: org).none?
+    end
+
+    # Only owners are gated beyond this point
     return false unless owner?
 
-    !org.locations.any?
+    # Must have at least one restaurant
+    return true unless org.locations.any?
+
+    # Must have invited at least one team member (pending invite counts)
+    has_team = org.memberships.where(active: true).count > 1 ||
+               org.organization_invitations.pending.any?
+    !has_team
   end
 
   def ensure_onboarding_complete

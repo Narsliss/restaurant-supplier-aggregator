@@ -20,6 +20,10 @@ class ValidateCredentialsJob < ApplicationJob
       Rails.logger.info "[ValidateCredentialsJob] Credentials valid for #{credential.supplier.name}"
       credential.mark_active!
 
+      # Flag the credential as importing so the Stimulus polling UI shows
+      # "Importing order guides..." while the background jobs run.
+      credential.update_columns(importing: true, import_status_text: 'Importing order guides...')
+
       # Kick off initial imports so the user sees products and lists immediately
       # instead of waiting for the next cron cycle (up to 15 min for products,
       # 24 hours for lists).
