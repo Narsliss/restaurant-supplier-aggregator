@@ -122,6 +122,7 @@ module Scrapers
 
       fill_field("input[name='email'], #email", credential.username)
       fill_field("input[name='password'], #password", credential.password)
+      check_remember_me
       click("button[type='submit'], .login-button, .btn-login")
 
       wait_for_page_load

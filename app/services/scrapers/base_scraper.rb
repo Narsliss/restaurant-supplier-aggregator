@@ -342,6 +342,74 @@ module Scrapers
       match[0].gsub(',', '').to_f
     end
 
+    # Check any "remember me" / "keep me signed in" / "stay signed in" checkbox
+    # on the current page. Call after filling credentials and before clicking submit.
+    # Uses JavaScript to find and check common checkbox patterns without disrupting
+    # the login form state.
+    def check_remember_me
+      result = browser.evaluate(<<~JS)
+        (function() {
+          // Common selectors for remember-me checkboxes
+          var selectors = [
+            'input[name*="remember"]',
+            'input[name*="Remember"]',
+            'input[id*="remember"]',
+            'input[id*="Remember"]',
+            'input[name*="keep"]',
+            'input[name*="stay"]',
+            'input[name*="persist"]',
+            '#rememberMe',
+            '#remember-me',
+            '#keepSignedIn',
+            '#staySignedIn'
+          ];
+
+          for (var i = 0; i < selectors.length; i++) {
+            var cb = document.querySelector(selectors[i]);
+            if (cb && cb.type === 'checkbox' && cb.offsetParent !== null && !cb.checked) {
+              cb.click();
+              return { checked: true, selector: selectors[i] };
+            }
+            if (cb && cb.type === 'checkbox' && cb.checked) {
+              return { checked: true, selector: selectors[i], already: true };
+            }
+          }
+
+          // Fallback: look for any checkbox near text containing "remember" or "signed in"
+          var labels = document.querySelectorAll('label');
+          for (var j = 0; j < labels.length; j++) {
+            var text = (labels[j].innerText || '').toLowerCase();
+            if (text.match(/remember|keep.*sign|stay.*sign|keep.*log/)) {
+              var input = labels[j].querySelector('input[type="checkbox"]');
+              if (!input) {
+                var forId = labels[j].getAttribute('for');
+                if (forId) input = document.getElementById(forId);
+              }
+              if (input && !input.checked) {
+                input.click();
+                return { checked: true, selector: 'label:' + text.trim().substring(0, 30) };
+              }
+              if (input && input.checked) {
+                return { checked: true, selector: 'label:' + text.trim().substring(0, 30), already: true };
+              }
+            }
+          }
+
+          return { checked: false };
+        })()
+      JS
+
+      if result && result['checked']
+        if result['already']
+          logger.debug "[#{self.class.name.demodulize}] Remember-me already checked (#{result['selector']})"
+        else
+          logger.info "[#{self.class.name.demodulize}] Checked remember-me checkbox (#{result['selector']})"
+        end
+      end
+    rescue StandardError => e
+      logger.debug "[#{self.class.name.demodulize}] Could not check remember-me: #{e.message}"
+    end
+
     def save_session
       cookies = browser.cookies.all.transform_values(&:to_h)
       credential.update!(

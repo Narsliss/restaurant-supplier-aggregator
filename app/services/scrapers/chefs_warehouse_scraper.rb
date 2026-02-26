@@ -1145,6 +1145,7 @@ module Scrapers
         if email_field && password_field
           fill_element(email_field, credential.username, 'email')
           fill_element(password_field, credential.password, 'password')
+          check_remember_me
           submit_btn = discover_field(SUBMIT_SELECTORS, 'submit button')
           if submit_btn
             begin; submit_btn.click; rescue StandardError; submit_btn.evaluate('this.click()'); end
@@ -1187,6 +1188,9 @@ module Scrapers
         password_el.type(credential.password, :clear)
       end
       sleep 0.5
+
+      # Check "remember me" / "stay signed in" if present
+      check_remember_me
 
       # Click submit
       if login_result['submitId']
