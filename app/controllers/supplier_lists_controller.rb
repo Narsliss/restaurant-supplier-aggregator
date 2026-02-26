@@ -53,15 +53,21 @@ class SupplierListsController < ApplicationController
   end
 
   def sync
-    ImportSupplierListsJob.perform_later(@supplier_list.supplier_credential_id)
+    # force: true — user explicitly clicked "Sync" on this list, bypass freshness check
+    ImportSupplierListsJob.perform_later(@supplier_list.supplier_credential_id, force: true)
     @supplier_list.update(sync_status: 'syncing')
 
     redirect_to supplier_lists_path(syncing: Time.current.to_i)
   end
 
   def sync_all
-    credentials = scoped_credentials.active
-    credentials.each_with_index do |credential, index|
+    # Pick ONE credential per supplier to avoid redundant scraping.
+    # Multiple users in the same org may have credentials for the same supplier —
+    # syncing both would hit the supplier twice for identical data.
+    credentials = scoped_credentials.active.includes(:supplier)
+    one_per_supplier = credentials.group_by(&:supplier_id).map { |_, creds| creds.first }
+
+    one_per_supplier.each_with_index do |credential, index|
       ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id)
     end
 

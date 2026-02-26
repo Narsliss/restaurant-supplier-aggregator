@@ -28,7 +28,7 @@ class ProductsController < ApplicationController
   end
 
   def search
-    @products = Product.search(params[:q]).limit(20)
+    @products = Product.search(params[:q]).includes(supplier_products: :supplier).limit(20)
 
     respond_to do |format|
       format.html { render :index }
@@ -39,7 +39,7 @@ class ProductsController < ApplicationController
             name: p.name,
             category: p.category,
             unit_size: p.unit_size,
-            prices: p.supplier_products.available.includes(:supplier).map do |sp|
+            prices: p.supplier_products.select { |sp| !sp.discontinued? }.map do |sp|
               {
                 supplier: sp.supplier.name,
                 price: sp.current_price,

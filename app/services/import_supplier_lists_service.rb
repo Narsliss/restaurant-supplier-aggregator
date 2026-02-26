@@ -45,15 +45,19 @@ class ImportSupplierListsService
   private
 
   def upsert_list(list_data)
-    # Find or create the SupplierList record
+    org = credential.organization || credential.user.current_organization
+
+    # Deduplicate by supplier + organization + remote_list_id (NOT by credential).
+    # Multiple users in the same org may have separate credentials for the same
+    # supplier — we don't want duplicate list records for the same remote list.
     supplier_list = SupplierList.find_or_initialize_by(
-      supplier_credential: credential,
+      supplier: credential.supplier,
+      organization: org,
       remote_list_id: list_data[:remote_id]
     )
 
     supplier_list.assign_attributes(
-      supplier: credential.supplier,
-      organization: credential.organization || credential.user.current_organization,
+      supplier_credential: credential, # Track which credential last synced this list
       name: list_data[:name],
       list_type: list_data[:list_type] || 'order_guide',
       remote_list_url: list_data[:url],
@@ -62,13 +66,13 @@ class ImportSupplierListsService
     supplier_list.save!
     supplier_list.mark_syncing!
 
-    # Upsert items
+    # Upsert items — pre-load all existing items by SKU to avoid N find_or_initialize_by queries
     items = list_data[:items] || []
-    existing_skus = supplier_list.supplier_list_items.pluck(:sku).compact.to_set
+    existing_items_by_sku = supplier_list.supplier_list_items.index_by(&:sku)
     seen_skus = Set.new
 
     items.each do |item_data|
-      upsert_item(supplier_list, item_data, existing_skus, seen_skus)
+      upsert_item(supplier_list, item_data, existing_items_by_sku, seen_skus)
     end
 
     # Remove items no longer in the list
@@ -89,13 +93,14 @@ class ImportSupplierListsService
     results[:errors] << "List '#{list_data[:name]}': #{e.message}"
   end
 
-  def upsert_item(supplier_list, item_data, _existing_skus, seen_skus)
+  def upsert_item(supplier_list, item_data, existing_items_by_sku, seen_skus)
     sku = item_data[:sku].to_s.strip
     return if sku.blank?
 
     seen_skus << sku
 
-    item = supplier_list.supplier_list_items.find_or_initialize_by(sku: sku)
+    # Use pre-loaded hash instead of per-item DB query
+    item = existing_items_by_sku[sku] || supplier_list.supplier_list_items.build(sku: sku)
     is_new = item.new_record?
 
     # Track price change on existing items before overwriting
@@ -163,7 +168,11 @@ class ImportSupplierListsService
   def mark_removed_lists(scraped_remote_ids)
     return if scraped_remote_ids.blank?
 
-    stale = credential.supplier_lists.where.not(remote_list_id: scraped_remote_ids)
+    org = credential.organization || credential.user.current_organization
+
+    # Scope to supplier+org (matching the deduplication key in upsert_list)
+    stale = SupplierList.where(supplier: credential.supplier, organization: org)
+                        .where.not(remote_list_id: scraped_remote_ids)
     stale.find_each do |list|
       Rails.logger.info "[ImportLists] List '#{list.name}' no longer found on supplier site"
       # Don't destroy - just mark as stale. The list might come back.

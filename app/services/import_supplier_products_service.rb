@@ -92,8 +92,8 @@ class ImportSupplierProductsService
       import_item(item, @existing_by_sku, @product_index)
       @items_processed += 1
 
-      # Update progress every 25 items
-      next unless (@items_processed % 25).zero?
+      # Update progress every 100 items (reduced from 25 to cut DB writes)
+      next unless (@items_processed % 100).zero?
 
       credential.update_columns(
         import_progress: @items_processed,
@@ -313,13 +313,36 @@ class ImportSupplierProductsService
 
     Rails.logger.info "[ImportProducts] #{supplier.name}: #{unseen_skus.size} existing products not seen in this scrape (#{total_seen} seen)"
 
-    # Batch update for efficiency — increment consecutive_misses for all unseen products
-    unseen_skus.each do |sku|
-      product = @existing_by_sku[sku]
-      next unless product
+    # Bulk update for efficiency — split into increment-only vs discontinue
+    unseen_products = unseen_skus.filter_map { |sku| @existing_by_sku[sku] }
+    return if unseen_products.empty?
 
-      product.record_miss!
-      results[:discontinued] += 1 if product.discontinued?
+    # Products that will be discontinued (reached miss threshold)
+    to_discontinue_ids = unseen_products.select do |p|
+      (p.consecutive_misses + 1) >= SupplierProduct::DISCONTINUE_AFTER_MISSES && !p.discontinued
+    end.map(&:id)
+
+    # Products that just need miss counter incremented
+    to_increment_ids = unseen_products.reject do |p|
+      (p.consecutive_misses + 1) >= SupplierProduct::DISCONTINUE_AFTER_MISSES && !p.discontinued
+    end.map(&:id)
+
+    # Bulk increment miss counter for non-discontinue products
+    if to_increment_ids.any?
+      SupplierProduct.where(id: to_increment_ids)
+        .update_all("consecutive_misses = consecutive_misses + 1")
+    end
+
+    # Bulk discontinue products that hit the threshold
+    if to_discontinue_ids.any?
+      SupplierProduct.where(id: to_discontinue_ids).update_all(
+        "consecutive_misses = consecutive_misses + 1, " \
+        "discontinued = true, " \
+        "discontinued_at = '#{Time.current.iso8601}', " \
+        "in_stock = false"
+      )
+      results[:discontinued] += to_discontinue_ids.size
+      Rails.logger.info "[ImportProducts] Discontinued #{to_discontinue_ids.size} products for #{supplier.name}"
     end
   end
 

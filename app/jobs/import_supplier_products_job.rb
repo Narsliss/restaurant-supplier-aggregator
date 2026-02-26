@@ -2,6 +2,7 @@
 
 class ImportSupplierProductsJob < ApplicationJob
   queue_as :scraping
+  limits_concurrency to: 1, key: ->(supplier_id, *) { "import_products_#{supplier_id}" }
 
   # NO RETRIES - Email super_admin immediately on failure
   discard_on ActiveRecord::RecordNotFound

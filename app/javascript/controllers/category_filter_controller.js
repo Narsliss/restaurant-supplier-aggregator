@@ -1,26 +1,15 @@
 import { Controller } from "@hotwired/stimulus"
 
-// Handles dynamic subcategory filtering based on selected category
+// Handles dynamic subcategory filtering based on selected category.
+// Categories data is passed via a Stimulus value on the controller element
+// instead of a separate <script> tag + getElementById.
 export default class extends Controller {
   static targets = ["category", "subcategory", "subcategoryWrapper"]
+  static values = { categories: Object }
 
   connect() {
-    this.loadCategories()
+    this.categories = this.categoriesValue || {}
     this.updateSubcategoryVisibility()
-  }
-
-  loadCategories() {
-    const dataElement = document.getElementById("categories-data")
-    if (dataElement) {
-      try {
-        this.categories = JSON.parse(dataElement.textContent)
-      } catch (e) {
-        console.error("Failed to parse categories data:", e)
-        this.categories = {}
-      }
-    } else {
-      this.categories = {}
-    }
   }
 
   categoryChanged() {

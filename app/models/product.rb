@@ -67,7 +67,11 @@ class Product < ApplicationRecord
   end
 
   def supplier_product_for(supplier)
-    supplier_products.find_by(supplier: supplier)
+    # Use detect on the preloaded association to avoid N+1 queries.
+    # When supplier_products are already eager-loaded via includes(),
+    # find_by would bypass the cache and hit the DB per call.
+    supplier_id = supplier.is_a?(Supplier) ? supplier.id : supplier
+    supplier_products.detect { |sp| sp.supplier_id == supplier_id }
   end
 
   private

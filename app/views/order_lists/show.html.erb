@@ -27,7 +27,7 @@
       <!-- Mobile card layout -->
       <div class="sm:hidden divide-y divide-gray-200">
         <% @items.each do |item| %>
-          <% best_price = item.product.supplier_products.select { |sp| sp.current_price.present? }.min_by(&:current_price) %>
+          <% best_price = @best_prices[item.id] %>
           <div class="p-4">
             <div class="flex justify-between items-start gap-2">
               <div class="min-w-0 flex-1">
@@ -76,7 +76,7 @@
           <tbody class="divide-y divide-gray-200">
             <% total = 0 %>
             <% @items.each do |item| %>
-              <% best_price = item.product.supplier_products.select { |sp| sp.current_price.present? }.min_by(&:current_price) %>
+              <% best_price = @best_prices[item.id] %>
               <% line_total = best_price ? best_price.current_price * item.quantity : 0 %>
               <% total += line_total %>
               <tr>
@@ -133,7 +133,8 @@
   </div>
 
   <!-- Search Products to Add -->
-  <div class="bg-white shadow rounded-lg p-4 mb-6" data-controller="category-filter">
+  <div class="bg-white shadow rounded-lg p-4 mb-6" data-controller="category-filter"
+       data-category-filter-categories-value="<%= @categories.to_json %>">
     <h3 class="text-sm font-medium text-gray-700 mb-3">Search Products to Add</h3>
     <%= form_with(url: order_list_path(@order_list), method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end") do |form| %>
       <%= form.hidden_field :mode, value: "search" %>
@@ -161,11 +162,6 @@
     <% end %>
   </div>
 
-  <!-- Category data for JS -->
-  <script type="application/json" id="categories-data">
-    <%= raw @categories.to_json %>
-  </script>
-
   <!-- Search Results Grid (Products to Add) -->
   <% if @search_results && @search_results.any? %>
     <div class="bg-white shadow rounded-lg mb-6">
@@ -175,7 +171,7 @@
       <div class="divide-y divide-gray-200 max-h-96 overflow-y-auto">
         <% @search_results.each do |product| %>
           <% best_price = product.supplier_products.select { |sp| sp.current_price.present? }.min_by(&:current_price) %>
-          <% already_in_list = @order_list.order_list_items.any? { |i| i.product_id == product.id } %>
+          <% already_in_list = @existing_product_ids.include?(product.id) %>
           <div class="p-3 flex items-center justify-between gap-3 hover:bg-gray-50">
             <div class="min-w-0 flex-1">
               <p class="text-sm font-medium text-gray-900"><%= product.name %></p>

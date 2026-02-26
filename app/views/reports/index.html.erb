@@ -138,7 +138,7 @@
         <h2 class="text-lg font-semibold text-gray-900">Weekly Spending</h2>
       </div>
       <div class="p-6">
-        <% max_total = @weekly_trend.map { |w| w[:total] }.max || 1 %>
+        <% max_total = [@weekly_trend.map { |w| w[:total] }.max.to_i, 1].max %>
         <div class="flex items-end justify-between h-48 gap-2">
           <% @weekly_trend.each do |week| %>
             <div class="flex flex-col items-center flex-1">

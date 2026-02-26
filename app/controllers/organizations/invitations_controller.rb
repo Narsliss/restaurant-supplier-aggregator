@@ -57,36 +57,40 @@ module Organizations
       @invitation = OrganizationInvitation.find_by(token: params[:token])
 
       if @invitation.nil?
-        redirect_to root_path
+        redirect_to root_path, alert: "This invitation link is invalid or has already been used."
         return
       end
 
       if @invitation.expired?
-        redirect_to root_path
+        redirect_to root_path, alert: "This invitation has expired. Please ask the organization owner to send a new one."
         return
       end
 
       if @invitation.accepted?
-        redirect_to root_path
+        redirect_to root_path, notice: "This invitation has already been accepted."
         return
       end
 
       # If user is logged in, accept the invitation
       if user_signed_in?
         if current_user.email.downcase != @invitation.email.downcase
-          redirect_to root_path
+          # Wrong account — sign them out and redirect back to this same
+          # invitation link so they can sign up / sign in as the right user.
+          sign_out(current_user)
+          redirect_to accept_invitation_path(token: @invitation.token),
+                      alert: "You were signed in as #{current_user.email}. This invitation is for #{@invitation.email} — please sign in or create an account with that email."
           return
         end
 
         @invitation.accept!(current_user)
-        redirect_to root_path
+        redirect_to root_path, notice: "Welcome to #{@invitation.organization.name}!"
       else
         # Check if user exists
         existing_user = User.find_by(email: @invitation.email)
         if existing_user
           # Redirect to login with return URL
           store_location_for(:user, accept_invitation_url(token: @invitation.token))
-          redirect_to new_user_session_path
+          redirect_to new_user_session_path, notice: "Sign in as #{@invitation.email} to accept your invitation."
         else
           # Redirect to registration with invitation context
           session[:invitation_token] = @invitation.token

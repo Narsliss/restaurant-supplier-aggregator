@@ -209,8 +209,9 @@ module Scrapers
     # re-authentication as much as possible.
     def restore_session
       return false unless credential.session_data.present?
-      # Use longer TTL for PPO (24h instead of default 1h) since 2FA is expensive
-      return false unless credential.last_login_at.present? && credential.last_login_at > 24.hours.ago
+      # Delegate TTL check to the model (24h for 2FA suppliers, 6h for password)
+      # to avoid inconsistent validity windows across scrapers.
+      return false unless credential.session_valid?
 
       begin
         data = JSON.parse(credential.session_data)

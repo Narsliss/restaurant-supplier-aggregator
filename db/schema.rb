@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_24_204222) do
+ActiveRecord::Schema[7.1].define(version: 2026_02_26_145707) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -178,7 +178,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_24_204222) do
     t.bigint "location_id"
     t.index ["location_id", "name"], name: "idx_order_lists_location_name", unique: true, where: "(location_id IS NOT NULL)"
     t.index ["location_id"], name: "index_order_lists_on_location_id"
-    t.index ["organization_id"], name: "index_order_lists_on_org"
+    t.index ["organization_id", "location_id"], name: "idx_order_lists_org_location"
     t.index ["organization_id"], name: "index_order_lists_on_organization_id"
     t.index ["user_id", "is_favorite"], name: "index_order_lists_on_user_id_and_is_favorite"
     t.index ["user_id", "last_used_at"], name: "index_order_lists_on_user_id_and_last_used_at"
@@ -229,6 +229,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_24_204222) do
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"
     t.index ["order_list_id"], name: "index_orders_on_order_list_id"
+    t.index ["organization_id", "created_at"], name: "idx_orders_org_created_at"
     t.index ["organization_id", "location_id"], name: "index_orders_on_org_and_location"
     t.index ["organization_id"], name: "index_orders_on_organization_id"
     t.index ["status"], name: "index_orders_on_status"
@@ -564,6 +565,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_24_204222) do
     t.integer "refresh_failures", default: 0, null: false
     t.bigint "location_id"
     t.index ["location_id"], name: "index_supplier_credentials_on_location_id"
+    t.index ["organization_id", "location_id"], name: "idx_supplier_creds_org_location"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"
     t.index ["status"], name: "index_supplier_credentials_on_status"
     t.index ["supplier_id"], name: "index_supplier_credentials_on_supplier_id"
@@ -624,6 +626,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_24_204222) do
     t.datetime "updated_at", null: false
     t.bigint "location_id"
     t.index ["location_id"], name: "index_supplier_lists_on_location_id"
+    t.index ["organization_id", "location_id"], name: "idx_supplier_lists_org_location"
     t.index ["organization_id"], name: "index_supplier_lists_on_organization_id"
     t.index ["supplier_credential_id", "remote_list_id"], name: "idx_supplier_lists_cred_remote", unique: true
     t.index ["supplier_credential_id"], name: "index_supplier_lists_on_supplier_credential_id"

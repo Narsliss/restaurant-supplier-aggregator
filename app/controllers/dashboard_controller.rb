@@ -37,16 +37,22 @@ class DashboardController < ApplicationController
 
   def load_owner_dashboard
     org = current_user.current_organization
-    @recent_orders = scoped_orders
+
+    # Cache base relations to avoid rebuilding scoped queries multiple times
+    base_orders = scoped_orders
+    base_credentials = scoped_credentials
+    base_order_lists = scoped_order_lists
+
+    @recent_orders = base_orders
       .includes(:supplier, :location, :user)
       .order(created_at: :desc)
       .limit(10)
 
-    @order_lists = scoped_order_lists
+    @order_lists = base_order_lists
       .order(last_used_at: :desc, updated_at: :desc)
       .limit(5)
 
-    @supplier_credentials = scoped_credentials
+    @supplier_credentials = base_credentials
       .includes(:supplier, :user)
       .order(:created_at)
 
@@ -55,12 +61,19 @@ class DashboardController < ApplicationController
       .where("expires_at > ?", Time.current)
       .includes(supplier_credential: :supplier)
 
+    # Combine order stats into fewer queries
+    order_stats = base_orders.pick(
+      Arel.sql("COUNT(*)"),
+      Arel.sql("COUNT(CASE WHEN orders.created_at >= '#{Time.current.beginning_of_month.iso8601}' THEN 1 END)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)")
+    )
+
     @stats = {
-      total_orders: scoped_orders.count,
-      orders_this_month: scoped_orders.where("orders.created_at >= ?", Time.current.beginning_of_month).count,
-      active_suppliers: scoped_credentials.where(status: 'active').count,
-      order_lists: scoped_order_lists.count,
-      total_savings: scoped_orders.sum(:savings_amount),
+      total_orders: order_stats[0],
+      orders_this_month: order_stats[1],
+      active_suppliers: base_credentials.where(status: 'active').count,
+      order_lists: base_order_lists.count,
+      total_savings: order_stats[2],
       team_members: org&.member_count || 0,
       restaurants: org&.locations&.count || 0
     }
@@ -71,40 +84,59 @@ class DashboardController < ApplicationController
     @onboarding_complete = @onboarding_steps.all? { |s| s[:done] } || current_user.onboarding_dismissed_at?
     @onboarding_hard_gate = false
 
-    # Per-restaurant breakdown for owners
-    @location_stats = org&.locations&.map do |loc|
+    # Per-restaurant breakdown — single grouped query instead of 2 queries per location
+    locations = org&.locations || Location.none
+    month_start = Time.current.beginning_of_month
+
+    loc_counts = org.orders.where(location_id: locations.select(:id))
+      .group(:location_id)
+      .count
+    loc_monthly = org.orders.where(location_id: locations.select(:id))
+      .where("orders.created_at >= ?", month_start)
+      .group(:location_id)
+      .sum(:total_amount)
+
+    @location_stats = locations.map do |loc|
       {
         location: loc,
-        order_count: org.orders.for_location(loc).count,
-        monthly_spend: org.orders.for_location(loc)
-          .where("orders.created_at >= ?", Time.current.beginning_of_month)
-          .sum(:total_amount)
+        order_count: loc_counts[loc.id] || 0,
+        monthly_spend: loc_monthly[loc.id] || 0
       }
-    end || []
+    end
   end
 
   def load_manager_dashboard
-    @recent_orders = scoped_orders
+    base_orders = scoped_orders
+    base_credentials = scoped_credentials
+    base_order_lists = scoped_order_lists
+
+    @recent_orders = base_orders
       .includes(:supplier, :location, :user)
       .order(created_at: :desc)
       .limit(10)
 
-    @order_lists = scoped_order_lists
+    @order_lists = base_order_lists
       .order(last_used_at: :desc, updated_at: :desc)
       .limit(5)
 
-    @supplier_credentials = scoped_credentials
+    @supplier_credentials = base_credentials
       .includes(:supplier, :user)
       .order(:created_at)
 
     @pending_2fa_requests = Supplier2faRequest.none
 
+    order_stats = base_orders.pick(
+      Arel.sql("COUNT(*)"),
+      Arel.sql("COUNT(CASE WHEN orders.created_at >= '#{Time.current.beginning_of_month.iso8601}' THEN 1 END)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)")
+    )
+
     @stats = {
-      total_orders: scoped_orders.count,
-      orders_this_month: scoped_orders.where("orders.created_at >= ?", Time.current.beginning_of_month).count,
-      active_suppliers: scoped_credentials.where(status: 'active').count,
-      order_lists: scoped_order_lists.count,
-      total_savings: scoped_orders.sum(:savings_amount)
+      total_orders: order_stats[0],
+      orders_this_month: order_stats[1],
+      active_suppliers: base_credentials.where(status: 'active').count,
+      order_lists: base_order_lists.count,
+      total_savings: order_stats[2]
     }
 
     @read_only = true
@@ -118,17 +150,21 @@ class DashboardController < ApplicationController
   end
 
   def load_chef_dashboard
-    @recent_orders = scoped_orders
+    base_orders = scoped_orders
+    base_credentials = scoped_credentials
+    base_order_lists = scoped_order_lists
+
+    @recent_orders = base_orders
       .includes(:supplier, :location)
       .order(created_at: :desc)
       .limit(5)
 
     # Order lists are shared per-location — chef sees all lists at their restaurant
-    @order_lists = scoped_order_lists
+    @order_lists = base_order_lists
       .order(last_used_at: :desc, updated_at: :desc)
       .limit(5)
 
-    @supplier_credentials = scoped_credentials
+    @supplier_credentials = base_credentials
       .includes(:supplier)
       .order(:created_at)
 
@@ -137,12 +173,18 @@ class DashboardController < ApplicationController
       .where("expires_at > ?", Time.current)
       .includes(supplier_credential: :supplier)
 
+    order_stats = base_orders.pick(
+      Arel.sql("COUNT(*)"),
+      Arel.sql("COUNT(CASE WHEN orders.created_at >= '#{Time.current.beginning_of_month.iso8601}' THEN 1 END)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)")
+    )
+
     @stats = {
-      total_orders: scoped_orders.count,
-      orders_this_month: scoped_orders.where("orders.created_at >= ?", Time.current.beginning_of_month).count,
-      active_suppliers: scoped_credentials.where(status: 'active').count,
-      order_lists: scoped_order_lists.count,
-      total_savings: scoped_orders.sum(:savings_amount)
+      total_orders: order_stats[0],
+      orders_this_month: order_stats[1],
+      active_suppliers: base_credentials.where(status: 'active').count,
+      order_lists: base_order_lists.count,
+      total_savings: order_stats[2]
     }
 
     # Getting-started cards for chefs (shown after at least one credential connected)
@@ -181,6 +223,7 @@ class DashboardController < ApplicationController
   # Step 4 (connect supplier) is optional guidance. Order guides are imported
   # automatically when a supplier is connected, so no separate import step.
   def build_owner_setup_steps(org)
+    @_owner_setup_steps ||= begin
     has_org = org.present?
 
     [
@@ -223,6 +266,7 @@ class DashboardController < ApplicationController
         required: false
       }
     ]
+    end
   end
 
   def load_chef_onboarding_steps

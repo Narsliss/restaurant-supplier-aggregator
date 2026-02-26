@@ -36,17 +36,20 @@ class DiscontinueStaleProductsJob < ApplicationJob
 
     Rails.logger.info "[DiscontinueStaleProducts] Discontinuing #{count} stale products"
 
-    candidates.find_each do |product|
-      product.update!(
-        discontinued: true,
-        discontinued_at: Time.current,
-        in_stock: false
-      )
-      Rails.logger.info "[DiscontinueStaleProducts] Discontinued #{product.supplier_name} " \
+    # Log a sample before bulk update (max 10 for visibility)
+    candidates.includes(:supplier).limit(10).each do |product|
+      Rails.logger.info "[DiscontinueStaleProducts] Sample: #{product.supplier_name} " \
                         "(SKU: #{product.supplier_sku}, supplier: #{product.supplier.name}, " \
                         "last scraped: #{product.last_scraped_at&.iso8601 || 'never'}, " \
                         "misses: #{product.consecutive_misses})"
     end
+
+    # Bulk update — single SQL statement instead of N individual updates
+    candidates.update_all(
+      discontinued: true,
+      discontinued_at: Time.current,
+      in_stock: false
+    )
 
     Rails.logger.info "[DiscontinueStaleProducts] Done — #{count} products discontinued"
   end

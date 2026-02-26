@@ -19,6 +19,19 @@ class OrderListsController < ApplicationController
     @categories = AiProductCategorizer::CATEGORIES
     @subcategories = params[:category].present? ? @categories.dig(params[:category], :subcategories) || [] : []
 
+    # Pre-compute product IDs already in the list for O(1) lookup in the view
+    # (replaces O(n×m) any? scan per search result)
+    @existing_product_ids = @order_list.order_list_items.pluck(:product_id).to_set
+
+    # Pre-compute best price per item (using already-eager-loaded supplier_products)
+    # to avoid recomputing in both mobile and desktop sections of the view
+    @best_prices = {}
+    @items.each do |item|
+      @best_prices[item.id] = item.product.supplier_products
+                                   .select { |sp| sp.current_price.present? && !sp.discontinued? }
+                                   .min_by(&:current_price)
+    end
+
     # Search products to add (when search/filter is active)
     return unless params[:search].present? || params[:category].present? || params[:subcategory].present?
 

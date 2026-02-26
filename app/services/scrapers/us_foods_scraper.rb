@@ -25,94 +25,10 @@ module Scrapers
 
     # US Foods uses CloudFront WAF that blocks standard headless Chrome.
     # Override with stealth browser options to avoid bot detection.
-    # The user-agent must match the actual platform (Linux in Docker, Mac locally).
     def with_browser
-      ua = if ENV['BROWSER_PATH'].present? || Rails.env.production?
-             # Docker/Railway: Debian Chromium on Linux — UA must match platform
-             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-           else
-             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-           end
-
-      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
-
-      browser_opts = {
-        headless: headless_mode ? 'new' : false,
-        timeout: 90,
-        process_timeout: 60,
-        window_size: [1280, 720],
-        browser_options: {
-          "no-sandbox": true,
-          "disable-gpu": true,
-          "disable-dev-shm-usage": true,
-          "disable-blink-features": 'AutomationControlled',
-          "user-agent": ua,
-          # Stealth flags
-          "disable-features": 'AutomationControlled,TranslateUI',
-          "excludeSwitches": 'enable-automation',
-          # Prevent Chromium from restoring previous tabs or opening default pages
-          "no-first-run": true,
-          "no-default-browser-check": true,
-          "disable-component-update": true,
-          "disable-session-crashed-bubble": true,
-          # Memory optimization for Railway 1GB container
-          "disable-extensions": true,
-          "disable-default-apps": true,
-          "disable-translate": true,
-          "disable-sync": true,
-          "disable-background-timer-throttling": true,
-          "disable-renderer-backgrounding": true,
-          "disable-backgrounding-occluded-windows": true,
-          "js-flags": '--max-old-space-size=256 --lite-mode',
-          "renderer-process-limit": 1,
-          "disable-software-rasterizer": true,
-          "disable-image-loading": false
-        }
-      }
-
-      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
-
-      @browser = Ferrum::Browser.new(**browser_opts)
-
-      # Block images, fonts, and analytics to reduce memory usage on Railway.
-      # The scraper only needs HTML/CSS/JS — not product images or tracking pixels.
-      begin
-        browser.network.intercept
-        browser.on(:request) do |request|
-          url = request.url
-          if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
-             url.include?('adobedtm.com') ||
-             url.include?('analytics') ||
-             url.include?('google-analytics') ||
-             url.include?('googletagmanager')
-            request.abort
-          else
-            request.continue
-          end
-        end
-      rescue StandardError => e
-        logger.warn "[UsFoods] Network interception setup failed: #{e.message}"
-      end
-
-      # Inject stealth scripts via CDP so they run BEFORE any page JS on every navigation.
-      # This is critical — WAFs check navigator.webdriver on initial page load,
-      # before our post-load apply_stealth can run.
-      begin
-        stealth_js = <<~JS
-          // Hide webdriver flag
-          Object.defineProperty(navigator, 'webdriver', {get: () => false});
-          // Fix plugins (empty = headless signal)
-          Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-          // Fix languages
-          Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-          // Add chrome.runtime
-          if (!window.chrome) window.chrome = {};
-          if (!window.chrome.runtime) window.chrome.runtime = {};
-        JS
-        browser.evaluate_on_new_document(stealth_js)
-      rescue StandardError => e
-        logger.warn "[UsFoods] CDP stealth injection failed: #{e.message}"
-      end
+      @browser = Ferrum::Browser.new(**build_stealth_browser_opts)
+      setup_network_interception(@browser)
+      inject_stealth_scripts(@browser)
 
       yield(browser)
     ensure
@@ -126,6 +42,48 @@ module Scrapers
     def ensure_order_browser!
       return if @browser # Already have an open browser
 
+      logger.info '[UsFoods] Starting order browser (persistent for checkout flow)'
+      @browser = Ferrum::Browser.new(**build_stealth_browser_opts)
+      setup_network_interception(@browser)
+      inject_stealth_scripts(@browser)
+
+      # Login (wrapped in rescue to close browser on failure)
+      begin
+        if restore_session
+          navigate_to(BASE_URL)
+          sleep 2
+          unless logged_in?
+            logger.info '[UsFoods] Order browser session invalid, performing fresh login'
+            perform_login_steps
+            save_session
+          end
+        else
+          logger.info '[UsFoods] Order browser no session, performing login'
+          perform_login_steps
+          save_session
+        end
+      rescue => e
+        close_order_browser!
+        raise
+      end
+
+      logger.info '[UsFoods] Order browser ready'
+    end
+
+    def close_order_browser!
+      save_session if @browser
+      @browser&.quit
+      @browser = nil
+    rescue StandardError => e
+      logger.debug "[UsFoods] Error closing order browser: #{e.message}"
+      @browser = nil
+    end
+
+    # --- Shared browser setup helpers (used by both with_browser and ensure_order_browser!) ---
+
+    # Build browser options with stealth flags for US Foods WAF bypass.
+    # The user-agent must match the actual platform (Linux in Docker, Mac locally).
+    def build_stealth_browser_opts
       ua = if ENV['BROWSER_PATH'].present? || Rails.env.production?
              'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
            else
@@ -134,7 +92,7 @@ module Scrapers
 
       headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
 
-      browser_opts = {
+      opts = {
         headless: headless_mode ? 'new' : false,
         timeout: 90,
         process_timeout: 60,
@@ -164,70 +122,41 @@ module Scrapers
           "disable-image-loading": false
         }
       }
-
-      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
-
-      logger.info '[UsFoods] Starting order browser (persistent for checkout flow)'
-      @browser = Ferrum::Browser.new(**browser_opts)
-
-      # Network interception (block images/analytics)
-      begin
-        browser.network.intercept
-        browser.on(:request) do |request|
-          url = request.url
-          if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
-             url.include?('adobedtm.com') ||
-             url.include?('analytics') ||
-             url.include?('google-analytics') ||
-             url.include?('googletagmanager')
-            request.abort
-          else
-            request.continue
-          end
-        end
-      rescue StandardError => e
-        logger.warn "[UsFoods] Order browser network interception failed: #{e.message}"
-      end
-
-      # Inject stealth scripts via CDP
-      begin
-        stealth_js = <<~JS
-          Object.defineProperty(navigator, 'webdriver', {get: () => false});
-          Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-          Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-          if (!window.chrome) window.chrome = {};
-          if (!window.chrome.runtime) window.chrome.runtime = {};
-        JS
-        browser.evaluate_on_new_document(stealth_js)
-      rescue StandardError => e
-        logger.warn "[UsFoods] Order browser CDP stealth failed: #{e.message}"
-      end
-
-      # Login
-      if restore_session
-        navigate_to(BASE_URL)
-        sleep 2
-        unless logged_in?
-          logger.info '[UsFoods] Order browser session invalid, performing fresh login'
-          perform_login_steps
-          save_session
-        end
-      else
-        logger.info '[UsFoods] Order browser no session, performing login'
-        perform_login_steps
-        save_session
-      end
-
-      logger.info '[UsFoods] Order browser ready'
+      opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
+      opts
     end
 
-    def close_order_browser!
-      save_session if @browser
-      @browser&.quit
-      @browser = nil
+    # Block images, fonts, and analytics to reduce memory usage on Railway.
+    def setup_network_interception(browser_instance)
+      browser_instance.network.intercept
+      browser_instance.on(:request) do |request|
+        url = request.url
+        if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
+           url.include?('adobedtm.com') ||
+           url.include?('analytics') ||
+           url.include?('google-analytics') ||
+           url.include?('googletagmanager')
+          request.abort
+        else
+          request.continue
+        end
+      end
     rescue StandardError => e
-      logger.debug "[UsFoods] Error closing order browser: #{e.message}"
-      @browser = nil
+      logger.warn "[UsFoods] Network interception setup failed: #{e.message}"
+    end
+
+    # Inject stealth scripts via CDP so they run BEFORE any page JS on every navigation.
+    def inject_stealth_scripts(browser_instance)
+      stealth_js = <<~JS
+        Object.defineProperty(navigator, 'webdriver', {get: () => false});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+        if (!window.chrome) window.chrome = {};
+        if (!window.chrome.runtime) window.chrome.runtime = {};
+      JS
+      browser_instance.evaluate_on_new_document(stealth_js)
+    rescue StandardError => e
+      logger.warn "[UsFoods] CDP stealth injection failed: #{e.message}"
     end
 
     # Apply comprehensive stealth patches after each page navigation.
@@ -322,10 +251,9 @@ module Scrapers
 
     def restore_session
       return false unless credential.session_data.present?
-      # US Foods B2C tokens typically last 24h. Use a wider validity window
-      # than the default 1 hour to avoid unnecessary MFA re-auth.
-      # Extended to 20 hours to cover overnight gaps between cron runs.
-      return false unless credential.last_login_at.present? && credential.last_login_at > 20.hours.ago
+      # Delegate TTL check to the model (24h for 2FA suppliers, 6h for password)
+      # to avoid inconsistent validity windows across scrapers.
+      return false unless credential.session_valid?
 
       begin
         data = JSON.parse(credential.session_data)
@@ -942,7 +870,7 @@ module Scrapers
         end
 
         scroll_virtual_list
-        sleep 1.5
+        sleep 1
       end
 
       all_products.values
@@ -2823,7 +2751,7 @@ module Scrapers
 
         # Scroll the CDK virtual scroll container
         scroll_virtual_list
-        sleep 1.5
+        sleep 1
       end
 
       logger.info "[UsFoods] '#{term}': #{all_products.size} unique products after scrolling"

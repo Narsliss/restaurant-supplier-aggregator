@@ -16,60 +16,95 @@ class ReportsController < ApplicationController
     orders = scoped_orders.where(created_at: date_range)
     orders = orders.for_location(Location.find(@selected_location_id)) if @selected_location_id.present? && @selected_location_id > 0
 
-    # Summary stats
+    # Summary stats — single query with multiple aggregations
+    summary_row = orders.pick(
+      Arel.sql("COALESCE(SUM(total_amount), 0)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)"),
+      Arel.sql("COUNT(*)"),
+      Arel.sql("CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(total_amount) / COUNT(*), 2) ELSE 0 END")
+    )
     @summary = {
-      total_spent: orders.sum(:total_amount),
-      total_savings: orders.sum(:savings_amount),
-      order_count: orders.count,
-      avg_order_size: orders.count > 0 ? (orders.sum(:total_amount) / orders.count).round(2) : 0
+      total_spent: summary_row[0],
+      total_savings: summary_row[1],
+      order_count: summary_row[2],
+      avg_order_size: summary_row[3]
     }
 
-    # Breakdown by restaurant
+    # Breakdown by restaurant — single grouped query instead of N queries per location
+    location_stats = orders.where(location_id: @locations.select(:id))
+      .group(:location_id)
+      .pluck(
+        Arel.sql("location_id"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)"),
+        Arel.sql("COALESCE(SUM(savings_amount), 0)")
+      ).index_by(&:first)
+    locations_by_id = @locations.index_by(&:id)
+
     @by_restaurant = @locations.map do |loc|
-      loc_orders = orders.for_location(loc)
+      row = location_stats[loc.id]
       {
         location: loc,
-        total_spent: loc_orders.sum(:total_amount),
-        order_count: loc_orders.count,
-        savings: loc_orders.sum(:savings_amount)
+        total_spent: row ? row[1] : 0,
+        order_count: row ? row[2] : 0,
+        savings: row ? row[3] : 0
       }
     end.sort_by { |r| -r[:total_spent] }
 
-    # Breakdown by supplier
-    @by_supplier = orders.includes(:supplier)
-      .group(:supplier_id)
-      .select("supplier_id, SUM(total_amount) as total_spent, COUNT(*) as order_count, SUM(savings_amount) as savings")
-      .map do |row|
-        {
-          supplier: Supplier.find(row.supplier_id),
-          total_spent: row.total_spent,
-          order_count: row.order_count,
-          savings: row.savings
-        }
-      end.sort_by { |r| -r[:total_spent] }
+    # Breakdown by supplier — pre-load suppliers to avoid N+1
+    supplier_rows = orders.group(:supplier_id)
+      .pluck(
+        Arel.sql("supplier_id"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)"),
+        Arel.sql("COALESCE(SUM(savings_amount), 0)")
+      )
+    suppliers_by_id = Supplier.where(id: supplier_rows.map(&:first)).index_by(&:id)
 
-    # Breakdown by team member (owners see all, managers see assigned locations)
-    @by_member = orders.includes(:user)
-      .group(:user_id)
-      .select("user_id, SUM(total_amount) as total_spent, COUNT(*) as order_count")
-      .map do |row|
-        {
-          user: User.find(row.user_id),
-          total_spent: row.total_spent,
-          order_count: row.order_count
-        }
-      end.sort_by { |r| -r[:total_spent] }
+    @by_supplier = supplier_rows.map do |row|
+      {
+        supplier: suppliers_by_id[row[0]],
+        total_spent: row[1],
+        order_count: row[2],
+        savings: row[3]
+      }
+    end.sort_by { |r| -r[:total_spent] }
 
-    # Weekly spending trend (last 8 weeks)
+    # Breakdown by team member — pre-load users to avoid N+1
+    member_rows = orders.group(:user_id)
+      .pluck(
+        Arel.sql("user_id"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)")
+      )
+    users_by_id = User.where(id: member_rows.map(&:first)).index_by(&:id)
+
+    @by_member = member_rows.map do |row|
+      {
+        user: users_by_id[row[0]],
+        total_spent: row[1],
+        order_count: row[2]
+      }
+    end.sort_by { |r| -r[:total_spent] }
+
+    # Weekly spending trend — single grouped query using date_trunc
+    eight_weeks_ago = 8.weeks.ago.beginning_of_week.beginning_of_day
+    weekly_data = orders.where("orders.created_at >= ?", eight_weeks_ago)
+      .group(Arel.sql("date_trunc('week', orders.created_at)"))
+      .pluck(
+        Arel.sql("date_trunc('week', orders.created_at)"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)")
+      ).index_by { |row| row[0].to_date }
+
     @weekly_trend = (0..7).map do |weeks_ago|
       week_start = (Date.current - weeks_ago.weeks).beginning_of_week
-      week_end = week_start.end_of_week
-      week_orders = orders.where(created_at: week_start.beginning_of_day..week_end.end_of_day)
+      row = weekly_data[week_start]
       {
         week: week_start,
         label: week_start.strftime("%b %d"),
-        total: week_orders.sum(:total_amount),
-        count: week_orders.count
+        total: row ? row[1] : 0,
+        count: row ? row[2] : 0
       }
     end.reverse
   end

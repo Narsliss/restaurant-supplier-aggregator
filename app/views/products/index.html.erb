@@ -6,7 +6,7 @@
 
   <!-- Search & Filter -->
   <div class="bg-white shadow rounded-lg p-4 mb-6">
-    <%= form_with(url: products_path, method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap", data: { controller: "category-filter" }) do |form| %>
+    <%= form_with(url: products_path, method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap", data: { controller: "category-filter", category_filter_categories_value: @categories.to_json }) do |form| %>
       <div class="flex-1 min-w-[200px]">
         <%= form.text_field :search, value: params[:search], placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
@@ -39,11 +39,6 @@
       <% end %>
     <% end %>
   </div>
-
-  <!-- Category data for JS -->
-  <script type="application/json" id="categories-data">
-    <%= raw @categories.to_json %>
-  </script>
 
   <% if @products.any? %>
     <p class="text-sm text-gray-500 mb-3">

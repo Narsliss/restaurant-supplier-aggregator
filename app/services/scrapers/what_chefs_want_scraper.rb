@@ -707,8 +707,10 @@ module Scrapers
 
     public
 
-    # Override scrape_catalog to use hybrid category browsing + search
-    def scrape_catalog(search_terms, max_per_term: 50)
+    # Override scrape_catalog to use hybrid category browsing + search.
+    # Supports &on_batch for incremental DB writes — yields batches as each
+    # category/search completes instead of accumulating everything in memory.
+    def scrape_catalog(search_terms, max_per_term: 50, &on_batch)
       results = []
 
       with_browser do
@@ -720,12 +722,14 @@ module Scrapers
           sleep 2
         end
 
-        # Use appropriate login method
-        welcome_url = credential.username
-        if welcome_url.present? && welcome_url.start_with?('http')
-          login_via_welcome_url(welcome_url)
-        else
-          login_via_credentials
+        # Only login if session restore didn't work
+        unless logged_in?
+          welcome_url = credential.username
+          if welcome_url.present? && welcome_url.start_with?('http')
+            login_via_welcome_url(welcome_url)
+          else
+            login_via_credentials
+          end
         end
 
         raise AuthenticationError, 'Could not log in for catalog import' unless logged_in?
@@ -738,8 +742,12 @@ module Scrapers
           begin
             products = browse_category(category[:filter], max: max_per_term)
             products.each { |p| p[:category] ||= category[:name] }
-            results.concat(products)
-            logger.info "[WhatChefsWant] Category '#{category[:name]}': #{products.size} products (total: #{results.size})"
+            if on_batch
+              on_batch.call(products)
+            else
+              results.concat(products)
+            end
+            logger.info "[WhatChefsWant] Category '#{category[:name]}': #{products.size} products"
           rescue StandardError => e
             logger.warn "[WhatChefsWant] Category browse failed for '#{category[:name]}': #{e.class}: #{e.message}"
           end
@@ -749,11 +757,11 @@ module Scrapers
         # Optimization: If categories yielded enough products, limit search phase
         category_target = 400
         search_phase_limit = nil
-        if results.size >= category_target
+        if !on_batch && results.size >= category_target
           search_phase_limit = 10
           logger.info "[WhatChefsWant] Categories yielded #{results.size} products (target: #{category_target}). Limiting search phase to #{search_phase_limit} terms."
         else
-          logger.info "[WhatChefsWant] Categories yielded #{results.size} products (below target #{category_target}). Running full search phase."
+          logger.info "[WhatChefsWant] Running full search phase."
         end
 
         # Phase 2: Search terms for items missed in categories
@@ -762,7 +770,11 @@ module Scrapers
         terms_to_search.each do |term|
           begin
             products = search_supplier_catalog(term, max: max_per_term)
-            results.concat(products)
+            if on_batch
+              on_batch.call(products)
+            else
+              results.concat(products)
+            end
             logger.info "[WhatChefsWant] Search '#{term}': #{products.size} products"
           rescue StandardError => e
             logger.warn "[WhatChefsWant] Search failed for '#{term}': #{e.class}: #{e.message}"
@@ -770,6 +782,9 @@ module Scrapers
           rate_limit_delay
         end
       end
+
+      # When streaming via on_batch, return empty array (caller already has the data)
+      return [] if on_batch
 
       # De-duplicate by SKU
       deduped = results.uniq { |r| r[:supplier_sku] }

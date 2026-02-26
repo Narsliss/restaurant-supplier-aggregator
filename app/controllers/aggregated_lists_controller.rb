@@ -250,9 +250,12 @@ class AggregatedListsController < ApplicationController
     end
 
     # --- Frequently ordered & user favorites (stars) ---
+    # Time-bounded to last 6 months — older orders aren't relevant for "frequently ordered"
+    # and unbounded queries slow down as order history grows.
     frequency_counts = OrderItem.joins(:order)
                                 .where(orders: { organization_id: @aggregated_list.organization_id,
                                                  status: %w[submitted confirmed] })
+                                .where("orders.created_at >= ?", 6.months.ago)
                                 .group(:supplier_product_id)
                                 .count
 

@@ -1,8 +1,12 @@
 class ScrapeSupplierJob < ApplicationJob
   queue_as :scraping
-  
-  retry_on StandardError, wait: 5.minutes, attempts: 3
+
+  # Selective retries: only retry transient browser/network errors
+  retry_on Ferrum::TimeoutError, wait: 2.minutes, attempts: 2
+  retry_on Ferrum::ProcessTimeoutError, wait: 2.minutes, attempts: 2
+  retry_on Ferrum::DeadBrowserError, wait: 2.minutes, attempts: 2
   discard_on ActiveRecord::RecordNotFound
+  discard_on Scrapers::BaseScraper::AuthenticationError
 
   def perform(supplier_id, credential_id = nil)
     supplier = Supplier.find(supplier_id)
@@ -63,12 +67,12 @@ class ScrapeSupplierJob < ApplicationJob
   end
 
   def update_prices(supplier, results)
-    results.each do |result|
-      supplier_product = SupplierProduct.find_by(
-        supplier: supplier,
-        supplier_sku: result[:supplier_sku]
-      )
+    # Pre-load all matching products in a single query instead of N find_by calls
+    skus = results.map { |r| r[:supplier_sku] }.compact
+    products_by_sku = SupplierProduct.where(supplier: supplier, supplier_sku: skus).index_by(&:supplier_sku)
 
+    results.each do |result|
+      supplier_product = products_by_sku[result[:supplier_sku]]
       next unless supplier_product
 
       supplier_product.update_price!(

@@ -1223,9 +1223,10 @@ module Scrapers
 
     public
 
-    # Override scrape_catalog to use hybrid category browsing + search
-    # Optimization: Skip search phase if categories yield sufficient products
-    def scrape_catalog(search_terms, max_per_term: 50)
+    # Override scrape_catalog to use hybrid category browsing + search.
+    # Supports &on_batch for incremental DB writes — yields batches as each
+    # category/search completes instead of accumulating everything in memory.
+    def scrape_catalog(search_terms, max_per_term: 50, &on_batch)
       results = []
       # Target: if we get 500+ products from categories, only do 10 strategic searches
       # Otherwise, do all searches to ensure coverage
@@ -1248,8 +1249,12 @@ module Scrapers
           begin
             products = browse_category(category, max: max_per_term)
             products.each { |p| p[:category] ||= category.to_s.titleize }
-            results.concat(products)
-            logger.info "[ChefsWarehouse] Category '#{category}': #{products.size} products (total: #{results.size})"
+            if on_batch
+              on_batch.call(products)
+            else
+              results.concat(products)
+            end
+            logger.info "[ChefsWarehouse] Category '#{category}': #{products.size} products"
           rescue StandardError => e
             logger.warn "[ChefsWarehouse] Category browse failed for '#{category}': #{e.class}: #{e.message}"
           end
@@ -1257,12 +1262,12 @@ module Scrapers
         end
 
         # Decide how many searches to run based on category results
-        if results.size >= category_target
-          # Good coverage from categories, only do strategic searches
+        total_so_far = on_batch ? 0 : results.size # When streaming, we don't track total locally
+        if !on_batch && results.size >= category_target
           search_phase_limit = 10
           logger.info "[ChefsWarehouse] Categories yielded #{results.size} products (target: #{category_target}). Limiting search phase to #{search_phase_limit} terms."
         else
-          logger.info "[ChefsWarehouse] Categories yielded #{results.size} products (below target #{category_target}). Running full search phase."
+          logger.info "[ChefsWarehouse] Running full search phase."
         end
 
         # Phase 2: Search terms for items missed in categories
@@ -1272,7 +1277,11 @@ module Scrapers
         terms_to_search.each do |term|
           begin
             products = search_supplier_catalog(term, max: max_per_term)
-            results.concat(products)
+            if on_batch
+              on_batch.call(products)
+            else
+              results.concat(products)
+            end
             logger.info "[ChefsWarehouse] Search '#{term}': #{products.size} products"
           rescue StandardError => e
             logger.warn "[ChefsWarehouse] Search failed for '#{term}': #{e.class}: #{e.message}"
@@ -1280,6 +1289,9 @@ module Scrapers
           rate_limit_delay
         end
       end
+
+      # When streaming via on_batch, return empty array (caller already has the data)
+      return [] if on_batch
 
       # De-duplicate by SKU
       deduped = results.uniq { |r| r[:supplier_sku] }

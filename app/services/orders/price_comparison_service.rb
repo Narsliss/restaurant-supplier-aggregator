@@ -31,15 +31,18 @@ module Orders
         }
       end
 
+      # Compute totals once — was being computed twice (here and inside generate_recommendations)
+      totals = calculate_totals(comparison)
+
       {
         order_list: {
           id: order_list.id,
           name: order_list.name
         },
         items: comparison,
-        totals_by_supplier: calculate_totals(comparison),
+        totals_by_supplier: totals,
         summary: generate_summary(comparison),
-        recommendations: generate_recommendations(comparison)
+        recommendations: generate_recommendations(comparison, totals)
       }
     end
 
@@ -234,8 +237,8 @@ module Orders
       }
     end
 
-    def generate_recommendations(comparison)
-      totals = calculate_totals(comparison)
+    def generate_recommendations(comparison, totals = nil)
+      totals ||= calculate_totals(comparison)
 
       # Find best single supplier (all items available, meets minimum, lowest total)
       complete_suppliers = totals.select do |_id, data|
