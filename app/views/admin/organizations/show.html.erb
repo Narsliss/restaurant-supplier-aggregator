@@ -1,0 +1,377 @@
+<% content_for(:title) { "#{@org.name} — Organizations — Admin — SupplierHub" } %>
+
+<div class="space-y-6">
+  <%# Back link %>
+  <div>
+    <%= link_to admin_organizations_path, class: "inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition-colors duration-150" do %>
+      <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+      </svg>
+      Back to Organizations
+    <% end %>
+  </div>
+
+  <%# Header %>
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <h1 class="text-3xl font-bold text-gray-900"><%= @org.name %></h1>
+      <% unless @org.active? %>
+        <span class="rounded-full px-2 py-1 text-xs font-medium bg-red-100 text-red-800">Suspended</span>
+      <% end %>
+    </div>
+
+    <%# Action buttons %>
+    <div class="flex flex-wrap gap-2">
+      <% if @org.active? %>
+        <%= button_to "Suspend", suspend_admin_organization_path(@org),
+            method: :post,
+            class: "inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors duration-150",
+            data: { turbo_confirm: "Are you sure you want to suspend #{@org.name}? All members will lose access." } %>
+      <% else %>
+        <%= button_to "Reactivate", reactivate_admin_organization_path(@org),
+            method: :post,
+            class: "inline-flex items-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors duration-150",
+            data: { turbo_confirm: "Reactivate #{@org.name}?" } %>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Stat cards %>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    <%= render "admin/shared/stat_card",
+        label: "Members",
+        value: "#{@stats[:member_count]} / #{@stats[:seat_limit]}" %>
+    <%= render "admin/shared/stat_card",
+        label: "Locations",
+        value: @stats[:location_count] %>
+    <%= render "admin/shared/stat_card",
+        label: "Total Orders",
+        value: @stats[:total_orders] %>
+    <%= render "admin/shared/stat_card",
+        label: "Total Spend",
+        value: number_to_currency(@stats[:total_spend]) %>
+  </div>
+
+  <%# Subscription card %>
+  <% if @subscription %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Subscription</h2>
+      </div>
+      <dl class="divide-y divide-gray-200">
+        <div class="px-6 py-3 flex justify-between">
+          <dt class="text-sm font-medium text-gray-500">Plan</dt>
+          <dd class="text-sm text-gray-900"><%= @subscription.plan_name %></dd>
+        </div>
+        <div class="px-6 py-3 flex justify-between">
+          <dt class="text-sm font-medium text-gray-500">Status</dt>
+          <dd>
+            <% sub_colors = {
+              'active'   => 'bg-green-100 text-green-800',
+              'trialing' => 'bg-blue-100 text-blue-800',
+              'past_due' => 'bg-yellow-100 text-yellow-800',
+              'canceled' => 'bg-red-100 text-red-800'
+            } %>
+            <span class="rounded-full px-2 py-1 text-xs font-medium <%= sub_colors[@subscription.status] || 'bg-gray-100 text-gray-800' %>">
+              <%= @subscription.status.titleize %>
+            </span>
+          </dd>
+        </div>
+        <div class="px-6 py-3 flex justify-between">
+          <dt class="text-sm font-medium text-gray-500">Amount</dt>
+          <dd class="text-sm text-gray-900"><%= @subscription.formatted_amount %> / <%= @subscription.interval %></dd>
+        </div>
+        <div class="px-6 py-3 flex justify-between">
+          <dt class="text-sm font-medium text-gray-500">Current Period</dt>
+          <dd class="text-sm text-gray-900">
+            <%= @subscription.current_period_start&.strftime("%b %-d, %Y") %> &mdash; <%= @subscription.current_period_end&.strftime("%b %-d, %Y") %>
+          </dd>
+        </div>
+        <% if @subscription.trialing? && @subscription.trial_end.present? %>
+          <div class="px-6 py-3 flex justify-between">
+            <dt class="text-sm font-medium text-gray-500">Trial Ends</dt>
+            <dd class="text-sm text-gray-900">
+              <%= @subscription.trial_end.strftime("%b %-d, %Y") %>
+              <span class="text-gray-400 text-xs ml-1">(<%= time_ago_in_words(@subscription.trial_end) %> from now)</span>
+            </dd>
+          </div>
+        <% end %>
+      </dl>
+    </div>
+  <% end %>
+
+  <%# Members table %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Members</h2>
+    </div>
+    <% if @members.any? %>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Joined</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @members.each do |membership| %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-3 text-sm font-medium text-gray-900">
+                  <%= link_to membership.user.full_name, admin_user_path(membership.user), class: "text-brand-green-dark hover:underline" %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500">
+                  <%= membership.user.email %>
+                </td>
+                <td class="px-6 py-3 whitespace-nowrap">
+                  <% role_colors = { 'owner' => 'bg-green-100 text-green-800', 'manager' => 'bg-blue-100 text-blue-800', 'chef' => 'bg-orange-100 text-orange-800' } %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium <%= role_colors[membership.role] || 'bg-gray-100 text-gray-800' %>">
+                    <%= membership.role.titleize %>
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500 text-right">
+                  <%= membership.created_at.strftime("%b %-d, %Y") %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="px-6 py-8 text-center text-sm text-gray-400">
+        No active members.
+      </div>
+    <% end %>
+  </div>
+
+  <%# Pending Invitations %>
+  <% if @pending_invitations.any? %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Pending Invitations</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expires</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @pending_invitations.each do |invitation| %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-3 text-sm font-medium text-gray-900">
+                  <%= invitation.email %>
+                </td>
+                <td class="px-6 py-3 whitespace-nowrap">
+                  <% role_colors = { 'owner' => 'bg-green-100 text-green-800', 'manager' => 'bg-blue-100 text-blue-800', 'chef' => 'bg-orange-100 text-orange-800' } %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium <%= role_colors[invitation.role] || 'bg-gray-100 text-gray-800' %>">
+                    <%= invitation.role.titleize %>
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500">
+                  <%= invitation.expires_at.strftime("%b %-d, %Y") %>
+                  <span class="text-gray-400 text-xs ml-1">(<%= time_ago_in_words(invitation.expires_at) %>)</span>
+                </td>
+                <td class="px-6 py-3 text-right">
+                  <%= button_to "Resend", reinvite_admin_organization_path(@org, invitation_id: invitation.id),
+                      method: :post,
+                      class: "inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors duration-150" %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% end %>
+
+  <%# Credentials table %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Supplier Credentials</h2>
+    </div>
+    <% if @credentials.any? %>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Login</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @credentials.each do |cred| %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-3 text-sm font-medium text-gray-900">
+                  <%= cred.supplier&.name || "Unknown" %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500">
+                  <%= cred.user&.full_name || "—" %>
+                </td>
+                <td class="px-6 py-3 whitespace-nowrap">
+                  <% cred_colors = {
+                    'active'  => 'bg-green-100 text-green-800',
+                    'pending' => 'bg-yellow-100 text-yellow-800',
+                    'expired' => 'bg-gray-100 text-gray-800',
+                    'failed'  => 'bg-red-100 text-red-800',
+                    'hold'    => 'bg-red-100 text-red-800'
+                  } %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium <%= cred_colors[cred.status] || 'bg-gray-100 text-gray-800' %>">
+                    <%= cred.status.titleize %>
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500 text-right">
+                  <% if cred.last_login_at.present? %>
+                    <%= time_ago_in_words(cred.last_login_at) %> ago
+                  <% else %>
+                    Never
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="px-6 py-8 text-center text-sm text-gray-400">
+        No supplier credentials configured.
+      </div>
+    <% end %>
+  </div>
+
+  <%# Recent Orders %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Recent Orders</h2>
+    </div>
+    <% if @recent_orders.any? %>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Date</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @recent_orders.each do |order| %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-3 text-sm font-medium text-gray-900">
+                  <%= order.user&.full_name || "—" %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500">
+                  <%= order.supplier&.name || "Unknown" %>
+                </td>
+                <td class="px-6 py-3 whitespace-nowrap">
+                  <% order_colors = {
+                    'pending'        => 'bg-yellow-100 text-yellow-800',
+                    'verifying'      => 'bg-yellow-100 text-yellow-800',
+                    'price_changed'  => 'bg-yellow-100 text-yellow-800',
+                    'processing'     => 'bg-blue-100 text-blue-800',
+                    'pending_review' => 'bg-yellow-100 text-yellow-800',
+                    'pending_manual' => 'bg-yellow-100 text-yellow-800',
+                    'submitted'      => 'bg-green-100 text-green-800',
+                    'confirmed'      => 'bg-green-100 text-green-800',
+                    'failed'         => 'bg-red-100 text-red-800',
+                    'cancelled'      => 'bg-gray-100 text-gray-800',
+                    'dry_run_complete' => 'bg-blue-100 text-blue-800'
+                  } %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium <%= order_colors[order.status] || 'bg-gray-100 text-gray-800' %>">
+                    <%= order.status.titleize %>
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-900 text-right font-medium">
+                  <% if order.total_amount.present? %>
+                    <%= number_to_currency(order.total_amount) %>
+                  <% else %>
+                    —
+                  <% end %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500 text-right">
+                  <% if order.submitted_at.present? %>
+                    <%= order.submitted_at.strftime("%b %-d, %Y") %>
+                  <% else %>
+                    <%= order.created_at.strftime("%b %-d, %Y") %>
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="px-6 py-8 text-center text-sm text-gray-400">
+        No orders placed yet.
+      </div>
+    <% end %>
+  </div>
+
+  <%# Recent Invoices %>
+  <% if @invoices.any? %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Recent Invoices</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice ID</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Paid At</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @invoices.each do |invoice| %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-3 text-sm font-medium text-gray-900 font-mono">
+                  <% if invoice.hosted_invoice_url.present? %>
+                    <%= link_to invoice.stripe_invoice_id, invoice.hosted_invoice_url, target: "_blank", rel: "noopener", class: "text-brand-green-dark hover:underline" %>
+                  <% else %>
+                    <%= invoice.stripe_invoice_id %>
+                  <% end %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-900 text-right font-medium">
+                  <% if invoice.paid? %>
+                    <%= invoice.formatted_amount_paid %>
+                  <% else %>
+                    <%= invoice.formatted_amount_due %>
+                  <% end %>
+                </td>
+                <td class="px-6 py-3 whitespace-nowrap">
+                  <% invoice_colors = {
+                    'paid'  => 'bg-green-100 text-green-800',
+                    'open'  => 'bg-yellow-100 text-yellow-800',
+                    'draft' => 'bg-gray-100 text-gray-800'
+                  } %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium <%= invoice_colors[invoice.status] || 'bg-gray-100 text-gray-800' %>">
+                    <%= invoice.status.titleize %>
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500 text-right">
+                  <% if invoice.paid_at.present? %>
+                    <%= invoice.paid_at.strftime("%b %-d, %Y") %>
+                  <% else %>
+                    —
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% end %>
+</div>

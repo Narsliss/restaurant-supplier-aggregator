@@ -143,8 +143,33 @@ Rails.application.routes.draw do
   # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check
 
-  # Mission Control Jobs Dashboard (super_admin only)
+  # Super Admin Dashboard & Tools
   authenticate :user, ->(u) { u.super_admin? } do
+    namespace :admin do
+      root to: 'dashboard#index'
+
+      resources :users, only: [:index, :show] do
+        member do
+          post :unlock
+          post :reset_password
+          post :impersonate
+        end
+      end
+      post 'stop_impersonating', to: 'users#stop_impersonating'
+
+      resources :organizations, only: [:index, :show] do
+        member do
+          post :suspend
+          post :reactivate
+          post :reinvite
+        end
+      end
+
+      resource :revenue, only: [:show]
+      resource :operations, only: [:show]
+      resource :usage, only: [:show]
+    end
+
     mount MissionControl::Jobs::Engine, at: '/jobs'
   end
 end

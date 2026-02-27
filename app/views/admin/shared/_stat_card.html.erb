@@ -1,0 +1,8 @@
+<%# Reusable stat card. Locals: label (String), value (String/Number), change (optional String like "+12%"), color (optional, default gray) %>
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+  <p class="text-sm font-medium text-gray-500"><%= label %></p>
+  <p class="mt-1 text-2xl font-bold <%= local_assigns[:color] || 'text-gray-900' %>"><%= value %></p>
+  <% if local_assigns[:change].present? %>
+    <p class="mt-1 text-sm <%= change.to_s.start_with?('+') ? 'text-green-600' : 'text-red-600' %>"><%= change %></p>
+  <% end %>
+</div>

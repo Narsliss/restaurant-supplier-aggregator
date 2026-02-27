@@ -1,5 +1,6 @@
 class ApplicationController < ActionController::Base
   include OrganizationAuthorization
+  include ImpersonationGuard
 
   before_action :authenticate_user!
   before_action :ensure_onboarding_complete, unless: :skip_onboarding_check?
@@ -7,7 +8,13 @@ class ApplicationController < ActionController::Base
   # before_action :require_subscription, unless: :skip_subscription_check?
   before_action :configure_permitted_parameters, if: :devise_controller?
 
-  helper_method :current_location, :subscription_required?, :onboarding_incomplete?, :viewing_all_locations?
+  helper_method :current_location, :subscription_required?, :onboarding_incomplete?, :viewing_all_locations?, :impersonating?
+
+  # Show a helpful message when CSRF token is stale (e.g. after server restart or long idle)
+  rescue_from ActionController::InvalidAuthenticityToken do
+    flash[:alert] = "Your session expired. Please try again."
+    redirect_to new_user_session_path
+  end
 
   protected
 

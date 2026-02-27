@@ -1,0 +1,136 @@
+<% content_for(:title) { "Organizations — Admin — SupplierHub" } %>
+
+<%
+  # Build base_path preserving search/filter params for pagination
+  pagination_params = {}
+  pagination_params[:q] = params[:q] if params[:q].present?
+  pagination_params[:filter] = params[:filter] if params[:filter].present?
+  pagination_params[:sort] = params[:sort] if params[:sort].present?
+  base_path = admin_organizations_path(pagination_params)
+%>
+
+<div class="space-y-6">
+  <%# Header %>
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Organizations</h1>
+      <p class="text-gray-500 mt-1"><%= @total_count %> total organizations</p>
+    </div>
+  </div>
+
+  <%# Search & Filters %>
+  <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+    <%# Search form %>
+    <%= form_with url: admin_organizations_path, method: :get, data: { controller: "admin-search", admin_search_target: "form" }, class: "flex-1 max-w-md" do |f| %>
+      <% if params[:filter].present? %>
+        <%= f.hidden_field :filter, value: params[:filter] %>
+      <% end %>
+      <% if params[:sort].present? %>
+        <%= f.hidden_field :sort, value: params[:sort] %>
+      <% end %>
+      <div class="relative">
+        <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+          <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+        </div>
+        <%= f.text_field :q,
+            value: params[:q],
+            placeholder: "Search by organization name...",
+            class: "block w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm placeholder:text-gray-400 focus:border-brand-green focus:outline-none focus:ring-1 focus:ring-brand-green",
+            data: { action: "input->admin-search#search" },
+            autocomplete: "off" %>
+      </div>
+    <% end %>
+
+    <%# Filter pills %>
+    <div class="flex flex-wrap gap-2">
+      <%
+        filters = [
+          { key: nil,          label: "All" },
+          { key: "suspended",  label: "Suspended" }
+        ]
+      %>
+      <% filters.each do |f| %>
+        <% active = params[:filter].to_s == f[:key].to_s %>
+        <% filter_params = { q: params[:q], sort: params[:sort], filter: f[:key] }.compact %>
+        <%= link_to f[:label], admin_organizations_path(filter_params),
+            class: "inline-flex items-center rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 #{active ? 'bg-brand-green-dark text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}" %>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Organizations table %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Owner</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Members / Seats</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Locations</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subscription</th>
+            <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Created</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @organizations.each do |org| %>
+            <% owner_membership = org.memberships.find { |m| m.role == 'owner' } %>
+            <% sub = org.subscriptions.find { |s| %w[active trialing past_due canceled].include?(s.status) } %>
+            <tr class="hover:bg-gray-50">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <%= link_to org.name, admin_organization_path(org), class: "text-sm font-medium text-brand-green-dark hover:underline" %>
+                <% unless org.active? %>
+                  <span class="ml-2 rounded-full px-2 py-0.5 text-xs font-medium bg-red-100 text-red-800">Suspended</span>
+                <% end %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <%= owner_membership&.user&.email || "—" %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <%= org.member_count %> / <%= org.seat_limit %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <%= org.locations.count %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <% if sub %>
+                  <% sub_colors = {
+                    'active'   => 'bg-green-100 text-green-800',
+                    'trialing' => 'bg-blue-100 text-blue-800',
+                    'past_due' => 'bg-yellow-100 text-yellow-800',
+                    'canceled' => 'bg-red-100 text-red-800'
+                  } %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium <%= sub_colors[sub.status] || 'bg-gray-100 text-gray-800' %>">
+                    <%= sub.status.titleize %>
+                  </span>
+                <% else %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800">None</span>
+                <% end %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                <%= time_ago_in_words(org.created_at) %> ago
+              </td>
+            </tr>
+          <% end %>
+
+          <% if @organizations.empty? %>
+            <tr>
+              <td colspan="6" class="px-6 py-12 text-center text-sm text-gray-400">
+                <% if params[:q].present? || params[:filter].present? %>
+                  No organizations match your search or filter criteria.
+                <% else %>
+                  No organizations found.
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <%# Pagination %>
+  <%= render "admin/shared/pagination", page: @page, per_page: @per_page, total_count: @total_count, base_path: base_path %>
+</div>

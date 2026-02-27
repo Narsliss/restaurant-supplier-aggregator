@@ -1,5 +1,6 @@
 import { application } from "./application"
 
+import AdminSearchController from "./admin_search_controller"
 import TwoFactorController from "./two_factor_controller"
 import FlashController from "./flash_controller"
 import DropdownController from "./dropdown_controller"
@@ -21,6 +22,7 @@ import AutoRefreshController from "./auto_refresh_controller"
 import InvitationFormController from "./invitation_form_controller"
 import LocationSelectorController from "./location_selector_controller"
 
+application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
 application.register("flash", FlashController)
 application.register("dropdown", DropdownController)

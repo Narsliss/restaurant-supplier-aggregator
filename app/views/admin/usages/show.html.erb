@@ -1,0 +1,208 @@
+<% content_for(:title) { "Usage & Adoption — Admin — SupplierHub" } %>
+
+<div class="space-y-8">
+  <%# Header %>
+  <div>
+    <h1 class="text-3xl font-bold text-gray-900">Usage & Adoption</h1>
+    <p class="text-gray-500 mt-1">User activity, feature adoption, and engagement metrics</p>
+  </div>
+
+  <%# Stat cards %>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    <%= render "admin/shared/stat_card",
+        label: "WAU (7-day active)",
+        value: @active_7d %>
+    <%= render "admin/shared/stat_card",
+        label: "MAU (30-day active)",
+        value: @active_30d %>
+    <%= render "admin/shared/stat_card",
+        label: "Dormant (30d+)",
+        value: @dormant,
+        color: @dormant > 0 ? "text-red-600" : "text-gray-900" %>
+    <%= render "admin/shared/stat_card",
+        label: "Total Users",
+        value: @total_users %>
+  </div>
+
+  <%# Feature Adoption %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Feature Adoption</h2>
+    </div>
+    <div class="p-6 space-y-5">
+      <%# Users with orders %>
+      <div class="flex items-center gap-4">
+        <span class="w-40 text-sm text-gray-600">Users with orders</span>
+        <div class="flex-1 bg-gray-200 rounded-full h-4">
+          <div class="bg-brand-green h-4 rounded-full" style="width: <%= (@users_with_orders.to_f / [@total_users, 1].max * 100).round %>%"></div>
+        </div>
+        <span class="w-20 text-sm text-gray-600 text-right"><%= @users_with_orders %>/<%= @total_users %></span>
+      </div>
+
+      <%# Users with active credentials %>
+      <div class="flex items-center gap-4">
+        <span class="w-40 text-sm text-gray-600">Active credentials</span>
+        <div class="flex-1 bg-gray-200 rounded-full h-4">
+          <div class="bg-brand-green h-4 rounded-full" style="width: <%= (@users_with_creds.to_f / [@total_users, 1].max * 100).round %>%"></div>
+        </div>
+        <span class="w-20 text-sm text-gray-600 text-right"><%= @users_with_creds %>/<%= @total_users %></span>
+      </div>
+
+      <%# Users with lists %>
+      <div class="flex items-center gap-4">
+        <span class="w-40 text-sm text-gray-600">Users with lists</span>
+        <div class="flex-1 bg-gray-200 rounded-full h-4">
+          <div class="bg-brand-green h-4 rounded-full" style="width: <%= (@users_with_lists.to_f / [@total_users, 1].max * 100).round %>%"></div>
+        </div>
+        <span class="w-20 text-sm text-gray-600 text-right"><%= @users_with_lists %>/<%= @total_users %></span>
+      </div>
+
+      <%# Orgs with locations %>
+      <div class="flex items-center gap-4">
+        <span class="w-40 text-sm text-gray-600">Orgs with locations</span>
+        <div class="flex-1 bg-gray-200 rounded-full h-4">
+          <div class="bg-blue-500 h-4 rounded-full" style="width: <%= (@orgs_with_locations.to_f / [@total_orgs, 1].max * 100).round %>%"></div>
+        </div>
+        <span class="w-20 text-sm text-gray-600 text-right"><%= @orgs_with_locations %>/<%= @total_orgs %></span>
+      </div>
+    </div>
+  </div>
+
+  <%# Charts row %>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <%# Weekly Signups Chart %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Weekly Signups (12 weeks)</h2>
+      </div>
+      <div class="p-6">
+        <% if @weekly_signups.any? %>
+          <% max_signups = [@weekly_signups.map(&:last).max.to_i, 1].max %>
+          <div class="flex items-end justify-between h-48 gap-2">
+            <% @weekly_signups.each do |date, count| %>
+              <div class="flex flex-col items-center flex-1">
+                <div class="w-full relative" style="height: <%= [(count / max_signups.to_f * 100).round, 2].max %>%">
+                  <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 whitespace-nowrap">
+                    <%= count %>
+                  </div>
+                  <div class="w-full h-full bg-brand-green rounded-t"></div>
+                </div>
+                <p class="text-xs text-gray-500 mt-2"><%= date.strftime('%b %-d') %></p>
+              </div>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="h-48 flex items-center justify-center text-sm text-gray-400">
+            No signup data available.
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <%# Weekly Orders Chart %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Weekly Orders (12 weeks)</h2>
+      </div>
+      <div class="p-6">
+        <% if @weekly_orders.any? %>
+          <% max_orders = [@weekly_orders.map(&:last).max.to_i, 1].max %>
+          <div class="flex items-end justify-between h-48 gap-2">
+            <% @weekly_orders.each do |date, count| %>
+              <div class="flex flex-col items-center flex-1">
+                <div class="w-full relative" style="height: <%= [(count / max_orders.to_f * 100).round, 2].max %>%">
+                  <div class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600 whitespace-nowrap">
+                    <%= count %>
+                  </div>
+                  <div class="w-full h-full bg-blue-500 rounded-t"></div>
+                </div>
+                <p class="text-xs text-gray-500 mt-2"><%= date.strftime('%b %-d') %></p>
+              </div>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="h-48 flex items-center justify-center text-sm text-gray-400">
+            No order data available.
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <%# Login Frequency Distribution %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Login Frequency Distribution</h2>
+    </div>
+    <div class="p-6 space-y-4">
+      <% max_login = [@login_distribution.values.max.to_i, 1].max %>
+      <% login_colors = {
+        'Never' => 'bg-gray-400',
+        '1x'    => 'bg-yellow-500',
+        '2-10'  => 'bg-blue-500',
+        '11-50' => 'bg-brand-green',
+        '50+'   => 'bg-green-600'
+      } %>
+      <% @login_distribution.each do |label, count| %>
+        <div class="flex items-center gap-4">
+          <span class="w-20 text-sm text-gray-600 text-right font-medium"><%= label %></span>
+          <div class="flex-1 bg-gray-200 rounded-full h-4">
+            <div class="<%= login_colors[label] || 'bg-brand-green' %> h-4 rounded-full" style="width: <%= [(count.to_f / max_login * 100).round, 2].max %>%"></div>
+          </div>
+          <span class="w-16 text-sm text-gray-600 text-right"><%= count %></span>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Top 10 Active Users %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Top 10 Active Users</h2>
+    </div>
+    <% if @top_users.any? %>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Organization</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Sign-in Count</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Active</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @top_users.each do |user| %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-3 text-sm font-medium text-gray-900">
+                  <%= link_to user.full_name, admin_user_path(user), class: "text-brand-green-dark hover:underline" %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500">
+                  <%= user.email %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500">
+                  <%= user.current_organization&.name || "—" %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-900 text-right font-medium">
+                  <%= user.sign_in_count %>
+                </td>
+                <td class="px-6 py-3 text-sm text-gray-500 text-right">
+                  <% if user.current_sign_in_at.present? %>
+                    <%= time_ago_in_words(user.current_sign_in_at) %> ago
+                  <% else %>
+                    Never
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="px-6 py-8 text-center text-sm text-gray-400">
+        No active users yet.
+      </div>
+    <% end %>
+  </div>
+</div>

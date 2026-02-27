@@ -25,12 +25,19 @@
   <body class="h-full">
     <div class="min-h-full flex flex-col">
       <% if user_signed_in? %>
-        <%= render "shared/navigation" %>
+        <% if controller.class.module_parent_name == 'Admin' %>
+          <%= render "admin/shared/navigation" %>
+        <% else %>
+          <%= render "shared/navigation" %>
+        <% end %>
       <% end %>
 
       <main class="<%= user_signed_in? ? 'py-10 flex-1' : 'flex-1' %>">
         <div class="<%= user_signed_in? ? 'mx-auto max-w-7xl px-4 sm:px-6 lg:px-8' : '' %>">
-          <%= render "shared/flash_messages" %>
+          <%= render "shared/flash_messages" unless devise_controller? %>
+          <% if impersonating? %>
+            <%= render "admin/shared/impersonation_banner" %>
+          <% end %>
           <%= yield %>
         </div>
       </main>

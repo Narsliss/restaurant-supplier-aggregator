@@ -1,0 +1,161 @@
+<% content_for(:title) { "Users — Admin — SupplierHub" } %>
+
+<%
+  # Build base_path preserving search/filter/sort params for pagination
+  pagination_params = {}
+  pagination_params[:q] = params[:q] if params[:q].present?
+  pagination_params[:filter] = params[:filter] if params[:filter].present?
+  pagination_params[:sort] = params[:sort] if params[:sort].present?
+  pagination_params[:direction] = params[:direction] if params[:direction].present?
+  base_path = admin_users_path(pagination_params)
+%>
+
+<div class="space-y-6">
+  <%# Header %>
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Users</h1>
+      <p class="text-gray-500 mt-1"><%= @total_count %> total users</p>
+    </div>
+  </div>
+
+  <%# Search & Filters %>
+  <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+    <%# Search form %>
+    <%= form_with url: admin_users_path, method: :get, data: { controller: "admin-search", admin_search_target: "form" }, class: "flex-1 max-w-md" do |f| %>
+      <% if params[:filter].present? %>
+        <%= f.hidden_field :filter, value: params[:filter] %>
+      <% end %>
+      <% if params[:sort].present? %>
+        <%= f.hidden_field :sort, value: params[:sort] %>
+        <%= f.hidden_field :direction, value: params[:direction] %>
+      <% end %>
+      <div class="relative">
+        <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+          <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+        </div>
+        <%= f.text_field :q,
+            value: params[:q],
+            placeholder: "Search by name or email...",
+            class: "block w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm placeholder:text-gray-400 focus:border-brand-green focus:outline-none focus:ring-1 focus:ring-brand-green",
+            data: { action: "input->admin-search#search" },
+            autocomplete: "off" %>
+      </div>
+    <% end %>
+
+    <%# Filter pills %>
+    <div class="flex flex-wrap gap-2">
+      <%
+        filters = [
+          { key: nil,       label: "All" },
+          { key: "active",  label: "Active (7d)" },
+          { key: "dormant", label: "Dormant (30d+)" },
+          { key: "locked",  label: "Locked" }
+        ]
+      %>
+      <% filters.each do |f| %>
+        <% active = params[:filter].to_s == f[:key].to_s %>
+        <% filter_params = { q: params[:q], sort: params[:sort], direction: params[:direction], filter: f[:key] }.compact %>
+        <%= link_to f[:label], admin_users_path(filter_params),
+            class: "inline-flex items-center rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150 #{active ? 'bg-brand-green-dark text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}" %>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Users table %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-6 py-3 text-left">
+              <% sort_params = { q: params[:q], filter: params[:filter] }.compact %>
+              <% sort_dir = params[:sort] == 'email' && params[:direction] != 'asc' ? 'asc' : 'desc' %>
+              <% sort_arrow = params[:sort] == 'email' ? (params[:direction] == 'asc' ? ' ↑' : ' ↓') : '' %>
+              <%= link_to admin_users_path(sort_params.merge(sort: 'email', direction: sort_dir)),
+                  class: "group inline-flex items-center text-xs font-medium uppercase text-gray-500 hover:text-gray-700" do %>
+                Name<%= sort_arrow %>
+              <% end %>
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Organization</th>
+            <th scope="col" class="px-6 py-3 text-left">
+              <% sort_dir_signin = params[:sort] == 'current_sign_in_at' && params[:direction] != 'asc' ? 'asc' : 'desc' %>
+              <% sort_arrow_signin = params[:sort] == 'current_sign_in_at' ? (params[:direction] == 'asc' ? ' ↑' : ' ↓') : '' %>
+              <%= link_to admin_users_path(sort_params.merge(sort: 'current_sign_in_at', direction: sort_dir_signin)),
+                  class: "group inline-flex items-center text-xs font-medium uppercase text-gray-500 hover:text-gray-700" do %>
+                Last Sign-in<%= sort_arrow_signin %>
+              <% end %>
+            </th>
+            <th scope="col" class="px-6 py-3 text-left">
+              <% sort_dir_count = params[:sort] == 'sign_in_count' && params[:direction] != 'asc' ? 'asc' : 'desc' %>
+              <% sort_arrow_count = params[:sort] == 'sign_in_count' ? (params[:direction] == 'asc' ? ' ↑' : ' ↓') : '' %>
+              <%= link_to admin_users_path(sort_params.merge(sort: 'sign_in_count', direction: sort_dir_count)),
+                  class: "group inline-flex items-center text-xs font-medium uppercase text-gray-500 hover:text-gray-700" do %>
+                Sign-ins<%= sort_arrow_count %>
+              <% end %>
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+            <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @users.each do |user| %>
+            <tr class="hover:bg-gray-50">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <%= link_to user.full_name, admin_user_path(user), class: "text-sm font-medium text-brand-green-dark hover:underline" %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <%= user.email %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <%= user.current_organization&.name || "—" %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <% if user.current_sign_in_at.present? %>
+                  <%= time_ago_in_words(user.current_sign_in_at) %> ago
+                <% else %>
+                  Never
+                <% end %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <%= user.sign_in_count %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <% if user.locked_at.present? %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium bg-red-100 text-red-800">Locked</span>
+                <% elsif user.current_sign_in_at.present? && user.current_sign_in_at >= 7.days.ago %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium bg-green-100 text-green-800">Active</span>
+                <% elsif user.sign_in_count == 0 || user.sign_in_count.nil? %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800">New</span>
+                <% else %>
+                  <span class="rounded-full px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800">Dormant</span>
+                <% end %>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-right">
+                <%= link_to "View", admin_user_path(user), class: "text-sm font-medium text-brand-green-dark hover:underline" %>
+              </td>
+            </tr>
+          <% end %>
+
+          <% if @users.empty? %>
+            <tr>
+              <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-400">
+                <% if params[:q].present? || params[:filter].present? %>
+                  No users match your search or filter criteria.
+                <% else %>
+                  No users found.
+                <% end %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <%# Pagination %>
+  <%= render "admin/shared/pagination", page: @page, per_page: @per_page, total_count: @total_count, base_path: base_path %>
+</div>

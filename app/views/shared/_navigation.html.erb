@@ -43,10 +43,14 @@
                 class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
-          <%# — Products (super_admin only, not location-scoped) %>
-          <% if !ops_disabled && current_user.super_admin? %>
-            <%= link_to "Products", products_path,
-                class: "inline-flex items-center border-b-2 #{controller_name == 'products' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <%# — Admin + Products (super_admin only) %>
+          <% if current_user.super_admin? %>
+            <%= link_to "Admin", admin_root_path,
+                class: "inline-flex items-center border-b-2 border-transparent text-gray-300 hover:border-gray-400 hover:text-white px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+            <% unless ops_disabled %>
+              <%= link_to "Products", products_path,
+                  class: "inline-flex items-center border-b-2 #{controller_name == 'products' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+            <% end %>
           <% end %>
 
           <%# — Suppliers %>
@@ -119,6 +123,7 @@
               <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <% end %>
             <% if current_user.super_admin? %>
+              <%= link_to "Admin Dashboard", admin_root_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
               <%= link_to "Jobs", mission_control_jobs.root_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <% end %>
             <div class="border-t border-gray-100 mt-1 pt-1">
@@ -240,6 +245,7 @@
           <%= link_to "Restaurants", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
         <% end %>
         <% if current_user.super_admin? %>
+          <%= link_to "Admin Dashboard", admin_root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
           <%= link_to "Jobs", mission_control_jobs.root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
         <% end %>
         <button type="button"
