@@ -96,6 +96,7 @@ Rails.application.routes.draw do
   resources :products do
     collection do
       get :search
+      post :refresh_catalog
     end
   end
 

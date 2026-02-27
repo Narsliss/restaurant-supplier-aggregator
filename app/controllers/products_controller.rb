@@ -27,6 +27,11 @@ class ProductsController < ApplicationController
     @subcategories = params[:category].present? ? @categories.dig(params[:category], :subcategories) || [] : []
   end
 
+  def refresh_catalog
+    StaggeredSupplierImportJob.perform_later
+    redirect_to products_path, notice: "Catalog refresh queued — imports will run staggered over the next few minutes."
+  end
+
   def search
     @products = Product.search(params[:q]).includes(supplier_products: :supplier).limit(20)
 

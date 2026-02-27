@@ -29,7 +29,7 @@ class ScrapingLog < ApplicationRecord
 
   def self.success_rate_in_last(duration)
     logs = in_last(duration)
-    return 0 if logs.count.zero?
+    return nil if logs.count.zero?
 
     completed_count = logs.completed.count
     (completed_count.to_f / logs.count * 100).round(2)

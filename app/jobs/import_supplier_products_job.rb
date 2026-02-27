@@ -7,12 +7,18 @@ class ImportSupplierProductsJob < ApplicationJob
   # NO RETRIES - Email super_admin immediately on failure
   discard_on ActiveRecord::RecordNotFound
 
-  def perform(supplier_id, search_terms = nil, scraping_log_id = nil)
+  def perform(supplier_id, credential_id_or_search_terms = nil, scraping_log_id = nil)
     @supplier = Supplier.find(supplier_id)
     @scraping_log = ScrapingLog.find(scraping_log_id) if scraping_log_id
 
-    # Get super_admin's credential for this supplier
-    @credential = find_super_admin_credential
+    # credential_id_or_search_terms: integer = credential ID, string = search terms, nil = auto-detect
+    if credential_id_or_search_terms.is_a?(Integer)
+      @credential = SupplierCredential.find_by(id: credential_id_or_search_terms)
+      search_terms = nil
+    else
+      search_terms = credential_id_or_search_terms
+      @credential = find_best_credential
+    end
 
     unless @credential
       handle_no_credential_error
@@ -61,24 +67,23 @@ class ImportSupplierProductsJob < ApplicationJob
 
   private
 
-  def find_super_admin_credential
-    super_admin = User.super_admin
+  # Find the best available credential for this supplier.
+  # Prefers credentials with valid sessions, then most recently logged in.
+  def find_best_credential
+    active_creds = SupplierCredential.where(supplier: @supplier, status: 'active')
+    return nil unless active_creds.exists?
 
-    unless super_admin
-      Rails.logger.error '[ImportProductsJob] No super_admin found in system!'
-      return nil
-    end
-
-    super_admin.credential_for(@supplier)
+    with_session = active_creds.select(&:session_valid?)
+    candidates = with_session.any? ? with_session : active_creds.to_a
+    candidates.max_by { |c| c.last_login_at || c.created_at }
   end
 
   def handle_no_credential_error
-    error_msg = "No super_admin credentials found for #{@supplier.name}"
+    error_msg = "No active credentials found for #{@supplier.name}"
     Rails.logger.error "[ImportProductsJob] #{error_msg}"
 
     @scraping_log&.mark_failed!(error_msg)
 
-    # Email super_admin immediately
     ScrapingErrorMailer.no_credentials(@supplier).deliver_later
   end
 

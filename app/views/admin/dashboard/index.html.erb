@@ -39,10 +39,11 @@
     <%= render "admin/shared/stat_card",
         label: "Active Subscriptions",
         value: @stats[:active_subscriptions] %>
+    <% rate = @stats[:scraper_success_rate] %>
     <%= render "admin/shared/stat_card",
         label: "Scraper Success (24h)",
-        value: "#{@stats[:scraper_success_rate]}%",
-        color: @stats[:scraper_success_rate] >= 90 ? "text-green-600" : (@stats[:scraper_success_rate] >= 70 ? "text-yellow-600" : "text-red-600") %>
+        value: rate ? "#{rate}%" : "N/A",
+        color: rate.nil? ? "text-gray-400" : (rate >= 90 ? "text-green-600" : (rate >= 70 ? "text-yellow-600" : "text-red-600")) %>
   </div>
 
   <%# Recent activity %>

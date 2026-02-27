@@ -1,7 +1,14 @@
 <div class="max-w-4xl mx-auto">
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
     <h1 class="text-2xl font-bold text-gray-900">Products</h1>
-    <%= link_to "Add Product", new_product_path, class: "inline-flex items-center justify-center bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark text-sm" %>
+    <div class="flex items-center gap-2">
+      <% if current_user.super_admin? %>
+        <%= button_to "Refresh Catalog", refresh_catalog_products_path, method: :post,
+            class: "inline-flex items-center justify-center bg-brand-green text-white px-4 py-2 rounded-lg hover:bg-brand-green-dark text-sm",
+            data: { turbo_confirm: "This will queue a full catalog import for all suppliers. It's memory and network intensive — are you sure?" } %>
+      <% end %>
+      <%= link_to "Add Product", new_product_path, class: "inline-flex items-center justify-center bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark text-sm" %>
+    </div>
   </div>
 
   <!-- Search & Filter -->

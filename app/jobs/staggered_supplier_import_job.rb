@@ -1,12 +1,15 @@
 # frozen_string_literal: true
 
 # Daily safety-net catalog import — imports all active suppliers' product catalogs
-# using the super_admin credential. Staggered 5 minutes apart to avoid overwhelming
-# supplier sites.
+# using any active credential in the system. Staggered 5 minutes apart to avoid
+# overwhelming supplier sites. Runs once daily at 5 AM.
 #
-# This is now a low-frequency supplement to per-user list syncing (which is the
+# This is a low-frequency supplement to per-user list syncing (which is the
 # primary data source). It ensures the catalog stays seeded for new users and
 # catches products that don't appear on any user's ordering lists.
+#
+# Credential selection: picks the most recently logged-in active credential for
+# each supplier, preferring ones with valid sessions to minimize re-authentication.
 class StaggeredSupplierImportJob < ApplicationJob
   queue_as :scraping
 
@@ -14,19 +17,13 @@ class StaggeredSupplierImportJob < ApplicationJob
     suppliers = Supplier.active.order(:id).to_a
     return if suppliers.empty?
 
-    super_admin = User.super_admin
-    unless super_admin
-      Rails.logger.error '[StaggeredSupplierImportJob] No super_admin found in system!'
-      ScrapingErrorMailer.no_super_admin.deliver_later
-      return
-    end
-
     Rails.logger.info "[StaggeredSupplierImportJob] Starting daily catalog import for #{suppliers.size} suppliers"
 
+    queued = 0
     suppliers.each_with_index do |supplier, index|
-      credential = super_admin.credential_for(supplier)
+      credential = best_credential_for(supplier)
       unless credential
-        Rails.logger.warn "[StaggeredSupplierImportJob] No credential for #{supplier.name}, skipping"
+        Rails.logger.warn "[StaggeredSupplierImportJob] No active credential for #{supplier.name}, skipping"
         next
       end
 
@@ -38,8 +35,9 @@ class StaggeredSupplierImportJob < ApplicationJob
       log = create_scraping_log(supplier)
 
       # Stagger 5 minutes apart to avoid overwhelming suppliers
-      ImportSupplierProductsJob.set(wait: (index * 5).minutes).perform_later(supplier.id, nil, log.id)
-      Rails.logger.info "[StaggeredSupplierImportJob] Queued import for #{supplier.name} in #{index * 5}m (log_id: #{log.id})"
+      ImportSupplierProductsJob.set(wait: (queued * 5).minutes).perform_later(supplier.id, credential.id, log.id)
+      Rails.logger.info "[StaggeredSupplierImportJob] Queued import for #{supplier.name} using credential #{credential.id} (#{credential.user.email}) in #{queued * 5}m"
+      queued += 1
     end
   end
 
@@ -51,6 +49,20 @@ class StaggeredSupplierImportJob < ApplicationJob
       job_id: job_id,
       status: 'pending'
     )
+  end
+
+  # Pick the best active credential for a supplier: prefer ones with valid sessions
+  # (to avoid re-authentication overhead), then fall back to most recently logged in.
+  def best_credential_for(supplier)
+    active_creds = SupplierCredential.where(supplier: supplier, status: 'active')
+    return nil unless active_creds.exists?
+
+    # Prefer credentials with a valid session (avoids needing to re-login)
+    with_session = active_creds.select(&:session_valid?)
+    candidates = with_session.any? ? with_session : active_creds.to_a
+
+    # Pick the most recently used credential
+    candidates.max_by { |c| c.last_login_at || c.created_at }
   end
 
   def already_running?(supplier)
