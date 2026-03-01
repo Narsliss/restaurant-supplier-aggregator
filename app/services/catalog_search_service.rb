@@ -94,6 +94,12 @@ class CatalogSearchService
       end
     end
 
+    # Refresh stored product counts on affected supplier lists so the
+    # displayed counts include newly created catalog-search items.
+    if results[:created_sli_ids].any?
+      supplier_list_map.each_value(&:refresh_product_count!)
+    end
+
     Rails.logger.info "[CatalogSearch] Complete: found #{results[:found]} new matches from #{results[:searched]} unmatched items"
     results
   rescue StandardError => e

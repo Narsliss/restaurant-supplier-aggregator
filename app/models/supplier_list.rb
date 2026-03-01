@@ -57,6 +57,10 @@ class SupplierList < ApplicationRecord
     update!(sync_status: 'failed', sync_error: error)
   end
 
+  def refresh_product_count!
+    update_column(:product_count, supplier_list_items.count)
+  end
+
   def stale?
     last_synced_at.nil? || last_synced_at < 24.hours.ago
   end

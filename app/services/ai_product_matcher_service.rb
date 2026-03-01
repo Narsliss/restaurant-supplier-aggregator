@@ -32,6 +32,10 @@ class AiProductMatcherService
     # Clear existing matches (re-running matching)
     aggregated_list.product_matches.destroy_all
 
+    # Remove catalog-search-created items from previous runs so they don't
+    # snowball on re-match. Catalog search will re-create them afterwards.
+    cleanup_catalog_search_items!
+
     # Collect all items from connected supplier lists, grouped by supplier
     items_by_supplier = collect_items_by_supplier
     return finish_empty if items_by_supplier.size < 2
@@ -125,6 +129,17 @@ class AiProductMatcherService
   end
 
   private
+
+  # Remove SupplierListItems that were created by a previous catalog search run.
+  # These are synthetic items — they'll be re-created by CatalogSearchService
+  # after matching completes. Without this, each re-match + catalog search cycle
+  # adds more items, inflating the product count.
+  def cleanup_catalog_search_items!
+    aggregated_list.supplier_lists.each do |sl|
+      removed = sl.supplier_list_items.from_catalog_search.destroy_all
+      sl.update_column(:product_count, sl.supplier_list_items.count) if removed.any?
+    end
+  end
 
   def collect_items_by_supplier
     items = {}
