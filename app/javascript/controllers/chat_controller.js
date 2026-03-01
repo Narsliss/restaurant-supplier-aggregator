@@ -1,8 +1,8 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["messageList", "input", "form", "submitBtn", "welcome"]
-  static values = { eventPlanId: Number }
+  static targets = ["messageList", "input", "form", "submitBtn", "welcome", "charCount"]
+  static values = { eventPlanId: Number, maxLength: { type: Number, default: 2000 } }
 
   connect() {
     this.scrollToBottom()
@@ -18,15 +18,36 @@ export default class extends Controller {
     this.observer?.disconnect()
   }
 
+  updateCharCount() {
+    if (!this.hasCharCountTarget) return
+    const len = this.inputTarget.value.length
+    const max = this.maxLengthValue
+    if (len === 0) {
+      this.charCountTarget.textContent = ""
+    } else {
+      this.charCountTarget.textContent = `${len} / ${max}`
+      this.charCountTarget.classList.toggle("text-red-500", len >= max)
+      this.charCountTarget.classList.toggle("dark:text-red-400", len >= max)
+      this.charCountTarget.classList.toggle("text-gray-400", len < max)
+      this.charCountTarget.classList.toggle("dark:text-gray-500", len < max)
+    }
+  }
+
   submit(event) {
     event.preventDefault()
 
     const content = this.inputTarget.value.trim()
     if (!content) return
 
+    if (content.length > this.maxLengthValue) {
+      alert(`Message is too long (${content.length} characters). Please keep it under ${this.maxLengthValue} characters.`)
+      return
+    }
+
     this.submitBtnTarget.disabled = true
     this.inputTarget.value = ""
     this.inputTarget.style.height = "auto"
+    this.updateCharCount()
 
     const url = `/menu-planner/${this.eventPlanIdValue}/messages`
     const token = this.formTarget.querySelector("input[name='authenticity_token']").value

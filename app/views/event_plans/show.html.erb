@@ -34,9 +34,10 @@
           <div class="flex-1">
             <textarea
               data-chat-target="input"
-              data-action="keydown->chat#keydown"
+              data-action="keydown->chat#keydown input->chat#updateCharCount"
               name="content"
               rows="2"
+              maxlength="2000"
               placeholder="Describe your event, ask for changes, or refine the menu..."
               class="block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-brand-green focus:ring-brand-green text-sm resize-none"
             ></textarea>
@@ -47,8 +48,9 @@
             </svg>
           </button>
         </form>
-        <div class="mt-1.5 text-xs text-gray-400 dark:text-gray-500 text-right">
-          <%= @event_plan.messages_remaining %> / <%= @event_plan.message_limit %> messages remaining
+        <div class="mt-1.5 flex justify-between text-xs text-gray-400 dark:text-gray-500">
+          <span data-chat-target="charCount" class="transition-colors"></span>
+          <span><%= @event_plan.messages_remaining %> / <%= @event_plan.message_limit %> messages remaining</span>
         </div>
       <% else %>
         <div class="text-center py-3 text-sm text-amber-600 dark:text-amber-400">

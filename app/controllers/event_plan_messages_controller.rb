@@ -1,8 +1,31 @@
 class EventPlanMessagesController < ApplicationController
+  MAX_MESSAGE_LENGTH = 2_000
+
   before_action :require_organization!
   before_action :set_event_plan
 
   def create
+    content = params[:content].to_s.strip
+
+    if content.blank?
+      respond_to do |format|
+        format.turbo_stream { head :unprocessable_entity }
+        format.html { redirect_to @event_plan, alert: "Message cannot be blank." }
+      end
+      return
+    end
+
+    if content.length > MAX_MESSAGE_LENGTH
+      respond_to do |format|
+        format.turbo_stream do
+          render turbo_stream: turbo_stream.append("message-list",
+            "<div class='text-center py-3 text-sm text-amber-600 dark:text-amber-400'>Message is too long (#{content.length} characters). Please keep messages under #{MAX_MESSAGE_LENGTH} characters.</div>".html_safe)
+        end
+        format.html { redirect_to @event_plan, alert: "Message is too long. Please keep it under #{MAX_MESSAGE_LENGTH} characters." }
+      end
+      return
+    end
+
     unless @event_plan.can_send_message?
       respond_to do |format|
         format.turbo_stream do
@@ -16,7 +39,7 @@ class EventPlanMessagesController < ApplicationController
 
     @message = @event_plan.messages.create!(
       role: "user",
-      content: params[:content],
+      content: content,
       status: "complete"
     )
 
