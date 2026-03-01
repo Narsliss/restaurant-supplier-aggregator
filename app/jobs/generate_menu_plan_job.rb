@@ -26,6 +26,15 @@ class GenerateMenuPlanJob < ApplicationJob
       partial: "event_plan_messages/message",
       locals: { message: thinking_message }
     )
+
+    # Broadcast updated header (title, details bar, action buttons)
+    event_plan.reload
+    Turbo::StreamsChannel.broadcast_replace_to(
+      event_plan,
+      target: "event-plan-header",
+      partial: "event_plans/header",
+      locals: { event_plan: event_plan }
+    )
   rescue => e
     Rails.logger.error "[GenerateMenuPlanJob] Error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
 
