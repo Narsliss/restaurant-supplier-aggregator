@@ -8,10 +8,13 @@ Rails.application.config.after_initialize do
   next if ENV['SECRET_KEY_BASE_DUMMY'].present?
 
   begin
-    next unless ActiveRecord::Base.connection.table_exists?('suppliers')
-    # Skip if auth_type column doesn't exist yet (migration pending)
-    next unless ActiveRecord::Base.connection.column_exists?(:suppliers, :auth_type)
-  rescue ActiveRecord::ConnectionNotEstablished
+    ready = Timeout.timeout(10) do
+      ActiveRecord::Base.connection.table_exists?('suppliers') &&
+        ActiveRecord::Base.connection.column_exists?(:suppliers, :auth_type)
+    end
+    next unless ready
+  rescue ActiveRecord::ConnectionNotEstablished, Timeout::Error => e
+    Rails.logger.warn "[SeedSuppliers] Skipped: #{e.class} — #{e.message}"
     next
   end
 

@@ -7,11 +7,18 @@ echo "PORT=${PORT:-not set}"
 echo "DATABASE_URL is $([ -n "$DATABASE_URL" ] && echo 'set' || echo 'NOT SET')"
 echo "SECRET_KEY_BASE is $([ -n "$SECRET_KEY_BASE" ] && echo 'set' || echo 'NOT SET')"
 
-# Run db:migrate only for web process
+# Run db:migrate only for web process, with a timeout to avoid blocking boot
 if [ "${PROCESS_TYPE:-web}" = "web" ]; then
-  echo "Running database migrations..."
-  ./bin/rails db:migrate 2>&1 || echo "WARNING: Migration failed (exit code $?)"
-  echo "Migrations done."
+  echo "Running database migrations (60s timeout)..."
+  timeout 60 ./bin/rails db:migrate 2>&1
+  MIGRATE_EXIT=$?
+  if [ $MIGRATE_EXIT -eq 0 ]; then
+    echo "Migrations done."
+  elif [ $MIGRATE_EXIT -eq 124 ]; then
+    echo "WARNING: Migration timed out after 60s — starting server anyway"
+  else
+    echo "WARNING: Migration failed (exit code $MIGRATE_EXIT) — starting server anyway"
+  fi
 fi
 
 echo "Executing: $@"
