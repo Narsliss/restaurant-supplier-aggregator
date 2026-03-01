@@ -90,6 +90,10 @@ RUN apt-get update -qq && \
 # Set Chrome path for Ferrum
 ENV BROWSER_PATH="/usr/bin/chromium"
 
+# Use jemalloc for better memory allocation performance (already installed in base)
+ENV LD_PRELOAD="libjemalloc.so.2"
+ENV MALLOC_CONF="dirty_decay_ms:1000,narenas:2"
+
 # Copy built artifacts from build stage
 COPY --from=build "${BUNDLE_PATH}" "${BUNDLE_PATH}"
 COPY --from=build /rails /rails

@@ -12,6 +12,16 @@ class SupplierCredentialsController < ApplicationController
                                .order('suppliers.name')
     @read_only = current_role == 'manager'
 
+    # Pre-compute supplier product stats to avoid N+1 queries in the view.
+    # Two queries total instead of 2 per credential.
+    supplier_ids = @credentials.map(&:supplier_id).uniq
+    @catalog_last_synced = SupplierProduct.where(supplier_id: supplier_ids)
+                                          .group(:supplier_id)
+                                          .maximum(:last_scraped_at)
+    @catalog_product_counts = SupplierProduct.where(supplier_id: supplier_ids)
+                                             .group(:supplier_id)
+                                             .count
+
     # Load any active 2FA requests so we can show inline code entry.
     # Include "pending" (waiting for code) and "submitted" (code entered, verifying).
     @pending_2fa = Supplier2faRequest

@@ -9,5 +9,5 @@ test:
 production:
   adapter: solid_cable
   silence_polling: true
-  polling_interval: 0.1
+  polling_interval: 1.0
   channel_prefix: restaurant_supplier_aggregator_production

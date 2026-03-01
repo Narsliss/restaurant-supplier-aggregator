@@ -113,9 +113,9 @@
             </div>
           <% end %>
 
-          <% last_catalog_update = credential.supplier.supplier_products.maximum(:last_scraped_at) %>
+          <% last_catalog_update = @catalog_last_synced[credential.supplier_id] %>
           <% if last_catalog_update.present? %>
-            <p class="text-xs text-gray-400 mt-1">Catalog synced <%= time_ago_in_words(last_catalog_update) %> ago (<%= credential.supplier.supplier_products.count %> products)</p>
+            <p class="text-xs text-gray-400 mt-1">Catalog synced <%= time_ago_in_words(last_catalog_update) %> ago (<%= @catalog_product_counts[credential.supplier_id] || 0 %> products)</p>
           <% elsif credential.active? %>
             <p class="text-xs text-gray-400 mt-1">Connected · catalog sync pending</p>
           <% end %>
