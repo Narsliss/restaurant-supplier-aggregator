@@ -113,10 +113,11 @@
             </div>
           <% end %>
 
-          <% if credential.last_import_at.present? %>
-            <p class="text-xs text-gray-400 mt-1">Catalog synced <%= time_ago_in_words(credential.last_import_at) %> ago</p>
+          <% last_catalog_update = credential.supplier.supplier_products.maximum(:last_scraped_at) %>
+          <% if last_catalog_update.present? %>
+            <p class="text-xs text-gray-400 mt-1">Catalog synced <%= time_ago_in_words(last_catalog_update) %> ago (<%= credential.supplier.supplier_products.count %> products)</p>
           <% elsif credential.active? %>
-            <p class="text-xs text-gray-400 mt-1">Order guides ready · catalog sync pending</p>
+            <p class="text-xs text-gray-400 mt-1">Connected · catalog sync pending</p>
           <% end %>
           <% if credential.last_login_at.present? %>
             <p class="text-xs text-gray-400 mt-0.5">
