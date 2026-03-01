@@ -2175,10 +2175,6 @@ module Scrapers
       JS
       logger.info "[PremiereProduceOne] Unit types found on page: #{unit_sample.inspect}"
 
-      # Use a broad regex to count ALL products — any word(s) before • or · + SKU
-      # This catches Case, Each, Piece, Bag, Bunch, Flat, Box, lb, etc.
-      product_count_js = "(document.body.innerText.match(/\\\\b[A-Za-z][A-Za-z ]{0,15}\\\\s*[•·]\\\\s*\\\\d{3,}/g) || []).length"
-
       # Scroll to load all products
       previous_count = 0
       stale_rounds = 0
@@ -2201,8 +2197,12 @@ module Scrapers
         JS
         sleep 3
 
+        # Count products using heredoc (not double-quoted string) to get
+        # correct JS regex escaping: \\b → \b (word boundary), \\s → \s, \\d → \d
         current_count = begin
-          browser.evaluate(product_count_js)
+          browser.evaluate(<<~JS)
+            (document.body.innerText.match(/\\b[A-Za-z][A-Za-z ]{0,15}\\s*[•·]\\s*\\d{3,}/g) || []).length
+          JS
         rescue StandardError
           0
         end
