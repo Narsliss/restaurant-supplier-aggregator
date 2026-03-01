@@ -2175,13 +2175,48 @@ module Scrapers
       JS
       logger.info "[PremiereProduceOne] Unit types found on page: #{unit_sample.inspect}"
 
-      # Scroll to load all products
-      previous_count = 0
-      stale_rounds = 0
+      # PPO uses VIRTUAL SCROLLING — only ~54 items are in the DOM at any time.
+      # We must extract products at each scroll position and accumulate by SKU.
+      # Scrolling swaps items in/out of the DOM, so document.body.innerText
+      # always shows roughly the same count (~54) regardless of position.
+      all_products = {}  # SKU → product hash (deduplicates across scroll positions)
       max_scrolls = 50
+      stale_rounds = 0
 
       max_scrolls.times do |attempt|
-        # Scroll the container (or window) and dispatch a scroll event
+        prev_size = all_products.size
+
+        # Extract products visible at current scroll position
+        extract_visible_products(all_products)
+
+        new_items = all_products.size - prev_size
+
+        # Check scroll position — stop when we've reached the bottom
+        scroll_state = browser.evaluate(<<~JS) rescue {}
+          (function() {
+            var c = window.__ppoScrollContainer;
+            if (c) return { top: c.scrollTop, height: c.scrollHeight, client: c.clientHeight };
+            return { top: window.scrollY, height: document.body.scrollHeight, client: window.innerHeight };
+          })()
+        JS
+
+        at_bottom = (scroll_state['top'].to_i + scroll_state['client'].to_i) >= (scroll_state['height'].to_i - 50)
+
+        if attempt < 5 || (attempt + 1) % 5 == 0 || new_items > 0 || at_bottom
+          logger.info "[PremiereProduceOne] Scroll #{attempt + 1}: #{all_products.size} unique items (+#{new_items} new) scrollTop=#{scroll_state['top']}/#{scroll_state['height']}"
+        end
+
+        break if at_bottom
+
+        # Check for stale — if extraction found no new items
+        if new_items == 0 && attempt > 0
+          stale_rounds += 1
+          break if stale_rounds >= 10  # generous for virtual scroll
+        else
+          stale_rounds = 0
+        end
+
+        # Scroll down
         browser.evaluate(<<~JS)
           (function() {
             var container = window.__ppoScrollContainer;
@@ -2190,81 +2225,30 @@ module Scrapers
               container.dispatchEvent(new Event('scroll', { bubbles: true }));
             } else {
               window.scrollBy(0, window.innerHeight * 0.8);
-              document.dispatchEvent(new Event('scroll', { bubbles: true }));
-              window.dispatchEvent(new Event('scroll', { bubbles: true }));
             }
           })();
         JS
-        sleep 3
-
-        # Count products using heredoc (not double-quoted string) to get
-        # correct JS regex escaping: \\b → \b (word boundary), \\s → \s, \\d → \d
-        current_count = begin
-          browser.evaluate(<<~JS)
-            (document.body.innerText.match(/\\b[A-Za-z][A-Za-z ]{0,15}\\s*[•·]\\s*\\d{3,}/g) || []).length
-          JS
-        rescue StandardError
-          0
-        end
-
-        # Log every scroll for first 5 and then every 5th, plus any time count changes
-        if attempt < 5 || (attempt + 1) % 5 == 0 || current_count != previous_count
-          scroll_pos = browser.evaluate(<<~JS) rescue 'unknown'
-            (function() {
-              var c = window.__ppoScrollContainer;
-              if (c) return 'container scrollTop=' + c.scrollTop + '/' + c.scrollHeight;
-              return 'window scrollY=' + window.scrollY + '/' + document.body.scrollHeight;
-            })()
-          JS
-          logger.info "[PremiereProduceOne] Scroll #{attempt + 1}: #{current_count} items, #{scroll_pos}"
-        end
-
-        if current_count <= previous_count
-          stale_rounds += 1
-          # After 3 stale rounds, try an alternative scroll strategy
-          if stale_rounds == 3
-            logger.info "[PremiereProduceOne] Stale after 3 rounds, trying alternative scroll strategies"
-            browser.evaluate(<<~JS)
-              (function() {
-                window.scrollBy(0, window.innerHeight);
-                document.documentElement.scrollTop += window.innerHeight;
-                var all = document.querySelectorAll('*');
-                for (var i = 0; i < all.length; i++) {
-                  var style = window.getComputedStyle(all[i]);
-                  if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && all[i].scrollHeight > all[i].clientHeight + 50) {
-                    all[i].scrollTop += all[i].clientHeight;
-                    all[i].dispatchEvent(new Event('scroll', { bubbles: true }));
-                  }
-                }
-              })();
-            JS
-            sleep 4
-          end
-          break if stale_rounds >= 7
-        else
-          stale_rounds = 0
-        end
-        previous_count = current_count
+        sleep 2
       end
 
-      logger.info "[PremiereProduceOne] Scrolling complete: #{previous_count} items found after scrolling"
+      logger.info "[PremiereProduceOne] Scrolling complete: #{all_products.size} unique items collected"
 
-      # Log final unit breakdown after all scrolling
-      final_units = browser.evaluate(<<~JS) rescue {}
-        (function() {
-          var text = document.body.innerText;
-          var matches = text.match(/\\b[A-Za-z][A-Za-z ]{0,15}\\s*[•·]\\s*\\d{3,}/g) || [];
-          var units = {};
-          for (var i = 0; i < matches.length; i++) {
-            var unit = matches[i].replace(/\\s*[•·]\\s*\\d+.*/, '').trim();
-            units[unit] = (units[unit] || 0) + 1;
-          }
-          return units;
-        })()
-      JS
-      logger.info "[PremiereProduceOne] Final unit breakdown: #{final_units.inspect}"
+      # Log unit breakdown
+      unit_counts = all_products.values.group_by { |p| p[:pack_size].to_s.split(' - ').first }.transform_values(&:count)
+      logger.info "[PremiereProduceOne] Final unit breakdown: #{unit_counts.inspect}"
 
-      # Parse products using the same logic as extract_products_from_catalog
+      # Assign final positions
+      products = all_products.values.each_with_index.map do |prod, idx|
+        prod[:position] = idx + 1
+        prod
+      end
+
+      products
+    end
+
+    # Extract products from the currently visible viewport and merge into the accumulator.
+    # Called repeatedly during virtual-scroll traversal. Deduplicates by SKU.
+    def extract_visible_products(accumulator)
       page_text = begin
         browser.evaluate("document.body ? document.body.innerText : ''")
       rescue StandardError
@@ -2272,26 +2256,27 @@ module Scrapers
       end
 
       lines = page_text.split("\n").map(&:strip).reject(&:blank?)
-      products = []
 
       lines.each_with_index do |line, i|
-        # Match any unit type (Case, Each, Piece, Bag, Bunch, Flat, Box, lb, etc.)
-        # followed by • or · and a 3+ digit SKU number
+        # Match any unit type followed by • or · and a 3+ digit SKU
         sku_match = line.match(/^([A-Za-z][A-Za-z ]{0,15}?)\s*[•·]\s*(\d{3,})$/)
         next unless sku_match
 
         unit = sku_match[1].strip
         sku = sku_match[2]
+
+        # Skip if we already have this SKU
+        next if accumulator.key?(sku)
+
         name = nil
         price = nil
         pack_size = nil
         brand = nil
 
+        # Walk backwards to find product details
         (i - 1).downto([i - 6, 0].max) do |j|
           prev_line = lines[j]
-          if prev_line.match?(/^(All|BAKERY|BEVERAGE|DAIRY|FFV|FOODSERVICE|PANTRY|PRODUCE|PROTEIN|SPECIALTY|Sort:)/)
-            next
-          end
+          next if prev_line.match?(/^(All|BAKERY|BEVERAGE|DAIRY|FFV|FOODSERVICE|PANTRY|PRODUCE|PROTEIN|SPECIALTY|Sort:)/)
           next if prev_line.match?(/^\d+\s+fulfilled\s+on\s+/i)
           next if prev_line.match?(/^Add to cart$/i)
           next if prev_line.match?(/^\d+\s*[-+]$/)
@@ -2331,6 +2316,7 @@ module Scrapers
         next unless name && sku
         next if /^\d+\s+fulfilled/i.match?(name) || /fulfilled on/i.match?(name)
 
+        # Look forward for price if not found above
         unless price
           ((i + 1)..[i + 3, lines.length - 1].min).each do |k|
             fwd_line = lines[k]
@@ -2349,18 +2335,16 @@ module Scrapers
 
         full_name = brand.present? ? "#{name} #{brand}".truncate(255) : name.truncate(255)
 
-        products << {
+        accumulator[sku] = {
           sku: sku,
           name: full_name,
           price: price,
           pack_size: pack_size.present? ? "#{unit} - #{pack_size}" : unit,
           quantity: 1,
           in_stock: true,
-          position: products.size + 1
+          position: 0  # assigned later
         }
       end
-
-      products
     end
 
     # Browse a category by clicking on the category filter/sidebar
