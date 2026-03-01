@@ -373,6 +373,11 @@ module Scrapers
     end
 
     def logged_in?
+      # Primary check: URL-based — the /desktop/ path is the authenticated app
+      current_url = browser.current_url.to_s
+      return true if current_url.include?('/desktop/')
+
+      # Fallback: CSS selector-based
       LOGGED_IN_SELECTORS.any? do |sel|
         browser.at_css(sel)
       rescue StandardError
