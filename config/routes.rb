@@ -141,6 +141,15 @@ Rails.application.routes.draw do
     resources :order_items, only: [:create, :update, :destroy]
   end
 
+  # AI Event Menu Planner
+  resources :event_plans, path: "menu-planner" do
+    resources :messages, only: [:create], controller: "event_plan_messages"
+    member do
+      post :build_order
+      post :finalize
+    end
+  end
+
   # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check
 

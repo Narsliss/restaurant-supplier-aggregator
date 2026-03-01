@@ -1,0 +1,32 @@
+<div id="<%= dom_id(message) %>" class="flex <%= message.user? ? 'justify-end' : 'justify-start' %>">
+  <div class="max-w-[85%] <%= message.user? ? 'bg-brand-green text-white rounded-2xl rounded-br-md' : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-md' %> px-4 py-3">
+    <% if message.thinking? %>
+      <div class="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+        <div class="flex space-x-1">
+          <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0ms;"></span>
+          <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 150ms;"></span>
+          <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 300ms;"></span>
+        </div>
+        <span>Generating your menu plan...</span>
+      </div>
+    <% elsif message.error? %>
+      <div class="flex items-center space-x-2 text-sm text-red-600 dark:text-red-400">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+        </svg>
+        <span><%= message.content %></span>
+      </div>
+    <% elsif message.user? %>
+      <p class="text-sm whitespace-pre-wrap"><%= message.content %></p>
+    <% else %>
+      <%# Assistant message with rich content %>
+      <div class="text-sm space-y-3">
+        <% if message.has_menu_data? %>
+          <%= render "event_plan_messages/menu_content", message: message %>
+        <% else %>
+          <div class="whitespace-pre-wrap"><%= message.content %></div>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+</div>

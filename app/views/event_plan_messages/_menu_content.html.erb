@@ -1,0 +1,102 @@
+<% data = message.structured_data %>
+
+<%# Summary text %>
+<% if message.content.present? && message.content != "menu_generated" %>
+  <div class="whitespace-pre-wrap mb-4"><%= message.content %></div>
+<% end %>
+
+<%# Courses %>
+<% (data["courses"] || []).each do |course| %>
+  <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-3 mb-3">
+    <div class="flex items-center justify-between mb-2">
+      <h4 class="font-semibold text-gray-900 dark:text-white">
+        Course <%= course["number"] %>: <%= course["name"] %>
+      </h4>
+    </div>
+
+    <p class="font-medium text-brand-green dark:text-brand-green-light"><%= course["dish_name"] %></p>
+    <p class="text-gray-600 dark:text-gray-400 text-xs mt-1"><%= course["description"] %></p>
+
+    <%# Wine pairing %>
+    <% if course["wine"] %>
+      <div class="mt-2 pl-3 border-l-2 border-brand-orange/40">
+        <p class="text-xs font-medium text-brand-orange"><%= course["wine"]["name"] %></p>
+        <% if course["wine"]["tasting_notes"] %>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5"><%= course["wine"]["tasting_notes"] %></p>
+        <% end %>
+        <% if course["wine"]["pairing_rationale"] %>
+          <p class="text-xs text-gray-500 dark:text-gray-400 italic mt-0.5"><%= course["wine"]["pairing_rationale"] %></p>
+        <% end %>
+      </div>
+    <% end %>
+
+    <%# Ingredients with costs %>
+    <% if course["ingredients"]&.any? %>
+      <div class="mt-2">
+        <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Ingredients:</p>
+        <div class="grid grid-cols-1 gap-0.5">
+          <% course["ingredients"].each do |ing| %>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-gray-700 dark:text-gray-300">
+                <%= ing["quantity"] %> <%= ing["unit"] %> <%= ing["name"] %>
+              </span>
+              <% if ing["matched_product"] %>
+                <span class="text-green-600 dark:text-green-400 font-medium">
+                  $<%= number_with_precision(ing["estimated_cost"], precision: 2) %>
+                  <span class="text-gray-400 font-normal">(<%= ing["matched_product"]["supplier_name"] %>)</span>
+                </span>
+              <% elsif ing["estimated_cost"] %>
+                <span class="text-yellow-600 dark:text-yellow-400 text-xs">
+                  ~$<%= number_with_precision(ing["estimated_cost"], precision: 2) %>
+                  <span class="text-gray-400">(est.)</span>
+                </span>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <%# Course cost %>
+    <% if course["course_cost"] %>
+      <div class="mt-2 pt-2 border-t border-gray-100 dark:border-gray-600 flex justify-between text-xs">
+        <span class="text-gray-500">Course cost</span>
+        <span class="font-medium text-gray-700 dark:text-gray-300">$<%= number_with_precision(course["course_cost"], precision: 2) %></span>
+      </div>
+    <% end %>
+  </div>
+<% end %>
+
+<%# Cost summary %>
+<% if data["cost_summary"] %>
+  <% summary = data["cost_summary"] %>
+  <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+    <h4 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">Cost Summary</h4>
+    <div class="space-y-1 text-xs">
+      <div class="flex justify-between">
+        <span class="text-gray-500">Total ingredient cost</span>
+        <span class="font-medium">$<%= number_with_precision(summary["total_cost"], precision: 2) %></span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-500">Cost per cover</span>
+        <span class="font-semibold text-gray-900 dark:text-white">$<%= number_with_precision(summary["cost_per_cover"], precision: 2) %></span>
+      </div>
+      <% if summary["budget_per_cover"] %>
+        <% variance = (summary["cost_per_cover"] || 0) - summary["budget_per_cover"] %>
+        <div class="flex justify-between">
+          <span class="text-gray-500">Budget</span>
+          <span class="font-medium <%= variance > 0 ? 'text-red-600' : 'text-green-600' %>">
+            $<%= number_with_precision(summary["budget_per_cover"], precision: 2) %>
+            (<%= variance > 0 ? '+' : '' %>$<%= number_with_precision(variance, precision: 2) %>)
+          </span>
+        </div>
+      <% end %>
+      <% if summary["matched_count"] %>
+        <div class="flex justify-between pt-1 border-t border-gray-100 dark:border-gray-600">
+          <span class="text-gray-500">Ingredients matched</span>
+          <span class="font-medium"><%= summary["matched_count"] %>/<%= summary["total_ingredients"] %></span>
+        </div>
+      <% end %>
+    </div>
+  </div>
+<% end %>

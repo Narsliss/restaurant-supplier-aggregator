@@ -151,4 +151,15 @@ class SupplierProduct < ApplicationRecord
   def quantity_valid?(quantity)
     meets_minimum?(quantity) && within_maximum?(quantity)
   end
+
+  # Build a hash of { normalized_name => [SupplierProduct, ...] } for catalog search.
+  # Called on an ActiveRecord::Relation (e.g., SupplierProduct.where(...).index_by_normalized_name).
+  def self.index_by_normalized_name
+    index = Hash.new { |h, k| h[k] = [] }
+    find_each do |sp|
+      name = sp.product&.normalized_name || ProductNormalizer.normalize(sp.supplier_name)
+      index[name] << sp if name.present?
+    end
+    index
+  end
 end

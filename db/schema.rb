@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_02_26_145707) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_01_200001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -53,6 +53,32 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_26_145707) do
     t.index ["stripe_event_id"], name: "index_billing_events_on_stripe_event_id", unique: true
     t.index ["subscription_id"], name: "index_billing_events_on_subscription_id"
     t.index ["user_id"], name: "index_billing_events_on_user_id"
+  end
+
+  create_table "event_plan_messages", force: :cascade do |t|
+    t.bigint "event_plan_id", null: false
+    t.string "role", null: false
+    t.text "content", null: false
+    t.jsonb "structured_data", default: {}, null: false
+    t.string "status", default: "complete", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["event_plan_id"], name: "index_event_plan_messages_on_event_plan_id"
+  end
+
+  create_table "event_plans", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "organization_id", null: false
+    t.string "title"
+    t.string "status", default: "drafting", null: false
+    t.jsonb "event_details", default: {}, null: false
+    t.jsonb "current_menu", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id", "user_id"], name: "index_event_plans_on_organization_id_and_user_id"
+    t.index ["organization_id"], name: "index_event_plans_on_organization_id"
+    t.index ["status"], name: "index_event_plans_on_status"
+    t.index ["user_id"], name: "index_event_plans_on_user_id"
   end
 
   create_table "favorite_products", force: :cascade do |t|
@@ -732,6 +758,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_26_145707) do
   add_foreign_key "aggregated_lists", "users", column: "created_by_id"
   add_foreign_key "billing_events", "subscriptions"
   add_foreign_key "billing_events", "users"
+  add_foreign_key "event_plan_messages", "event_plans"
+  add_foreign_key "event_plans", "organizations"
+  add_foreign_key "event_plans", "users"
   add_foreign_key "favorite_products", "supplier_products"
   add_foreign_key "favorite_products", "users"
   add_foreign_key "invoices", "organizations"

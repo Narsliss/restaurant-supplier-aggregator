@@ -1,0 +1,62 @@
+class EventPlan < ApplicationRecord
+  belongs_to :user
+  belongs_to :organization
+
+  has_many :messages, class_name: "EventPlanMessage", dependent: :destroy
+
+  validates :status, inclusion: { in: %w[drafting finalized ordered] }
+
+  scope :recent, -> { order(updated_at: :desc) }
+
+  def finalized?
+    status == "finalized"
+  end
+
+  def ordered?
+    status == "ordered"
+  end
+
+  def has_menu?
+    current_menu.present? && current_menu["courses"].present?
+  end
+
+  def total_cost
+    current_menu.dig("cost_summary", "total_cost")
+  end
+
+  def cost_per_cover
+    current_menu.dig("cost_summary", "cost_per_cover")
+  end
+
+  def covers
+    event_details["covers"]
+  end
+
+  def budget_per_cover
+    event_details["budget_per_cover"]
+  end
+
+  def wines
+    event_details["wines"] || []
+  end
+
+  def cuisine_style
+    event_details["cuisine_style"]
+  end
+
+  def courses
+    current_menu["courses"] || []
+  end
+
+  def conversation_messages
+    messages.order(:created_at)
+  end
+
+  def auto_title!
+    return if title.present?
+
+    event_type = event_details["event_type"] || "Event"
+    cover_count = covers || "?"
+    update!(title: "#{event_type} - #{cover_count} covers")
+  end
+end

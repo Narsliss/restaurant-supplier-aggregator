@@ -63,6 +63,12 @@
                 class: "inline-flex items-center border-b-2 #{controller_name == 'supplier_credentials' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
+          <%# — Menu Planner %>
+          <% unless ops_disabled %>
+            <%= link_to "Menu Planner", event_plans_path,
+                class: "inline-flex items-center border-b-2 #{%w[event_plans event_plan_messages].include?(controller_name) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
+
           <%# Reports — visible to owners and managers (always, not affected by location context) %>
           <% if manager_or_owner? %>
             <%= link_to "Reports", reports_path,
@@ -201,6 +207,10 @@
       <% elsif operator? %>
         <%= link_to "Suppliers", supplier_credentials_path,
             class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'supplier_credentials' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <% end %>
+      <% unless ops_disabled %>
+        <%= link_to "Menu Planner", event_plans_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{%w[event_plans event_plan_messages].include?(controller_name) ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
       <% end %>
       <% if manager_or_owner? %>
         <%= link_to "Reports", reports_path,

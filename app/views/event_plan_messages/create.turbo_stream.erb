@@ -1,0 +1,9 @@
+<%= turbo_stream.remove "welcome-message" %>
+
+<%= turbo_stream.append "message-list" do %>
+  <%= render "event_plan_messages/message", message: @message %>
+<% end %>
+
+<%= turbo_stream.append "message-list" do %>
+  <%= render "event_plan_messages/message", message: @thinking %>
+<% end %>

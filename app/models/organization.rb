@@ -11,6 +11,7 @@ class Organization < ApplicationRecord
   has_many :organization_invitations, dependent: :destroy
   has_many :supplier_lists, dependent: :destroy
   has_many :aggregated_lists, dependent: :destroy
+  has_many :event_plans, dependent: :destroy
 
   # Validations
   validates :name, presence: true
