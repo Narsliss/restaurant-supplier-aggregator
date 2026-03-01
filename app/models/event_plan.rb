@@ -52,6 +52,22 @@ class EventPlan < ApplicationRecord
     messages.order(:created_at)
   end
 
+  def message_count
+    messages.where(role: "user").count
+  end
+
+  def message_limit
+    organization.menu_plan_message_limit
+  end
+
+  def messages_remaining
+    [message_limit - message_count, 0].max
+  end
+
+  def can_send_message?
+    message_count < message_limit
+  end
+
   def auto_title!
     return if title.present?
 

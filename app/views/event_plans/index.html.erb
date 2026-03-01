@@ -12,6 +12,23 @@
     <% end %>
   </div>
 
+  <%# Monthly usage indicator %>
+  <div class="mb-6 flex items-center justify-between px-4 py-2.5 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+    <div class="flex items-center text-sm text-gray-600 dark:text-gray-400">
+      <svg class="w-4 h-4 mr-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+      </svg>
+      <span>
+        <strong><%= @org.menu_plans_this_month %></strong> / <%= @org.menu_plan_monthly_limit %> plans used this month
+      </span>
+    </div>
+    <% if @org.menu_plans_remaining <= 3 && @org.menu_plans_remaining > 0 %>
+      <span class="text-xs text-amber-600 dark:text-amber-400 font-medium"><%= @org.menu_plans_remaining %> remaining</span>
+    <% elsif @org.menu_plans_remaining == 0 %>
+      <span class="text-xs text-red-600 dark:text-red-400 font-medium">Limit reached — resets <%= distance_of_time_in_words_to_now(Time.current.end_of_month) %> from now</span>
+    <% end %>
+  </div>
+
   <% if @event_plans.any? %>
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <% @event_plans.each do |plan| %>

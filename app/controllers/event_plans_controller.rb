@@ -3,14 +3,22 @@ class EventPlansController < ApplicationController
   before_action :set_event_plan, only: %i[show update build_order finalize destroy]
 
   def index
+    @org = current_user.current_organization
     @event_plans = current_user.event_plans
-      .where(organization: current_user.current_organization)
+      .where(organization: @org)
       .recent
   end
 
   def create
+    org = current_user.current_organization
+    unless org.can_create_menu_plan?
+      redirect_to event_plans_path,
+        alert: "You've reached your monthly limit of #{org.menu_plan_monthly_limit} menu plans. Your quota resets #{distance_of_time_in_words_to_now(Time.current.end_of_month)} from now."
+      return
+    end
+
     @event_plan = current_user.event_plans.create!(
-      organization: current_user.current_organization,
+      organization: org,
       status: "drafting"
     )
     redirect_to @event_plan

@@ -106,6 +106,30 @@ class Organization < ApplicationRecord
     membership.assigned_locations
   end
 
+  # --- Menu Planner Quotas ---
+  MENU_PLAN_MONTHLY_LIMIT_DEFAULT = 20
+  MENU_PLAN_MESSAGE_LIMIT_DEFAULT = 50
+
+  def menu_plan_monthly_limit
+    (settings["menu_plan_monthly_limit"] || MENU_PLAN_MONTHLY_LIMIT_DEFAULT).to_i
+  end
+
+  def menu_plan_message_limit
+    (settings["menu_plan_message_limit"] || MENU_PLAN_MESSAGE_LIMIT_DEFAULT).to_i
+  end
+
+  def menu_plans_this_month
+    event_plans.where("created_at >= ?", Time.current.beginning_of_month).count
+  end
+
+  def menu_plans_remaining
+    [menu_plan_monthly_limit - menu_plans_this_month, 0].max
+  end
+
+  def can_create_menu_plan?
+    menu_plans_this_month < menu_plan_monthly_limit
+  end
+
   # Stripe methods
   def find_or_create_stripe_customer
     return Stripe::Customer.retrieve(stripe_customer_id) if stripe_customer_id.present?

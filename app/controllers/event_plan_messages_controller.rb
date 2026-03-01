@@ -3,6 +3,17 @@ class EventPlanMessagesController < ApplicationController
   before_action :set_event_plan
 
   def create
+    unless @event_plan.can_send_message?
+      respond_to do |format|
+        format.turbo_stream do
+          render turbo_stream: turbo_stream.append("message-list",
+            "<div class='text-center py-3 text-sm text-amber-600 dark:text-amber-400'>Message limit reached (#{@event_plan.message_limit} messages per plan). Start a new event plan to continue planning.</div>".html_safe)
+        end
+        format.html { redirect_to @event_plan, alert: "Message limit reached for this plan." }
+      end
+      return
+    end
+
     @message = @event_plan.messages.create!(
       role: "user",
       content: params[:content],

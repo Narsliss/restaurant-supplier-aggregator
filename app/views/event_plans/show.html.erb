@@ -28,24 +28,33 @@
 
     <%# Input area %>
     <div class="border-t border-gray-200 dark:border-gray-700 p-4">
-      <form data-chat-target="form" data-action="submit->chat#submit" class="flex items-end space-x-3">
-        <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
-        <div class="flex-1">
-          <textarea
-            data-chat-target="input"
-            data-action="keydown->chat#keydown"
-            name="content"
-            rows="2"
-            placeholder="Describe your event, ask for changes, or refine the menu..."
-            class="block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-brand-green focus:ring-brand-green text-sm resize-none"
-          ></textarea>
+      <% if @event_plan.can_send_message? %>
+        <form data-chat-target="form" data-action="submit->chat#submit" class="flex items-end space-x-3">
+          <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
+          <div class="flex-1">
+            <textarea
+              data-chat-target="input"
+              data-action="keydown->chat#keydown"
+              name="content"
+              rows="2"
+              placeholder="Describe your event, ask for changes, or refine the menu..."
+              class="block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-brand-green focus:ring-brand-green text-sm resize-none"
+            ></textarea>
+          </div>
+          <button type="submit" data-chat-target="submitBtn" class="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-brand-orange rounded-lg hover:bg-brand-orange-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+            </svg>
+          </button>
+        </form>
+        <div class="mt-1.5 text-xs text-gray-400 dark:text-gray-500 text-right">
+          <%= @event_plan.messages_remaining %> / <%= @event_plan.message_limit %> messages remaining
         </div>
-        <button type="submit" data-chat-target="submitBtn" class="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-brand-orange rounded-lg hover:bg-brand-orange-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-          </svg>
-        </button>
-      </form>
+      <% else %>
+        <div class="text-center py-3 text-sm text-amber-600 dark:text-amber-400">
+          Message limit reached (<%= @event_plan.message_limit %> per plan). Start a <%= link_to "new event plan", event_plans_path, data: { turbo_method: :post }, class: "underline font-medium" %> to continue.
+        </div>
+      <% end %>
     </div>
   </div>
 </div>
