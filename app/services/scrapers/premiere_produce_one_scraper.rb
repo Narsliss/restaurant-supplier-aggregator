@@ -2023,12 +2023,44 @@ module Scrapers
       JS
       sleep 2
 
-      # Scroll to load all products
+      # Scroll to load all products.
+      # PPO's Pepper platform uses lazy/infinite scroll — items load as you
+      # scroll down. We use incremental scrollBy (not scrollTo bottom) so each
+      # scroll triggers the next batch. Generous sleep and stale threshold to
+      # handle slow loads on Railway's shared vCPUs.
       previous_count = 0
       stale_rounds = 0
-      20.times do
-        browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-        sleep 2
+      max_scrolls = 40
+
+      # First, find the scrollable container — Pepper may use a scrollable div
+      # rather than window scroll.
+      browser.evaluate(<<~JS)
+        window.__ppoScrollContainer = (function() {
+          // Look for a scrollable container with overflow-y
+          var candidates = document.querySelectorAll('[class*="product"], [class*="order-guide"], [class*="content"], main, [role="main"]');
+          for (var i = 0; i < candidates.length; i++) {
+            var style = window.getComputedStyle(candidates[i]);
+            if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && candidates[i].scrollHeight > candidates[i].clientHeight) {
+              return candidates[i];
+            }
+          }
+          return null;
+        })();
+      JS
+
+      max_scrolls.times do |attempt|
+        # Incremental scroll — either the container or the window
+        browser.evaluate(<<~JS)
+          (function() {
+            var container = window.__ppoScrollContainer;
+            if (container) {
+              container.scrollTop += container.clientHeight;
+            } else {
+              window.scrollBy(0, window.innerHeight);
+            }
+          })();
+        JS
+        sleep 3
 
         current_count = begin
           browser.evaluate(<<~JS)
@@ -2038,14 +2070,18 @@ module Scrapers
           0
         end
 
+        logger.info "[PremiereProduceOne] Scroll #{attempt + 1}: #{current_count} items found" if (attempt + 1) % 5 == 0 || current_count != previous_count
+
         if current_count <= previous_count
           stale_rounds += 1
-          break if stale_rounds >= 3
+          break if stale_rounds >= 5
         else
           stale_rounds = 0
         end
         previous_count = current_count
       end
+
+      logger.info "[PremiereProduceOne] Scrolling complete: #{previous_count} items found after scrolling"
 
       # Parse products using the same logic as extract_products_from_catalog
       page_text = begin
