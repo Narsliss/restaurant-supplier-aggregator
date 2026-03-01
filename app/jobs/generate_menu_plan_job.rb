@@ -1,6 +1,5 @@
 class GenerateMenuPlanJob < ApplicationJob
   queue_as :default
-  limits_concurrency to: 1, key: ->(event_plan_id, _msg_id, _thinking_id) { "menu_plan_#{event_plan_id}" }
 
   def perform(event_plan_id, user_message_id, thinking_message_id)
     event_plan = EventPlan.find(event_plan_id)
