@@ -20,8 +20,17 @@ module Authentication
             return true
           end
           Rails.logger.info "[SessionManager] Soft refresh failed for #{credential.supplier.name}"
-          # Don't fall through to full login — that would trigger unexpected MFA prompts.
-          # Instead, record the failure. The credential stays active until 3 consecutive
+
+          # Password-based suppliers (CW, WCW) can safely fall through to a full
+          # login using their stored credentials — no MFA risk.
+          if credential.supplier.password_auth?
+            Rails.logger.info "[SessionManager] #{credential.supplier.name} is password-auth, attempting full login"
+            scraper.login
+            return true
+          end
+
+          # 2FA suppliers can't re-login without user interaction.
+          # Record the failure; credential stays active until 3 consecutive
           # failures (~6 hours), giving transient issues time to resolve.
           credential.record_refresh_failure!
           return false
