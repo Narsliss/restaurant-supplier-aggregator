@@ -102,6 +102,15 @@ class MenuPlannerService
   def build_conversation_messages
     messages = [{ role: "system", content: system_prompt }]
 
+    # If there's an existing menu, inject it as context so the LLM knows
+    # exactly what to preserve on refinement requests.
+    if @event_plan.has_menu?
+      messages << {
+        role: "system",
+        content: current_menu_context
+      }
+    end
+
     # Add conversation history (limited to recent messages)
     @event_plan.conversation_messages
       .where(status: "complete")
@@ -114,6 +123,27 @@ class MenuPlannerService
     messages << { role: "user", content: @user_message }
 
     messages
+  end
+
+  def current_menu_context
+    menu = @event_plan.current_menu
+    courses_summary = (menu["courses"] || []).map do |c|
+      "  Course #{c['number']}: #{c['name']} — #{c['dish_name']} (paired with #{c.dig('wine', 'name') || 'no wine'})"
+    end.join("\n")
+
+    <<~CONTEXT
+      CURRENT APPROVED MENU (the chef has accepted this menu):
+      #{courses_summary}
+
+      CRITICAL: The user is now requesting a REFINEMENT. You MUST:
+      1. Keep ALL courses that the user did NOT mention — copy them EXACTLY as-is (same dish_name, description, wine, ingredients, quantities).
+      2. ONLY modify the specific course(s) the user is asking to change.
+      3. Return the COMPLETE menu with all courses — unchanged courses must be identical to the ones above.
+      4. Do NOT rewrite, rename, or "improve" courses the user didn't ask about.
+
+      The full current menu JSON is:
+      #{menu.to_json}
+    CONTEXT
   end
 
   def system_prompt
@@ -174,19 +204,27 @@ class MenuPlannerService
         ]
       }
 
-      IMPORTANT RULES:
+      IMPORTANT RULES FOR INITIAL MENU GENERATION:
       - Generate one course per wine. If fewer wines than courses make sense, you may add an amuse-bouche or intermezzo without a wine pairing.
       - Scale ALL ingredient quantities to the specified cover count. Add 10% buffer for kitchen waste.
       - Use standard restaurant purchasing units: lb, oz, each, bunch, qt, gal, case, bag, can, bottle.
       - Use ingredient names that would match real supplier catalog items (e.g., "chicken breast boneless skinless" not "chicken breast").
       - Keep food costs within the budget per cover. If over budget, suggest more affordable alternatives.
-      - For refinement requests (swaps, substitutions, budget adjustments), update only the affected courses and return the full menu structure.
-      - If the user asks a question (not requesting a menu), set "courses" to null and put your answer in "summary".
-      - event_details should only be set on the initial request or if the user changes parameters. Set to null on refinements.
       - Wine tasting notes should cover: appearance, aroma, palate, and finish.
       - Pairing rationale should reference specific flavor interactions (acid/fat, tannin/protein, sweet/salt, etc.).
       - If the user specifies a cuisine style (e.g., "Argentinian / Italian", "French bistro", "Modern American"), ALL dishes MUST be authentic to or inspired by that cuisine. Never generate dishes from unrelated culinary traditions.
       - If no cuisine_style is specified but the user mentions their restaurant type, extract it into event_details.cuisine_style.
+
+      CRITICAL RULES FOR REFINEMENTS (when user asks to change, swap, or adjust an existing menu):
+      - PRESERVE all courses the user did NOT mention. Copy them EXACTLY — same dish_name, description, wine, and full ingredient list with quantities.
+      - ONLY modify the specific course(s) the user referenced. If they say "change course 3" or "I don't like the fish dish", change ONLY that course.
+      - NEVER rewrite, rename, or "improve" courses the user is happy with. This is extremely frustrating for chefs.
+      - Always return the COMPLETE menu (all courses), with unchanged courses identical to the previous version.
+      - Set event_details to null on refinements (unless the user is changing event parameters).
+
+      OTHER RULES:
+      - If the user asks a question (not requesting a menu), set "courses" to null and put your answer in "summary".
+      - event_details should only be set on the initial request or if the user changes parameters. Set to null on refinements.
     PROMPT
   end
 
