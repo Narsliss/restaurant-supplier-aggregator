@@ -1902,29 +1902,83 @@ module Scrapers
       request&.mark_failed! unless request&.failed?
     end
 
-    # Navigate to the Order Guide page by clicking the sidebar link.
+    # Navigate to the Order Guide page.
+    # PPO (Pepper) is a full JS SPA — no URL changes when navigating.
+    # The sidebar has links like "Order Guide", "Catalog", "Orders", etc.
+    # We MUST click "Order Guide" specifically and NOT "Orders" (which shows
+    # order history, a much smaller list).
     def navigate_to_order_guide
       logger.info '[PremiereProduceOne] Navigating to Order Guide'
-      clicked = browser.evaluate(<<~JS)
+
+      # Log what sidebar links we can see for debugging
+      sidebar_links = browser.evaluate(<<~JS) rescue []
         (function() {
-          // Look for "Order Guide" in sidebar links/buttons
-          var els = document.querySelectorAll('a, button, [role="button"], [class*="nav"] *');
+          var links = [];
+          var els = document.querySelectorAll('a, button, [role="button"], [role="menuitem"], nav a, nav button, [class*="sidebar"] *, [class*="nav"] *, [class*="menu"] *');
           for (var i = 0; i < els.length; i++) {
-            var text = (els[i].innerText || '').trim().toLowerCase();
-            if (text === 'order guide' || text.includes('order guide')) {
-              els[i].click();
-              return true;
+            var text = (els[i].innerText || '').trim();
+            if (text.length > 0 && text.length < 30 && !text.match(/^\\d+$/)) {
+              links.push(text);
             }
           }
+          // Deduplicate
+          return [...new Set(links)];
+        })()
+      JS
+      logger.info "[PremiereProduceOne] Sidebar links found: #{sidebar_links.first(15).inspect}"
+
+      # Click "Order Guide" — prioritize exact match to avoid clicking "Orders"
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var els = document.querySelectorAll('a, button, [role="button"], [role="menuitem"], nav a, nav button, [class*="sidebar"] *, [class*="nav"] *, [class*="menu"] *');
+
+          // Pass 1: exact text match "Order Guide" (case-insensitive)
+          for (var i = 0; i < els.length; i++) {
+            var text = (els[i].innerText || '').trim();
+            if (text.toLowerCase() === 'order guide') {
+              els[i].click();
+              return 'exact: ' + text;
+            }
+          }
+
+          // Pass 2: text starts with "Order Guide" (might have count badge)
+          for (var i = 0; i < els.length; i++) {
+            var text = (els[i].innerText || '').trim();
+            if (text.toLowerCase().startsWith('order guide')) {
+              els[i].click();
+              return 'startsWith: ' + text;
+            }
+          }
+
+          // Pass 3: aria-label match
+          for (var i = 0; i < els.length; i++) {
+            var label = (els[i].getAttribute('aria-label') || '').toLowerCase();
+            if (label === 'order guide' || label.startsWith('order guide')) {
+              els[i].click();
+              return 'aria: ' + els[i].getAttribute('aria-label');
+            }
+          }
+
           return false;
         })()
       JS
 
       if clicked
-        sleep 3
-        wait_for_react_render(timeout: 10)
+        logger.info "[PremiereProduceOne] Clicked: #{clicked}"
+        sleep 4
+        wait_for_react_render(timeout: 15)
+
+        # Verify we landed on the Order Guide (should have product SKU patterns)
+        page_sample = browser.evaluate('document.body?.innerText?.substring(0, 3000)') rescue ''
+        has_products = page_sample.match?(/(?:Case|Each|Piece)\s*[•·]\s*\d{3,}/)
+        has_order_guide_heading = page_sample.match?(/order guide/i)
+        logger.info "[PremiereProduceOne] Page verification — products: #{has_products}, heading: #{has_order_guide_heading}"
+
+        unless has_products || has_order_guide_heading
+          logger.warn "[PremiereProduceOne] Page does not look like Order Guide. First 500 chars: #{page_sample[0..500]}"
+        end
       else
-        logger.warn '[PremiereProduceOne] Could not find Order Guide link in sidebar'
+        logger.warn "[PremiereProduceOne] Could not find 'Order Guide' link in sidebar!"
       end
     end
 
