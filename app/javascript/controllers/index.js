@@ -21,6 +21,7 @@ import BatchProgressController from "./batch_progress_controller"
 import AutoRefreshController from "./auto_refresh_controller"
 import InvitationFormController from "./invitation_form_controller"
 import LocationSelectorController from "./location_selector_controller"
+import InlineEditController from "./inline_edit_controller"
 import ChatController from "./chat_controller"
 
 application.register("admin-search", AdminSearchController)
@@ -44,4 +45,5 @@ application.register("batch-progress", BatchProgressController)
 application.register("auto-refresh", AutoRefreshController)
 application.register("invitation-form", InvitationFormController)
 application.register("location-selector", LocationSelectorController)
+application.register("inline-edit", InlineEditController)
 application.register("chat", ChatController)

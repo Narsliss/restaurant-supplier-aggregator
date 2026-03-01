@@ -7,9 +7,24 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
         </svg>
       <% end %>
-      <h1 class="text-xl font-heading font-bold text-gray-900 dark:text-white">
-        <%= event_plan.title || "New Event Plan" %>
-      </h1>
+      <div data-controller="inline-edit"
+           data-inline-edit-url-value="<%= event_plan_path(event_plan) %>"
+           data-inline-edit-field-value="title"
+           class="flex items-center">
+        <h1 class="text-xl font-heading font-bold text-gray-900 dark:text-white cursor-pointer hover:text-brand-orange transition-colors"
+            data-inline-edit-target="display"
+            data-action="click->inline-edit#edit"
+            title="Click to rename">
+          <%= event_plan.title || "New Event Plan" %>
+        </h1>
+        <input type="text"
+               data-inline-edit-target="input"
+               data-action="blur->inline-edit#save keydown->inline-edit#keydown"
+               class="hidden text-xl font-heading font-bold text-gray-900 dark:text-white dark:bg-gray-900 bg-transparent border-b-2 border-brand-orange focus:outline-none w-64">
+        <svg class="w-3.5 h-3.5 ml-1.5 text-gray-400 dark:text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+        </svg>
+      </div>
       <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
         <%= case event_plan.status
             when 'drafting' then 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'

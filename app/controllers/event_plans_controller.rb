@@ -1,6 +1,6 @@
 class EventPlansController < ApplicationController
   before_action :require_organization!
-  before_action :set_event_plan, only: %i[show build_order finalize destroy]
+  before_action :set_event_plan, only: %i[show update build_order finalize destroy]
 
   def index
     @event_plans = current_user.event_plans
@@ -18,6 +18,20 @@ class EventPlansController < ApplicationController
 
   def show
     @messages = @event_plan.conversation_messages
+  end
+
+  def update
+    if @event_plan.update(event_plan_params)
+      respond_to do |format|
+        format.json { render json: { title: @event_plan.title }, status: :ok }
+        format.html { redirect_to @event_plan, notice: "Plan updated." }
+      end
+    else
+      respond_to do |format|
+        format.json { render json: { error: @event_plan.errors.full_messages }, status: :unprocessable_entity }
+        format.html { redirect_to @event_plan, alert: "Could not update plan." }
+      end
+    end
   end
 
   def finalize
@@ -57,5 +71,9 @@ class EventPlansController < ApplicationController
     @event_plan = current_user.event_plans
       .where(organization: current_user.current_organization)
       .find(params[:id])
+  end
+
+  def event_plan_params
+    params.require(:event_plan).permit(:title)
   end
 end
