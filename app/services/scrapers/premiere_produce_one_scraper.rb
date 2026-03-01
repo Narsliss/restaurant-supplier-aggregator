@@ -1970,7 +1970,7 @@ module Scrapers
 
         # Verify we landed on the Order Guide (should have product SKU patterns)
         page_sample = browser.evaluate('document.body?.innerText?.substring(0, 3000)') rescue ''
-        has_products = page_sample.match?(/(?:Case|Each|Piece)\s*[•·]\s*\d{3,}/)
+        has_products = page_sample.match?(/[A-Za-z]+\s*[•·]\s*\d{3,}/)
         has_order_guide_heading = page_sample.match?(/order guide/i)
         logger.info "[PremiereProduceOne] Page verification — products: #{has_products}, heading: #{has_order_guide_heading}"
 
@@ -2157,6 +2157,28 @@ module Scrapers
       container_info = browser.evaluate('window.__ppoScrollInfo || "none — using window scroll"') rescue 'unknown'
       logger.info "[PremiereProduceOne] Scroll container: #{container_info}"
 
+      # Discover what unit types exist on the page before scrolling
+      # PPO is a produce supplier — units go well beyond Case/Each/Piece
+      unit_sample = browser.evaluate(<<~JS) rescue []
+        (function() {
+          var text = document.body.innerText;
+          // Match any word(s) before • or · followed by a 3+ digit SKU
+          var matches = text.match(/\\b[A-Za-z][A-Za-z ]{0,15}\\s*[•·]\\s*\\d{3,}/g) || [];
+          // Extract just the unit parts
+          var units = {};
+          for (var i = 0; i < matches.length; i++) {
+            var unit = matches[i].replace(/\\s*[•·]\\s*\\d+.*/, '').trim();
+            units[unit] = (units[unit] || 0) + 1;
+          }
+          return units;
+        })()
+      JS
+      logger.info "[PremiereProduceOne] Unit types found on page: #{unit_sample.inspect}"
+
+      # Use a broad regex to count ALL products — any word(s) before • or · + SKU
+      # This catches Case, Each, Piece, Bag, Bunch, Flat, Box, lb, etc.
+      product_count_js = "(document.body.innerText.match(/\\\\b[A-Za-z][A-Za-z ]{0,15}\\\\s*[•·]\\\\s*\\\\d{3,}/g) || []).length"
+
       # Scroll to load all products
       previous_count = 0
       stale_rounds = 0
@@ -2180,9 +2202,7 @@ module Scrapers
         sleep 3
 
         current_count = begin
-          browser.evaluate(<<~JS)
-            (document.body.innerText.match(/(?:Case|Each|Piece)\\s*[•·]\\s*\\d{3,}/g) || []).length
-          JS
+          browser.evaluate(product_count_js)
         rescue StandardError
           0
         end
@@ -2204,13 +2224,10 @@ module Scrapers
           # After 3 stale rounds, try an alternative scroll strategy
           if stale_rounds == 3
             logger.info "[PremiereProduceOne] Stale after 3 rounds, trying alternative scroll strategies"
-            # Strategy: scroll the window if we were scrolling a container, or vice versa
             browser.evaluate(<<~JS)
               (function() {
-                // Try scrolling everything
                 window.scrollBy(0, window.innerHeight);
                 document.documentElement.scrollTop += window.innerHeight;
-                // Also try scrolling all potential containers
                 var all = document.querySelectorAll('*');
                 for (var i = 0; i < all.length; i++) {
                   var style = window.getComputedStyle(all[i]);
@@ -2232,6 +2249,21 @@ module Scrapers
 
       logger.info "[PremiereProduceOne] Scrolling complete: #{previous_count} items found after scrolling"
 
+      # Log final unit breakdown after all scrolling
+      final_units = browser.evaluate(<<~JS) rescue {}
+        (function() {
+          var text = document.body.innerText;
+          var matches = text.match(/\\b[A-Za-z][A-Za-z ]{0,15}\\s*[•·]\\s*\\d{3,}/g) || [];
+          var units = {};
+          for (var i = 0; i < matches.length; i++) {
+            var unit = matches[i].replace(/\\s*[•·]\\s*\\d+.*/, '').trim();
+            units[unit] = (units[unit] || 0) + 1;
+          }
+          return units;
+        })()
+      JS
+      logger.info "[PremiereProduceOne] Final unit breakdown: #{final_units.inspect}"
+
       # Parse products using the same logic as extract_products_from_catalog
       page_text = begin
         browser.evaluate("document.body ? document.body.innerText : ''")
@@ -2243,15 +2275,17 @@ module Scrapers
       products = []
 
       lines.each_with_index do |line, i|
-        sku_match = line.match(/^(?:Case|Each|Piece)\s*[•·]\s*(\d{3,})$/)
+        # Match any unit type (Case, Each, Piece, Bag, Bunch, Flat, Box, lb, etc.)
+        # followed by • or · and a 3+ digit SKU number
+        sku_match = line.match(/^([A-Za-z][A-Za-z ]{0,15}?)\s*[•·]\s*(\d{3,})$/)
         next unless sku_match
 
-        sku = sku_match[1]
+        unit = sku_match[1].strip
+        sku = sku_match[2]
         name = nil
         price = nil
         pack_size = nil
         brand = nil
-        unit = line.match(/^(Case|Each|Piece)/)[1]
 
         (i - 1).downto([i - 6, 0].max) do |j|
           prev_line = lines[j]
@@ -2309,7 +2343,7 @@ module Scrapers
               price = fwd_match[1].gsub(',', '').to_f
               break
             end
-            break if /^Add note$/i.match?(fwd_line) || /^(?:Case|Each|Piece)\s*[•·]/.match?(fwd_line)
+            break if /^Add note$/i.match?(fwd_line) || /^[A-Za-z]+\s*[•·]\s*\d{3,}/.match?(fwd_line)
           end
         end
 
