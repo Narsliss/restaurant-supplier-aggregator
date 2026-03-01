@@ -149,12 +149,17 @@ class ImportSupplierListsService
 
     attrs = { last_scraped_at: Time.current }
 
-    # Update price if the list has a newer/different price
-    if item.price.present? && item.price != sp.current_price
+    # Update price: use estimated case total for per-unit priced items
+    # so SupplierProduct.current_price always represents the full case cost.
+    effective_price = item.estimated_total_price
+    if effective_price.present? && effective_price != sp.current_price
       attrs[:previous_price] = sp.current_price
-      attrs[:current_price] = item.price
+      attrs[:current_price] = effective_price
       attrs[:price_updated_at] = Time.current
     end
+
+    # Propagate price_unit so order verification can interpret scraped prices
+    attrs[:price_unit] = item.price_unit if item.price_unit != sp.price_unit
 
     # Update stock status
     attrs[:in_stock] = item.in_stock unless item.in_stock.nil?

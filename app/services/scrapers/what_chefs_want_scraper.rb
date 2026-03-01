@@ -1039,11 +1039,25 @@ module Scrapers
 
       return nil unless browser.at_css('.product-page, .product-detail')
 
+      price_text = extract_text('.price, .product-price, .current-price')
+      raw_price = extract_price(price_text)
+      pack_size = extract_text('.pack-size, .product-unit')
+
+      # Detect per-unit pricing from text (e.g., "$12.50/LB", "$3.99 / OZ")
+      price_unit = nil
+      if price_text =~ /\/\s*(LB|OZ|EA|GAL|KG|CT)\b/i
+        price_unit = $1.downcase
+      end
+
+      # Convert per-unit prices to estimated case totals
+      effective_price = UnitParser.estimated_total(raw_price, price_unit, pack_size)
+
       {
         supplier_sku: sku,
         supplier_name: extract_text('.product-title, .product-name, h1'),
-        current_price: extract_price(extract_text('.price, .product-price, .current-price')),
-        pack_size: extract_text('.pack-size, .product-unit'),
+        current_price: effective_price,
+        pack_size: pack_size,
+        price_unit: price_unit,
         in_stock: browser.at_css('.out-of-stock, .unavailable, .sold-out').nil?,
         scraped_at: Time.current
       }

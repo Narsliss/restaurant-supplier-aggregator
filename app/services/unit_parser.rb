@@ -136,6 +136,37 @@ class UnitParser
       normalize_unit_str(unit_str.to_s)
     end
 
+    # Calculate estimated total case price from a per-unit price.
+    # Returns nil if the price isn't per-unit or can't be computed.
+    #
+    #   estimated_total(16.54, "lb", "12/6 LBA")  # => 1190.88
+    #   estimated_total(0.50, "oz", "5 LB")        # => 40.0
+    #   estimated_total(45.00, nil, "50 LB")        # => 45.0 (not per-unit, returns as-is)
+    def estimated_total(price, price_unit_str, pack_size_str)
+      return price unless price && price_unit_str.present?
+
+      parsed = parse(pack_size_str)
+      return price unless parsed[:parseable]
+
+      unit_key = normalize_unit_key(price_unit_str)
+      pack_qty = parsed[:quantity]
+      pack_unit = parsed[:unit]
+
+      if unit_key == pack_unit
+        (price * pack_qty).round(2)
+      else
+        price_factor = WEIGHT_TO_OZ[unit_key] || VOLUME_TO_FL_OZ[unit_key] || COUNT_TO_EACH[unit_key]
+        pack_factor = WEIGHT_TO_OZ[pack_unit] || VOLUME_TO_FL_OZ[pack_unit] || COUNT_TO_EACH[pack_unit]
+
+        if price_factor && pack_factor
+          pack_in_price_units = (pack_qty * pack_factor) / price_factor
+          (price * pack_in_price_units).round(2)
+        else
+          price
+        end
+      end
+    end
+
     # Format a per-unit price for display
     def format_per_unit(per_unit_price, normalized_unit)
       return nil unless per_unit_price && normalized_unit

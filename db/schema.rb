@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_01_201537) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_01_211852) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -680,6 +680,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_01_201537) do
     t.boolean "discontinued", default: false, null: false
     t.integer "consecutive_misses", default: 0, null: false
     t.datetime "discontinued_at"
+    t.string "price_unit"
     t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
     t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["in_stock"], name: "index_supplier_products_on_in_stock"

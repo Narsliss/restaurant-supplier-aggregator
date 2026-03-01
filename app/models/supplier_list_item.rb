@@ -127,28 +127,7 @@ class SupplierListItem < ApplicationRecord
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.
   def estimated_total_price
-    return price unless price && price_unit.present? && parsed_pack_size[:parseable]
-
-    unit_key = UnitParser.normalize_unit_key(price_unit)
-    pack_qty = parsed_pack_size[:quantity]
-    pack_unit = parsed_pack_size[:unit]
-
-    # If price unit matches the pack size unit, multiply directly
-    if unit_key == pack_unit
-      (price * pack_qty).round(2)
-    else
-      # Convert pack quantity to the price unit's base, then multiply
-      # e.g., price is per oz but pack is in lbs: convert lbs to oz first
-      price_unit_factor = UnitParser::WEIGHT_TO_OZ[unit_key] || UnitParser::VOLUME_TO_FL_OZ[unit_key] || UnitParser::COUNT_TO_EACH[unit_key]
-      pack_unit_factor = UnitParser::WEIGHT_TO_OZ[pack_unit] || UnitParser::VOLUME_TO_FL_OZ[pack_unit] || UnitParser::COUNT_TO_EACH[pack_unit]
-
-      if price_unit_factor && pack_unit_factor
-        pack_in_price_units = (pack_qty * pack_unit_factor) / price_unit_factor
-        (price * pack_in_price_units).round(2)
-      else
-        price # Can't convert, return as-is
-      end
-    end
+    UnitParser.estimated_total(price, price_unit, pack_size)
   end
 
   # Price change detection (mirrors SupplierProduct pattern)

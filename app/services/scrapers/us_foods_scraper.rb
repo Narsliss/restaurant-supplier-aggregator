@@ -3022,11 +3022,20 @@ module Scrapers
 
       return nil unless product_data
 
+      raw_price = product_data['price']
+      price_unit = product_data['price_unit']
+      pack_size = product_data['pack_size']
+
+      # Convert per-unit prices to estimated case totals so SupplierProduct.current_price
+      # always represents the full cost for one case/pack.
+      effective_price = UnitParser.estimated_total(raw_price, price_unit, pack_size)
+
       {
         supplier_sku: product_data['sku'],
         supplier_name: product_data['name'],
-        current_price: product_data['price'],
-        pack_size: product_data['pack_size'],
+        current_price: effective_price,
+        pack_size: pack_size,
+        price_unit: price_unit,
         in_stock: product_data['in_stock'] != false,
         scraped_at: Time.current
       }
