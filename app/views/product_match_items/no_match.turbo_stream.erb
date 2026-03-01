@@ -1,0 +1,58 @@
+<%# "No Match" — item removed from a match group %>
+
+<% if @product_match_destroyed %>
+  <%# The entire product match row was emptied — remove it from the table %>
+  <%= turbo_stream.remove dom_id(@product_match) %>
+<% else %>
+  <%# Replace the cell with an empty "No match" state + Assign dropdown %>
+  <%= turbo_stream.replace "match_#{@product_match.id}_supplier_#{@old_supplier.id}" do %>
+    <td class="px-4 py-3" id="match_<%= @product_match.id %>_supplier_<%= @old_supplier.id %>">
+      <%= render "aggregated_lists/supplier_cell",
+                 product_match: @product_match,
+                 supplier: @old_supplier,
+                 item: nil,
+                 pmi: nil,
+                 available_items: @available_items %>
+    </td>
+  <% end %>
+<% end %>
+
+<%# Append the new orphan row to the table body so it's visible immediately %>
+<% if @new_orphan_match %>
+  <% orphan_pmi = @new_orphan_match.product_match_items.first %>
+  <% orphan_item = orphan_pmi&.supplier_list_item %>
+  <%= turbo_stream.append "match-table-body" do %>
+    <tr id="<%= dom_id(@new_orphan_match) %>" class="bg-amber-50/50 hover:bg-gray-50">
+      <td class="px-4 py-3 sticky left-0 bg-inherit z-10">
+        <div class="text-sm font-medium text-gray-900"><%= @new_orphan_match.display_name %></div>
+        <div class="text-xs text-gray-500">
+          <span class="text-amber-600">Unmatched</span>
+        </div>
+      </td>
+      <% @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq.each do |supplier| %>
+        <td class="px-4 py-3" id="match_<%= @new_orphan_match.id %>_supplier_<%= supplier.id %>">
+          <% if supplier.id == @old_supplier.id && orphan_item %>
+            <%= render "aggregated_lists/supplier_cell",
+                       product_match: @new_orphan_match,
+                       supplier: supplier,
+                       item: orphan_item,
+                       pmi: orphan_pmi,
+                       available_items: @available_items %>
+          <% else %>
+            <% other_available = @aggregated_list.supplier_lists.find_by(supplier_id: supplier.id)
+                                   &.supplier_list_items&.select(:id, :name, :sku, :price, :pack_size)&.order(:name) || [] %>
+            <%= render "aggregated_lists/supplier_cell",
+                       product_match: @new_orphan_match,
+                       supplier: supplier,
+                       item: nil,
+                       pmi: nil,
+                       available_items: other_available %>
+          <% end %>
+        </td>
+      <% end %>
+      <td class="px-4 py-3 text-center whitespace-nowrap">
+        <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unmatched</span>
+      </td>
+    </tr>
+  <% end %>
+<% end %>
