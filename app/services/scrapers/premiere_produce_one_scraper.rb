@@ -2064,53 +2064,116 @@ module Scrapers
     # but returns items in the list item format.
     def extract_order_guide_products_ppo
       # Make sure "All" category filter is selected
-      browser.evaluate(<<~JS)
+      all_clicked = browser.evaluate(<<~JS)
         (function() {
           var buttons = document.querySelectorAll('button');
           for (var i = 0; i < buttons.length; i++) {
-            if (buttons[i].innerText.trim() === 'All') {
+            var text = buttons[i].innerText.trim();
+            if (text === 'All') {
               buttons[i].click();
-              return;
+              return 'clicked All button';
             }
           }
+          // Log what category buttons we can see
+          var cats = [];
+          for (var i = 0; i < buttons.length; i++) {
+            var text = buttons[i].innerText.trim();
+            if (text.length > 0 && text.length < 20) cats.push(text);
+          }
+          return 'no All button found, buttons: ' + cats.slice(0, 10).join(', ');
         })()
       JS
-      sleep 2
+      logger.info "[PremiereProduceOne] Category filter: #{all_clicked}"
+      sleep 3
+      wait_for_react_render(timeout: 10)
 
-      # Scroll to load all products.
-      # PPO's Pepper platform uses lazy/infinite scroll — items load as you
-      # scroll down. We use incremental scrollBy (not scrollTo bottom) so each
-      # scroll triggers the next batch. Generous sleep and stale threshold to
-      # handle slow loads on Railway's shared vCPUs.
-      previous_count = 0
-      stale_rounds = 0
-      max_scrolls = 40
+      # Diagnose the page structure — find ALL scrollable elements
+      scroll_info = browser.evaluate(<<~JS) rescue {}
+        (function() {
+          var info = {
+            bodyScroll: document.body.scrollHeight + 'x' + document.body.clientHeight,
+            docScroll: document.documentElement.scrollHeight + 'x' + document.documentElement.clientHeight,
+            scrollables: []
+          };
 
-      # First, find the scrollable container — Pepper may use a scrollable div
-      # rather than window scroll.
-      browser.evaluate(<<~JS)
-        window.__ppoScrollContainer = (function() {
-          // Look for a scrollable container with overflow-y
-          var candidates = document.querySelectorAll('[class*="product"], [class*="order-guide"], [class*="content"], main, [role="main"]');
-          for (var i = 0; i < candidates.length; i++) {
-            var style = window.getComputedStyle(candidates[i]);
-            if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && candidates[i].scrollHeight > candidates[i].clientHeight) {
-              return candidates[i];
+          // Find ALL elements with overflow scroll/auto that are actually scrollable
+          var all = document.querySelectorAll('*');
+          for (var i = 0; i < all.length; i++) {
+            var el = all[i];
+            var style = window.getComputedStyle(el);
+            var overY = style.overflowY;
+            if ((overY === 'auto' || overY === 'scroll') && el.scrollHeight > el.clientHeight + 10) {
+              info.scrollables.push({
+                tag: el.tagName,
+                classes: el.className.toString().substring(0, 80),
+                id: el.id || '',
+                scrollHeight: el.scrollHeight,
+                clientHeight: el.clientHeight,
+                scrollTop: el.scrollTop,
+                overflowY: overY,
+                childCount: el.children.length
+              });
             }
           }
-          return null;
+
+          // Also check window scroll
+          info.windowScrollY = window.scrollY;
+          info.windowInnerHeight = window.innerHeight;
+
+          return info;
+        })()
+      JS
+      logger.info "[PremiereProduceOne] Page scroll diagnostics: body=#{scroll_info['bodyScroll']}, doc=#{scroll_info['docScroll']}, window=#{scroll_info['windowScrollY']}/#{scroll_info['windowInnerHeight']}"
+      (scroll_info['scrollables'] || []).each_with_index do |s, idx|
+        logger.info "[PremiereProduceOne] Scrollable ##{idx}: <#{s['tag']}> class=#{s['classes'][0..60]} scrollH=#{s['scrollHeight']} clientH=#{s['clientHeight']} scrollTop=#{s['scrollTop']} children=#{s['childCount']}"
+      end
+
+      # Pick the best scrollable container — prefer the one with the most scrollable content
+      # that is not the HTML or BODY element (those are handled by window.scrollBy)
+      browser.evaluate(<<~JS)
+        window.__ppoScrollContainer = (function() {
+          var best = null;
+          var bestRatio = 0;
+          var all = document.querySelectorAll('*');
+          for (var i = 0; i < all.length; i++) {
+            var el = all[i];
+            if (el === document.body || el === document.documentElement) continue;
+            var style = window.getComputedStyle(el);
+            var overY = style.overflowY;
+            if ((overY === 'auto' || overY === 'scroll') && el.scrollHeight > el.clientHeight + 50) {
+              var ratio = el.scrollHeight / el.clientHeight;
+              if (ratio > bestRatio) {
+                bestRatio = ratio;
+                best = el;
+              }
+            }
+          }
+          if (best) {
+            window.__ppoScrollInfo = best.tagName + '.' + (best.className || '').toString().substring(0, 50) + ' ratio=' + bestRatio.toFixed(1);
+          }
+          return best;
         })();
       JS
+      container_info = browser.evaluate('window.__ppoScrollInfo || "none — using window scroll"') rescue 'unknown'
+      logger.info "[PremiereProduceOne] Scroll container: #{container_info}"
+
+      # Scroll to load all products
+      previous_count = 0
+      stale_rounds = 0
+      max_scrolls = 50
 
       max_scrolls.times do |attempt|
-        # Incremental scroll — either the container or the window
+        # Scroll the container (or window) and dispatch a scroll event
         browser.evaluate(<<~JS)
           (function() {
             var container = window.__ppoScrollContainer;
             if (container) {
-              container.scrollTop += container.clientHeight;
+              container.scrollTop += container.clientHeight * 0.8;
+              container.dispatchEvent(new Event('scroll', { bubbles: true }));
             } else {
-              window.scrollBy(0, window.innerHeight);
+              window.scrollBy(0, window.innerHeight * 0.8);
+              document.dispatchEvent(new Event('scroll', { bubbles: true }));
+              window.dispatchEvent(new Event('scroll', { bubbles: true }));
             }
           })();
         JS
@@ -2124,11 +2187,43 @@ module Scrapers
           0
         end
 
-        logger.info "[PremiereProduceOne] Scroll #{attempt + 1}: #{current_count} items found" if (attempt + 1) % 5 == 0 || current_count != previous_count
+        # Log every scroll for first 5 and then every 5th, plus any time count changes
+        if attempt < 5 || (attempt + 1) % 5 == 0 || current_count != previous_count
+          scroll_pos = browser.evaluate(<<~JS) rescue 'unknown'
+            (function() {
+              var c = window.__ppoScrollContainer;
+              if (c) return 'container scrollTop=' + c.scrollTop + '/' + c.scrollHeight;
+              return 'window scrollY=' + window.scrollY + '/' + document.body.scrollHeight;
+            })()
+          JS
+          logger.info "[PremiereProduceOne] Scroll #{attempt + 1}: #{current_count} items, #{scroll_pos}"
+        end
 
         if current_count <= previous_count
           stale_rounds += 1
-          break if stale_rounds >= 5
+          # After 3 stale rounds, try an alternative scroll strategy
+          if stale_rounds == 3
+            logger.info "[PremiereProduceOne] Stale after 3 rounds, trying alternative scroll strategies"
+            # Strategy: scroll the window if we were scrolling a container, or vice versa
+            browser.evaluate(<<~JS)
+              (function() {
+                // Try scrolling everything
+                window.scrollBy(0, window.innerHeight);
+                document.documentElement.scrollTop += window.innerHeight;
+                // Also try scrolling all potential containers
+                var all = document.querySelectorAll('*');
+                for (var i = 0; i < all.length; i++) {
+                  var style = window.getComputedStyle(all[i]);
+                  if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && all[i].scrollHeight > all[i].clientHeight + 50) {
+                    all[i].scrollTop += all[i].clientHeight;
+                    all[i].dispatchEvent(new Event('scroll', { bubbles: true }));
+                  }
+                }
+              })();
+            JS
+            sleep 4
+          end
+          break if stale_rounds >= 7
         else
           stale_rounds = 0
         end
