@@ -30,12 +30,26 @@ class SupplierListsController < ApplicationController
     end
     has_pending_import_jobs = pending_job_credential_ids.any?
 
+    actually_syncing = has_syncing_lists || has_pending_import_jobs
+
     if params[:syncing].present?
-      sync_started = Time.at(params[:syncing].to_i) rescue nil
-      recently_started = sync_started && sync_started > 5.minutes.ago
-      @syncing = has_syncing_lists || has_pending_import_jobs || recently_started
+      if actually_syncing
+        @syncing = true
+      else
+        # Sync was triggered via URL param but everything is done now.
+        # Brief grace period in case the job hasn't been picked up yet.
+        sync_started = Time.at(params[:syncing].to_i) rescue nil
+        recently_started = sync_started && sync_started > 30.seconds.ago
+        if recently_started
+          @syncing = true
+        else
+          # Sync is done — redirect to clean URL so banner disappears
+          # and auto-refresh stops.
+          redirect_to supplier_lists_path, notice: "Supplier lists updated." and return
+        end
+      end
     else
-      @syncing = has_syncing_lists || has_pending_import_jobs
+      @syncing = actually_syncing
     end
 
     @syncing_credential_ids = Set.new(pending_job_credential_ids)
