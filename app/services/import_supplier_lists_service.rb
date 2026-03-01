@@ -122,6 +122,10 @@ class ImportSupplierListsService
     )
     item.save!
 
+    # Safety net: if the scraper didn't detect a per-unit price from the text,
+    # check if the numbers make it obvious (e.g., $16.54 for 72 lbs = $0.23/lb)
+    infer_per_unit_pricing!(item) if item.price_unit.blank?
+
     # Try to link to an existing SupplierProduct by SKU
     item.link_to_supplier_product! if item.supplier_product_id.nil?
 
@@ -164,6 +168,30 @@ class ImportSupplierListsService
     sp.record_seen! if sp.consecutive_misses > 0 || sp.discontinued?
   rescue StandardError => e
     Rails.logger.debug "[ImportLists] Error refreshing linked product for SKU #{item.sku}: #{e.message}"
+  end
+
+  # Safety-net heuristic: detect per-unit pricing when the scraper couldn't
+  # determine it from the price text format (e.g., no "/LB" suffix visible).
+  #
+  # If the stored price ÷ pack weight gives an unrealistically low per-lb
+  # price (< $0.30), the price is almost certainly already per-lb.
+  # Very few wholesale foods cost < $0.30/lb — this threshold safely catches
+  # meat, seafood, and poultry without flagging cheap bulk produce or staples.
+  #
+  # Only applies to lb-based packs ≥ 5 lbs with prices ≥ $2.
+  def infer_per_unit_pricing!(item)
+    return unless item.price && item.price >= 2.0
+
+    parsed = UnitParser.parse(item.pack_size)
+    return unless parsed[:parseable] && parsed[:unit] == "lb" && parsed[:quantity] >= 5
+
+    implied_per_lb = item.price / parsed[:quantity]
+
+    if implied_per_lb < 0.30
+      item.update_column(:price_unit, "lb")
+      Rails.logger.info "[ImportLists] Inferred price_unit=lb for '#{item.name}' " \
+                        "($#{item.price}/#{item.pack_size}, implied $#{'%.2f' % implied_per_lb}/lb)"
+    end
   end
 
   def mark_removed_lists(scraped_remote_ids)
