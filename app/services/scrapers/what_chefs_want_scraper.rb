@@ -1107,10 +1107,25 @@ module Scrapers
 
             var priceText = cells[4] ? cells[4].innerText.trim() : '';
             var price = null;
+            var priceUnit = null;
+
+            // 1. Case/CS price (total for the pack)
             var csMatch = priceText.match(/\$(\d+[\d,]*\.\d{2})\s*\/?\s*(?:CS|case)/i);
             if (csMatch) {
               price = parseFloat(csMatch[1].replace(',', ''));
-            } else {
+            }
+
+            // 2. Per-unit price (e.g., "$12.50/LB", "$3.99/OZ", "$5.00/EA")
+            if (!price) {
+              var perUnitMatch = priceText.match(/\$(\d+[\d,]*\.\d{2})\s*\/\s*(LB|OZ|EA|GAL|KG|CT)\b/i);
+              if (perUnitMatch) {
+                price = parseFloat(perUnitMatch[1].replace(',', ''));
+                priceUnit = perUnitMatch[2].toLowerCase();
+              }
+            }
+
+            // 3. Fallback: any dollar amount
+            if (!price) {
               var pm = priceText.match(/\$(\d+[\d,]*\.\d{2})/);
               if (pm) price = parseFloat(pm[1].replace(',', ''));
             }
@@ -1119,6 +1134,7 @@ module Scrapers
               sku: sku,
               name: name.substring(0, 255),
               price: price,
+              price_unit: priceUnit,
               pack_size: [packSize, unit].filter(Boolean).join(' - '),
               in_stock: true
             };

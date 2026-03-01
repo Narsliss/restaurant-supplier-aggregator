@@ -2844,6 +2844,7 @@ module Scrapers
 
               // Case price extraction (3 methods, matching scrape_product logic)
               var price = null;
+              var priceUnit = null;
 
               // Method 1: "$XX.XX CS" or "$XX.XX/CS" pattern (with optional slash/space)
               var csMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*[\\/]?\\s*CS/i);
@@ -2865,14 +2866,22 @@ module Scrapers
                 var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(\\/[a-zA-Z]+)?/g;
                 var pm;
                 var casePrices = [];
+                var unitPrices = [];
                 while ((pm = priceRegex.exec(text)) !== null) {
-                  // Only include prices that DON'T have a per-unit suffix like /LB, /OZ
-                  // but DO include /CS (case) prices
                   if (!pm[2] || pm[2].match(/\\/CS/i)) {
                     casePrices.push(parseFloat(pm[1].replace(',', '')));
+                  } else {
+                    // Track per-unit prices as fallback (e.g., $12.50/LB)
+                    unitPrices.push({ price: parseFloat(pm[1].replace(',', '')), unit: pm[2].replace('/', '').toLowerCase() });
                   }
                 }
-                if (casePrices.length > 0) price = Math.max.apply(null, casePrices);
+                if (casePrices.length > 0) {
+                  price = Math.max.apply(null, casePrices);
+                } else if (unitPrices.length > 0) {
+                  // No case price found — use the per-unit price and flag it
+                  price = unitPrices[0].price;
+                  priceUnit = unitPrices[0].unit;
+                }
               }
 
               var inStock = !text.toLowerCase().includes('out of stock') &&
@@ -2884,6 +2893,7 @@ module Scrapers
                 name: name.substring(0, 255),
                 pack_size: packSize,
                 price: price,
+                price_unit: priceUnit,
                 in_stock: inStock
               });
             }
@@ -2958,6 +2968,7 @@ module Scrapers
 
             // Extract CASE PRICE — prefer "$XX.XX CS" format (new layout)
             var price = null;
+            var priceUnit = null;
 
             // Method 1: "$XX.XX CS" pattern
             var csMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2})\\s*CS/i);
@@ -2974,21 +2985,32 @@ module Scrapers
               }
             }
 
-            // Method 3: Find prices excluding unit prices (with /unit suffix)
+            // Method 3: Find prices, tracking per-unit prices separately
             if (!price) {
               var priceRegex = /\\$(\\d+[,\\d]*\\.\\d{2})(\\/[a-zA-Z]+)?/g;
               var match;
               var casePrices = [];
+              var unitPrices = [];
               while ((match = priceRegex.exec(text)) !== null) {
-                if (!match[2]) casePrices.push(parseFloat(match[1].replace(',', '')));
+                if (!match[2] || match[2].match(/\\/CS/i)) {
+                  casePrices.push(parseFloat(match[1].replace(',', '')));
+                } else {
+                  unitPrices.push({ price: parseFloat(match[1].replace(',', '')), unit: match[2].replace('/', '').toLowerCase() });
+                }
               }
-              if (casePrices.length > 0) price = Math.max.apply(null, casePrices);
+              if (casePrices.length > 0) {
+                price = Math.max.apply(null, casePrices);
+              } else if (unitPrices.length > 0) {
+                price = unitPrices[0].price;
+                priceUnit = unitPrices[0].unit;
+              }
             }
 
             return {
               sku: skuMatch[1],
               name: brand ? (brand + ' ' + desc) : desc,
               price: price,
+              price_unit: priceUnit,
               pack_size: packSize,
               in_stock: !text.toLowerCase().includes('out of stock')
             };

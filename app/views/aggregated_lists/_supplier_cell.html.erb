@@ -23,6 +23,9 @@
     <span class="text-sm font-semibold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
       <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
     </span>
+    <% if item.price_unit.present? && item.estimated_total_price != item.price %>
+      <span class="block text-xs text-gray-500">~$<%= '%.2f' % item.estimated_total_price %> est. total</span>
+    <% end %>
     <% if item.formatted_per_unit_price %>
       <span class="block text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
         <%= item.formatted_per_unit_price %>

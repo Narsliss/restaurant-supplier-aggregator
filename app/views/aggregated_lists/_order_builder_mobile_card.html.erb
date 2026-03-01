@@ -43,13 +43,16 @@
           <div class="text-xs cursor-pointer rounded px-1.5 py-0.5 transition-all
                       <%= is_default ? 'ring-1 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
                data-action="click->order-builder#selectSupplier"
-               data-supplier-price="<%= effective_price %>"
+               data-supplier-price="<%= item.price_unit.present? ? item.estimated_total_price : effective_price %>"
                data-supplier-id-value="<%= supplier.id %>"
                data-match-id="<%= match.id %>"
                data-order-builder-target="supplierCell"
                data-default="<%= is_default %>">
             <span class="text-gray-500"><%= supplier.name %>:</span>
-            <span class="font-semibold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>"><%= number_to_currency(effective_price) %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %></span>
+            <span class="font-semibold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>"><%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %></span>
+            <% if item.price_unit.present? && item.estimated_total_price != item.price %>
+              <span class="text-gray-500">(~<%= number_to_currency(item.estimated_total_price) %>)</span>
+            <% end %>
             <% if effective_pack_size.present? %>
               <span class="text-gray-400">(<%= effective_pack_size %>)</span>
             <% end %>

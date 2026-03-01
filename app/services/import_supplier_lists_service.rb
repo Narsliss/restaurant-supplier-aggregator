@@ -113,6 +113,7 @@ class ImportSupplierListsService
     item.assign_attributes(
       name: item_data[:name].to_s.truncate(255),
       price: item_data[:price],
+      price_unit: item_data[:price_unit],
       pack_size: item_data[:pack_size],
       quantity: item_data[:quantity] || 1,
       in_stock: item_data[:in_stock] != false,

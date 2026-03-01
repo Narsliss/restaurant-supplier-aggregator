@@ -130,6 +130,12 @@ class UnitParser
       a[:parseable] && b[:parseable] && a[:normalized_unit] == b[:normalized_unit]
     end
 
+    # Normalize a unit string to its canonical key (e.g., "LB" → "lb", "OZ" → "oz")
+    # Used by SupplierListItem to convert price_unit from scrapers.
+    def normalize_unit_key(unit_str)
+      normalize_unit_str(unit_str.to_s)
+    end
+
     # Format a per-unit price for display
     def format_per_unit(per_unit_price, normalized_unit)
       return nil unless per_unit_price && normalized_unit

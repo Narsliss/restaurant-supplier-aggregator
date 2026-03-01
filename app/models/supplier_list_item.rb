@@ -91,11 +91,22 @@ class SupplierListItem < ApplicationRecord
     @parsed_pack_size ||= UnitParser.parse(pack_size)
   end
 
+  # Returns the per-unit price in the normalized base unit (oz, fl oz, each, etc.)
+  #
+  # When price_unit is set (e.g., "lb"), the stored price IS already per that unit,
+  # so we just convert to the normalized base unit without dividing by pack quantity.
+  # Example: tenderloin at $12.50/lb → $12.50 / 16 oz/lb = $0.78/oz
+  #
+  # When price_unit is nil, the price is for the whole pack (default behavior).
+  # Example: $125.00 for a 10 LB case → $125.00 / 160 oz = $0.78/oz
   def per_unit_price
-    return nil unless price && parsed_pack_size[:parseable]
-    return nil if parsed_pack_size[:normalized_quantity] <= 0
+    return nil unless price
 
-    (price / parsed_pack_size[:normalized_quantity]).round(4)
+    if price_unit.present?
+      per_unit_price_from_unit_pricing
+    else
+      per_unit_price_from_case_pricing
+    end
   end
 
   def normalized_unit
@@ -110,6 +121,34 @@ class SupplierListItem < ApplicationRecord
 
   def formatted_per_unit_price
     UnitParser.format_per_unit(per_unit_price, normalized_unit)
+  end
+
+  # Estimated total price for the full pack.
+  # For per-unit pricing: price × quantity in that unit.
+  # For case pricing: the price itself.
+  def estimated_total_price
+    return price unless price && price_unit.present? && parsed_pack_size[:parseable]
+
+    unit_key = UnitParser.normalize_unit_key(price_unit)
+    pack_qty = parsed_pack_size[:quantity]
+    pack_unit = parsed_pack_size[:unit]
+
+    # If price unit matches the pack size unit, multiply directly
+    if unit_key == pack_unit
+      (price * pack_qty).round(2)
+    else
+      # Convert pack quantity to the price unit's base, then multiply
+      # e.g., price is per oz but pack is in lbs: convert lbs to oz first
+      price_unit_factor = UnitParser::WEIGHT_TO_OZ[unit_key] || UnitParser::VOLUME_TO_FL_OZ[unit_key] || UnitParser::COUNT_TO_EACH[unit_key]
+      pack_unit_factor = UnitParser::WEIGHT_TO_OZ[pack_unit] || UnitParser::VOLUME_TO_FL_OZ[pack_unit] || UnitParser::COUNT_TO_EACH[pack_unit]
+
+      if price_unit_factor && pack_unit_factor
+        pack_in_price_units = (pack_qty * pack_unit_factor) / price_unit_factor
+        (price * pack_in_price_units).round(2)
+      else
+        price # Can't convert, return as-is
+      end
+    end
   end
 
   # Price change detection (mirrors SupplierProduct pattern)
@@ -145,11 +184,17 @@ class SupplierListItem < ApplicationRecord
     !!in_stock
   end
 
-  # Price display
+  # Price display — shows "/lb", "/oz" etc. when price is per-unit
   def formatted_price
     return 'N/A' unless price
 
-    "$#{'%.2f' % price}"
+    base = "$#{'%.2f' % price}"
+    if price_unit.present?
+      unit_display = price_unit.upcase
+      "#{base}/#{unit_display}"
+    else
+      base
+    end
   end
 
   def price_with_pack
@@ -159,6 +204,29 @@ class SupplierListItem < ApplicationRecord
   end
 
   private
+
+  # Price is already per the stored price_unit (e.g., $12.50/lb).
+  # Convert to the pack's normalized base unit.
+  def per_unit_price_from_unit_pricing
+    unit_key = UnitParser.normalize_unit_key(price_unit)
+
+    # Find how many base units (oz, fl oz, each) one price_unit represents
+    conversion = UnitParser::WEIGHT_TO_OZ[unit_key] ||
+                 UnitParser::VOLUME_TO_FL_OZ[unit_key] ||
+                 UnitParser::COUNT_TO_EACH[unit_key]
+
+    return nil unless conversion && conversion > 0
+
+    (price / conversion).round(4)
+  end
+
+  # Price is for the whole pack — divide by total normalized quantity.
+  def per_unit_price_from_case_pricing
+    return nil unless parsed_pack_size[:parseable]
+    return nil if parsed_pack_size[:normalized_quantity] <= 0
+
+    (price / parsed_pack_size[:normalized_quantity]).round(4)
+  end
 
   def sanitize_sql_like(string)
     string.gsub(/[%_\\]/) { |m| "\\#{m}" }
