@@ -364,30 +364,63 @@ class MenuPlannerService
   end
 
   def estimate_ingredient_cost(ingredient, supplier_product)
-    # Simple estimate: if the ingredient quantity fits within one pack, use pack price
-    # Otherwise multiply. This is rough — real ordering uses the order builder for precision.
-    price = supplier_product.current_price.to_f
-    qty = ingredient["quantity"].to_f
+    pack_price = supplier_product.current_price.to_f
+    recipe_qty = ingredient["quantity"].to_f
+    recipe_unit = ingredient["unit"].to_s.strip
 
-    # If the supplier product has a per-unit price, use it
-    if supplier_product.respond_to?(:per_unit_price) && supplier_product.per_unit_price
-      return (supplier_product.per_unit_price * qty).round(2)
+    return pack_price.round(2) if recipe_qty <= 0 || recipe_unit.blank?
+
+    # Parse both the recipe quantity and the supplier's pack size into normalized units
+    recipe_parsed = UnitParser.parse("#{recipe_qty} #{recipe_unit}")
+    product_parsed = supplier_product.parsed_pack_size
+
+    # If both parse to the same normalized unit (e.g., both → oz, both → fl oz),
+    # use per-unit pricing for accurate cost
+    if recipe_parsed[:parseable] && product_parsed[:parseable] &&
+       recipe_parsed[:normalized_unit] == product_parsed[:normalized_unit] &&
+       product_parsed[:normalized_quantity].to_f > 0
+
+      per_normalized_unit = pack_price / product_parsed[:normalized_quantity].to_f
+      cost = per_normalized_unit * recipe_parsed[:normalized_quantity].to_f
+      return cost.round(2)
     end
 
-    # Fallback: assume 1 pack covers the quantity (very rough)
-    price.round(2)
+    # If units are in the same category but not directly convertible (e.g., bunch, head),
+    # estimate packs needed
+    if product_parsed[:parseable] && product_parsed[:quantity].to_f > 0
+      # Same raw unit? (e.g., recipe says "5 bunch", product is "1 bunch")
+      recipe_unit_key = UnitParser.normalize_unit_key(recipe_unit)
+      product_unit_key = UnitParser.normalize_unit_key(product_parsed[:unit].to_s)
+
+      if recipe_unit_key == product_unit_key
+        packs_needed = (recipe_qty / product_parsed[:quantity].to_f).ceil
+        return (packs_needed * pack_price).round(2)
+      end
+    end
+
+    # Fallback: estimate packs needed assuming 1 pack ≈ 1 unit of what the recipe needs.
+    # Cap at a reasonable multiplier to avoid absurd numbers.
+    packs_needed = [recipe_qty.ceil, 1].max
+    # Sanity cap: if cost would exceed $500 per ingredient, something is wrong —
+    # fall back to the category-based estimate instead
+    estimated = packs_needed * pack_price
+    if estimated > 500
+      return estimate_unmatched_cost(ingredient)
+    end
+    estimated.round(2)
   end
 
   def estimate_unmatched_cost(ingredient)
-    # Very rough estimates by category for unmatched ingredients
+    # Rough per-unit estimates by category (price per recipe unit)
     estimates = {
-      "Seafood" => 15.0, "Meat" => 12.0, "Poultry" => 8.0,
-      "Produce" => 3.0, "Dairy" => 5.0, "Spices" => 2.0,
-      "Oils & Condiments" => 4.0, "Dry Goods" => 3.0,
-      "Beverages" => 8.0, "Bakery" => 4.0
+      "Seafood" => 12.0, "Meat" => 10.0, "Poultry" => 6.0,
+      "Produce" => 2.0, "Dairy" => 4.0, "Spices" => 1.50,
+      "Oils & Condiments" => 3.0, "Dry Goods" => 2.0,
+      "Beverages" => 5.0, "Bakery" => 3.0
     }
     per_unit = estimates[ingredient["category"]] || 5.0
-    (per_unit * (ingredient["quantity"] || 1).to_f * 0.5).round(2)
+    qty = (ingredient["quantity"] || 1).to_f
+    (per_unit * qty).round(2)
   end
 
   # --- Cost Calculation ---
