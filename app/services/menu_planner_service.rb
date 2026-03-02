@@ -482,13 +482,20 @@ class MenuPlannerService
     total_cost = 0
     matched_count = 0
     total_ingredients = 0
+    supplier_costs = Hash.new(0.0)  # { supplier_name => total_estimated_cost }
 
     courses.each do |course|
       course_cost = 0
       (course["ingredients"] || []).each do |ing|
         total_ingredients += 1
-        matched_count += 1 if ing["matched_product"]
-        course_cost += (ing["estimated_cost"] || 0).to_f
+        cost = (ing["estimated_cost"] || 0).to_f
+        course_cost += cost
+
+        if ing["matched_product"]
+          matched_count += 1
+          supplier_name = ing["matched_product"]["supplier_name"]
+          supplier_costs[supplier_name] += cost
+        end
       end
       course["course_cost"] = course_cost.round(2)
       total_cost += course_cost
@@ -497,14 +504,40 @@ class MenuPlannerService
     covers = @event_plan.covers || 1
     budget = @event_plan.budget_per_cover
 
+    # Build per-supplier breakdown with order minimum warnings
+    supplier_breakdown = build_supplier_breakdown(supplier_costs)
+
     parsed["cost_summary"] = {
       "total_cost" => total_cost.round(2),
       "cost_per_cover" => (total_cost / covers).round(2),
       "budget_per_cover" => budget,
       "matched_count" => matched_count,
       "total_ingredients" => total_ingredients,
-      "match_rate" => total_ingredients > 0 ? (matched_count * 100.0 / total_ingredients).round(0) : 0
+      "match_rate" => total_ingredients > 0 ? (matched_count * 100.0 / total_ingredients).round(0) : 0,
+      "supplier_breakdown" => supplier_breakdown
     }
+  end
+
+  def build_supplier_breakdown(supplier_costs)
+    # Look up order minimums for each supplier
+    supplier_minimums = Supplier.joins(:supplier_requirements)
+      .where(supplier_requirements: { requirement_type: "order_minimum", active: true })
+      .pluck("suppliers.name", "supplier_requirements.numeric_value")
+      .to_h
+
+    supplier_costs.map do |name, estimated_cost|
+      minimum = supplier_minimums[name]
+      entry = {
+        "supplier_name" => name,
+        "estimated_cost" => estimated_cost.round(2)
+      }
+      if minimum
+        entry["order_minimum"] = minimum
+        entry["meets_minimum"] = estimated_cost >= minimum
+        entry["shortfall"] = [(minimum - estimated_cost).round(2), 0].max
+      end
+      entry
+    end.sort_by { |e| e["supplier_name"] }
   end
 
   # --- Helpers ---

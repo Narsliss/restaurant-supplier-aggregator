@@ -99,20 +99,43 @@ class EventPlanOrderService
   end
 
   def calculate_order_quantity(ingredient, supplier_product)
-    # Default to 1 pack if we can't determine the right quantity.
-    # Real precision would require pack size parsing against ingredient units,
-    # which is a refinement for later.
     qty = ingredient["quantity"].to_f
+    recipe_unit = ingredient["unit"].to_s.strip
     return 1 if qty <= 0
 
-    # If the supplier product has a parseable pack size, try to calculate packs needed
-    parsed = supplier_product.parsed_pack_size
-    if parsed[:parseable] && parsed[:normalized_quantity] > 0
-      packs_needed = (qty / parsed[:normalized_quantity]).ceil
-      [packs_needed, 1].max
-    else
-      # Can't parse pack size — order 1 unit and let the chef adjust in review
-      1
+    product_parsed = supplier_product.parsed_pack_size
+    return 1 unless product_parsed[:parseable] && product_parsed[:normalized_quantity] > 0
+
+    recipe_parsed = UnitParser.parse("#{qty} #{recipe_unit}")
+
+    # Path 1: Same normalized unit (e.g., both → oz, both → fl oz)
+    if recipe_parsed[:parseable] &&
+       recipe_parsed[:normalized_unit] == product_parsed[:normalized_unit]
+      packs = (recipe_parsed[:normalized_quantity] / product_parsed[:normalized_quantity]).ceil
+      return [packs, 1].max
     end
+
+    # Path 2: Same raw unit (e.g., both "bunch")
+    if recipe_parsed[:parseable]
+      recipe_key = UnitParser.normalize_unit_key(recipe_unit)
+      product_key = UnitParser.normalize_unit_key(product_parsed[:unit].to_s)
+      if recipe_key == product_key && product_parsed[:quantity].to_f > 0
+        packs = (qty / product_parsed[:quantity]).ceil
+        return [packs, 1].max
+      end
+    end
+
+    # Path 3: Weight ↔ Volume approximation (1 oz ≈ 1 fl oz)
+    if recipe_parsed[:parseable]
+      r = recipe_parsed[:normalized_unit]
+      p = product_parsed[:normalized_unit]
+      if (r == "oz" && p == "fl oz") || (r == "fl oz" && p == "oz")
+        packs = (recipe_parsed[:normalized_quantity] / product_parsed[:normalized_quantity]).ceil
+        return [packs, 1].max
+      end
+    end
+
+    # Fallback: can't convert — order 1 pack, chef adjusts in review
+    1
   end
 end
