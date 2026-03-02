@@ -61,7 +61,6 @@ class EventPlansController < ApplicationController
     orders, batch_id, order_list = service.create_pending_orders!
 
     if orders.any?
-      @event_plan.update!(status: "ordered")
       flash[:notice] = "Orders created! An order list \"#{order_list&.name}\" has also been saved so you can add items."
       redirect_to review_orders_path(batch_id: batch_id)
     else
