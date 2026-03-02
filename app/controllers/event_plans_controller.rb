@@ -1,6 +1,6 @@
 class EventPlansController < ApplicationController
   before_action :require_organization!
-  before_action :set_event_plan, only: %i[show update build_order finalize destroy]
+  before_action :set_event_plan, only: %i[show update build_order destroy]
 
   def index
     @org = current_user.current_organization
@@ -40,11 +40,6 @@ class EventPlansController < ApplicationController
         format.html { redirect_to @event_plan, alert: "Could not update plan." }
       end
     end
-  end
-
-  def finalize
-    @event_plan.update!(status: "finalized")
-    redirect_to @event_plan, notice: "Menu finalized! Ready to build your order."
   end
 
   def destroy

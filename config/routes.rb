@@ -146,7 +146,6 @@ Rails.application.routes.draw do
     resources :messages, only: [:create], controller: "event_plan_messages"
     member do
       post :build_order
-      post :finalize
     end
   end
 
