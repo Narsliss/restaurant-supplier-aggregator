@@ -217,7 +217,7 @@ class UnitParser
       # Strip prefixes like "EA -", "CS -"
       cleaned = text.gsub(/^(ea|cs|case|bag|box|tray|bucket|jar)\s*[\-\s]+/i, "")
 
-      if cleaned =~ /(\d+\.?\d*)\s*[\/\s]\s*(#{unit_pattern})\b/i
+      if cleaned =~ /(\d+\.?\d*)[\/\s]*(#{unit_pattern})\b/i
         quantity = $1.to_f
         unit = normalize_unit_str($2)
         return nil if quantity <= 0

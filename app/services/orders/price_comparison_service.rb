@@ -63,12 +63,14 @@ module Orders
         [supplier, sp]
       end
 
-      # Determine if per-unit comparison is possible (all parseable suppliers share the same unit category)
-      parseable_units = supplier_pairs
-                        .filter_map { |_, sp| sp&.normalized_unit }
-                        .uniq
-      comparable = parseable_units.size == 1
-      comparison_unit = parseable_units.first if comparable
+      # Determine per-unit comparability: find the largest group of suppliers sharing
+      # the same normalized unit. If 2+ share a unit, they can be compared per-unit
+      # even if other suppliers have unparseable or different units.
+      unit_groups = supplier_pairs
+                    .filter_map { |_, sp| sp&.normalized_unit }
+                    .tally
+      best_unit, best_count = unit_groups.max_by { |_unit, count| count } || [nil, 0]
+      comparable_unit = best_count >= 2 ? best_unit : nil
 
       supplier_pairs.map do |supplier, supplier_product|
         if supplier_product&.current_price
@@ -86,8 +88,8 @@ module Orders
             per_unit_price: supplier_product.per_unit_price,
             normalized_unit: supplier_product.normalized_unit,
             formatted_per_unit: supplier_product.formatted_per_unit_price,
-            comparable: comparable,
-            comparison_unit: comparison_unit,
+            comparable: comparable_unit.present? && supplier_product.normalized_unit == comparable_unit,
+            comparison_unit: comparable_unit,
             in_stock: supplier_product.in_stock?,
             last_updated: supplier_product.price_updated_at,
             price_changed: supplier_product.price_changed?,

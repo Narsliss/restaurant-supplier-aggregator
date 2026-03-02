@@ -65,49 +65,52 @@ class ProductMatch < ApplicationRecord
     end
   end
 
-  # Are per-unit prices comparable across suppliers? (same normalized unit)
+  # Find the largest group of items that share the same normalized unit
+  # and have per-unit prices — these can be compared apples-to-apples.
+  def comparable_group
+    return @comparable_group if defined?(@comparable_group)
+    items = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] && p[:per_unit_price].present? && p[:normalized_unit].present? }
+    groups = items.group_by { |p| p[:normalized_unit] }
+    @comparable_group = groups.max_by { |_unit, g| g.size }&.last || []
+  end
+
+  # Are per-unit prices comparable across suppliers? (at least 2 items share the same unit)
   def per_unit_comparable?
     return @per_unit_comparable if defined?(@per_unit_comparable)
-    items = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
-    units = items.filter_map { |p| p[:normalized_unit] }.uniq
-    @per_unit_comparable = (units.size == 1)
+    @per_unit_comparable = comparable_group.size >= 2
   end
 
   def cheapest_supplier
     @cheapest_supplier ||= begin
-      prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
-      if prices.empty?
-        nil
-      elsif per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
-        prices.min_by { |p| p[:per_unit_price] }
+      if per_unit_comparable?
+        comparable_group.min_by { |p| p[:per_unit_price] }
       else
-        prices.min_by { |p| p[:price] }
+        prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
+        prices.min_by { |p| p[:price] } if prices.any?
       end
     end
   end
 
   def most_expensive_supplier
     @most_expensive_supplier ||= begin
-      prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
-      if prices.empty?
-        nil
-      elsif per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
-        prices.max_by { |p| p[:per_unit_price] }
+      if per_unit_comparable?
+        comparable_group.max_by { |p| p[:per_unit_price] }
       else
-        prices.max_by { |p| p[:price] }
+        prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
+        prices.max_by { |p| p[:price] } if prices.any?
       end
     end
   end
 
   def price_spread
     return @price_spread if defined?(@price_spread)
-    prices = prices_by_supplier.select { |p| p[:price].present? }
-    @price_spread = if prices.size < 2
-      nil
-    elsif per_unit_comparable? && prices.all? { |p| p[:per_unit_price].present? }
-      prices.map { |p| p[:per_unit_price] }.max - prices.map { |p| p[:per_unit_price] }.min
+    @price_spread = if per_unit_comparable?
+      comparable_group.map { |p| p[:per_unit_price] }.max - comparable_group.map { |p| p[:per_unit_price] }.min
     else
-      prices.map { |p| p[:price] }.max - prices.map { |p| p[:price] }.min
+      prices = prices_by_supplier.select { |p| p[:price].present? }
+      if prices.size >= 2
+        prices.map { |p| p[:price] }.max - prices.map { |p| p[:price] }.min
+      end
     end
   end
 

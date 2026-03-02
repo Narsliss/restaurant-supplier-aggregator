@@ -44,25 +44,32 @@ class AggregatedListsController < ApplicationController
       end
 
       in_stock_prices = prices.select { |p| p[:price].present? && p[:in_stock] }
-      units = in_stock_prices.filter_map { |p| p[:normalized_unit] }.uniq
-      comparable = units.size == 1
+
+      # Prefer per-unit comparison: find items with per-unit prices and matching units
+      with_per_unit = in_stock_prices.select { |p| p[:per_unit_price].present? && p[:normalized_unit].present? }
+      unit_groups = with_per_unit.group_by { |p| p[:normalized_unit] }
+      largest_group = unit_groups.max_by { |_unit, items| items.size }&.last || []
 
       cheapest = most_expensive = nil
-      if in_stock_prices.any?
-        if comparable && in_stock_prices.all? { |p| p[:per_unit_price].present? }
-          cheapest = in_stock_prices.min_by { |p| p[:per_unit_price] }
-          most_expensive = in_stock_prices.max_by { |p| p[:per_unit_price] }
-        else
-          cheapest = in_stock_prices.min_by { |p| p[:price] }
-          most_expensive = in_stock_prices.max_by { |p| p[:price] }
-        end
+      if largest_group.size >= 2
+        # Compare by per-unit price when at least 2 items share the same unit
+        cheapest = largest_group.min_by { |p| p[:per_unit_price] }
+        most_expensive = largest_group.max_by { |p| p[:per_unit_price] }
+      elsif in_stock_prices.any?
+        # Fallback to case price when per-unit comparison isn't possible
+        cheapest = in_stock_prices.min_by { |p| p[:price] }
+        most_expensive = in_stock_prices.max_by { |p| p[:price] }
       end
 
       with_price = prices.select { |p| p[:price].present? }
       spread = nil
       if with_price.size >= 2
-        if comparable && with_price.all? { |p| p[:per_unit_price].present? }
-          spread = with_price.map { |p| p[:per_unit_price] }.max - with_price.map { |p| p[:per_unit_price] }.min
+        per_unit_with_price = with_price.select { |p| p[:per_unit_price].present? && p[:normalized_unit].present? }
+        price_unit_groups = per_unit_with_price.group_by { |p| p[:normalized_unit] }
+        largest_price_group = price_unit_groups.max_by { |_unit, items| items.size }&.last || []
+
+        if largest_price_group.size >= 2
+          spread = largest_price_group.map { |p| p[:per_unit_price] }.max - largest_price_group.map { |p| p[:per_unit_price] }.min
         else
           spread = with_price.map { |p| p[:price] }.max - with_price.map { |p| p[:price] }.min
         end
