@@ -13,6 +13,8 @@
 #
 class UnitParser
   # Weight conversions to ounces
+  # Note: bare "g" is NOT grams in food service — it means gallons (see VOLUME_TO_FL_OZ).
+  # Grams use "gr", "gram", or "grams" in supplier pack sizes.
   WEIGHT_TO_OZ = {
     "oz" => 1.0,
     "ounce" => 1.0,
@@ -25,7 +27,6 @@ class UnitParser
     "kg" => 35.274,
     "kgs" => 35.274,
     "kilogram" => 35.274,
-    "g" => 0.03527,
     "gr" => 0.03527,
     "gram" => 0.03527,
     "grams" => 0.03527
@@ -44,6 +45,7 @@ class UnitParser
     "quarts" => 32.0,
     "gal" => 128.0,
     "ga" => 128.0,
+    "g" => 128.0,       # In food service pack sizes, "G" = gallons (grams use "GR")
     "gallon" => 128.0,
     "gallons" => 128.0,
     "ml" => 0.03381,
@@ -285,8 +287,8 @@ class UnitParser
       s = str.to_s.strip.downcase
       s = "lb" if s == "lbs" || s == "pound" || s == "pounds"
       s = "oz" if s == "ounce" || s == "ounces"
-      s = "gal" if s == "gallon" || s == "gallons" || s == "ga"
-      s = "g" if s == "gr" || s == "gram" || s == "grams"
+      s = "gal" if s == "gallon" || s == "gallons" || s == "ga" || s == "g"
+      s = "gr" if s == "gram" || s == "grams"
       s = "kg" if s == "kgs" || s == "kilogram"
       s = "each" if s == "ea" || s == "pc" || s == "pcs" || s == "piece" || s == "pieces"
       s = "ct" if s == "count"

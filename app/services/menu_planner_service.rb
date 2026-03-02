@@ -297,7 +297,7 @@ class MenuPlannerService
       next unless course["ingredients"]
 
       course["ingredients"].each do |ingredient|
-        match = find_best_catalog_match(ingredient["name"], catalog, word_index, catalog_words)
+        match = find_best_catalog_match(ingredient["name"], ingredient["unit"], catalog, word_index, catalog_words)
         if match
           sp = match[:supplier_product]
           ingredient["matched_product"] = {
@@ -315,7 +315,7 @@ class MenuPlannerService
     end
   end
 
-  def find_best_catalog_match(ingredient_name, catalog, word_index, catalog_words)
+  def find_best_catalog_match(ingredient_name, recipe_unit, catalog, word_index, catalog_words)
     normalized = ProductNormalizer.normalize(ingredient_name)
     ingredient_words = normalized.downcase.split.to_set
 
@@ -350,17 +350,39 @@ class MenuPlannerService
 
       if score > best_score && score >= INGREDIENT_SIMILARITY_THRESHOLD
         best_score = score
-        best_match = { supplier_product: cheapest_in_stock(catalog[cat_name]), score: score }
+        best_match = { supplier_product: best_product_for_recipe(catalog[cat_name], recipe_unit), score: score }
       end
     end
 
     best_match
   end
 
-  def cheapest_in_stock(products)
-    products
-      .select { |sp| sp.in_stock? && sp.current_price.present? }
-      .min_by(&:current_price) || products.first
+  # Select the best product from a group, preferring unit-compatible products.
+  # E.g., if recipe calls for "11 lb", prefer a LB-based product over a count-based one.
+  def best_product_for_recipe(products, recipe_unit)
+    in_stock = products.select { |sp| sp.in_stock? && sp.current_price.present? }
+    in_stock = products if in_stock.empty?
+    return in_stock.first if in_stock.size <= 1
+
+    # Determine the recipe's normalized unit category (oz, fl oz, each, etc.)
+    recipe_parsed = UnitParser.parse("1 #{recipe_unit}")
+    recipe_norm_unit = recipe_parsed[:parseable] ? recipe_parsed[:normalized_unit] : nil
+
+    if recipe_norm_unit
+      # Prefer products whose pack size normalizes to the same unit
+      compatible = in_stock.select do |sp|
+        parsed = sp.parsed_pack_size
+        parsed[:parseable] && parsed[:normalized_unit] == recipe_norm_unit
+      end
+
+      if compatible.any?
+        # Among compatible products, pick the cheapest per normalized unit
+        return compatible.min_by { |sp| sp.per_unit_price || Float::INFINITY }
+      end
+    end
+
+    # Fallback: cheapest by total pack price
+    in_stock.min_by(&:current_price)
   end
 
   def estimate_ingredient_cost(ingredient, supplier_product)
@@ -374,7 +396,9 @@ class MenuPlannerService
     recipe_parsed = UnitParser.parse("#{recipe_qty} #{recipe_unit}")
     product_parsed = supplier_product.parsed_pack_size
 
-    # If both parse to the same normalized unit (e.g., both → oz, both → fl oz),
+    cost = nil
+
+    # Path 1: If both parse to the same normalized unit (e.g., both → oz, both → fl oz),
     # use per-unit pricing for accurate cost
     if recipe_parsed[:parseable] && product_parsed[:parseable] &&
        recipe_parsed[:normalized_unit] == product_parsed[:normalized_unit] &&
@@ -382,32 +406,60 @@ class MenuPlannerService
 
       per_normalized_unit = pack_price / product_parsed[:normalized_quantity].to_f
       cost = per_normalized_unit * recipe_parsed[:normalized_quantity].to_f
-      return cost.round(2)
     end
 
-    # If units are in the same category but not directly convertible (e.g., bunch, head),
-    # estimate packs needed
-    if product_parsed[:parseable] && product_parsed[:quantity].to_f > 0
-      # Same raw unit? (e.g., recipe says "5 bunch", product is "1 bunch")
+    # Path 2: Same raw unit (e.g., recipe says "5 bunch", product is "1 bunch")
+    if cost.nil? && product_parsed[:parseable] && product_parsed[:quantity].to_f > 0
       recipe_unit_key = UnitParser.normalize_unit_key(recipe_unit)
       product_unit_key = UnitParser.normalize_unit_key(product_parsed[:unit].to_s)
 
       if recipe_unit_key == product_unit_key
         packs_needed = (recipe_qty / product_parsed[:quantity].to_f).ceil
-        return (packs_needed * pack_price).round(2)
+        cost = packs_needed * pack_price
       end
     end
 
-    # Fallback: estimate packs needed assuming 1 pack ≈ 1 unit of what the recipe needs.
-    # Cap at a reasonable multiplier to avoid absurd numbers.
-    packs_needed = [recipe_qty.ceil, 1].max
-    # Sanity cap: if cost would exceed $500 per ingredient, something is wrong —
-    # fall back to the category-based estimate instead
-    estimated = packs_needed * pack_price
-    if estimated > 500
-      return estimate_unmatched_cost(ingredient)
+    # Path 3: Weight ↔ Volume approximate conversion (1 oz ≈ 1 fl oz for food items)
+    # Most food items have density close to water, so this is a reasonable approximation.
+    # Handles cases like "5.5 lb sauerkraut" matched to a "2 GAL" product.
+    if cost.nil? && recipe_parsed[:parseable] && product_parsed[:parseable] &&
+       product_parsed[:normalized_quantity].to_f > 0
+      r_unit = recipe_parsed[:normalized_unit]
+      p_unit = product_parsed[:normalized_unit]
+
+      if (r_unit == "oz" && p_unit == "fl oz") || (r_unit == "fl oz" && p_unit == "oz")
+        per_unit = pack_price / product_parsed[:normalized_quantity].to_f
+        cost = per_unit * recipe_parsed[:normalized_quantity].to_f
+      end
     end
-    estimated.round(2)
+
+    # Path 4: Fallback — units completely incompatible (e.g., lb vs count)
+    if cost.nil?
+      if product_parsed[:parseable] && product_parsed[:normalized_quantity].to_f > 0
+        # Product has a known bulk quantity (e.g., "60 count case", "50 LB case").
+        # Since we can't convert, assume 1 pack is sufficient — supplier packs are bulk.
+        cost = pack_price
+      else
+        # Can't parse the pack size at all — rough estimate
+        packs_needed = [recipe_qty.ceil, 1].max
+        cost = packs_needed * pack_price
+      end
+    end
+
+    # Global sanity cap: if ANY path produces an unreasonable cost, fall back to
+    # category-based estimate. This catches unit mismatches, parse errors, and
+    # edge cases like "G" meaning gallons vs grams.
+    category_estimate = estimate_unmatched_cost(ingredient)
+    max_reasonable = [category_estimate * 10, 500].max  # Allow up to 10x the category estimate or $500
+
+    if cost > max_reasonable
+      Rails.logger.warn "[MenuPlanner] Cost sanity cap triggered: #{ingredient['name']} " \
+        "calculated=$#{'%.2f' % cost} (#{recipe_qty} #{recipe_unit} @ $#{pack_price}/#{supplier_product.pack_size}), " \
+        "capped to category estimate=$#{'%.2f' % category_estimate}"
+      return category_estimate
+    end
+
+    cost.round(2)
   end
 
   def estimate_unmatched_cost(ingredient)
