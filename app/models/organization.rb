@@ -31,7 +31,7 @@ class Organization < ApplicationRecord
   end
 
   def subscribed?
-    current_subscription&.allows_access? || false
+    complimentary? || (current_subscription&.allows_access? || false)
   end
 
   def subscription_status
@@ -130,6 +130,29 @@ class Organization < ApplicationRecord
 
   def can_create_menu_plan?
     menu_plans_this_month < menu_plan_monthly_limit
+  end
+
+  # Complimentary access management
+  def grant_complimentary!(by:, reason: nil)
+    update_columns(
+      complimentary: true,
+      complimentary_reason: reason,
+      complimentary_granted_at: Time.current,
+      complimentary_granted_by_id: by.id
+    )
+  end
+
+  def revoke_complimentary!
+    update_columns(
+      complimentary: false,
+      complimentary_reason: nil,
+      complimentary_granted_at: nil,
+      complimentary_granted_by_id: nil
+    )
+  end
+
+  def complimentary_granted_by
+    User.find_by(id: complimentary_granted_by_id)
   end
 
   # Stripe methods

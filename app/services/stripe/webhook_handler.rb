@@ -71,10 +71,14 @@ module Stripe
       user.update!(stripe_customer_id: session.customer) unless user.stripe_customer_id
 
       # Fetch and sync the subscription
+      subscription = nil
       if session.subscription
         stripe_subscription = ::Stripe::Subscription.retrieve(session.subscription)
-        Subscription.sync_from_stripe(stripe_subscription, user: user)
+        subscription = Subscription.sync_from_stripe(stripe_subscription, user: user)
       end
+
+      # Send welcome email
+      BillingMailer.welcome(subscription).deliver_later if subscription
 
       record_event(user: user)
       { status: :success }
@@ -122,6 +126,10 @@ module Stripe
           canceled_at: Time.current,
           ended_at: stripe_subscription.ended_at ? Time.zone.at(stripe_subscription.ended_at) : Time.current
         )
+
+        # Notify org owner
+        BillingMailer.subscription_canceled(subscription).deliver_later
+
         record_event(user: subscription.user, subscription: subscription)
         { status: :success }
       else
@@ -134,8 +142,11 @@ module Stripe
       subscription = Subscription.find_by(stripe_subscription_id: stripe_subscription.id)
 
       if subscription
-        # Could send email notification here
         Rails.logger.info "[Stripe] Trial ending soon for user #{subscription.user_id}"
+
+        # Notify org owner that trial is ending
+        BillingMailer.trial_ending_soon(subscription).deliver_later
+
         record_event(user: subscription.user, subscription: subscription)
         { status: :success }
       else
@@ -154,8 +165,10 @@ module Stripe
       stripe_invoice = @event.data.object
       invoice = Invoice.sync_from_stripe(stripe_invoice)
 
-      # Could send email notification about failed payment
       Rails.logger.warn "[Stripe] Payment failed for user #{invoice.user_id}"
+
+      # Notify org owner about failed payment
+      BillingMailer.payment_failed(invoice).deliver_later if invoice.subscription
 
       record_event(user: invoice.user, subscription: invoice.subscription)
       { status: :success }

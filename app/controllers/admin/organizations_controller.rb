@@ -49,4 +49,62 @@ class Admin::OrganizationsController < Admin::BaseController
     invitation.resend!
     redirect_to admin_organization_path(org), notice: "Invitation resent to #{invitation.email}."
   end
+
+  def grant_complimentary
+    org = Organization.find(params[:id])
+    reason = params[:reason].presence || "Granted by admin"
+    org.grant_complimentary!(by: current_user, reason: reason)
+    redirect_to admin_organization_path(org), notice: "#{org.name} now has complimentary access."
+  end
+
+  def revoke_complimentary
+    org = Organization.find(params[:id])
+    org.revoke_complimentary!
+    redirect_to admin_organization_path(org), notice: "Complimentary access revoked for #{org.name}."
+  end
+
+  def extend_trial
+    org = Organization.find(params[:id])
+    subscription = org.subscriptions.where(status: %w[active trialing]).order(created_at: :desc).first
+
+    unless subscription&.stripe_subscription_id
+      redirect_to admin_organization_path(org), alert: "No active subscription to extend trial on."
+      return
+    end
+
+    days = (params[:days].presence || 14).to_i
+    new_trial_end = (subscription.trial_end || Time.current) + days.days
+
+    begin
+      Stripe::Subscription.update(
+        subscription.stripe_subscription_id,
+        trial_end: new_trial_end.to_i
+      )
+      # Webhook will sync the updated trial_end back to our DB
+      redirect_to admin_organization_path(org), notice: "Trial extended by #{days} days (until #{new_trial_end.strftime('%b %-d, %Y')})."
+    rescue Stripe::StripeError => e
+      redirect_to admin_organization_path(org), alert: "Stripe error: #{e.message}"
+    end
+  end
+
+  def cancel_subscription
+    org = Organization.find(params[:id])
+    subscription = org.subscriptions.where(status: %w[active trialing]).order(created_at: :desc).first
+
+    unless subscription&.stripe_subscription_id
+      redirect_to admin_organization_path(org), alert: "No active subscription to cancel."
+      return
+    end
+
+    begin
+      Stripe::Subscription.update(
+        subscription.stripe_subscription_id,
+        cancel_at_period_end: true
+      )
+      # Webhook will sync the cancellation back to our DB
+      redirect_to admin_organization_path(org), notice: "Subscription will cancel at end of current period."
+    rescue Stripe::StripeError => e
+      redirect_to admin_organization_path(org), alert: "Stripe error: #{e.message}"
+    end
+  end
 end

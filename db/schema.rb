@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_02_183827) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_02_200904) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -305,6 +305,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_183827) do
     t.datetime "updated_at", null: false
     t.integer "max_seats", default: 5, null: false
     t.integer "additional_seats", default: 0, null: false
+    t.boolean "complimentary", default: false, null: false
+    t.string "complimentary_reason"
+    t.datetime "complimentary_granted_at"
+    t.bigint "complimentary_granted_by_id"
     t.index ["slug"], name: "index_organizations_on_slug", unique: true
     t.index ["stripe_customer_id"], name: "index_organizations_on_stripe_customer_id", unique: true
   end

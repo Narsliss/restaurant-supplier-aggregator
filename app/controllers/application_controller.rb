@@ -77,7 +77,12 @@ class ApplicationController < ActionController::Base
   def skip_subscription_check?
     devise_controller? ||
       controller_name == "subscriptions" ||
+      controller_name == "organizations" ||    # onboarding: create org
+      controller_name == "locations" ||         # onboarding: add restaurant
+      controller_name == "invitations" ||       # onboarding: invite team
+      controller_name == "dashboard" ||         # onboarding landing page
       controller_path.start_with?("webhooks") ||
+      controller_path.start_with?("admin") ||  # super admin panel
       controller_name == "health"
   end
 

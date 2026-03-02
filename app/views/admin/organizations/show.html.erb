@@ -52,6 +52,92 @@
         value: number_to_currency(@stats[:total_spend]) %>
   </div>
 
+  <%# Billing Management card %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Billing Management</h2>
+    </div>
+    <div class="px-6 py-4 space-y-4">
+      <%# Complimentary Access %>
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-medium text-gray-900">Complimentary Access</h3>
+          <% if @org.complimentary? %>
+            <p class="text-sm text-gray-500 mt-1">
+              <span class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs font-medium mr-2">Complimentary</span>
+              <%= @org.complimentary_reason %>
+            </p>
+            <p class="text-xs text-gray-400 mt-0.5">
+              Granted <%= @org.complimentary_granted_at&.strftime("%b %-d, %Y") %>
+              <% if @org.complimentary_granted_by %>
+                by <%= @org.complimentary_granted_by.full_name %>
+              <% end %>
+            </p>
+          <% else %>
+            <p class="text-sm text-gray-500 mt-1">This organization must subscribe to access the app.</p>
+          <% end %>
+        </div>
+        <div>
+          <% if @org.complimentary? %>
+            <%= button_to "Revoke", revoke_complimentary_admin_organization_path(@org),
+                method: :post,
+                class: "inline-flex items-center rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors duration-150",
+                data: { turbo_confirm: "Revoke complimentary access for #{@org.name}? They will need to subscribe." } %>
+          <% else %>
+            <%= form_with url: grant_complimentary_admin_organization_path(@org), method: :post, class: "flex items-center gap-2" do |f| %>
+              <%= f.text_field :reason, placeholder: "Reason (e.g., Beta tester)", class: "rounded-lg border-gray-300 text-sm px-3 py-1.5 focus:ring-brand-green-dark focus:border-brand-green-dark", size: 25 %>
+              <%= f.submit "Grant Free Access", class: "inline-flex items-center rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-700 transition-colors duration-150 cursor-pointer" %>
+            <% end %>
+          <% end %>
+        </div>
+      </div>
+
+      <% if @subscription %>
+        <hr class="border-gray-200">
+
+        <%# Trial Extension %>
+        <% if @subscription.trialing? %>
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-medium text-gray-900">Trial Period</h3>
+              <p class="text-sm text-gray-500 mt-1">
+                Ends <%= @subscription.trial_end&.strftime("%b %-d, %Y") %>
+                (<%= @subscription.trial_days_remaining %> days remaining)
+              </p>
+            </div>
+            <%= form_with url: extend_trial_admin_organization_path(@org), method: :post, class: "flex items-center gap-2" do |f| %>
+              <%= f.number_field :days, value: 14, min: 1, max: 90, class: "rounded-lg border-gray-300 text-sm px-3 py-1.5 w-20 focus:ring-brand-green-dark focus:border-brand-green-dark" %>
+              <span class="text-sm text-gray-500">days</span>
+              <%= f.submit "Extend Trial", class: "inline-flex items-center rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors duration-150 cursor-pointer" %>
+            <% end %>
+          </div>
+        <% end %>
+
+        <%# Cancel Subscription %>
+        <% if @subscription.allows_access? && !@subscription.cancel_at_period_end? %>
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-sm font-medium text-gray-900">Cancel Subscription</h3>
+              <p class="text-sm text-gray-500 mt-1">Cancels at end of current billing period.</p>
+            </div>
+            <%= button_to "Cancel at Period End", cancel_subscription_admin_organization_path(@org),
+                method: :post,
+                class: "inline-flex items-center rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors duration-150",
+                data: { turbo_confirm: "Cancel #{@org.name}'s subscription at end of period?" } %>
+          </div>
+        <% end %>
+
+        <% if @subscription.cancel_at_period_end? %>
+          <div class="rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3">
+            <p class="text-sm text-yellow-800">
+              Subscription set to cancel on <%= @subscription.current_period_end&.strftime("%b %-d, %Y") %>.
+            </p>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  </div>
+
   <%# Subscription card %>
   <% if @subscription %>
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

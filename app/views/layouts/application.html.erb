@@ -38,6 +38,16 @@
           <% if impersonating? %>
             <%= render "admin/shared/impersonation_banner" %>
           <% end %>
+          <% if user_signed_in? && current_user.current_organization&.subscription_status == 'past_due' && !current_user.super_admin? && defined?(owner?) && owner? %>
+            <div class="rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3 mb-6 flex items-center justify-between">
+              <p class="text-sm text-yellow-800">
+                <strong>Payment failed.</strong> Please update your payment method to avoid losing access to SupplierHub.
+              </p>
+              <%= button_to "Update Payment Method", subscription_billing_portal_path,
+                  method: :post,
+                  class: "inline-flex items-center rounded-md bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-700 transition-colors duration-150 whitespace-nowrap ml-4" %>
+            </div>
+          <% end %>
           <%= yield %>
         </div>
       </main>

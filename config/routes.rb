@@ -171,6 +171,10 @@ Rails.application.routes.draw do
           post :suspend
           post :reactivate
           post :reinvite
+          post :grant_complimentary
+          post :revoke_complimentary
+          post :extend_trial
+          post :cancel_subscription
         end
       end
 
