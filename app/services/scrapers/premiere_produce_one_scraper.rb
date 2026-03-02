@@ -3247,10 +3247,11 @@ module Scrapers
     end
 
     def proceed_to_checkout_page_ppo
+      # Navigate to the checkout REVIEW page — DO NOT click order-finalizing buttons.
       # Pepper cart flow:
       # 1. /cart page shows items + a "View Order" button (shows as "$X.XX" with aria-label="View Order")
       # 2. Clicking "View Order" takes you to the order review/submit page
-      # 3. Review page has "Submit Order" button
+      # 3. Review page has "Submit Order" button — ONLY clicked by click_place_order_button_ppo AFTER dry run gate
       #
       # The "View Order" button is at the TOP of the page (sticky header at y=0).
       # It has aria-label="View Order" and textContent like "$1,396.20".
@@ -3279,16 +3280,19 @@ module Scrapers
             }
           }
 
-          // Priority 2: textContent match for submit/checkout/review
+          // SAFETY: Order-finalizing text — never click these before dry run gate
+          var orderFinalizing = /submit order|place order|complete order|^submit$/i;
+
+          // Priority 2: textContent match for NAVIGATION buttons only
           var exclude = /search|clear|close|cancel|filter|back|sign|log|add note/i;
-          var textTargets = ['submit order', 'place order', 'checkout', 'proceed to checkout',
-                             'review order', 'view order', 'continue to checkout', 'submit', 'complete order'];
+          var navTargets = ['checkout', 'proceed to checkout', 'review order', 'view order', 'continue to checkout'];
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || '').trim().toLowerCase();
             if (text.length > 60 || text.length === 0) continue;
             if (exclude.test(text)) continue;
-            for (var target of textTargets) {
+            if (orderFinalizing.test(text)) continue;
+            for (var target of navTargets) {
               if (text.includes(target)) {
                 el.click();
                 return { clicked: true, text: text, tag: el.tagName, method: 'textContent-match' };
@@ -3307,12 +3311,12 @@ module Scrapers
             }
           }
 
-          // Priority 4: href-based links
-          var links = document.querySelectorAll('a[href*="checkout"], a[href*="review"], a[href*="order"]');
+          // Priority 4: href-based navigation links
+          var links = document.querySelectorAll('a[href*="checkout"], a[href*="review"]');
           for (var link of links) {
             if (link.offsetParent !== null) {
               var text = (link.textContent || '').trim().toLowerCase();
-              if (!exclude.test(text) && text.length < 40) {
+              if (!exclude.test(text) && !orderFinalizing.test(text) && text.length < 40) {
                 link.click();
                 return { clicked: true, text: text, href: link.href, method: 'href-match' };
               }

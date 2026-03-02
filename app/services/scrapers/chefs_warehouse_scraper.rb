@@ -1884,10 +1884,11 @@ module Scrapers
     end
 
     def proceed_to_checkout_page
-      # Find and click checkout/proceed button using text matching (most reliable for unknown DOM)
+      # Navigate to the checkout REVIEW page — DO NOT click order-finalizing buttons.
+      # Only click navigation buttons (checkout, proceed, review).
+      # "Place Order" / "Submit" are handled by click_place_order_button AFTER the dry run gate.
       clicked = browser.evaluate(<<~JS)
         (function() {
-          // Exclusion classes — buttons that happen to say "Submit" but aren't checkout
           var excludeClasses = ['search-button', 'clear-button', 'close-button'];
 
           function isExcluded(el) {
@@ -1898,14 +1899,18 @@ module Scrapers
             return false;
           }
 
-          // Phase 1: Exact text matches for common checkout buttons
-          var exactTargets = ['checkout', 'proceed to checkout', 'proceed', 'place order', 'continue to checkout'];
+          // SAFETY: Order-finalizing text — never click these before dry run gate
+          var orderFinalizing = /submit order|place order|complete order/i;
+
+          // Phase 1: Navigation text matches only
+          var navTargets = ['checkout', 'proceed to checkout', 'proceed', 'continue to checkout', 'review order', 'view cart'];
           var elements = document.querySelectorAll('button, a.btn, a[class*="btn"], [role="button"], input[type="submit"]');
 
           for (var el of elements) {
             if (isExcluded(el)) continue;
             var text = (el.innerText || el.value || '').trim().toLowerCase();
-            for (var target of exactTargets) {
+            if (orderFinalizing.test(text)) continue;
+            for (var target of navTargets) {
               if (text.includes(target)) {
                 el.scrollIntoView({ behavior: 'instant', block: 'center' });
                 el.click();
@@ -1914,34 +1919,12 @@ module Scrapers
             }
           }
 
-          // Phase 2: CW-specific — look for a primary "Submit" button (not search/close)
-          // CW's cart uses a btn-primary "Submit" button as the checkout action
-          for (var el of elements) {
-            if (isExcluded(el)) continue;
-            var text = (el.innerText || el.value || '').trim().toLowerCase();
-            var cls = (el.className || '').toLowerCase();
-            if (text === 'submit' && (cls.includes('btn-primary') || cls.includes('btn-submit') || cls.includes('cart'))) {
-              el.scrollIntoView({ behavior: 'instant', block: 'center' });
-              el.click();
-              return { clicked: true, text: el.innerText.trim(), tag: el.tagName, method: 'primary-submit', classes: el.className };
-            }
-          }
-
-          // Phase 3: Any visible "Submit" button that isn't excluded
-          for (var el of elements) {
-            if (isExcluded(el)) continue;
-            var text = (el.innerText || el.value || '').trim().toLowerCase();
-            if (text === 'submit' && el.offsetParent !== null) {
-              el.scrollIntoView({ behavior: 'instant', block: 'center' });
-              el.click();
-              return { clicked: true, text: el.innerText.trim(), tag: el.tagName, method: 'submit-fallback', classes: el.className };
-            }
-          }
-
-          // Phase 4: href-based links
-          var links = document.querySelectorAll('a[href*="checkout"], a[href*="order"]');
+          // Phase 2: href-based navigation links (safe — just follows a URL)
+          var links = document.querySelectorAll('a[href*="checkout"], a[href*="review"]');
           for (var link of links) {
             if (link.offsetParent !== null) {
+              var linkText = (link.innerText || '').trim().toLowerCase();
+              if (orderFinalizing.test(linkText)) continue;
               link.click();
               return { clicked: true, text: link.innerText.trim(), method: 'href-match' };
             }

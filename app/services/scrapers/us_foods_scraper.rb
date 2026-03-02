@@ -3137,17 +3137,21 @@ module Scrapers
     end
 
     def proceed_to_checkout_page_usf
-      # US Foods may have "Submit Order" / "Checkout" / "Review Order" button
+      # Navigate to the checkout REVIEW page — DO NOT click order-finalizing buttons.
+      # Only click navigation buttons (checkout, review order, proceed).
+      # "Submit Order" / "Place Order" are handled by click_place_order_button_usf AFTER the dry run gate.
       clicked = browser.evaluate(<<~JS)
         (function() {
           var exclude = /search|clear|close|cancel|filter|back/i;
-          var targets = ['submit order', 'checkout', 'review order', 'proceed', 'place order'];
+          var targets = ['checkout', 'review order', 'proceed to checkout', 'proceed', 'continue to checkout'];
           var elements = document.querySelectorAll('ion-button, button, a[class*="btn"]');
 
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.innerText || '').trim().toLowerCase();
             if (exclude.test(text)) continue;
+            // SAFETY: Skip order-finalizing buttons — those run AFTER dry run gate
+            if (text.includes('submit order') || text.includes('place order') || text.includes('complete order')) continue;
             for (var target of targets) {
               if (text.includes(target)) {
                 el.scrollIntoView({ behavior: 'instant', block: 'center' });
@@ -3157,8 +3161,8 @@ module Scrapers
             }
           }
 
-          // Phase 2: data-cy attributes
-          var dcElements = document.querySelectorAll('[data-cy*="submit"], [data-cy*="checkout"], [data-cy*="review-order"]');
+          // Phase 2: data-cy attributes (navigation only, not submit)
+          var dcElements = document.querySelectorAll('[data-cy*="checkout"], [data-cy*="review-order"]');
           for (var el of dcElements) {
             if (el.offsetParent !== null) {
               el.click();
