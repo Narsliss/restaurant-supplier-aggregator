@@ -279,13 +279,25 @@ class MenuPlannerService
       .includes(:supplier, :product)
       .index_by_normalized_name
 
-    Rails.logger.info "[MenuPlanner] Searching #{catalog.size} catalog entries for ingredients"
+    # Build an inverted word index for fast candidate lookup.
+    # Instead of comparing each ingredient against all 8732 catalog entries (O(n*m)),
+    # we only compare against entries that share at least one word (typically 50-200).
+    word_index = Hash.new { |h, k| h[k] = Set.new }
+    catalog_words = {}  # Pre-compute word sets to avoid re-creating them in similarity checks
+
+    catalog.each_key do |cat_name|
+      words = cat_name.downcase.split.to_set
+      catalog_words[cat_name] = words
+      words.each { |w| word_index[w] << cat_name }
+    end
+
+    Rails.logger.info "[MenuPlanner] Searching #{catalog.size} catalog entries (#{word_index.size} word index) for ingredients"
 
     courses.each do |course|
       next unless course["ingredients"]
 
       course["ingredients"].each do |ingredient|
-        match = find_best_catalog_match(ingredient["name"], catalog)
+        match = find_best_catalog_match(ingredient["name"], catalog, word_index, catalog_words)
         if match
           sp = match[:supplier_product]
           ingredient["matched_product"] = {
@@ -297,23 +309,48 @@ class MenuPlannerService
           }
           ingredient["estimated_cost"] = estimate_ingredient_cost(ingredient, sp)
         else
-          # AI-estimated cost placeholder (rough estimate for unmatched)
           ingredient["estimated_cost"] = estimate_unmatched_cost(ingredient)
         end
       end
     end
   end
 
-  def find_best_catalog_match(ingredient_name, catalog)
+  def find_best_catalog_match(ingredient_name, catalog, word_index, catalog_words)
     normalized = ProductNormalizer.normalize(ingredient_name)
+    ingredient_words = normalized.downcase.split.to_set
+
+    # Find candidate catalog entries that share at least one word with the ingredient
+    candidates = Set.new
+    ingredient_words.each do |word|
+      candidates.merge(word_index[word]) if word_index.key?(word)
+    end
+
+    return nil if candidates.empty?
+
     best_match = nil
     best_score = 0
 
-    catalog.each do |cat_name, products|
-      score = ProductNormalizer.best_similarity(normalized, cat_name)
+    candidates.each do |cat_name|
+      # Fast Jaccard using pre-computed word sets (avoids creating ProductNormalizer instances)
+      cat_words = catalog_words[cat_name]
+      intersection = ingredient_words & cat_words
+      next if intersection.empty?
+
+      union = ingredient_words | cat_words
+      jaccard = intersection.size.to_f / union.size
+
+      # Containment boost (same logic as ProductNormalizer.best_similarity)
+      min_size = [ingredient_words.size, cat_words.size].min
+      score = if intersection.size >= 2 && min_size >= 2
+        containment = intersection.size.to_f / min_size
+        [jaccard, containment * 0.85].max
+      else
+        jaccard
+      end
+
       if score > best_score && score >= INGREDIENT_SIMILARITY_THRESHOLD
         best_score = score
-        best_match = { supplier_product: cheapest_in_stock(products), score: score }
+        best_match = { supplier_product: cheapest_in_stock(catalog[cat_name]), score: score }
       end
     end
 
