@@ -6,7 +6,19 @@ class EventPlan < ApplicationRecord
 
   validates :status, inclusion: { in: %w[drafting finalized ordered] }
 
+  # Soft delete — deleted plans are hidden from UI but still count toward monthly quota
+  default_scope { where(deleted_at: nil) }
+  scope :with_deleted, -> { unscope(where: :deleted_at) }
+  scope :only_deleted, -> { unscope(where: :deleted_at).where.not(deleted_at: nil) }
   scope :recent, -> { order(updated_at: :desc) }
+
+  def soft_delete!
+    update!(deleted_at: Time.current)
+  end
+
+  def deleted?
+    deleted_at.present?
+  end
 
   def finalized?
     status == "finalized"

@@ -119,7 +119,9 @@ class Organization < ApplicationRecord
   end
 
   def menu_plans_this_month
-    event_plans.where("created_at >= ?", Time.current.beginning_of_month).count
+    # Count ALL plans created this month, including soft-deleted ones,
+    # so deleting a plan doesn't free up a quota slot
+    event_plans.with_deleted.where("created_at >= ?", Time.current.beginning_of_month).count
   end
 
   def menu_plans_remaining

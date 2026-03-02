@@ -48,7 +48,7 @@ class EventPlansController < ApplicationController
   end
 
   def destroy
-    @event_plan.destroy!
+    @event_plan.soft_delete!
     redirect_to event_plans_path, notice: "Event plan deleted."
   end
 
