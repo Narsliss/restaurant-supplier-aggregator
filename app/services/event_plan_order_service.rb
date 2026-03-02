@@ -1,9 +1,12 @@
-# Creates pending Order records from a finalized EventPlan's menu.
+# Creates pending Order records and an OrderList from an EventPlan's menu.
 # Follows the same pattern as Orders::AggregatedListOrderService.
+#
+# The OrderList is a persistent, editable list of all the menu ingredients
+# so the chef can add additional items before submitting orders.
 #
 # Usage:
 #   service = EventPlanOrderService.new(event_plan: plan, user: user, location: location)
-#   orders, batch_id = service.create_pending_orders!
+#   orders, batch_id, order_list = service.create_pending_orders!
 #
 class EventPlanOrderService
   attr_reader :event_plan, :user, :location
@@ -16,20 +19,25 @@ class EventPlanOrderService
 
   def create_pending_orders!
     items = collect_orderable_items
-    return [[], nil] if items.empty?
+    return [[], nil, nil] if items.empty?
 
     by_supplier = items.group_by { |item| item[:supplier_id] }
 
     batch_id = SecureRandom.uuid
     orders = []
+    order_list = nil
 
     ActiveRecord::Base.transaction do
+      # Create an OrderList so the chef can add/edit items
+      order_list = create_order_list!(items)
+
       by_supplier.each do |supplier_id, supplier_items|
         supplier = Supplier.find(supplier_id)
 
         order = user.orders.create!(
           supplier: supplier,
           location: location,
+          order_list: order_list,
           status: "pending",
           notes: "Created from Menu Planner: #{event_plan.title}",
           organization_id: user.current_organization&.id,
@@ -61,7 +69,7 @@ class EventPlanOrderService
       end
     end
 
-    [orders, batch_id]
+    [orders, batch_id, order_list]
   end
 
   private
@@ -96,6 +104,45 @@ class EventPlanOrderService
         unit_price: group.first[:unit_price]
       }
     end
+  end
+
+  def create_order_list!(items)
+    list_name = event_plan.title.presence || "Menu Plan"
+    # Ensure unique name by appending a number if needed
+    base_name = list_name
+    counter = 1
+    while OrderList.where(user: user, location: location, name: list_name).exists?
+      counter += 1
+      list_name = "#{base_name} (#{counter})"
+    end
+
+    order_list = OrderList.create!(
+      user: user,
+      organization: user.current_organization,
+      location: location,
+      name: list_name,
+      description: "Generated from Menu Planner — #{event_plan.covers || '?'} covers",
+      last_used_at: Time.current
+    )
+
+    # Add each matched ingredient as an OrderListItem (via its normalized Product)
+    position = 0
+    items.each do |item|
+      sp = SupplierProduct.find_by(id: item[:supplier_product_id])
+      next unless sp&.product_id
+
+      # Skip duplicates — same product may appear in multiple courses (already deduped in items)
+      next if order_list.order_list_items.exists?(product_id: sp.product_id)
+
+      order_list.order_list_items.create!(
+        product_id: sp.product_id,
+        quantity: item[:quantity],
+        position: position
+      )
+      position += 1
+    end
+
+    order_list
   end
 
   def calculate_order_quantity(ingredient, supplier_product)
