@@ -62,6 +62,8 @@ class Membership < ApplicationRecord
   # Deactivation
   def deactivate!
     update!(active: false, deactivated_at: Time.current)
+    # Sync seat count to Stripe (reduces per-seat charges)
+    Stripe::SeatSyncService.call(organization) unless owner?
   end
 
   def reactivate!

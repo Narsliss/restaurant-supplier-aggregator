@@ -176,13 +176,26 @@ class Organization < ApplicationRecord
     customer = find_or_create_stripe_customer
     config = Rails.application.config.stripe_config
 
+    # Base plan line item
+    line_items = [{
+      price: config[:monthly_price_id],
+      quantity: 1
+    }]
+
+    # If org already has more than included seats, add seat charges
+    included = config[:included_seats] || 5
+    extra_seats = [seat_count - included, 0].max
+    if extra_seats > 0 && config[:seat_price_id].present?
+      line_items << {
+        price: config[:seat_price_id],
+        quantity: extra_seats
+      }
+    end
+
     Stripe::Checkout::Session.create(
       customer: customer.id,
       payment_method_types: ['card'],
-      line_items: [{
-        price: config[:monthly_price_id],
-        quantity: 1
-      }],
+      line_items: line_items,
       mode: 'subscription',
       subscription_data: {
         trial_period_days: config[:trial_days],

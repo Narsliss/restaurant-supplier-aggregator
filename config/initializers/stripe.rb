@@ -15,6 +15,11 @@ Rails.application.config.stripe_config = {
   monthly_price_id: ENV.fetch("STRIPE_MONTHLY_PRICE_ID", nil),
   monthly_amount: 9900, # $99.00 in cents
 
+  # Per-seat pricing (additional seats beyond 5 included)
+  seat_price_id: ENV.fetch("STRIPE_SEAT_PRICE_ID", nil),
+  seat_amount: 1000, # $10.00 per additional seat in cents
+  included_seats: 5,  # Seats included in base plan (excludes owner)
+
   # Trial period (optional)
   trial_days: ENV.fetch("STRIPE_TRIAL_DAYS", 14).to_i,
 

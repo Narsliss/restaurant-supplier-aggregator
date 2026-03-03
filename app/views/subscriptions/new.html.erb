@@ -12,9 +12,9 @@
 
     <!-- Pricing Card -->
     <div class="max-w-lg mx-auto">
-      <div class="bg-white rounded-2xl shadow-xl border-2 border-primary-500 overflow-hidden">
+      <div class="bg-white rounded-2xl shadow-xl border-2 border-brand-green overflow-hidden">
         <!-- Popular Badge -->
-        <div class="bg-primary-500 text-white text-center py-2 text-sm font-semibold">
+        <div class="bg-brand-green text-white text-center py-2 text-sm font-semibold">
           14-Day Free Trial
         </div>
 
@@ -63,13 +63,19 @@
               <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
+              <span class="text-gray-700">5 team seats included (+$10/mo per additional seat)</span>
+            </li>
+            <li class="flex items-start">
+              <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
               <span class="text-gray-700">Priority support</span>
             </li>
           </ul>
 
           <!-- CTA Button -->
           <%= form_with url: subscription_path, method: :post, local: true do %>
-            <button type="submit" class="w-full py-4 px-6 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-lg text-lg transition-colors">
+            <button type="submit" class="w-full py-4 px-6 bg-brand-green-dark hover:bg-brand-green text-white font-semibold rounded-lg text-lg transition-colors">
               Start Free Trial
             </button>
           <% end %>

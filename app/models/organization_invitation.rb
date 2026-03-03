@@ -62,6 +62,9 @@ class OrganizationInvitation < ApplicationRecord
       # Set as user's current organization if they don't have one
       user.update!(current_organization: organization) if user.current_organization.nil?
 
+      # Sync seat count to Stripe (adds per-seat charges if over included seats)
+      Stripe::SeatSyncService.call(organization)
+
       membership
     end
   end
@@ -103,8 +106,12 @@ class OrganizationInvitation < ApplicationRecord
 
   def organization_has_seats
     return unless organization
+
+    # If org has an active subscription, allow unlimited seats (they'll be auto-billed $10/mo each)
+    return if organization.subscribed?
+
     unless organization.seats_available?
-      errors.add(:base, "Organization has reached its seat limit (#{organization.seat_limit}). Contact support to add more seats.")
+      errors.add(:base, "Organization has reached its seat limit (#{organization.seat_limit}). Subscribe to add more seats.")
     end
   end
 end
