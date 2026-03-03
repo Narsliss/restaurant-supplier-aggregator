@@ -1,29 +1,35 @@
+<% config = Rails.application.config.stripe_config %>
+<% trial_days = config[:trial_days] || 0 %>
+<% has_trial = trial_days > 0 %>
+
 <div class="min-h-screen bg-gray-50 py-12">
   <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
     <!-- Header -->
     <div class="text-center mb-12">
       <h1 class="text-4xl font-bold text-gray-900 mb-4">
-        Start Your SupplierHub Pro Subscription
+        Unlock SupplierHub Pro
       </h1>
       <p class="text-xl text-gray-600 max-w-2xl mx-auto">
-        Streamline your restaurant procurement with price comparison, automated ordering, and multi-supplier management.
+        Subscribe to access price comparison, automated ordering, and multi-supplier management for your team.
       </p>
     </div>
 
     <!-- Pricing Card -->
     <div class="max-w-lg mx-auto">
       <div class="bg-white rounded-2xl shadow-xl border-2 border-brand-green overflow-hidden">
-        <!-- Popular Badge -->
-        <div class="bg-brand-green text-white text-center py-2 text-sm font-semibold">
-          14-Day Free Trial
-        </div>
+        <% if has_trial %>
+          <!-- Trial Badge -->
+          <div class="bg-brand-green text-white text-center py-2 text-sm font-semibold">
+            <%= trial_days %>-Day Free Trial
+          </div>
+        <% end %>
 
         <div class="p-8">
           <h2 class="text-2xl font-bold text-gray-900 mb-2">Pro Plan</h2>
           <p class="text-gray-600 mb-6">Everything you need to manage restaurant suppliers</p>
 
           <div class="flex items-baseline mb-8">
-            <span class="text-5xl font-bold text-gray-900">$99</span>
+            <span class="text-5xl font-bold text-gray-900">$<%= config[:monthly_amount] / 100 %></span>
             <span class="text-gray-500 ml-2">/month</span>
           </div>
 
@@ -63,7 +69,7 @@
               <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
               </svg>
-              <span class="text-gray-700">5 team seats included (+$10/mo per additional seat)</span>
+              <span class="text-gray-700"><%= config[:included_seats] %> team seats included (+$<%= config[:seat_amount] / 100 %>/mo per additional seat)</span>
             </li>
             <li class="flex items-start">
               <svg class="h-6 w-6 text-green-500 mr-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -74,14 +80,22 @@
           </ul>
 
           <!-- CTA Button -->
-          <%= form_with url: subscription_path, method: :post, local: true do %>
+          <%= form_with url: subscription_path, method: :post, data: { turbo: false } do %>
             <button type="submit" class="w-full py-4 px-6 bg-brand-green-dark hover:bg-brand-green text-white font-semibold rounded-lg text-lg transition-colors">
-              Start Free Trial
+              <% if has_trial %>
+                Subscribe Now — <%= trial_days %> Days Free
+              <% else %>
+                Subscribe Now
+              <% end %>
             </button>
           <% end %>
 
           <p class="text-center text-sm text-gray-500 mt-4">
-            No credit card required for trial. Cancel anytime.
+            <% if has_trial %>
+              Try free for <%= trial_days %> days. Cancel anytime.
+            <% else %>
+              Cancel anytime.
+            <% end %>
           </p>
         </div>
       </div>

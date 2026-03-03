@@ -198,12 +198,11 @@ class Organization < ApplicationRecord
       line_items: line_items,
       mode: 'subscription',
       subscription_data: {
-        trial_period_days: config[:trial_days],
         metadata: {
           organization_id: id,
           user_id: user.id
         }
-      },
+      }.merge(config[:trial_days].to_i > 0 ? { trial_period_days: config[:trial_days] } : {}),
       success_url: success_url,
       cancel_url: cancel_url,
       allow_promotion_codes: true

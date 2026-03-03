@@ -17,12 +17,16 @@ class SubscriptionsController < ApplicationController
   end
 
   def create
-    session = current_user.create_checkout_session(
-      success_url: subscription_success_url + "?session_id={CHECKOUT_SESSION_ID}",
-      cancel_url: subscription_cancel_url
+    org = current_user.current_organization
+    session = org.create_checkout_session(
+      user: current_user,
+      success_url: success_subscription_url + "?session_id={CHECKOUT_SESSION_ID}",
+      cancel_url: cancel_subscription_url
     )
 
-    redirect_to session.url, allow_other_host: true
+    # Use render + JS redirect instead of 302 — more reliable for cross-origin Stripe URLs
+    @checkout_url = session.url
+    render html: "<html><body><script>window.location.href = #{@checkout_url.to_json};</script></body></html>".html_safe
   rescue Stripe::StripeError => e
     Rails.logger.error "[Stripe] Checkout error: #{e.message}"
     redirect_to new_subscription_path

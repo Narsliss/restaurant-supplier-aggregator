@@ -71,8 +71,10 @@ class Subscription < ApplicationRecord
   def self.sync_from_stripe(stripe_subscription, user: nil)
     subscription = find_or_initialize_by(stripe_subscription_id: stripe_subscription.id)
 
+    resolved_user = user || subscription.user
     subscription.assign_attributes(
-      user: user || subscription.user,
+      user: resolved_user,
+      organization_id: resolved_user&.current_organization_id || subscription.organization_id,
       stripe_price_id: stripe_subscription.items.data.first&.price&.id,
       status: stripe_subscription.status,
       current_period_start: Time.zone.at(stripe_subscription.current_period_start),

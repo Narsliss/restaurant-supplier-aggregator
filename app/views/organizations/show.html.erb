@@ -60,7 +60,8 @@
         <%= @seat_count %>/<%= @organization.max_seats %> seats included
         <% extra = [@seat_count - @organization.max_seats, 0].max %>
         <% if extra > 0 %>
-          <span class="text-amber-600">(+<%= extra %> @ $10/mo each)</span>
+          <% seat_cost = Rails.application.config.stripe_config[:seat_amount] / 100 %>
+          <span class="text-amber-600">(+<%= extra %> @ $<%= seat_cost %>/mo each)</span>
         <% end %>
       </span>
       <% if owner? %>
@@ -211,13 +212,15 @@
             <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
               <p class="text-sm text-amber-800">
                 All <%= @organization.max_seats %> included seats are in use.
-                <%= link_to "Subscribe", new_subscription_path, class: "font-semibold underline" %> to add more seats ($10/mo each).
+                <% seat_cost = Rails.application.config.stripe_config[:seat_amount] / 100 %>
+                <%= link_to "Subscribe", new_subscription_path, class: "font-semibold underline" %> to add more seats ($<%= seat_cost %>/mo each).
               </p>
             </div>
           <% elsif @seat_count >= @organization.max_seats && @organization.subscribed? %>
             <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p class="text-sm text-blue-800">
-                Additional seats beyond <%= @organization.max_seats %> are billed at $10/mo each, prorated automatically.
+                <% seat_cost = Rails.application.config.stripe_config[:seat_amount] / 100 %>
+                Additional seats beyond <%= @organization.max_seats %> are billed at $<%= seat_cost %>/mo each, prorated automatically.
               </p>
             </div>
           <% end %>
