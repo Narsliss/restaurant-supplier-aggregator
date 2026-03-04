@@ -206,7 +206,8 @@
             <% @members.each do |membership| %>
               <tr class="hover:bg-gray-50">
                 <td class="px-6 py-3 text-sm font-medium text-gray-900">
-                  <%= link_to membership.user.full_name, admin_user_path(membership.user), class: "text-brand-green-dark hover:underline" %>
+                  <% display_name = [membership.user.first_name, membership.user.last_name].compact.join(' ').presence %>
+                  <%= link_to (display_name || "—"), admin_user_path(membership.user), class: "text-brand-green-dark hover:underline" %>
                 </td>
                 <td class="px-6 py-3 text-sm text-gray-500">
                   <%= membership.user.email %>

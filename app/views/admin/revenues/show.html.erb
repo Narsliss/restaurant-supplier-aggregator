@@ -127,7 +127,8 @@
               <% @trials_expiring.each do |sub| %>
                 <tr class="hover:bg-gray-50">
                   <td class="px-6 py-3 text-sm font-medium text-gray-900">
-                    <%= link_to sub.user.full_name, admin_user_path(sub.user), class: "text-brand-green-dark hover:underline" %>
+                    <% display_name = [sub.user.first_name, sub.user.last_name].compact.join(' ').presence || sub.user.email %>
+                    <%= link_to display_name, admin_user_path(sub.user), class: "text-brand-green-dark hover:underline" %>
                   </td>
                   <td class="px-6 py-3 text-sm text-gray-500">
                     <%= sub.user.current_organization&.name || "—" %>
@@ -183,7 +184,8 @@
                 </td>
                 <td class="px-6 py-3 text-sm text-gray-500">
                   <% if invoice.user.present? %>
-                    <%= link_to invoice.user.full_name, admin_user_path(invoice.user), class: "text-brand-green-dark hover:underline" %>
+                    <% display_name = [invoice.user.first_name, invoice.user.last_name].compact.join(' ').presence || invoice.user.email %>
+                    <%= link_to display_name, admin_user_path(invoice.user), class: "text-brand-green-dark hover:underline" %>
                   <% else %>
                     —
                   <% end %>
