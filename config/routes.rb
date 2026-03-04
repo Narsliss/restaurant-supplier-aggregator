@@ -156,6 +156,12 @@ Rails.application.routes.draw do
   # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check
 
+  # Stop impersonating — must be OUTSIDE the super_admin authenticate block
+  # because the signed-in user during impersonation is NOT the super admin.
+  namespace :admin do
+    post 'stop_impersonating', to: 'users#stop_impersonating'
+  end
+
   # Super Admin Dashboard & Tools
   authenticate :user, ->(u) { u.super_admin? } do
     namespace :admin do
@@ -168,7 +174,6 @@ Rails.application.routes.draw do
           post :impersonate
         end
       end
-      post 'stop_impersonating', to: 'users#stop_impersonating'
 
       resources :organizations, only: [:index, :show] do
         member do

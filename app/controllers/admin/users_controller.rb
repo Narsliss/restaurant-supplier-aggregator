@@ -1,4 +1,7 @@
 class Admin::UsersController < Admin::BaseController
+  skip_before_action :require_super_admin, only: [:stop_impersonating]
+  before_action :require_impersonation_session, only: [:stop_impersonating]
+
   def index
     @users = User.where(role: 'user')
                  .includes(:current_organization)
@@ -51,13 +54,18 @@ class Admin::UsersController < Admin::BaseController
   end
 
   def stop_impersonating
-    admin = User.find(session[:admin_user_id])
+    admin = User.find_by(id: session[:admin_user_id])
     impersonated_user_id = session[:impersonated_user_id]
     session.delete(:admin_user_id)
     session.delete(:impersonated_user_id)
     session.delete(:impersonating)
-    sign_in(:user, admin)
-    redirect_to admin_user_path(impersonated_user_id), notice: "Stopped viewing as another user."
+
+    if admin&.super_admin?
+      sign_in(:user, admin)
+      redirect_to admin_user_path(impersonated_user_id), notice: "Stopped viewing as another user."
+    else
+      redirect_to root_path, alert: "Could not restore admin session."
+    end
   end
 
   private
@@ -68,5 +76,11 @@ class Admin::UsersController < Admin::BaseController
 
   def sort_direction
     params[:direction] == 'asc' ? :asc : :desc
+  end
+
+  def require_impersonation_session
+    unless session[:impersonating] && session[:admin_user_id]
+      redirect_to root_path
+    end
   end
 end
