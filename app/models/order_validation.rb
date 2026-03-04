@@ -27,6 +27,7 @@ class OrderValidation < ApplicationRecord
     account_hold
     service_area
     price_changed
+    case_minimum
   ].freeze
 
   # Methods

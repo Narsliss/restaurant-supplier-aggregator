@@ -47,6 +47,15 @@ class OrdersController < ApplicationController
   def show
     @items = @order.order_items.includes(supplier_product: [:supplier, :product])
     @validations = @order.order_validations.order(validated_at: :desc)
+
+    # Order minimum (blocking)
+    @minimum = @order.supplier.order_minimum(@order.location)
+    @meets_minimum = @minimum.nil? || (@order.subtotal || 0) >= (@minimum || 0)
+
+    # Case minimum (warning only)
+    @case_minimum = @order.supplier.case_minimum(@order.location)
+    @case_count = @order.item_count
+    @meets_case_minimum = @case_minimum.nil? || @case_count >= @case_minimum
   end
 
   def new
@@ -309,8 +318,13 @@ class OrdersController < ApplicationController
 
     # Build review data for each order
     @review_orders = @orders.map do |order|
-      minimum = order.supplier.order_minimum
+      minimum = order.supplier.order_minimum(order.location)
       meets_minimum = minimum.nil? || (order.subtotal || 0) >= minimum
+
+      # Case minimum (warning only)
+      case_min = order.supplier.case_minimum(order.location)
+      current_case_count = order.item_count
+      meets_case_minimum = case_min.nil? || current_case_count >= case_min
 
       suggestions = if !meets_minimum
         Orders::MinimumSuggestionService.new(user: current_user, order: order).suggestions
@@ -327,6 +341,10 @@ class OrdersController < ApplicationController
         minimum: minimum,
         meets_minimum: meets_minimum,
         amount_to_minimum: minimum ? [minimum - (order.subtotal || 0), 0].max : 0,
+        case_minimum: case_min,
+        case_count: current_case_count,
+        meets_case_minimum: meets_case_minimum,
+        cases_to_minimum: case_min ? [case_min - current_case_count, 0].max : 0,
         savings: order.savings_amount || 0,
         verification_status: order.verification_status,
         verified_total: order.verified_total,

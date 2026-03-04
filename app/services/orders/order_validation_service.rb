@@ -42,6 +42,7 @@ module Orders
       # Item availability first — may remove OOS items, changing the total
       validate_item_availability
       validate_order_minimum
+      validate_case_minimum
       validate_item_minimums
       validate_item_maximums
       validate_delivery_schedule
@@ -72,6 +73,35 @@ module Orders
             minimum: minimum,
             current_total: current_total,
             difference: difference
+          }
+        )
+      end
+    end
+
+    def validate_case_minimum
+      requirement = SupplierRequirement.effective_for(
+        supplier: order.supplier,
+        type: 'case_minimum',
+        location: order.location
+      )
+      return unless requirement&.active?
+
+      minimum = requirement.numeric_value.to_i
+      current_count = order.item_count
+
+      if current_count < minimum
+        difference = minimum - current_count
+        add_warning(
+          type: "case_minimum",
+          message: requirement.formatted_error_message(
+            current_count: current_count.to_i,
+            minimum: minimum,
+            difference: difference.to_i
+          ),
+          details: {
+            minimum: minimum,
+            current_count: current_count.to_i,
+            difference: difference.to_i
           }
         )
       end
@@ -243,9 +273,10 @@ module Orders
     end
 
     def supplier_requirement(type)
-      order.supplier.supplier_requirements.find_by(
-        requirement_type: type,
-        active: true
+      SupplierRequirement.effective_for(
+        supplier: order.supplier,
+        type: type,
+        location: order.location
       )
     end
 

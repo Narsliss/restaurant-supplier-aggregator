@@ -1,6 +1,6 @@
 class OrganizationsController < ApplicationController
-  before_action :set_organization, only: [:show, :edit, :update]
-  before_action :require_owner!, only: [:edit, :update]
+  before_action :set_organization, only: [:show, :edit, :update, :update_case_minimum]
+  before_action :require_owner!, only: [:edit, :update, :update_case_minimum]
 
   def show
     @members = @organization.memberships.active.includes(:user, :locations).order(:role, :created_at)
@@ -8,6 +8,24 @@ class OrganizationsController < ApplicationController
     @locations = @organization.locations
     @seat_count = @organization.seat_count
     @seat_limit = @organization.seat_limit
+
+    # Case minimums for owner view
+    if owner?
+      @suppliers = Supplier.active.order(:name)
+      @case_minimums = SupplierRequirement.where(
+        requirement_type: 'case_minimum',
+        active: true
+      ).where(supplier_id: @suppliers.pluck(:id))
+       .where(location_id: @locations.pluck(:id))
+       .index_by { |r| [r.supplier_id, r.location_id] }
+
+      @global_case_minimums = SupplierRequirement.where(
+        requirement_type: 'case_minimum',
+        active: true,
+        location_id: nil
+      ).where(supplier_id: @suppliers.pluck(:id))
+       .index_by(&:supplier_id)
+    end
   end
 
   def new
@@ -39,6 +57,33 @@ class OrganizationsController < ApplicationController
       redirect_to organization_path(@organization)
     else
       render :edit, status: :unprocessable_entity
+    end
+  end
+
+  def update_case_minimum
+    supplier = Supplier.find(params[:supplier_id])
+    location = @organization.locations.find(params[:location_id])
+    value = params[:case_minimum].to_i
+
+    if value > 0
+      req = SupplierRequirement.find_or_initialize_by(
+        supplier: supplier,
+        location: location,
+        requirement_type: 'case_minimum'
+      )
+      req.assign_attributes(
+        numeric_value: value,
+        is_blocking: false,
+        active: true,
+        error_message: "#{supplier.name} requires a minimum of {{minimum}} cases per order. You have {{current_count}} cases. An additional charge may apply."
+      )
+      req.save!
+      redirect_to organization_path, notice: "Case minimum for #{supplier.name} at #{location.name} set to #{value}."
+    else
+      SupplierRequirement.where(
+        supplier: supplier, location: location, requirement_type: 'case_minimum'
+      ).destroy_all
+      redirect_to organization_path, notice: "Case minimum for #{supplier.name} at #{location.name} removed."
     end
   end
 

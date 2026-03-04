@@ -6,6 +6,7 @@ export default class extends Controller {
     "orderSubtotal", "orderSubtotalFooter", "orderItemCount",
     "summaryOrders", "summaryItems", "summaryTotal", "summarySavings",
     "minimumBadge", "minimumWarning", "minimumShortfall",
+    "caseMinimumWarning", "caseMinimumShortfall", "caseMinimumBadge",
     "warningsArea", "submitAllBtn", "supplierSubmitBtn", "summaryBar",
     "deliveryDate", "deliveryAddress",
     // Verification targets
@@ -1111,6 +1112,44 @@ export default class extends Controller {
           el.style.display = meetsMinium ? "none" : ""
         }
       })
+
+      // Case minimum (warning only — does NOT affect submit)
+      const caseMin = parseInt(card.dataset.caseMinimum) || 0
+      if (caseMin > 0) {
+        let totalCases = 0
+        rows.forEach(row => {
+          const input = row.querySelector("[data-order-review-target='quantityInput']")
+          totalCases += input ? (parseInt(input.value) || 0) : 0
+        })
+
+        const meetsCaseMin = totalCases >= caseMin
+
+        this.caseMinimumWarningTargets.forEach(warning => {
+          if (warning.dataset.orderId === orderId) {
+            warning.style.display = meetsCaseMin ? "none" : "block"
+            if (!meetsCaseMin) {
+              const shortfallEl = warning.querySelector("[data-order-review-target='caseMinimumShortfall']")
+              if (shortfallEl) {
+                const diff = caseMin - totalCases
+                shortfallEl.textContent =
+                  `You currently have ${totalCases} case${totalCases === 1 ? '' : 's'} — ${diff} more needed. An additional charge may apply.`
+              }
+            }
+          }
+        })
+
+        this.caseMinimumBadgeTargets.forEach(badge => {
+          if (badge.dataset.orderId === orderId) {
+            if (meetsCaseMin) {
+              badge.style.display = "none"
+            } else {
+              badge.style.display = ""
+              const diff = caseMin - totalCases
+              badge.textContent = `${diff} more case${diff === 1 ? '' : 's'} needed`
+            }
+          }
+        })
+      }
     })
 
     this._updateSubmitStates()

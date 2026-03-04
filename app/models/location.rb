@@ -9,6 +9,7 @@ class Location < ApplicationRecord
   has_many :supplier_credentials, dependent: :nullify
   has_many :supplier_lists, dependent: :nullify
   has_many :supplier_delivery_schedules, dependent: :destroy
+  has_many :supplier_requirements, dependent: :destroy
   has_many :orders, dependent: :nullify
   has_many :order_lists, dependent: :nullify
 

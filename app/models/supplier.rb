@@ -52,8 +52,12 @@ class Supplier < ApplicationRecord
     scraper_class.constantize
   end
 
-  def order_minimum
-    supplier_requirements.find_by(requirement_type: 'order_minimum', active: true)&.numeric_value
+  def order_minimum(location = nil)
+    SupplierRequirement.effective_for(supplier: self, type: 'order_minimum', location: location)&.numeric_value
+  end
+
+  def case_minimum(location = nil)
+    SupplierRequirement.effective_for(supplier: self, type: 'case_minimum', location: location)&.numeric_value&.to_i
   end
 
   def cutoff_requirement

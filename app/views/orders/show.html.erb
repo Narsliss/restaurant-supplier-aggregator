@@ -1,13 +1,11 @@
-<% minimum = @order.supplier.order_minimum %>
-<% meets_minimum = minimum.nil? || (@order.subtotal || 0) >= (minimum || 0) %>
-
 <div class="max-w-4xl mx-auto"
      data-controller="order-status<%= ' order-edit' if @order.pending? %>"
      data-order-status-url-value="<%= placement_status_order_path(@order) %>"
      data-order-status-processing-value="<%= @order.processing? %>"
      <% if @order.pending? %>
        data-order-edit-order-id-value="<%= @order.id %>"
-       data-order-edit-minimum-value="<%= minimum || 0 %>"
+       data-order-edit-minimum-value="<%= @minimum || 0 %>"
+       data-order-edit-case-minimum-value="<%= @case_minimum || 0 %>"
      <% end %>>
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
@@ -33,8 +31,8 @@
       <% end %>
       <% if @order.pending? %>
         <%= button_to submit_order_path(@order), method: :post,
-            class: "inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-sm font-medium #{meets_minimum ? 'bg-brand-orange hover:bg-brand-orange-dark' : 'bg-gray-300 cursor-not-allowed'}",
-            disabled: !meets_minimum,
+            class: "inline-flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-sm font-medium #{@meets_minimum ? 'bg-brand-orange hover:bg-brand-orange-dark' : 'bg-gray-300 cursor-not-allowed'}",
+            disabled: !@meets_minimum,
             data: { order_edit_target: "submitButton" } do %>
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -53,17 +51,36 @@
     </div>
   </div>
 
-  <% if @order.pending? && !meets_minimum %>
+  <% if @order.pending? && !@meets_minimum %>
     <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6" data-order-edit-target="minimumWarning">
       <p class="text-yellow-800 text-sm">
         <span class="font-medium">Warning:</span>
         <%= @order.supplier.name %> order minimum not met.
         <span class="text-yellow-600" data-order-edit-target="minimumShortfall">
-          Current: <%= number_to_currency(@order.subtotal) %>,
-          Need: <%= number_to_currency(minimum - (@order.subtotal || 0)) %> more
-          (Minimum: <%= number_to_currency(minimum) %>)
+          Current: <%= number_to_currency(@order.calculated_subtotal) %>,
+          Need: <%= number_to_currency(@minimum - (@order.calculated_subtotal || 0)) %> more
+          (Minimum: <%= number_to_currency(@minimum) %>)
         </span>
       </p>
+    </div>
+  <% end %>
+
+  <% if @order.pending? && !@meets_case_minimum %>
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6" data-order-edit-target="caseMinimumWarning">
+      <div class="flex items-start gap-2">
+        <svg class="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <p class="text-amber-800 text-sm">
+          <span class="font-medium">Note:</span>
+          <%= @order.supplier.name %> requires a minimum of
+          <strong><%= @case_minimum %> cases</strong> per order.
+          <span class="text-amber-600" data-order-edit-target="caseMinimumShortfall">
+            You currently have <%= @case_count.to_i %> case<%= @case_count.to_i == 1 ? '' : 's' %>.
+            An additional charge may apply.
+          </span>
+        </p>
+      </div>
     </div>
   <% end %>
 

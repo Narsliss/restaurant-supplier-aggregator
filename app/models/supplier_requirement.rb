@@ -1,23 +1,26 @@
 class SupplierRequirement < ApplicationRecord
   # Associations
   belongs_to :supplier
+  belongs_to :location, optional: true
 
   # Validations
   validates :requirement_type, presence: true
   validates :error_message, presence: true
-  validates :requirement_type, inclusion: { 
-    in: %w[order_minimum item_minimum delivery_day cutoff_time service_area max_quantity account_status] 
+  validates :requirement_type, inclusion: {
+    in: %w[order_minimum item_minimum case_minimum delivery_day cutoff_time service_area max_quantity account_status]
   }
 
   # Scopes
   scope :active, -> { where(active: true) }
   scope :blocking, -> { where(is_blocking: true) }
   scope :by_type, ->(type) { where(requirement_type: type) }
+  scope :global_defaults, -> { where(location_id: nil) }
 
   # Requirement types
   TYPES = {
     order_minimum: "order_minimum",
     item_minimum: "item_minimum",
+    case_minimum: "case_minimum",
     delivery_day: "delivery_day",
     cutoff_time: "cutoff_time",
     service_area: "service_area",
@@ -25,9 +28,24 @@ class SupplierRequirement < ApplicationRecord
     account_status: "account_status"
   }.freeze
 
+  # Resolve the effective requirement for a given type, supplier, and location.
+  # Location-specific row wins over global row.
+  def self.effective_for(supplier:, type:, location: nil)
+    candidates = where(supplier: supplier, requirement_type: type, active: true)
+    if location
+      location_specific = candidates.find_by(location: location)
+      return location_specific if location_specific
+    end
+    candidates.find_by(location_id: nil)
+  end
+
   # Methods
   def order_minimum?
     requirement_type == "order_minimum"
+  end
+
+  def case_minimum?
+    requirement_type == "case_minimum"
   end
 
   def cutoff_time?
@@ -50,6 +68,8 @@ class SupplierRequirement < ApplicationRecord
     case requirement_type
     when "order_minimum"
       check_order_minimum(order)
+    when "case_minimum"
+      check_case_minimum(order)
     when "cutoff_time"
       check_cutoff_time(order)
     else
@@ -58,6 +78,24 @@ class SupplierRequirement < ApplicationRecord
   end
 
   private
+
+  def check_case_minimum(order)
+    current_count = order.item_count
+    minimum = numeric_value.to_i
+
+    if current_count >= minimum
+      { passed: true }
+    else
+      {
+        passed: false,
+        message: formatted_error_message(
+          current_count: current_count.to_i,
+          minimum: minimum,
+          difference: (minimum - current_count).to_i
+        )
+      }
+    end
+  end
 
   def check_order_minimum(order)
     current_total = order.calculated_subtotal

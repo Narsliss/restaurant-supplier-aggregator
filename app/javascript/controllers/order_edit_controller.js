@@ -13,13 +13,15 @@ import { Controller } from "@hotwired/stimulus"
 export default class extends Controller {
   static values = {
     orderId: Number,
-    minimum: Number
+    minimum: Number,
+    caseMinimum: Number
   }
 
   static targets = [
     "itemRow", "quantityInput", "lineTotal",
     "orderTotal", "orderTotalFooter", "itemCount",
     "minimumWarning", "minimumShortfall",
+    "caseMinimumWarning", "caseMinimumShortfall",
     "submitButton", "deliveryDate"
   ]
 
@@ -160,9 +162,38 @@ export default class extends Controller {
       this.itemCountTarget.textContent = itemCount
     }
 
-    // Check minimum
+    // Check minimums
     this._updateMinimumStatus(subtotal)
+    this._updateCaseMinimumStatus()
     this._updateSubmitState()
+  }
+
+  _updateCaseMinimumStatus() {
+    const caseMin = this.caseMinimumValue || 0
+    if (caseMin === 0) return
+
+    const rows = this.itemRowTargets.filter(row => row.offsetParent !== null)
+    let totalCases = 0
+    rows.forEach(row => {
+      const input = row.querySelector("[data-order-edit-target='quantityInput']")
+      totalCases += input ? (parseInt(input.value) || 0) : 0
+    })
+
+    const meetsCaseMin = totalCases >= caseMin
+
+    if (this.hasCaseMinimumWarningTarget) {
+      if (meetsCaseMin) {
+        this.caseMinimumWarningTarget.classList.add("hidden")
+      } else {
+        this.caseMinimumWarningTarget.classList.remove("hidden")
+      }
+    }
+
+    if (this.hasCaseMinimumShortfallTarget && !meetsCaseMin) {
+      const diff = caseMin - totalCases
+      this.caseMinimumShortfallTarget.textContent =
+        `You currently have ${totalCases} case${totalCases === 1 ? '' : 's'}. An additional charge may apply.`
+    }
   }
 
   _updateMinimumStatus(subtotal) {

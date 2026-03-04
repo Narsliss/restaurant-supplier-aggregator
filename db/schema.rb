@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_02_200904) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_04_015049) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -707,8 +707,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_200904) do
     t.boolean "active", default: true
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "location_id"
     t.index ["active"], name: "index_supplier_requirements_on_active"
-    t.index ["supplier_id", "requirement_type"], name: "idx_on_supplier_id_requirement_type_79869f2f8a"
+    t.index ["location_id"], name: "index_supplier_requirements_on_location_id"
+    t.index ["supplier_id", "requirement_type", "location_id"], name: "idx_supplier_req_type_location", unique: true
+    t.index ["supplier_id", "requirement_type"], name: "idx_supplier_req_type_global", unique: true, where: "(location_id IS NULL)"
     t.index ["supplier_id"], name: "index_supplier_requirements_on_supplier_id"
   end
 
@@ -827,6 +830,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_200904) do
   add_foreign_key "supplier_lists", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_products", "products", on_delete: :nullify
   add_foreign_key "supplier_products", "suppliers", on_delete: :cascade
+  add_foreign_key "supplier_requirements", "locations", on_delete: :cascade
   add_foreign_key "supplier_requirements", "suppliers", on_delete: :cascade
   add_foreign_key "users", "organizations", column: "current_organization_id"
 end
