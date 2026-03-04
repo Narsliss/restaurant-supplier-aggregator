@@ -106,28 +106,28 @@
       <div class="mt-8">
         <%= form_for(resource, as: resource_name, url: registration_path(resource_name), html: { class: "space-y-5" }) do |f| %>
 
-          <% if @invitation %>
-            <%# Name fields for invited users — helps the team identify who's who %>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <%= f.label :first_name, class: "block text-sm font-medium text-gray-700" %>
-                <div class="mt-1.5">
-                  <%= f.text_field :first_name, autofocus: true, autocomplete: "given-name",
-                      class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
-                      placeholder: "First name" %>
-                </div>
-              </div>
-              <div>
-                <%= f.label :last_name, class: "block text-sm font-medium text-gray-700" %>
-                <div class="mt-1.5">
-                  <%= f.text_field :last_name, autocomplete: "family-name",
-                      class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
-                      placeholder: "Last name" %>
-                </div>
+          <%# Name fields — required for all sign-ups %>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <%= f.label :first_name, class: "block text-sm font-medium text-gray-700" %>
+              <div class="mt-1.5">
+                <%= f.text_field :first_name, autofocus: true, required: true, autocomplete: "given-name",
+                    class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
+                    placeholder: "First name" %>
               </div>
             </div>
+            <div>
+              <%= f.label :last_name, class: "block text-sm font-medium text-gray-700" %>
+              <div class="mt-1.5">
+                <%= f.text_field :last_name, required: true, autocomplete: "family-name",
+                    class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
+                    placeholder: "Last name" %>
+              </div>
+            </div>
+          </div>
 
-            <%# Email pre-filled and read-only %>
+          <% if @invitation %>
+            <%# Email pre-filled and read-only for invited users %>
             <div>
               <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
               <div class="mt-1.5">
@@ -141,7 +141,7 @@
             <div>
               <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
               <div class="mt-1.5">
-                <%= f.email_field :email, autofocus: true, autocomplete: "email",
+                <%= f.email_field :email, autocomplete: "email",
                     class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
                     placeholder: "you@restaurant.com" %>
               </div>

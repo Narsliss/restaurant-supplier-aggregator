@@ -19,14 +19,14 @@
           <div>
             <%= f.label :first_name, class: "block text-sm font-medium text-gray-700" %>
             <div class="mt-1.5">
-              <%= f.text_field :first_name, autocomplete: "given-name",
+              <%= f.text_field :first_name, required: true, autocomplete: "given-name",
                   class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3" %>
             </div>
           </div>
           <div>
             <%= f.label :last_name, class: "block text-sm font-medium text-gray-700" %>
             <div class="mt-1.5">
-              <%= f.text_field :last_name, autocomplete: "family-name",
+              <%= f.text_field :last_name, required: true, autocomplete: "family-name",
                   class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3" %>
             </div>
           </div>

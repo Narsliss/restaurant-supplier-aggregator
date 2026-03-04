@@ -30,6 +30,7 @@ class User < ApplicationRecord
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
+  validates :first_name, :last_name, presence: true
   validates :role, inclusion: { in: %w[user super_admin] }
   validate :only_one_super_admin, if: :super_admin?
 
