@@ -133,6 +133,7 @@
               <%= link_to "Jobs", mission_control_jobs.root_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <% end %>
             <div class="border-t border-gray-100 mt-1 pt-1">
+              <%= link_to "Terms of Service", terms_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
               <button type="button"
                       data-action="click->theme#cycle"
                       class="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark">
@@ -258,6 +259,7 @@
           <%= link_to "Admin Dashboard", admin_root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
           <%= link_to "Jobs", mission_control_jobs.root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
         <% end %>
+        <%= link_to "Terms of Service", terms_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
         <button type="button"
                 data-action="click->theme#cycle"
                 class="flex w-full items-center rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white">

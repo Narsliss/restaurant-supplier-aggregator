@@ -150,6 +150,9 @@ Rails.application.routes.draw do
     end
   end
 
+  # Static pages
+  get 'terms', to: 'pages#terms', as: :terms
+
   # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check
 
