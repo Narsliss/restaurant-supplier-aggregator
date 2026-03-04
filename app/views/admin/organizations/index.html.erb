@@ -89,10 +89,10 @@
                 <%= owner_membership&.user&.email || "—" %>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                <%= org.member_count %> / <%= org.seat_limit %>
+                <%= org.memberships.count { |m| m.active? } %> / <%= org.seat_limit %>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                <%= org.locations.count %>
+                <%= org.locations.size %>
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <% if org.complimentary? %>

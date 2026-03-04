@@ -1,6 +1,6 @@
 class Admin::OrganizationsController < Admin::BaseController
   def index
-    @organizations = Organization.includes(:subscriptions)
+    @organizations = Organization.includes(:subscriptions, :locations, memberships: :user)
                                   .order(params[:sort] == 'name' ? :name : { created_at: :desc })
 
     @organizations = @organizations.where('name ILIKE ?', "%#{params[:q]}%") if params[:q].present?
