@@ -32,7 +32,7 @@ class DashboardController < ApplicationController
   end
 
   def dismiss_onboarding
-    current_user.update!(onboarding_dismissed_at: Time.current)
+    current_user.update_column(:onboarding_dismissed_at, Time.current)
     redirect_to root_path
   end
 
