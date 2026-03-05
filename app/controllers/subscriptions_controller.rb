@@ -45,7 +45,7 @@ class SubscriptionsController < ApplicationController
           if session.subscription
             stripe_sub = Stripe::Subscription.retrieve(session.subscription)
             Subscription.sync_from_stripe(stripe_sub, user: current_user)
-            current_user.update!(stripe_customer_id: session.customer) unless current_user.stripe_customer_id
+            current_user.update_column(:stripe_customer_id, session.customer) unless current_user.stripe_customer_id
           end
         end
       rescue Stripe::StripeError => e
