@@ -67,10 +67,12 @@ class ProductMatch < ApplicationRecord
 
   # Find the largest group of items that share the same normalized unit
   # and have per-unit prices — these can be compared apples-to-apples.
+  # Treats "oz" (weight) and "fl oz" (volume) as equivalent since they're
+  # close enough for price comparison in food service (~1:1 for most items).
   def comparable_group
     return @comparable_group if defined?(@comparable_group)
     items = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] && p[:per_unit_price].present? && p[:normalized_unit].present? }
-    groups = items.group_by { |p| p[:normalized_unit] }
+    groups = items.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
     @comparable_group = groups.max_by { |_unit, g| g.size }&.last || []
   end
 
