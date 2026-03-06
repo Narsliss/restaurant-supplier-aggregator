@@ -42,6 +42,14 @@ class ImportSupplierListsJob < ApplicationJob
 
     Rails.logger.info "[ImportListsJob] Starting for credential #{credential_id} (#{credential.supplier.name})#{' (forced)' if force}"
 
+    # Create a scraping log so the admin dashboard health metrics include list syncs
+    @scraping_log = ScrapingLog.create!(
+      supplier: credential.supplier,
+      supplier_credential: credential,
+      status: 'running',
+      started_at: Time.current
+    )
+
     # Mark all existing lists as syncing immediately so the UI shows progress
     org ||= credential.organization || credential.user.current_organization
     SupplierList.where(supplier: credential.supplier, organization: org)
@@ -52,8 +60,15 @@ class ImportSupplierListsJob < ApplicationJob
     result = service.call
 
     Rails.logger.info "[ImportListsJob] Complete for credential #{credential_id}: #{result}"
+
+    @scraping_log.mark_completed!(
+      product_count: result.is_a?(Hash) ? result[:imported] : nil,
+      products_updated: result.is_a?(Hash) ? result[:updated] : nil
+    )
   rescue StandardError => e
     Rails.logger.error "[ImportListsJob] Failed for credential #{credential_id}: #{e.class}: #{e.message}"
+    @scraping_log&.mark_failed!("#{e.class}: #{e.message}")
+
     # Mark any still-syncing lists as failed so the UI doesn't show a stale spinner
     org ||= credential&.organization || credential&.user&.current_organization
     if credential && org
