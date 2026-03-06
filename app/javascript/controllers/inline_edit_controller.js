@@ -13,27 +13,34 @@ import { Controller } from "@hotwired/stimulus"
 //            data-action="blur->inline-edit#save keydown->inline-edit#keydown">
 //   </div>
 export default class extends Controller {
-  static targets = ["display", "input"]
+  static targets = ["display", "input", "icon"]
   static values = {
     url: String,
-    field: String
+    field: String,
+    param: String   // optional wrapper key (e.g. "event_plan" → { event_plan: { field: value } })
   }
 
   edit() {
     const currentText = this.displayTarget.textContent.trim()
     this.inputTarget.value = currentText
     this.displayTarget.classList.add("hidden")
+    if (this.hasIconTarget) this.iconTarget.classList.add("hidden")
     this.inputTarget.classList.remove("hidden")
     this.inputTarget.focus()
     this.inputTarget.select()
+  }
+
+  _showDisplay() {
+    this.inputTarget.classList.add("hidden")
+    this.displayTarget.classList.remove("hidden")
+    if (this.hasIconTarget) this.iconTarget.classList.remove("hidden")
   }
 
   save() {
     const newValue = this.inputTarget.value.trim()
     const oldValue = this.displayTarget.textContent.trim()
 
-    this.inputTarget.classList.add("hidden")
-    this.displayTarget.classList.remove("hidden")
+    this._showDisplay()
 
     if (newValue === "" || newValue === oldValue) return
 
@@ -47,7 +54,10 @@ export default class extends Controller {
         "X-CSRF-Token": csrfToken,
         "Accept": "application/json"
       },
-      body: JSON.stringify({ event_plan: { [this.fieldValue]: newValue } })
+      body: JSON.stringify(this.hasParamValue
+        ? { [this.paramValue]: { [this.fieldValue]: newValue } }
+        : { [this.fieldValue]: newValue }
+      )
     }).then(response => {
       if (!response.ok) {
         // Revert on failure
@@ -63,8 +73,7 @@ export default class extends Controller {
       event.preventDefault()
       this.save()
     } else if (event.key === "Escape") {
-      this.inputTarget.classList.add("hidden")
-      this.displayTarget.classList.remove("hidden")
+      this._showDisplay()
     }
   }
 }

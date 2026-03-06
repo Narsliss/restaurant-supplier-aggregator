@@ -135,9 +135,29 @@
         <tbody id="match-table-body" class="bg-white divide-y divide-gray-200">
           <% @product_matches.each do |match| %>
             <tr id="<%= dom_id(match) %>" class="<%= match.unmatched? ? 'bg-amber-50/50' : '' %> hover:bg-gray-50">
-              <!-- Canonical name column -->
+              <!-- Canonical name column (click pencil to rename) -->
               <td class="px-4 py-3 sticky left-0 bg-inherit z-10">
-                <div class="text-sm font-medium text-gray-900"><%= match.display_name %></div>
+                <div data-controller="inline-edit"
+                     data-inline-edit-url-value="<%= rename_aggregated_list_product_match_path(@aggregated_list, match) %>"
+                     data-inline-edit-field-value="canonical_name"
+                     class="group flex items-start gap-1">
+                  <span class="text-sm font-medium text-gray-900 cursor-pointer hover:text-brand-orange transition-colors"
+                        data-inline-edit-target="display"
+                        data-action="click->inline-edit#edit"
+                        title="Click to rename"><%= match.display_name %></span>
+                  <button data-inline-edit-target="icon"
+                          data-action="click->inline-edit#edit"
+                          class="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 text-gray-400 hover:text-brand-orange flex-shrink-0"
+                          title="Rename product">
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
+                    </svg>
+                  </button>
+                  <input type="text"
+                         data-inline-edit-target="input"
+                         data-action="blur->inline-edit#save keydown->inline-edit#keydown"
+                         class="hidden text-sm font-medium text-gray-900 bg-white border border-brand-green rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-green w-full">
+                </div>
                 <div class="text-xs text-gray-500">
                   <% if match.confidence_score && match.confidence_score > 0 %>
                     <span class="<%= match.confidence_score >= 0.8 ? 'text-green-600' : 'text-amber-600' %>">
@@ -180,15 +200,28 @@
 
               <!-- Status column -->
               <td class="px-4 py-3 text-center whitespace-nowrap">
-                <% if match.unmatched? %>
-                  <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unmatched</span>
-                <% else %>
-                  <span class="text-green-600">
-                    <svg class="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <div class="group/status flex items-center justify-center gap-1.5">
+                  <% if match.unmatched? %>
+                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unmatched</span>
+                  <% else %>
+                    <span class="text-green-600">
+                      <svg class="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </span>
+                  <% end %>
+                  <button type="button"
+                          class="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                          title="Remove from list"
+                          data-dismiss-url="<%= reject_aggregated_list_product_match_path(@aggregated_list, match) %>"
+                          data-match-row="<%= dom_id(match) %>"
+                          data-match-name="<%= match.display_name %>"
+                          onclick="dismissMatch(this)">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
-                  </span>
-                <% end %>
+                  </button>
+                </div>
               </td>
             </tr>
           <% end %>
@@ -228,3 +261,98 @@
     </div>
   <% end %>
 </div>
+
+<script>
+  function dismissMatch(btn) {
+    const name = btn.dataset.matchName || "this product"
+    showConfirmModal(
+      "Remove product?",
+      `"${name}" will be removed from this list and won't appear in the order builder. You can restore it by re-running matching.`,
+      "Remove",
+      function () { executeDismiss(btn) }
+    )
+  }
+
+  function executeDismiss(btn) {
+    const url = btn.dataset.dismissUrl
+    const rowId = btn.dataset.matchRow
+    const row = document.getElementById(rowId)
+    if (!row) return
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+    btn.disabled = true
+
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "X-CSRF-Token": csrfToken,
+        "Accept": "application/json"
+      }
+    }).then(response => {
+      if (response.ok) {
+        row.style.transition = "opacity 0.3s ease"
+        row.style.opacity = "0"
+        setTimeout(() => row.remove(), 300)
+      } else {
+        btn.disabled = false
+      }
+    }).catch(() => {
+      btn.disabled = false
+    })
+  }
+
+  function showConfirmModal(title, message, confirmLabel, onConfirm) {
+    // Remove any existing modal
+    const existing = document.getElementById("confirm-modal-backdrop")
+    if (existing) existing.remove()
+
+    const backdrop = document.createElement("div")
+    backdrop.id = "confirm-modal-backdrop"
+    backdrop.className = "fixed inset-0 z-50 flex items-center justify-center"
+    backdrop.innerHTML = `
+      <div class="absolute inset-0 bg-gray-900/50 transition-opacity" data-dismiss="backdrop"></div>
+      <div class="relative bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-6 transform transition-all">
+        <div class="flex items-start gap-3">
+          <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+            <svg class="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+            </svg>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-base font-semibold text-gray-900">${title}</h3>
+            <p class="mt-1 text-sm text-gray-500">${message}</p>
+          </div>
+        </div>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" data-dismiss="cancel"
+                  class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+          <button type="button" data-dismiss="confirm"
+                  class="px-3 py-1.5 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors">
+            ${confirmLabel}
+          </button>
+        </div>
+      </div>
+    `
+
+    document.body.appendChild(backdrop)
+
+    // Wire up dismiss handlers
+    backdrop.querySelector('[data-dismiss="backdrop"]').addEventListener("click", () => backdrop.remove())
+    backdrop.querySelector('[data-dismiss="cancel"]').addEventListener("click", () => backdrop.remove())
+    backdrop.querySelector('[data-dismiss="confirm"]').addEventListener("click", () => {
+      backdrop.remove()
+      onConfirm()
+    })
+
+    // Close on Escape
+    const escHandler = (e) => {
+      if (e.key === "Escape") {
+        backdrop.remove()
+        document.removeEventListener("keydown", escHandler)
+      }
+    }
+    document.addEventListener("keydown", escHandler)
+  }
+</script>
