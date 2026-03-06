@@ -5,9 +5,9 @@
      data-order-review-aggregated-list-id-value="<%= @aggregated_list_id %>">
   <div class="mb-6">
     <% if @aggregated_list_id.present? %>
-      <%= link_to "&larr; Back to Order Builder".html_safe, order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id), class: "text-sm text-brand-orange hover:text-brand-orange-light" %>
+      <%= link_to "&larr; Back to Order Builder".html_safe, order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id), class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
     <% else %>
-      <%= link_to "&larr; Order History".html_safe, orders_path, class: "text-sm text-brand-orange hover:text-brand-orange-light" %>
+      <%= link_to "&larr; Order History".html_safe, orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
     <% end %>
   </div>
 

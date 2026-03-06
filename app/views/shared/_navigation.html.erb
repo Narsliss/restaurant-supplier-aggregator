@@ -17,30 +17,33 @@
           <%= link_to "Dashboard", root_path,
               class: "inline-flex items-center border-b-2 #{current_page?(root_path) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
 
-          <%# Consistent link order: Order Lists, Order History, Products, Suppliers %>
-          <%# When ops_disabled, location-scoped items render as disabled spans in the same position %>
+          <%# Consistent link order: New Order (CTA), Lists & Matching, Order History %>
+          <%# Active state helpers %>
+          <% new_order_active = (controller_name == 'orders' && action_name == 'select_list') || (controller_name == 'aggregated_lists' && action_name == 'order_builder') %>
+          <% lists_matching_active = %w[supplier_lists product_matches].include?(controller_name) || (controller_name == 'aggregated_lists' && action_name != 'order_builder') %>
+          <% order_history_active = controller_name == 'orders' && action_name != 'select_list' %>
 
-          <%# — Order Lists %>
+          <%# — Lists & Matching %>
           <% if ops_disabled %>
             <% unless chef? || current_role == 'manager' %>
-              <span class="inline-flex items-center border-b-2 border-transparent px-1 pt-1 text-sm font-medium text-gray-500 cursor-not-allowed" title="<%= onboarding ? 'Complete account setup first' : 'Select a specific restaurant' %>">Order Lists</span>
+              <span class="inline-flex items-center border-b-2 border-transparent px-1 pt-1 text-sm font-medium text-gray-500 cursor-not-allowed" title="<%= onboarding ? 'Complete account setup first' : 'Select a specific restaurant' %>">Lists & Matching</span>
             <% end %>
           <% elsif operator? %>
-            <%= link_to "Order Lists", supplier_lists_path,
-                class: "inline-flex items-center border-b-2 #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+            <%= link_to "Lists & Matching", supplier_lists_path,
+                class: "inline-flex items-center border-b-2 #{lists_matching_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
           <%# — Order History %>
           <% if ops_disabled %>
             <% if !onboarding && manager_or_owner? %>
               <%= link_to "Order History", orders_path,
-                  class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+                  class: "inline-flex items-center border-b-2 #{order_history_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
             <% else %>
               <span class="inline-flex items-center border-b-2 border-transparent px-1 pt-1 text-sm font-medium text-gray-500 cursor-not-allowed" title="Complete account setup first">Order History</span>
             <% end %>
           <% else %>
             <%= link_to "Order History", orders_path,
-                class: "inline-flex items-center border-b-2 #{controller_name == 'orders' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+                class: "inline-flex items-center border-b-2 #{order_history_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
           <%# — Admin + Products (super_admin only) %>
@@ -73,6 +76,23 @@
           <% if manager_or_owner? %>
             <%= link_to "Reports", reports_path,
                 class: "inline-flex items-center border-b-2 #{controller_name == 'reports' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
+
+          <%# — New Order CTA (end of left nav, distinctive button style) %>
+          <% if ops_disabled %>
+            <% unless chef? || current_role == 'manager' %>
+              <span class="inline-flex items-center gap-1 ml-3 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase cursor-not-allowed opacity-40" style="background-color: #fff; color: #3a6147; align-self: center;" title="<%= onboarding ? 'Complete account setup first' : 'Select a specific restaurant' %>">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                New Order
+              </span>
+            <% end %>
+          <% elsif operator? %>
+            <%= link_to select_list_orders_path,
+                class: "inline-flex items-center gap-1 ml-3 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase shadow-sm transition-all duration-150 #{new_order_active ? 'ring-2 ring-white/60' : 'hover:shadow-md hover:scale-105'}",
+                style: "background-color: #fff; color: #3a6147; align-self: center;" do %>
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              New Order
+            <% end %>
           <% end %>
         </div>
       </div>
@@ -175,29 +195,39 @@
     <div class="space-y-1 px-2 pb-3 pt-2">
       <%= link_to "Dashboard", root_path,
           class: "block rounded-md px-3 py-2 text-base font-medium #{current_page?(root_path) ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
-      <%# Mobile: same consistent order as desktop — Order Lists, Order History, Suppliers %>
+      <%# Mobile: same consistent order as desktop — New Order, Lists & Matching, Order History %>
 
-      <%# — Order Lists %>
+      <%# — New Order (highlighted CTA) %>
       <% if ops_disabled %>
         <% unless current_role == 'manager' %>
-          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Order Lists</span>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">New Order</span>
         <% end %>
       <% elsif operator? %>
-        <%= link_to "Order Lists", supplier_lists_path,
-            class: "block rounded-md px-3 py-2 text-base font-medium #{%w[supplier_lists aggregated_lists product_matches].include?(controller_name) ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+        <%= link_to "New Order", select_list_orders_path,
+            class: "block rounded-md px-3 py-2.5 text-base font-semibold #{new_order_active ? 'bg-brand-orange text-white' : 'bg-brand-orange/80 text-white'}" %>
+      <% end %>
+
+      <%# — Lists & Matching %>
+      <% if ops_disabled %>
+        <% unless current_role == 'manager' %>
+          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Lists & Matching</span>
+        <% end %>
+      <% elsif operator? %>
+        <%= link_to "Lists & Matching", supplier_lists_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{lists_matching_active ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
       <% end %>
 
       <%# — Order History %>
       <% if ops_disabled %>
         <% if !onboarding && manager_or_owner? %>
           <%= link_to "Order History", orders_path,
-              class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'orders' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+              class: "block rounded-md px-3 py-2 text-base font-medium #{order_history_active ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
         <% else %>
           <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Order History</span>
         <% end %>
       <% else %>
         <%= link_to "Order History", orders_path,
-            class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'orders' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+            class: "block rounded-md px-3 py-2 text-base font-medium #{order_history_active ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
       <% end %>
 
       <%# — Suppliers %>

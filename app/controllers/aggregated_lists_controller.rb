@@ -89,6 +89,49 @@ class AggregatedListsController < ApplicationController
                                              .select(:id, :name, :sku, :price, :pack_size)
                                              .order(:name)
     end
+
+    # Teaser columns: show catalog data from suppliers not mapped to this list
+    connected_ids = @suppliers.map(&:id)
+    @unconnected_suppliers = Supplier.where(active: true).where.not(id: connected_ids).order(:name)
+
+    if @unconnected_suppliers.any?
+      # Collect canonical product_id for each match (first found wins)
+      match_product_ids = {}
+      @product_matches.each do |match|
+        match.product_match_items.each do |pmi|
+          pid = pmi.supplier_list_item.supplier_product&.product_id
+          next unless pid
+          match_product_ids[match.id] ||= pid
+        end
+      end
+
+      # Batch query: catalog items from unconnected suppliers matching these products
+      unconnected_ids = @unconnected_suppliers.map(&:id)
+      teaser_by_product_and_supplier = {}
+
+      if match_product_ids.values.any?
+        SupplierProduct
+          .where(supplier_id: unconnected_ids, product_id: match_product_ids.values.uniq, discontinued: false)
+          .select(:id, :supplier_id, :product_id, :supplier_name, :pack_size, :current_price, :price_unit, :in_stock)
+          .each do |sp|
+            teaser_by_product_and_supplier[sp.product_id] ||= {}
+            teaser_by_product_and_supplier[sp.product_id][sp.supplier_id] ||= sp
+          end
+      end
+
+      # Build lookup: match_id -> { supplier_id -> SupplierProduct }
+      @teaser_map = {}
+      match_product_ids.each do |match_id, product_id|
+        @teaser_map[match_id] = teaser_by_product_and_supplier[product_id] || {}
+      end
+
+      # Only show columns for suppliers that have at least one matching product
+      @unconnected_suppliers = @unconnected_suppliers.select do |supplier|
+        @teaser_map.values.any? { |supplier_map| supplier_map.key?(supplier.id) }
+      end
+    end
+
+    @teaser_map ||= {}
   end
 
   def new
@@ -145,7 +188,7 @@ class AggregatedListsController < ApplicationController
   def destroy
     name = @aggregated_list.name
     @aggregated_list.destroy
-    redirect_to supplier_lists_path
+    redirect_to supplier_lists_path, notice: "\"#{name}\" has been deleted."
   end
 
   def run_matching

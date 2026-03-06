@@ -1,23 +1,19 @@
 <div class="max-w-6xl mx-auto pb-6" data-controller="order-builder"
      data-order-builder-supplier-minimums-value="<%= @supplier_minimums.to_json %>">
   <div class="mb-6">
-    <%= link_to "&larr; Order Lists".html_safe, supplier_lists_path, class: "text-sm text-brand-orange hover:text-brand-orange-light" %>
+    <%= link_to "&larr; New Order".html_safe, select_list_orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
   </div>
 
-  <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start mb-6">
-    <div>
-      <h1 class="text-2xl font-heading font-bold text-gray-900">Build Order</h1>
-      <p class="mt-1 text-sm text-gray-500"><%= @aggregated_list.name %></p>
-      <div class="mt-2 flex flex-wrap gap-1.5">
-        <% @suppliers.each do |supplier| %>
-          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-            <%= supplier.name %>
-          </span>
-        <% end %>
-      </div>
+  <div class="mb-6">
+    <h1 class="text-2xl font-heading font-bold text-gray-900">Build Order</h1>
+    <p class="mt-1 text-sm text-gray-500"><%= @aggregated_list.name %></p>
+    <div class="mt-2 flex flex-wrap gap-1.5">
+      <% @suppliers.each do |supplier| %>
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+          <%= supplier.name %>
+        </span>
+      <% end %>
     </div>
-    <%= link_to "View Matches", aggregated_list_path(@aggregated_list),
-        class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
   </div>
 
   <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "order-form") do |form| %>
@@ -77,7 +73,7 @@
           <div class="bg-white shadow rounded-lg px-2 py-1.5 flex items-center gap-1">
             <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
           </div>
-          <%= link_to "Cancel", supplier_lists_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
+          <%= link_to "Cancel", select_list_orders_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
           <button type="submit"
                   disabled
                   data-order-builder-target="submitButton"
@@ -123,7 +119,7 @@
           <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
         </div>
         <div class="ml-auto shrink-0 bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-3">
-          <%= link_to "Cancel", supplier_lists_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
+          <%= link_to "Cancel", select_list_orders_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
           <button type="submit"
                   disabled
                   data-order-builder-target="submitButton"
@@ -149,74 +145,55 @@
         </div>
       </div>
 
-      <%# Scrollable product area — matches the product match show page layout %>
-      <div class="bg-white shadow rounded-lg overflow-auto max-h-[75vh]">
-        <%# Desktop: one table per category section %>
-        <div class="hidden sm:block space-y-2 p-2">
-          <% @sorted_categories.each_with_index do |category, cat_idx| %>
-            <% matches = @grouped_matches[category] %>
-            <% collapsed = category != "Frequently Ordered" %>
-            <div data-order-builder-target="categorySection" data-category="<%= category %>">
-              <button type="button"
-                      class="w-full flex items-center justify-between px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-t-lg border border-gray-200 transition-colors"
-                      data-action="click->order-builder#toggleSection">
-                <span class="text-sm font-semibold text-gray-700">
-                  <%= category %>
-                  <span class="ml-1 text-xs font-normal text-gray-500">(<%= matches.size %> items)</span>
-                </span>
-                <svg class="w-4 h-4 text-gray-500 transition-transform" data-order-builder-target="chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                     <%= 'style="transform: rotate(-90deg)"'.html_safe if collapsed %>>
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                </svg>
-              </button>
-              <div data-order-builder-target="categoryContent" <%= 'style="display:none"'.html_safe if collapsed %>>
-                <table class="min-w-full divide-y divide-gray-200 border border-t-0 border-gray-200 rounded-b-lg overflow-hidden shadow-sm"
-                       <%= 'id="order-builder-table"'.html_safe if cat_idx == 0 %>>
-                  <thead <%= 'id="order-builder-thead"'.html_safe if cat_idx == 0 %>>
-                    <tr>
-                      <th class="px-4 py-2 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Product</th>
-                      <% @suppliers.each do |supplier| %>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark"><%= supplier.name %></th>
-                      <% end %>
-                      <th class="px-4 py-2 text-center text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Qty</th>
-                      <th class="px-4 py-2 text-right text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Line Total</th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-gray-200 bg-white">
-                    <% matches.each_with_index do |match, idx| %>
-                      <%= render "aggregated_lists/order_builder_desktop_row",
-                                 match: match, idx: idx, suppliers: @suppliers,
-                                 quantities: @quantities,
-                                 frequently_ordered: @frequently_ordered[match.id],
-                                 user_favorited: @user_favorited[match.id],
-                                 match_sp_id: @match_sp_ids[match.id] %>
-                    <% end %>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          <% end %>
+      <%# Product table — flows naturally with the page, no inner scroll container %>
+      <div class="bg-white shadow rounded-lg mb-20">
+        <%# Desktop: single continuous table with category header rows %>
+        <div class="hidden sm:block">
+          <table class="min-w-full divide-y divide-gray-200" id="order-builder-table">
+            <thead id="order-builder-thead">
+              <tr>
+                <th class="px-4 py-2 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Product</th>
+                <% @suppliers.each do |supplier| %>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark"><%= supplier.name %></th>
+                <% end %>
+                <th class="px-4 py-2 text-center text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Qty</th>
+                <th class="px-4 py-2 text-right text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Line Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200 bg-white">
+              <% @sorted_categories.each do |category| %>
+                <% matches = @grouped_matches[category] %>
+                <%# Category header row %>
+                <tr data-order-builder-target="categorySection" data-category="<%= category %>">
+                  <td colspan="<%= @suppliers.size + 3 %>" class="px-4 py-2 bg-gray-50 border-t-2 border-gray-200">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-500"><%= category %></span>
+                    <span class="ml-1.5 text-xs text-gray-400">(<%= matches.size %>)</span>
+                  </td>
+                </tr>
+                <% matches.each_with_index do |match, idx| %>
+                  <%= render "aggregated_lists/order_builder_desktop_row",
+                             match: match, idx: idx, suppliers: @suppliers,
+                             quantities: @quantities,
+                             frequently_ordered: @frequently_ordered[match.id],
+                             user_favorited: @user_favorited[match.id],
+                             match_sp_id: @match_sp_ids[match.id],
+                             category: category %>
+                <% end %>
+              <% end %>
+            </tbody>
+          </table>
         </div>
 
-        <%# Mobile: one card section per category %>
-        <div class="sm:hidden space-y-4 p-2">
-          <% @sorted_categories.each do |category| %>
+        <%# Mobile: flat card list with subtle category dividers %>
+        <div class="sm:hidden p-2 space-y-2">
+          <% @sorted_categories.each_with_index do |category, cat_idx| %>
             <% matches = @grouped_matches[category] %>
-            <% collapsed = category != "Frequently Ordered" %>
             <div data-order-builder-target="categorySection" data-category="<%= category %>">
-              <button type="button"
-                      class="w-full flex items-center justify-between px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-200"
-                      data-action="click->order-builder#toggleSection">
-                <span class="text-sm font-semibold text-gray-700">
-                  <%= category %>
-                  <span class="ml-1 text-xs font-normal text-gray-500">(<%= matches.size %>)</span>
-                </span>
-                <svg class="w-4 h-4 text-gray-500 transition-transform" data-order-builder-target="chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                     <%= 'style="transform: rotate(-90deg)"'.html_safe if collapsed %>>
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                </svg>
-              </button>
-              <div class="space-y-3 mt-2" data-order-builder-target="categoryContent" <%= 'style="display:none"'.html_safe if collapsed %>>
+              <div class="<%= cat_idx > 0 ? 'border-t border-gray-200 mt-3 pt-3' : '' %> px-1 pb-2 sticky top-16 bg-white z-10">
+                <span class="text-xs font-semibold uppercase tracking-wider text-gray-500"><%= category %></span>
+                <span class="ml-1 text-xs text-gray-400">(<%= matches.size %>)</span>
+              </div>
+              <div class="space-y-3">
                 <% matches.each_with_index do |match, idx| %>
                   <%= render "aggregated_lists/order_builder_mobile_card",
                              match: match, idx: idx, suppliers: @suppliers,
@@ -235,7 +212,7 @@
       <div class="bg-white shadow rounded-lg p-8 text-center">
         <p class="text-gray-500">No matched products found. Go back and review product matching first.</p>
         <p class="mt-3">
-          <%= link_to "View Matches", aggregated_list_path(@aggregated_list), class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
+          <%= link_to "Edit Matches", aggregated_list_path(@aggregated_list), class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
         </p>
       </div>
     <% end %>

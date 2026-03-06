@@ -15,11 +15,21 @@
     </div>
   <% end %>
 
-  <%# ===== ORDER LISTS (Primary Section) ===== %>
-  <div class="flex justify-between items-center mb-6">
+  <%# ===== YOUR ORDER LISTS (Primary Section) ===== %>
+  <div class="mb-6">
+    <h1 class="text-2xl font-heading font-bold text-gray-900">Lists & Matching</h1>
+    <p class="mt-1 text-sm text-gray-500">Manage your supplier lists and match products across suppliers.</p>
+  </div>
+
+  <div class="flex items-start gap-3 mb-5">
+    <div class="mt-0.5 flex-shrink-0 rounded-lg bg-brand-green/10 p-2">
+      <svg class="h-5 w-5 text-brand-green" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+      </svg>
+    </div>
     <div>
-      <h1 class="text-2xl font-heading font-bold text-gray-900">Order Lists</h1>
-      <p class="mt-1 text-sm text-gray-500">Compare prices across suppliers and create orders.</p>
+      <h2 class="text-lg font-heading font-semibold text-gray-900">Your Comparison Lists</h2>
+      <p class="mt-0.5 text-sm text-gray-500">Lists you've created by combining supplier lists. Products are matched across suppliers so you can compare prices side-by-side.</p>
     </div>
   </div>
 
@@ -31,7 +41,7 @@
         <% if @syncing %>
           Your supplier lists are being imported. They'll appear here shortly.
         <% elsif @credentials.any? %>
-          Click "Update All Lists" below to import your order guides, then create an order list.
+          Click "Sync Supplier Lists" below to import your order guides, then create a comparison list.
         <% else %>
           <%= link_to "Connect a supplier", new_supplier_credential_path, class: "text-brand-orange hover:text-brand-orange-light" %> first, then update your lists.
         <% end %>
@@ -40,13 +50,18 @@
   <% end %>
 
   <%# ===== SUPPLIER LISTS (Reference Section) ===== %>
-  <div class="mt-12 pt-8 border-t border-gray-200">
-    <div class="flex justify-between items-center mb-6">
-      <div>
-        <h2 class="text-lg font-heading font-semibold text-gray-900">Supplier Lists</h2>
-        <p class="mt-1 text-sm text-gray-500">Order guides and saved lists from your supplier accounts.</p>
+  <div class="mt-12 pt-8 border-t-2 border-gray-200">
+    <div class="flex items-start gap-3 mb-5">
+      <div class="mt-0.5 flex-shrink-0 rounded-lg bg-brand-orange/10 p-2">
+        <svg class="h-5 w-5 text-brand-orange" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+        </svg>
       </div>
-      <div class="flex gap-3">
+      <div class="flex-1">
+        <h2 class="text-lg font-heading font-semibold text-gray-900">Supplier Lists</h2>
+        <p class="mt-0.5 text-sm text-gray-500">Order guides and saved lists imported directly from your supplier accounts. These are the raw lists that get combined into your comparison lists above.</p>
+      </div>
+      <div class="flex gap-3 flex-shrink-0">
         <% if @syncing %>
           <button type="button" disabled
                   class="rounded-md bg-gray-300 px-4 py-2.5 text-sm font-semibold text-white shadow-sm cursor-not-allowed flex items-center gap-2">
@@ -57,7 +72,7 @@
             Updating...
           </button>
         <% else %>
-          <%= button_to "Update All Lists", sync_all_supplier_lists_path,
+          <%= button_to "Sync Supplier Lists", sync_all_supplier_lists_path,
               method: :post,
               class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
         <% end %>
@@ -82,7 +97,7 @@
           <h3 class="mt-2 text-sm font-medium text-gray-900">No supplier lists yet</h3>
           <p class="mt-1 text-sm text-gray-500">
             <% if @credentials.any? %>
-              Click "Update All Lists" to import your order guides from connected suppliers.
+              Click "Sync Supplier Lists" to import your order guides from connected suppliers.
             <% else %>
               <%= link_to "Connect a supplier", new_supplier_credential_path, class: "text-brand-orange hover:text-brand-orange-light" %> first, then update your lists.
             <% end %>
@@ -108,7 +123,7 @@
                   Updating...
                 </span>
               <% else %>
-                <%= button_to "Update", sync_supplier_list_path(lists.first),
+                <%= button_to "Sync", sync_supplier_list_path(lists.first),
                     method: :post,
                     class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
               <% end %>

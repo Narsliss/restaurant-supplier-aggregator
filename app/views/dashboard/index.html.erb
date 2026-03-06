@@ -210,11 +210,11 @@
             <p class="mt-2 text-lg text-gray-300 font-body">Manage your suppliers, track orders, and compare prices — all in one place.</p>
             <div class="mt-6 flex flex-wrap gap-3">
               <% unless @read_only %>
-                <%= link_to new_order_list_path, class: "inline-flex items-center rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
+                <%= link_to select_list_orders_path, class: "inline-flex items-center rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
                   <svg class="-ml-0.5 mr-1.5 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
                   </svg>
-                  New Order List
+                  New Order
                 <% end %>
               <% end %>
               <%= link_to "View Orders", orders_path, class: "inline-flex items-center rounded-md bg-white/10 backdrop-blur px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-white/20 transition-colors border border-white/20" %>
@@ -380,7 +380,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
           </svg>
         </div>
-        <p class="ml-16 truncate text-sm font-medium text-gray-500">Order Lists</p>
+        <p class="ml-16 truncate text-sm font-medium text-gray-500">Matched Lists</p>
       </dt>
       <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
         <p class="text-2xl font-semibold text-gray-900"><%= @stats[:order_lists] %></p>
@@ -436,7 +436,7 @@
         <% end %>
         <% if @recent_orders.empty? %>
           <li class="px-4 py-8 text-center text-gray-500">
-            No orders yet. <%= link_to "Create your first order", order_lists_path, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
+            No orders yet. <%= link_to "Create your first order", select_list_orders_path, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
           </li>
         <% end %>
       </ul>

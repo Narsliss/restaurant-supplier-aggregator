@@ -1,7 +1,20 @@
 class OrdersController < ApplicationController
   before_action :require_organization!
   before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status, :retry_order]
-  before_action :require_operator!, only: [:new, :create, :edit, :update, :destroy, :submit, :reorder]
+  before_action :require_operator!, only: [:new, :create, :edit, :update, :destroy, :submit, :reorder, :select_list]
+
+  def select_list
+    org = current_user.current_organization
+    @aggregated_lists = if org
+      AggregatedList.for_organization(org)
+        .where(match_status: 'matched')
+        .includes(supplier_lists: :supplier)
+        .order(updated_at: :desc)
+    else
+      AggregatedList.none
+    end
+    @empty = @aggregated_lists.empty?
+  end
 
   def index
     orders_scope = scoped_orders

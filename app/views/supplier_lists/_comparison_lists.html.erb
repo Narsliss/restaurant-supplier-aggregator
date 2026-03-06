@@ -1,11 +1,11 @@
-<div data-controller="inline-form" data-inline-form-show-text-value="+ New Order List" data-inline-form-hide-text-value="Cancel">
+<div data-controller="inline-form" data-inline-form-show-text-value="+ New Comparison List" data-inline-form-hide-text-value="Cancel">
   <div class="flex justify-end mb-4">
     <% if @lists_by_supplier_for_form.any? %>
       <button type="button"
               data-action="inline-form#toggle"
               data-inline-form-target="button"
               class="rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors">
-        + New Order List
+        + New Comparison List
       </button>
     <% end %>
   </div>
@@ -26,9 +26,9 @@
     <div class="bg-white shadow rounded-lg p-6 text-center">
       <p class="text-sm text-gray-500">
         <% if @lists_by_supplier_for_form.any? %>
-          Click "+ New Order List" to group supplier lists and compare products.
+          Click "+ New Comparison List" to group supplier lists and match products across suppliers.
         <% else %>
-          Update your supplier lists first, then create order lists.
+          Update your supplier lists first, then create a comparison list.
         <% end %>
       </p>
     </div>

@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "categoryContent", "chevron", "mobileSupplierDetail"]
+  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "mobileSupplierDetail"]
   static values = { supplierMinimums: Object }
 
   connect() {
@@ -13,6 +13,8 @@ export default class extends Controller {
     if (this._scrollHandler) window.removeEventListener("scroll", this._scrollHandler)
     if (this._fixedBar) this._fixedBar.remove()
     if (this._floatingHeader) this._floatingHeader.remove()
+    if (this._floatingCategory) this._floatingCategory.remove()
+    if (this._scrollTopBtn) this._scrollTopBtn.remove()
   }
 
   _setupFixedUI() {
@@ -106,17 +108,26 @@ export default class extends Controller {
     // Hide the original in-page bar completely (no placeholder — bar is fixed at bottom)
     cmdBar.style.display = "none"
 
-    // Floating table header + auto-hide bottom bar when footer is visible
+    // Floating table header + floating category label
     const nav = document.querySelector("nav")
-    const controllerEl = this.element
 
     if (thead && table) {
       this._floatingHeader = document.createElement("div")
       this._floatingHeader.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:40;display:none;background:#3A6147;border-bottom:1px solid #2D5A3D;"
       document.body.appendChild(this._floatingHeader)
 
+      this._floatingCategory = document.createElement("div")
+      this._floatingCategory.style.cssText = "position:fixed;left:0;right:0;z-index:39;display:none;background:#f9fafb;border-bottom:1px solid #e5e7eb;padding:0.5rem 1rem;"
+      document.body.appendChild(this._floatingCategory)
+
+      // Scroll-to-top button
+      this._scrollTopBtn = document.createElement("button")
+      this._scrollTopBtn.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>`
+      this._scrollTopBtn.style.cssText = "position:fixed;right:1.5rem;z-index:51;width:2.5rem;height:2.5rem;border-radius:9999px;background:#3A6147;color:white;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.2);opacity:0;pointer-events:none;transition:opacity 0.2s;"
+      this._scrollTopBtn.addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }))
+      document.body.appendChild(this._scrollTopBtn)
+
       this._scrollHandler = () => {
-        // Determine where the nav ends (0 if scrolled away)
         const navBottom = nav ? Math.max(0, nav.getBoundingClientRect().bottom) : 0
         const theadRect = thead.getBoundingClientRect()
         const tableRect = table.getBoundingClientRect()
@@ -129,7 +140,6 @@ export default class extends Controller {
           let html = "<table style='border-collapse:collapse;'><thead><tr>"
           realCells.forEach((cell) => {
             const w = cell.getBoundingClientRect().width
-            // Override gray classes with white text on navy background
             const cls = cell.className
               .replace(/bg-gray-\d+/g, "")
               .replace(/text-gray-\d+/g, "text-white")
@@ -147,15 +157,54 @@ export default class extends Controller {
           this._floatingHeader.style.display = "none"
         }
 
-        // When footer is visible, push the bar up so it sits above the footer
-        const containerBottom = controllerEl.getBoundingClientRect().bottom
-        const barHeight = this._fixedBar.offsetHeight
-        if (containerBottom < window.innerHeight) {
-          // Content has ended — lock bar at the bottom of the content area
-          const offset = window.innerHeight - containerBottom
-          this._fixedBar.style.bottom = offset + "px"
+        // Floating category label — tracks current section while scrolling
+        const headerVisible = this._floatingHeader.style.display === "block"
+        const headerBottom = headerVisible
+          ? this._floatingHeader.getBoundingClientRect().bottom
+          : navBottom
+
+        let currentCategoryHtml = null
+        this.categorySectionTargets.forEach(section => {
+          if (section.tagName === "TR") {
+            const rect = section.getBoundingClientRect()
+            if (rect.top <= headerBottom + 2) {
+              currentCategoryHtml = section.querySelector("td").innerHTML
+            }
+          }
+        })
+
+        if (currentCategoryHtml && headerVisible && tableRect.bottom > headerBottom) {
+          this._floatingCategory.style.top = headerBottom + "px"
+          this._floatingCategory.style.left = tableRect.left + "px"
+          this._floatingCategory.style.right = (window.innerWidth - tableRect.right) + "px"
+          this._floatingCategory.innerHTML = currentCategoryHtml
+          this._floatingCategory.style.display = "block"
         } else {
-          this._fixedBar.style.bottom = "0"
+          this._floatingCategory.style.display = "none"
+        }
+
+        // Stop the bottom bar at the footer so it doesn't cover it
+        const footer = document.querySelector("footer")
+        if (footer) {
+          const footerTop = footer.getBoundingClientRect().top
+          if (footerTop < window.innerHeight) {
+            this._fixedBar.style.bottom = (window.innerHeight - footerTop) + "px"
+          } else {
+            this._fixedBar.style.bottom = "0"
+          }
+        }
+
+        // Show scroll-to-top button after scrolling past one viewport height
+        if (this._scrollTopBtn) {
+          const barBottom = parseFloat(this._fixedBar.style.bottom) || 0
+          this._scrollTopBtn.style.bottom = (barBottom + this._fixedBar.offsetHeight + 12) + "px"
+          if (window.scrollY > window.innerHeight) {
+            this._scrollTopBtn.style.opacity = "1"
+            this._scrollTopBtn.style.pointerEvents = "auto"
+          } else {
+            this._scrollTopBtn.style.opacity = "0"
+            this._scrollTopBtn.style.pointerEvents = "none"
+          }
         }
       }
 
@@ -349,6 +398,12 @@ export default class extends Controller {
     }
   }
 
+  clearQuantity(event) {
+    const input = event.currentTarget.closest("[data-order-builder-row]").querySelector("[data-order-builder-target='quantityInput']")
+    this._setMatchQuantity(input.dataset.matchId, 0)
+    this.updateTotals()
+  }
+
   // === Per-supplier breakdown (progress bars + subtotals) ===
   _updateSupplierBreakdown(supplierTotals) {
     const minimums = this.supplierMinimumsValue || {}
@@ -438,8 +493,17 @@ export default class extends Controller {
     // Hide empty category sections
     if (this.hasCategorySectionTarget) {
       this.categorySectionTargets.forEach(section => {
-        const visibleRows = section.querySelectorAll("[data-order-builder-row]:not([style*='display: none'])")
-        section.style.display = visibleRows.length === 0 ? "none" : ""
+        const category = section.dataset.category
+        // On desktop, product rows are siblings with matching data-category
+        // On mobile, product rows are descendants of the section
+        const descendantRows = section.querySelectorAll("[data-order-builder-row]:not([style*='display: none'])")
+        if (descendantRows.length > 0) {
+          section.style.display = ""
+          return
+        }
+        // Desktop: check sibling rows with matching category
+        const siblingRows = this.element.querySelectorAll(`[data-order-builder-row][data-category="${category}"]:not([style*='display: none'])`)
+        section.style.display = siblingRows.length === 0 ? "none" : ""
       })
     }
   }
@@ -489,19 +553,5 @@ export default class extends Controller {
     }
   }
 
-  // === Feature 2: Accordion Toggle ===
-  toggleSection(event) {
-    const button = event.currentTarget
-    const section = button.closest("[data-order-builder-target='categorySection']")
-    const content = section.querySelector("[data-order-builder-target='categoryContent']")
-    const chevron = button.querySelector("[data-order-builder-target='chevron']")
-
-    if (content.style.display === "none") {
-      content.style.display = ""
-      if (chevron) chevron.style.transform = ""
-    } else {
-      content.style.display = "none"
-      if (chevron) chevron.style.transform = "rotate(-90deg)"
-    }
-  }
+  // === Feature 2: (removed — accordions replaced with flat category headers) ===
 }

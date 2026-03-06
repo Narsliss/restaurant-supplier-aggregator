@@ -167,6 +167,7 @@ Rails.application.routes.draw do
       post :retry_order
     end
     collection do
+      get :select_list
       get :split_preview
       post :split_create
       post :create_from_aggregated_list

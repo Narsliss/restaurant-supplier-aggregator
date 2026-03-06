@@ -1,0 +1,37 @@
+<%# Renders a read-only teaser cell for an unconnected supplier.
+    Locals:
+      supplier       - the Supplier (not connected to this aggregated list)
+      teaser_product - a SupplierProduct (or nil if no catalog match)
+%>
+<div class="opacity-60">
+  <% if teaser_product %>
+    <div class="text-sm text-gray-500"><%= teaser_product.supplier_name.truncate(60) %></div>
+    <div class="text-xs text-gray-400"><%= teaser_product.pack_size %></div>
+    <div class="mt-1">
+      <% if teaser_product.current_price %>
+        <span class="text-sm font-semibold text-gray-400">
+          $<%= '%.2f' % teaser_product.current_price %>
+          <% if teaser_product.price_unit.present? %>
+            /<%= teaser_product.price_unit.upcase %>
+          <% end %>
+        </span>
+        <% unless teaser_product.in_stock %>
+          <span class="ml-1 text-xs text-red-400">Out of stock</span>
+        <% end %>
+      <% else %>
+        <span class="text-xs text-gray-400 italic">No price available</span>
+      <% end %>
+    </div>
+    <div class="mt-2">
+      <%= link_to new_supplier_credential_path(supplier_id: supplier.id),
+          class: "inline-flex items-center gap-1 text-xs text-brand-orange hover:text-brand-orange-light font-medium" do %>
+        <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+        </svg>
+        Connect to order
+      <% end %>
+    </div>
+  <% else %>
+    <span class="text-sm text-gray-300">&mdash;</span>
+  <% end %>
+</div>

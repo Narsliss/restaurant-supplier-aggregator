@@ -85,6 +85,17 @@ export default class extends Controller {
     }
   }
 
+  focusInput(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (this.hasInputTarget) {
+      // Defer focus to next frame so the click event fully resolves first
+      requestAnimationFrame(() => {
+        this.inputTarget.focus()
+      })
+    }
+  }
+
   scrollToBottom() {
     if (this.hasMessageListTarget) {
       this.messageListTarget.scrollTop = this.messageListTarget.scrollHeight
