@@ -27,6 +27,10 @@ Devise.setup do |config|
   # config.timeout_in = 30.minutes
 
   config.navigational_formats = ["*/*", :html, :turbo_stream]
+  # Scoped views — required for multi-model Devise (User + SupplierUser)
+  # Each model gets its own view templates under app/views/<model_scope>/
+  config.scoped_views = true
+
   config.responder.error_status = :unprocessable_entity
   config.responder.redirect_status = :see_other
 end

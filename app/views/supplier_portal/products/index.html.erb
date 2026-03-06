@@ -1,0 +1,133 @@
+<% content_for(:title) { "Products — #{current_supplier.name} Supplier Portal" } %>
+
+<div class="space-y-6">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Products</h1>
+      <p class="text-gray-500 mt-1"><%= number_with_delimiter(@product_stats[:total]) %> total products</p>
+    </div>
+    <%= link_to "Product Health", health_supplier_portal_products_path,
+        class: "inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors" %>
+  </div>
+
+  <%# Stats bar %>
+  <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+    <% [
+      ["Active", @product_stats[:active], nil],
+      ["In Stock", @product_stats[:in_stock], "in_stock"],
+      ["Out of Stock", @product_stats[:out_of_stock], "out_of_stock"],
+      ["Discontinued", @product_stats[:discontinued], "discontinued"],
+      ["Price Changed", @product_stats[:price_changed], "price_changed"]
+    ].each do |label, count, filter_val| %>
+      <% active = params[:filter] == filter_val || (filter_val.nil? && params[:filter].blank?) %>
+      <%= link_to supplier_portal_products_path(filter: filter_val, q: params[:q]),
+          class: "rounded-lg border p-3 text-center transition-colors #{active ? 'border-brand-green bg-brand-green/5' : 'border-gray-200 bg-white hover:border-gray-300'}" do %>
+        <p class="text-lg font-bold <%= active ? 'text-brand-green-dark' : 'text-gray-900' %>"><%= number_with_delimiter(count) %></p>
+        <p class="text-xs <%= active ? 'text-brand-green-dark' : 'text-gray-500' %>"><%= label %></p>
+      <% end %>
+    <% end %>
+  </div>
+
+  <%# Search %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+    <%= form_tag(supplier_portal_products_path, method: :get, class: "flex gap-3") do %>
+      <%= hidden_field_tag :filter, params[:filter] %>
+      <input type="text" name="q" value="<%= params[:q] %>" placeholder="Search products by name..."
+             class="flex-1 rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3"
+             autofocus>
+      <button type="submit" class="inline-flex items-center rounded-lg bg-brand-green px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-brand-green-dark transition-colors cursor-pointer">
+        Search
+      </button>
+      <% if params[:q].present? %>
+        <%= link_to "Clear", supplier_portal_products_path(filter: params[:filter]),
+            class: "inline-flex items-center rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors" %>
+      <% end %>
+    <% end %>
+  </div>
+
+  <%# Product table %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <%# Desktop %>
+    <div class="hidden sm:block overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pack Size</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Per Unit</th>
+            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Updated</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @products.each do |product| %>
+            <tr class="hover:bg-gray-50">
+              <td class="px-6 py-4 text-sm font-medium text-gray-900">
+                <%= link_to product.supplier_name, supplier_portal_product_path(product),
+                    class: "text-brand-green-dark hover:underline" %>
+              </td>
+              <td class="px-6 py-4 text-sm text-gray-500 font-mono"><%= product.supplier_sku %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right">
+                <%= product.current_price ? number_to_currency(product.current_price) : "—" %>
+                <% if product.price_changed? %>
+                  <span class="block text-xs <%= product.price_increased? ? 'text-red-600' : 'text-green-600' %>">
+                    was <%= number_to_currency(product.previous_price) %>
+                  </span>
+                <% end %>
+              </td>
+              <td class="px-6 py-4 text-sm text-gray-500"><%= product.pack_size || "—" %></td>
+              <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= product.formatted_per_unit_price || "—" %></td>
+              <td class="px-6 py-4 text-center">
+                <% if product.discontinued? %>
+                  <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Discontinued</span>
+                <% elsif product.out_of_stock? %>
+                  <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Out of Stock</span>
+                <% else %>
+                  <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">In Stock</span>
+                <% end %>
+              </td>
+              <td class="px-6 py-4 text-sm text-gray-400 text-right">
+                <%= product.last_scraped_at ? time_ago_in_words(product.last_scraped_at) + " ago" : "—" %>
+              </td>
+            </tr>
+          <% end %>
+          <% if @products.empty? %>
+            <tr><td colspan="7" class="px-6 py-8 text-center text-sm text-gray-400">No products found</td></tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+
+    <%# Mobile cards %>
+    <div class="sm:hidden divide-y divide-gray-200">
+      <% @products.each do |product| %>
+        <div class="p-4">
+          <div class="flex justify-between items-start">
+            <div class="flex-1 min-w-0">
+              <%= link_to product.supplier_name, supplier_portal_product_path(product),
+                  class: "text-sm font-medium text-brand-green-dark hover:underline block truncate" %>
+              <p class="text-xs text-gray-400 font-mono mt-0.5"><%= product.supplier_sku %></p>
+            </div>
+            <div class="text-right ml-3">
+              <p class="text-sm font-semibold text-gray-900"><%= product.current_price ? number_to_currency(product.current_price) : "—" %></p>
+              <% if product.discontinued? %>
+                <span class="text-xs text-gray-500">Discontinued</span>
+              <% elsif product.out_of_stock? %>
+                <span class="text-xs text-red-600">Out of Stock</span>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      <% end %>
+      <% if @products.empty? %>
+        <div class="p-8 text-center text-sm text-gray-400">No products found</div>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Pagination %>
+  <% base = supplier_portal_products_path(filter: params[:filter], q: params[:q]) %>
+  <%= render "supplier_portal/shared/pagination", page: @page, per_page: @per_page, total_count: @total_count, base_path: base %>
+</div>

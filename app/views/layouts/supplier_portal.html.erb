@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-brand-stone" data-controller="theme">
+  <head>
+    <title><%= content_for(:title) || "Supplier Portal — SupplierHub" %></title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="turbo-cache-control" content="no-preview">
+    <script>
+      (function() {
+        var t = localStorage.getItem('supplierhub-theme');
+        if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.classList.add('dark');
+      })();
+    </script>
+    <%= favicon_link_tag "logo.svg", type: "image/svg+xml" %>
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+
+    <%= stylesheet_link_tag "tailwind", "inter-font", "data-turbo-track": "reload" %>
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+    <%= yield :head %>
+  </head>
+
+  <body class="h-full">
+    <div class="min-h-full flex flex-col">
+      <%= render "supplier_portal/shared/navigation" %>
+
+      <main class="py-10 flex-1">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <%= render "shared/flash_messages" %>
+          <%= yield %>
+        </div>
+      </main>
+
+      <footer class="bg-white border-t border-gray-200">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-4">
+          <p class="text-xs text-gray-400 text-center">&copy; <%= Date.current.year %> SupplierHub &mdash; Supplier Portal</p>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

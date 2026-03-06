@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_04_015049) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_05_200002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -262,6 +262,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_04_015049) do
     t.index ["organization_id"], name: "index_orders_on_organization_id"
     t.index ["status"], name: "index_orders_on_status"
     t.index ["submitted_at"], name: "index_orders_on_submitted_at"
+    t.index ["supplier_id", "status", "submitted_at"], name: "idx_orders_supplier_status_submitted"
     t.index ["supplier_id"], name: "index_orders_on_supplier_id"
     t.index ["user_id", "status"], name: "index_orders_on_user_id_and_status"
     t.index ["user_id", "submitted_at"], name: "index_orders_on_user_id_and_submitted_at"
@@ -667,6 +668,23 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_04_015049) do
     t.index ["sync_status"], name: "index_supplier_lists_on_sync_status"
   end
 
+  create_table "supplier_portal_invitations", force: :cascade do |t|
+    t.bigint "supplier_id", null: false
+    t.string "email", null: false
+    t.string "role", default: "rep", null: false
+    t.string "token", null: false
+    t.string "invited_by_type"
+    t.bigint "invited_by_id"
+    t.datetime "expires_at", null: false
+    t.datetime "accepted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invited_by_type", "invited_by_id"], name: "index_supplier_portal_invitations_on_invited_by"
+    t.index ["supplier_id", "email"], name: "idx_supplier_portal_invitations_supplier_email", unique: true
+    t.index ["supplier_id"], name: "index_supplier_portal_invitations_on_supplier_id"
+    t.index ["token"], name: "index_supplier_portal_invitations_on_token", unique: true
+  end
+
   create_table "supplier_products", force: :cascade do |t|
     t.bigint "product_id"
     t.bigint "supplier_id", null: false
@@ -713,6 +731,37 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_04_015049) do
     t.index ["supplier_id", "requirement_type", "location_id"], name: "idx_supplier_req_type_location", unique: true
     t.index ["supplier_id", "requirement_type"], name: "idx_supplier_req_type_global", unique: true, where: "(location_id IS NULL)"
     t.index ["supplier_id"], name: "index_supplier_requirements_on_supplier_id"
+  end
+
+  create_table "supplier_users", force: :cascade do |t|
+    t.bigint "supplier_id", null: false
+    t.string "email", null: false
+    t.string "encrypted_password", default: "", null: false
+    t.string "first_name", null: false
+    t.string "last_name", null: false
+    t.string "role", default: "rep", null: false
+    t.string "phone"
+    t.boolean "active", default: true, null: false
+    t.string "reset_password_token"
+    t.datetime "reset_password_sent_at"
+    t.datetime "remember_created_at"
+    t.integer "sign_in_count", default: 0, null: false
+    t.datetime "current_sign_in_at"
+    t.datetime "last_sign_in_at"
+    t.string "current_sign_in_ip"
+    t.string "last_sign_in_ip"
+    t.integer "failed_attempts", default: 0, null: false
+    t.string "unlock_token"
+    t.datetime "locked_at"
+    t.string "invitation_token"
+    t.datetime "invitation_accepted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_supplier_users_on_email", unique: true
+    t.index ["invitation_token"], name: "index_supplier_users_on_invitation_token", unique: true
+    t.index ["reset_password_token"], name: "index_supplier_users_on_reset_password_token", unique: true
+    t.index ["supplier_id"], name: "index_supplier_users_on_supplier_id"
+    t.index ["unlock_token"], name: "index_supplier_users_on_unlock_token", unique: true
   end
 
   create_table "suppliers", force: :cascade do |t|
@@ -828,9 +877,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_04_015049) do
   add_foreign_key "supplier_lists", "organizations"
   add_foreign_key "supplier_lists", "supplier_credentials", on_delete: :cascade
   add_foreign_key "supplier_lists", "suppliers", on_delete: :cascade
+  add_foreign_key "supplier_portal_invitations", "suppliers"
   add_foreign_key "supplier_products", "products", on_delete: :nullify
   add_foreign_key "supplier_products", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_requirements", "locations", on_delete: :cascade
   add_foreign_key "supplier_requirements", "suppliers", on_delete: :cascade
+  add_foreign_key "supplier_users", "suppliers"
   add_foreign_key "users", "organizations", column: "current_organization_id"
 end

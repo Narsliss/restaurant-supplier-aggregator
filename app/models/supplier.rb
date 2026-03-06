@@ -9,6 +9,8 @@ class Supplier < ApplicationRecord
   has_many :orders, dependent: :restrict_with_error
   has_many :supplier_lists, dependent: :destroy
   has_many :product_match_items, dependent: :destroy
+  has_many :supplier_users, dependent: :destroy
+  has_many :supplier_portal_invitations, dependent: :destroy
 
   # Validations
   validates :name, presence: true

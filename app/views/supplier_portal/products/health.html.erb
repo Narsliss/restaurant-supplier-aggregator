@@ -1,0 +1,133 @@
+<% content_for(:title) { "Product Health — #{current_supplier.name} Supplier Portal" } %>
+
+<div class="space-y-8">
+  <div>
+    <%= link_to "← Products", supplier_portal_products_path, class: "text-sm text-brand-green-dark hover:underline" %>
+    <h1 class="text-3xl font-bold text-gray-900 mt-2">Product Health</h1>
+    <p class="text-gray-500 mt-1">Items that may need attention</p>
+  </div>
+
+  <%# Summary cards %>
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-6">
+    <%= render "supplier_portal/shared/stat_card",
+        label: "Out of Stock",
+        value: number_with_delimiter(@health_stats[:out_of_stock]),
+        color: @health_stats[:out_of_stock] > 0 ? "text-red-600" : "text-gray-900" %>
+    <%= render "supplier_portal/shared/stat_card",
+        label: "Discontinued",
+        value: number_with_delimiter(@health_stats[:discontinued]),
+        color: @health_stats[:discontinued] > 0 ? "text-gray-600" : "text-gray-900" %>
+    <%= render "supplier_portal/shared/stat_card",
+        label: "At Risk",
+        value: number_with_delimiter(@health_stats[:at_risk]),
+        color: @health_stats[:at_risk] > 0 ? "text-yellow-600" : "text-gray-900" %>
+    <%= render "supplier_portal/shared/stat_card",
+        label: "Stale Data",
+        value: number_with_delimiter(@health_stats[:stale]),
+        color: @health_stats[:stale] > 0 ? "text-orange-600" : "text-gray-900" %>
+  </div>
+
+  <%# Stacked Health Bar %>
+  <% if @total_products > 0 %>
+    <%
+      issues = @health_stats.values.sum
+      healthy = @in_stock_count
+      segments = [
+        { label: "In Stock",      count: healthy,                          color: "#22c55e", text_color: "#16a34a" },
+        { label: "Out of Stock",   count: @health_stats[:out_of_stock],    color: "#ef4444", text_color: "#dc2626" },
+        { label: "At Risk",        count: @health_stats[:at_risk],         color: "#facc15", text_color: "#ca8a04" },
+        { label: "Stale Data",     count: @health_stats[:stale],           color: "#fb923c", text_color: "#ea580c" },
+        { label: "Discontinued",   count: @health_stats[:discontinued],    color: "#9ca3af", text_color: "#4b5563" }
+      ]
+    %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-gray-900">Catalog Breakdown</h2>
+          <span class="text-sm text-gray-400"><%= number_with_delimiter(@total_products) %> total products</span>
+        </div>
+      </div>
+      <div class="px-6 py-5">
+        <%# Stacked bar %>
+        <div class="w-full h-6 bg-gray-100 rounded-full overflow-hidden flex">
+          <% segments.each do |seg| %>
+            <% pct = (seg[:count].to_f / @total_products * 100).round(1) %>
+            <% next if pct < 0.5 %>
+            <div class="h-full transition-all" style="width: <%= pct %>%; background-color: <%= seg[:color] %>;" title="<%= seg[:label] %>: <%= seg[:count] %> (<%= pct %>%)"></div>
+          <% end %>
+        </div>
+
+        <%# Legend %>
+        <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4">
+          <% segments.each do |seg| %>
+            <% pct = (seg[:count].to_f / @total_products * 100).round(1) %>
+            <div class="flex items-center gap-1.5 text-sm">
+              <span class="rounded-full flex-shrink-0" style="width: 12px; height: 12px; background-color: <%= seg[:color] %>;"></span>
+              <span class="text-gray-600"><%= seg[:label] %></span>
+              <span class="font-medium" style="color: <%= seg[:text_color] %>;"><%= number_with_delimiter(seg[:count]) %></span>
+              <span class="text-gray-400">(<%= pct %>%)</span>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <%# Helper to render a product health section %>
+  <% health_section = ->(title, description, products, badge_class, badge_text) do %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <div class="flex items-center gap-3">
+          <h2 class="text-lg font-semibold text-gray-900"><%= title %></h2>
+          <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium <%= badge_class %>"><%= products.size %></span>
+        </div>
+        <p class="text-sm text-gray-500 mt-1"><%= description %></p>
+      </div>
+
+      <% if products.any? %>
+        <div class="hidden sm:block overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Last Updated</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              <% products.each do |product| %>
+                <tr class="hover:bg-gray-50">
+                  <td class="px-6 py-3 text-sm font-medium">
+                    <%= link_to product.supplier_name, supplier_portal_product_path(product),
+                        class: "text-brand-green-dark hover:underline" %>
+                  </td>
+                  <td class="px-6 py-3 text-sm text-gray-500 font-mono"><%= product.supplier_sku %></td>
+                  <td class="px-6 py-3 text-sm text-gray-900 text-right"><%= product.current_price ? number_to_currency(product.current_price) : "—" %></td>
+                  <td class="px-6 py-3 text-sm text-gray-400 text-right"><%= product.last_scraped_at ? time_ago_in_words(product.last_scraped_at) + " ago" : "—" %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="sm:hidden divide-y divide-gray-200">
+          <% products.each do |product| %>
+            <div class="p-4">
+              <%= link_to product.supplier_name, supplier_portal_product_path(product),
+                  class: "text-sm font-medium text-brand-green-dark hover:underline" %>
+              <p class="text-xs text-gray-400 font-mono"><%= product.supplier_sku %></p>
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="px-6 py-6 text-center text-sm text-gray-400">None found — everything looks good!</div>
+      <% end %>
+    </div>
+  <% end %>
+
+  <%= health_section.call("Out of Stock", "Products currently marked as unavailable.", @out_of_stock, "bg-red-100 text-red-800", "out of stock") %>
+  <%= health_section.call("Discontinued", "Products removed from the catalog after missing 3+ consecutive imports.", @discontinued, "bg-gray-100 text-gray-800", "discontinued") %>
+  <%= health_section.call("At Risk", "Products missing from 1-2 recent imports — may be discontinued soon.", @at_risk, "bg-yellow-100 text-yellow-800", "at risk") %>
+  <%= health_section.call("Stale Data", "Products not updated in 24+ hours — may indicate scraping issues.", @stale, "bg-orange-100 text-orange-800", "stale") %>
+</div>

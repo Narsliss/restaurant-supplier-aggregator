@@ -4,6 +4,46 @@ Rails.application.routes.draw do
     passwords: 'users/passwords'
   }
 
+  # Supplier Portal Auth (separate Devise scope)
+  devise_for :supplier_users, path: "supplier", controllers: {
+    sessions: "supplier_portal/sessions",
+    passwords: "supplier_portal/passwords"
+  }
+
+  # Accept supplier portal invitation (public routes)
+  get "supplier/invitations/:token/accept", to: "supplier_portal/invitations#show", as: :accept_supplier_portal_invitation
+  post "supplier/invitations/:token/accept", to: "supplier_portal/invitations#accept"
+
+  # Supplier Portal (authenticated supplier users)
+  authenticate :supplier_user do
+    namespace :supplier_portal, path: "supplier" do
+      root to: "dashboard#index"
+
+      resources :products, only: [:index, :show] do
+        collection do
+          get :health
+        end
+      end
+
+      resources :orders, only: [:index, :show] do
+        collection do
+          get :export
+        end
+      end
+
+      resources :abandoned_carts, only: [:index, :show]
+
+      resources :customers, only: [:index, :show]
+
+      resource :analytics, only: [:show], controller: "analytics" do
+        collection do
+          get :revenue
+          get :products
+        end
+      end
+    end
+  end
+
   root 'dashboard#index'
   post 'onboarding/dismiss', to: 'dashboard#dismiss_onboarding', as: :dismiss_onboarding
 
@@ -190,6 +230,9 @@ Rails.application.routes.draw do
       resource :revenue, only: [:show]
       resource :operations, only: [:show]
       resource :usage, only: [:show]
+
+      # Supplier Portal User Management
+      resources :supplier_portal_users, only: [:index, :new, :create]
     end
 
     mount MissionControl::Jobs::Engine, at: '/jobs'

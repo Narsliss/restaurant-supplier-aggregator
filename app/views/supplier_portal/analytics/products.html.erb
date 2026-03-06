@@ -1,0 +1,215 @@
+<div class="space-y-6">
+  <%# Page header %>
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Analytics</h1>
+    <p class="mt-1 text-sm text-gray-500">Product performance for <%= current_supplier.name %></p>
+  </div>
+
+  <%# Tabs (no date range filter — products uses fixed 30d/90d windows) %>
+  <%= render "supplier_portal/analytics/tabs", active_tab: "products" %>
+
+  <%# Top Sellers — last 30 days, top 20 by revenue %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-medium text-gray-700">Top Sellers</h3>
+      <span class="text-xs text-gray-400">Last 30 days &middot; by revenue</span>
+    </div>
+
+    <% if @top_sellers.present? && @top_sellers.any? %>
+      <% max_seller_rev = @top_sellers.map { |p| p.total_revenue.to_f }.max %>
+
+      <%# Desktop table %>
+      <div class="hidden md:block overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-200 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th class="pb-3 pr-3 w-10">#</th>
+              <th class="pb-3 pr-3">Product</th>
+              <th class="pb-3 pr-3 text-right">Revenue</th>
+              <th class="pb-3 pr-3 text-right">Qty Sold</th>
+              <th class="pb-3 pr-3 text-right">Orders</th>
+              <th class="pb-3 text-right">Avg Qty/Order</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <% @top_sellers.each_with_index do |product, index| %>
+              <tr>
+                <td class="py-3 pr-3 text-gray-400 font-medium"><%= index + 1 %></td>
+                <td class="py-3 pr-3">
+                  <%= link_to product.product_name,
+                      supplier_portal_product_path(product.product_id),
+                      class: "font-medium hover:underline",
+                      style: "color: #1a5632;" %>
+                  <div class="text-xs font-mono text-gray-400 mt-0.5"><%= product.sku %></div>
+                </td>
+                <td class="py-3 pr-3 text-right">
+                  <span class="font-semibold text-gray-900"><%= number_to_currency(product.total_revenue) %></span>
+                  <div class="mt-1" style="width: 100%; background-color: #e5e7eb; height: 6px; border-radius: 9999px;">
+                    <div style="width: <%= (product.total_revenue.to_f / max_seller_rev * 100).round %>%; background-color: #22c55e; height: 6px; border-radius: 9999px;"></div>
+                  </div>
+                </td>
+                <td class="py-3 pr-3 text-right text-gray-900"><%= number_with_delimiter(product.total_qty) %></td>
+                <td class="py-3 pr-3 text-right text-gray-900"><%= number_with_delimiter(product.order_frequency) %></td>
+                <td class="py-3 text-right text-gray-900"><%= product.avg_qty_per_order %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <%# Mobile cards %>
+      <div class="md:hidden divide-y divide-gray-200">
+        <% @top_sellers.each_with_index do |product, index| %>
+          <div class="py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3 min-w-0">
+              <span class="text-sm font-medium text-gray-400 shrink-0"><%= index + 1 %></span>
+              <div class="min-w-0">
+                <%= link_to product.product_name,
+                    supplier_portal_product_path(product.product_id),
+                    class: "text-sm font-medium truncate block hover:underline",
+                    style: "color: #1a5632;" %>
+                <p class="text-xs text-gray-500 mt-0.5"><%= product.total_qty %> qty &middot; <%= product.order_frequency %> orders</p>
+              </div>
+            </div>
+            <span class="text-sm font-semibold text-gray-900 shrink-0 ml-3"><%= number_to_currency(product.total_revenue) %></span>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-32 text-sm text-gray-400">
+        No product data in the last 30 days
+      </div>
+    <% end %>
+  </div>
+
+  <%# Trending Up — last 30d vs prior 30d %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-medium text-gray-700">Trending Up</h3>
+      <span class="text-xs text-gray-400">Last 30d vs prior 30d &middot; by order volume</span>
+    </div>
+
+    <% if @trending_up.present? && @trending_up.any? %>
+      <div class="divide-y divide-gray-200">
+        <% @trending_up.each do |product| %>
+          <div class="py-3 flex items-center justify-between">
+            <div class="min-w-0">
+              <%= link_to product[:product_name],
+                  supplier_portal_product_path(product[:product_id]),
+                  class: "text-sm font-medium hover:underline",
+                  style: "color: #1a5632;" %>
+              <div class="text-xs font-mono text-gray-400 mt-0.5"><%= product[:sku] %></div>
+            </div>
+            <div class="flex items-center gap-3 shrink-0 ml-3">
+              <span class="text-xs text-gray-500"><%= product[:prev_qty] %> &rarr; <%= product[:current_qty] %></span>
+              <span class="text-xs font-medium px-2 py-0.5 rounded-full" style="background-color: #dcfce7; color: #166534;">+<%= product[:change] %>%</span>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-32 text-sm text-gray-400">
+        No products trending up
+      </div>
+    <% end %>
+  </div>
+
+  <%# Trending Down — last 30d vs prior 30d %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-medium text-gray-700">Trending Down</h3>
+      <span class="text-xs text-gray-400">Last 30d vs prior 30d &middot; by order volume</span>
+    </div>
+
+    <% if @trending_down.present? && @trending_down.any? %>
+      <div class="divide-y divide-gray-200">
+        <% @trending_down.each do |product| %>
+          <div class="py-3 flex items-center justify-between">
+            <div class="min-w-0">
+              <%= link_to product[:product_name],
+                  supplier_portal_product_path(product[:product_id]),
+                  class: "text-sm font-medium hover:underline",
+                  style: "color: #1a5632;" %>
+              <div class="text-xs font-mono text-gray-400 mt-0.5"><%= product[:sku] %></div>
+            </div>
+            <div class="flex items-center gap-3 shrink-0 ml-3">
+              <span class="text-xs text-gray-500"><%= product[:prev_qty] %> &rarr; <%= product[:current_qty] %></span>
+              <span class="text-xs font-medium px-2 py-0.5 rounded-full" style="background-color: #fee2e2; color: #991b1b;"><%= product[:change] %>%</span>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-32 text-sm text-gray-400">
+        No products trending down
+      </div>
+    <% end %>
+  </div>
+
+  <%# Never Ordered — no orders in last 90 days %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <h3 class="text-sm font-medium text-gray-700">Never Ordered</h3>
+        <% if @never_ordered.present? %>
+          <span class="text-xs font-medium px-2 py-0.5 rounded-full" style="background-color: #f3f4f6; color: #1f2937;"><%= @never_ordered.size %></span>
+        <% end %>
+      </div>
+      <span class="text-xs text-gray-400">No orders in 90 days</span>
+    </div>
+
+    <% if @never_ordered.present? && @never_ordered.any? %>
+      <%# Desktop table %>
+      <div class="hidden md:block overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-200 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th class="pb-3 pr-3">Product</th>
+              <th class="pb-3 pr-3">SKU</th>
+              <th class="pb-3 pr-3 text-right">Price</th>
+              <th class="pb-3 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <% @never_ordered.each do |product| %>
+              <tr>
+                <td class="py-3 pr-3">
+                  <%= link_to product.supplier_name,
+                      supplier_portal_product_path(product),
+                      class: "font-medium hover:underline",
+                      style: "color: #1a5632;" %>
+                </td>
+                <td class="py-3 pr-3 font-mono text-gray-500"><%= product.supplier_sku %></td>
+                <td class="py-3 pr-3 text-right text-gray-900"><%= number_to_currency(product.current_price) %></td>
+                <td class="py-3 text-right">
+                  <% if product.in_stock? %>
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full" style="background-color: #dcfce7; color: #166534;">In Stock</span>
+                  <% else %>
+                    <span class="text-xs font-medium px-2 py-0.5 rounded-full" style="background-color: #fee2e2; color: #991b1b;">Out of Stock</span>
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <%# Mobile cards %>
+      <div class="md:hidden divide-y divide-gray-200">
+        <% @never_ordered.each do |product| %>
+          <div class="py-3">
+            <%= link_to product.supplier_name,
+                supplier_portal_product_path(product),
+                class: "text-sm font-medium hover:underline",
+                style: "color: #1a5632;" %>
+            <div class="text-xs font-mono text-gray-400 mt-0.5"><%= product.supplier_sku %></div>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-32 text-sm text-gray-400">
+        All catalog products have been ordered in the last 90 days
+      </div>
+    <% end %>
+  </div>
+</div>

@@ -82,6 +82,7 @@ class ApplicationController < ActionController::Base
       controller_name == "dashboard" ||         # onboarding landing page
       controller_path.start_with?("webhooks") ||
       controller_path.start_with?("admin") ||  # super admin panel
+      controller_path.start_with?("supplier_portal") || # supplier portal
       controller_name == "health"
   end
 
@@ -135,6 +136,7 @@ class ApplicationController < ActionController::Base
       controller_name == "subscriptions" ||
       controller_name == "invitations" ||
       controller_path.start_with?("webhooks") ||
+      controller_path.start_with?("supplier_portal") || # supplier portal
       controller_name == "health"
   end
 end

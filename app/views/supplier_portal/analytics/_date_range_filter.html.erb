@@ -1,0 +1,33 @@
+<%# Date range filter. Local: form_path %>
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+  <%= form_tag(local_assigns[:form_path] || supplier_portal_analytics_path, method: :get, class: "space-y-3") do %>
+    <div class="flex flex-col sm:flex-row gap-3">
+      <select name="date_range"
+              data-controller="date-range"
+              data-action="change->date-range#toggle"
+              class="rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3">
+        <option value="7d" <%= 'selected' if params[:date_range] == '7d' %>>Last 7 Days</option>
+        <option value="30d" <%= 'selected' if params[:date_range] == '30d' || params[:date_range].blank? %>>Last 30 Days</option>
+        <option value="90d" <%= 'selected' if params[:date_range] == '90d' %>>Last 90 Days</option>
+        <option value="ytd" <%= 'selected' if params[:date_range] == 'ytd' %>>Year to Date</option>
+        <option value="custom" <%= 'selected' if params[:date_range] == 'custom' %>>Custom</option>
+      </select>
+      <button type="submit" class="inline-flex items-center rounded-lg bg-brand-green px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-brand-green-dark transition-colors cursor-pointer">
+        Apply
+      </button>
+    </div>
+    <div data-date-range-target="customFields"
+         class="flex flex-col sm:flex-row gap-3 <%= 'hidden' unless params[:date_range] == 'custom' %>">
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-500">From</label>
+        <input type="date" name="start_date" value="<%= params[:start_date] %>"
+               class="rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2 px-3">
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-500">To</label>
+        <input type="date" name="end_date" value="<%= params[:end_date] %>"
+               class="rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2 px-3">
+      </div>
+    </div>
+  <% end %>
+</div>

@@ -1,0 +1,131 @@
+<% content_for :title, "Supplier Portal — Sign In" %>
+
+<div class="flex min-h-screen">
+  <%# Left panel: Supplier Portal branding %>
+  <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden" style="background-color: #3A6147;">
+    <div class="absolute -bottom-24 -left-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(212,148,58,0.08);"></div>
+    <div class="absolute -top-24 -right-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(74,124,89,0.1);"></div>
+
+    <div class="relative z-10 flex flex-col justify-between p-12 w-full">
+      <div>
+        <%= render "shared/logo", variant: :login %>
+        <p class="mt-3 text-lg" style="color: #9ca3af;">Supplier Portal</p>
+      </div>
+
+      <div class="space-y-8">
+        <h2 class="text-2xl text-white font-heading leading-relaxed">
+          Your product and customer analytics, all in one place.
+        </h2>
+        <p style="color: #9ca3af;" class="leading-relaxed">
+          Track orders, review your catalog, and see how your products are performing across all your SupplierHub customers.
+        </p>
+        <div class="flex flex-col space-y-3 text-sm">
+          <div class="flex items-center space-x-3">
+            <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(74,124,89,0.25);">
+              <svg class="h-4 w-4" style="color: #5A9469;" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <span style="color: #d1d5db;">Review your imported product catalog</span>
+          </div>
+          <div class="flex items-center space-x-3">
+            <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(74,124,89,0.25);">
+              <svg class="h-4 w-4" style="color: #5A9469;" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <span style="color: #d1d5db;">Track order volume and revenue</span>
+          </div>
+          <div class="flex items-center space-x-3">
+            <div class="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center" style="background-color: rgba(74,124,89,0.25);">
+              <svg class="h-4 w-4" style="color: #5A9469;" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <span style="color: #d1d5db;">Monitor product health and availability</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs" style="color: #6b7280;">&copy; <%= Date.current.year %> SupplierHub</p>
+    </div>
+  </div>
+
+  <%# Right: Login form %>
+  <div class="flex flex-1 flex-col justify-center px-6 py-12 lg:flex-none lg:w-1/2 lg:px-20 xl:px-24">
+    <div class="mx-auto w-full max-w-sm lg:w-96">
+      <div class="lg:hidden mb-10 text-center">
+        <%= render "shared/logo", variant: :login_mobile %>
+      </div>
+
+      <div>
+        <h2 class="text-3xl font-heading font-bold tracking-tight text-gray-900">
+          Supplier Portal
+        </h2>
+        <p class="mt-2 text-sm text-gray-500">
+          Sign in to view your product and customer analytics
+        </p>
+      </div>
+
+      <% flash.each do |type, message| %>
+        <% next if message.blank? %>
+        <div class="mt-4 rounded-lg border px-4 py-3 text-sm
+          <%= type.to_s == 'alert' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-blue-50 border-blue-200 text-blue-700' %>">
+          <%= message %>
+        </div>
+      <% end %>
+
+      <div class="mt-8">
+        <%= form_for(resource, as: resource_name, url: supplier_user_session_path, html: { class: "space-y-5" }) do |f| %>
+          <div>
+            <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
+            <div class="mt-1.5">
+              <%= f.email_field :email, autofocus: true, autocomplete: "email",
+                  class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
+                  placeholder: "you@supplier.com" %>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between">
+              <%= f.label :password, class: "block text-sm font-medium text-gray-700" %>
+              <%= link_to "Forgot password?", new_supplier_user_password_path,
+                  class: "text-sm font-medium text-brand-orange hover:text-brand-orange-dark transition-colors" %>
+            </div>
+            <div class="mt-1.5 relative" data-controller="password-toggle">
+              <%= f.password_field :password, autocomplete: "current-password",
+                  class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3 pr-10",
+                  data: { password_toggle_target: "input" } %>
+              <button type="button" data-action="password-toggle#toggle"
+                      class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none">
+                <svg data-password-toggle-target="showIcon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <svg data-password-toggle-target="hideIcon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 hidden">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex items-center">
+            <%= f.check_box :remember_me, class: "rounded border-gray-300 text-brand-green focus:ring-brand-green" %>
+            <%= f.label :remember_me, "Keep me signed in", class: "ml-2 block text-sm text-gray-600" %>
+          </div>
+
+          <div class="pt-1">
+            <%= f.submit "Sign in",
+                class: "flex w-full justify-center rounded-lg bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange transition-colors cursor-pointer" %>
+          </div>
+        <% end %>
+
+        <p class="mt-8 text-center text-sm text-gray-400">
+          Looking for the restaurant app?
+          <%= link_to "Sign in here", new_user_session_path,
+              class: "font-semibold text-brand-green-dark hover:text-brand-green transition-colors" %>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

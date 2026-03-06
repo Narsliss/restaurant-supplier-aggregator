@@ -1,0 +1,183 @@
+<% content_for(:title) { "Abandoned Cart ##{@order.id} — Supplier Portal" } %>
+
+<div class="space-y-8">
+  <%# Breadcrumb %>
+  <div>
+    <%= link_to "← Abandoned Carts", supplier_portal_abandoned_carts_path, class: "text-sm text-brand-green-dark hover:underline" %>
+  </div>
+
+  <%# Header card %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-5 border-b border-gray-200">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Cart #<%= @order.id %></h1>
+          <p class="text-sm text-gray-500 mt-1">Created <%= @order.created_at.strftime("%B %-d, %Y at %l:%M %p") %></p>
+        </div>
+        <div class="flex items-center gap-3">
+          <% case @order.status
+             when "pending" %>
+            <span class="inline-flex px-3 py-1 rounded-full text-sm font-medium" style="background-color: #fef3c7; color: #92400e;">Abandoned</span>
+          <% when "failed" %>
+            <span class="inline-flex px-3 py-1 rounded-full text-sm font-medium" style="background-color: #fee2e2; color: #991b1b;">Failed</span>
+          <% when "cancelled" %>
+            <span class="inline-flex px-3 py-1 rounded-full text-sm font-medium" style="background-color: #f3f4f6; color: #374151;">Cancelled</span>
+          <% end %>
+        </div>
+      </div>
+    </div>
+
+    <%# Customer info %>
+    <div class="px-6 py-4">
+      <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <dt class="text-sm font-medium text-gray-500">Customer</dt>
+          <dd class="mt-1 text-sm text-gray-900">
+            <% if @customer %>
+              <%= link_to @customer.name, supplier_portal_customer_path(@customer), class: "text-brand-green-dark hover:underline" %>
+            <% else %>
+              <span class="text-gray-400">—</span>
+            <% end %>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-gray-500">Location</dt>
+          <dd class="mt-1 text-sm text-gray-900">
+            <% if @location %>
+              <%= @location.name %>
+              <% if @location.city.present? || @location.state.present? %>
+                <span class="text-gray-400">— <%= [@location.city, @location.state].compact.join(", ") %></span>
+              <% end %>
+            <% else %>
+              <span class="text-gray-400">—</span>
+            <% end %>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-gray-500">Age</dt>
+          <dd class="mt-1 text-sm text-gray-900"><%= time_ago_in_words(@order.created_at) %> ago</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <%# Error message (for failed orders) %>
+  <% if @order.status == "failed" && @order.error_message.present? %>
+    <div class="rounded-xl border p-4" style="background-color: #fee2e2; border-color: #fecaca;">
+      <div class="flex">
+        <svg class="h-5 w-5 flex-shrink-0" style="color: #ef4444;" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <div class="ml-3">
+          <h3 class="text-sm font-medium" style="color: #991b1b;">Order Failed</h3>
+          <p class="mt-1 text-sm" style="color: #b91c1c;"><%= @order.error_message %></p>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+  <%# Stat cards %>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+    <%= render "supplier_portal/shared/stat_card",
+        label: "Cart Value",
+        value: number_to_currency(@order.total_amount) %>
+
+    <%= render "supplier_portal/shared/stat_card",
+        label: "Items",
+        value: @items_count %>
+
+    <%= render "supplier_portal/shared/stat_card",
+        label: "Last Updated",
+        value: @order.updated_at.strftime("%B %-d, %Y") %>
+  </div>
+
+  <%# Line items card %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+      <h2 class="text-lg font-semibold text-gray-900">Cart Items</h2>
+      <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"><%= @items_count %></span>
+    </div>
+
+    <%# Desktop table %>
+    <div class="hidden sm:block overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Qty</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Unit Price</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Line Total</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @order.order_items.each do |item| %>
+            <tr class="hover:bg-gray-50">
+              <td class="px-6 py-4 text-sm font-medium text-gray-900">
+                <% if item.supplier_product %>
+                  <%= link_to item.supplier_product.supplier_name, supplier_portal_product_path(item.supplier_product),
+                      class: "text-brand-green-dark hover:underline" %>
+                <% else %>
+                  <span class="text-gray-400">Unknown Product</span>
+                <% end %>
+              </td>
+              <td class="px-6 py-4 text-sm text-gray-500 font-mono"><%= item.supplier_product&.supplier_sku || "—" %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= item.quantity %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item.unit_price) %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item.line_total) %></td>
+            </tr>
+          <% end %>
+          <% if @order.order_items.empty? %>
+            <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-400">No items in cart</td></tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+
+    <%# Mobile cards %>
+    <div class="sm:hidden divide-y divide-gray-200">
+      <% @order.order_items.each do |item| %>
+        <div class="p-4">
+          <div class="flex justify-between items-start">
+            <div class="flex-1 min-w-0">
+              <% if item.supplier_product %>
+                <%= link_to item.supplier_product.supplier_name, supplier_portal_product_path(item.supplier_product),
+                    class: "text-sm font-medium text-brand-green-dark hover:underline block truncate" %>
+              <% else %>
+                <span class="text-sm font-medium text-gray-400">Unknown Product</span>
+              <% end %>
+              <p class="text-xs text-gray-400 font-mono mt-0.5"><%= item.supplier_product&.supplier_sku || "—" %></p>
+            </div>
+            <div class="text-right ml-3">
+              <p class="text-sm font-semibold text-gray-900"><%= number_to_currency(item.line_total) %></p>
+              <p class="text-xs text-gray-400"><%= item.quantity %> x <%= number_to_currency(item.unit_price) %></p>
+            </div>
+          </div>
+        </div>
+      <% end %>
+      <% if @order.order_items.empty? %>
+        <div class="p-8 text-center text-sm text-gray-400">No items in cart</div>
+      <% end %>
+    </div>
+
+    <%# Cart totals footer %>
+    <div class="border-t border-gray-200 px-6 py-4">
+      <div class="flex justify-end">
+        <dl class="space-y-2 text-sm" style="min-width: 200px;">
+          <div class="flex justify-between">
+            <dt class="text-gray-500">Subtotal</dt>
+            <dd class="text-gray-900 font-medium"><%= number_to_currency(@order.subtotal) %></dd>
+          </div>
+          <div class="flex justify-between">
+            <dt class="text-gray-500">Tax</dt>
+            <dd class="text-gray-900 font-medium"><%= number_to_currency(@order.tax) %></dd>
+          </div>
+          <div class="flex justify-between border-t border-gray-200 pt-2">
+            <dt class="text-gray-900 font-semibold">Total</dt>
+            <dd class="text-gray-900 font-bold text-base"><%= number_to_currency(@order.total_amount) %></dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,15 @@
+<%# Analytics sub-page tabs %>
+<div class="bg-white rounded-xl shadow-sm border border-gray-200">
+  <nav class="flex" aria-label="Analytics tabs">
+    <% tabs = [
+      { label: "Overview", path: supplier_portal_analytics_path, key: "overview" },
+      { label: "Revenue", path: revenue_supplier_portal_analytics_path, key: "revenue" },
+      { label: "Products", path: products_supplier_portal_analytics_path, key: "products" }
+    ] %>
+    <% tabs.each do |tab| %>
+      <% active = (local_assigns[:active_tab] == tab[:key]) %>
+      <%= link_to tab[:label], tab[:path],
+          class: "flex-1 sm:flex-none px-6 py-3 text-center sm:text-left text-sm font-medium border-b-2 transition-colors #{active ? 'border-brand-green text-brand-green-dark' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}" %>
+    <% end %>
+  </nav>
+</div>

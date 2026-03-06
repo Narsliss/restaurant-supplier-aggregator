@@ -1,0 +1,129 @@
+<% content_for(:title) { "Dashboard — #{current_supplier.name} Supplier Portal" } %>
+
+<div class="space-y-8">
+  <%# Header %>
+  <div>
+    <h1 class="text-3xl font-bold text-gray-900">Dashboard</h1>
+    <p class="text-gray-500 mt-1"><%= Time.current.strftime("%A, %B %-d, %Y") %></p>
+  </div>
+
+  <%# ═══════════ PRIMARY KPIs (Last 30 Days) ═══════════ %>
+  <div>
+    <p class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Last 30 Days</p>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <%
+        cards = [
+          { label: "Revenue",   value: number_to_currency(@stats[:revenue]),         change: @stats[:revenue_change],   icon: "💰" },
+          { label: "Orders",    value: number_with_delimiter(@stats[:orders]),        change: @stats[:orders_change],    icon: "📦" },
+          { label: "Avg Order", value: number_to_currency(@stats[:avg_value]),        change: @stats[:avg_value_change], icon: "📊" },
+          { label: "Customers", value: number_with_delimiter(@stats[:customers]),     change: @stats[:customers_change], icon: "👥" }
+        ]
+      %>
+      <% cards.each do |card| %>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-sm font-medium text-gray-500"><%= card[:label] %></p>
+            <span class="text-lg"><%= card[:icon] %></span>
+          </div>
+          <p class="text-2xl font-bold text-gray-900"><%= card[:value] %></p>
+          <% if card[:change] %>
+            <% change_str = card[:change] > 0 ? "+#{card[:change]}%" : "#{card[:change]}%" %>
+            <% color = card[:change] > 0 ? "color: #16a34a;" : card[:change] < 0 ? "color: #dc2626;" : "color: #6b7280;" %>
+            <p class="mt-1 text-sm" style="<%= color %>"><%= change_str %> vs prior 30d</p>
+          <% else %>
+            <p class="mt-1 text-sm text-gray-400">—</p>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <%# ═══════════ QUICK PULSE ═══════════ %>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <%# All-time context %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <p class="text-sm font-medium text-gray-500 mb-3">All-Time Totals</p>
+      <div class="space-y-3">
+        <div class="flex justify-between items-baseline">
+          <span class="text-sm text-gray-600">Total Revenue</span>
+          <span class="text-lg font-bold text-gray-900"><%= number_to_currency(@all_time_revenue, precision: 0) %></span>
+        </div>
+        <div class="flex justify-between items-baseline">
+          <span class="text-sm text-gray-600">Total Orders</span>
+          <span class="text-lg font-bold text-gray-900"><%= number_with_delimiter(@all_time_orders) %></span>
+        </div>
+        <% if @latest_order %>
+          <div class="border-t border-gray-100 pt-3">
+            <p class="text-xs text-gray-400">Latest order</p>
+            <p class="text-sm text-gray-700 mt-0.5">
+              <%= @latest_order.organization&.name || "Unknown" %> —
+              <%= number_to_currency(@latest_order.total_amount) %>
+              <span class="text-gray-400">(<%= time_ago_in_words(@latest_order.submitted_at) %> ago)</span>
+            </p>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <%# Catalog Health %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <p class="text-sm font-medium text-gray-500 mb-3">Catalog Health</p>
+      <p class="text-2xl font-bold text-gray-900 mb-3"><%= number_with_delimiter(@product_health[:total]) %> <span class="text-sm font-normal text-gray-400">products</span></p>
+      <%# Stacked health bar %>
+      <% total = @product_health[:total] %>
+      <% if total > 0 %>
+        <div class="w-full rounded-full h-3 flex overflow-hidden" style="background-color: #f3f4f6;">
+          <% in_pct = (@product_health[:in_stock].to_f / total * 100).round(1) %>
+          <% oos_pct = (@product_health[:out_of_stock].to_f / total * 100).round(1) %>
+          <% disc_pct = (@product_health[:discontinued].to_f / total * 100).round(1) %>
+          <div style="width: <%= in_pct %>%; background-color: #22c55e;" class="h-full"></div>
+          <div style="width: <%= oos_pct %>%; background-color: #ef4444;" class="h-full"></div>
+          <div style="width: <%= disc_pct %>%; background-color: #9ca3af;" class="h-full"></div>
+        </div>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-gray-500">
+          <span><span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #22c55e;"></span><%= @product_health[:in_stock] %> in stock</span>
+          <span><span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #ef4444;"></span><%= @product_health[:out_of_stock] %> out</span>
+          <span><span class="inline-block w-2 h-2 rounded-full mr-1" style="background-color: #9ca3af;"></span><%= @product_health[:discontinued] %> disc.</span>
+        </div>
+      <% else %>
+        <p class="text-sm text-gray-400">No products yet</p>
+      <% end %>
+    </div>
+
+    <%# Customer Reach %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <p class="text-sm font-medium text-gray-500 mb-3">Customer Reach</p>
+      <p class="text-2xl font-bold text-gray-900 mb-1"><%= @customer_reach[:rate] %>%</p>
+      <p class="text-sm text-gray-500 mb-3"><%= @customer_reach[:connected] %> of <%= @customer_reach[:total] %> users connected</p>
+      <div class="w-full rounded-full h-3" style="background-color: #f3f4f6;">
+        <div class="h-3 rounded-full" style="width: <%= @customer_reach[:rate] %>%; background-color: #22c55e;"></div>
+      </div>
+    </div>
+  </div>
+
+  <%# ═══════════ EXPLORE DEEPER ═══════════ %>
+  <div>
+    <p class="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Explore Deeper</p>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <%
+        links = [
+          { label: "Analytics",  desc: "Charts, trends & breakdowns", path: supplier_portal_analytics_path, icon: "📈", border_color: "#f97316" },
+          { label: "Orders",     desc: "Browse & export orders",      path: supplier_portal_orders_path,    icon: "📋", border_color: "#3b82f6" },
+          { label: "Customers",  desc: "Customer insights",           path: supplier_portal_customers_path, icon: "🏪", border_color: "#8b5cf6" },
+          { label: "Products",   desc: "Manage your catalog",         path: supplier_portal_products_path,  icon: "🏷️", border_color: "#10b981" }
+        ]
+      %>
+      <% links.each do |link| %>
+        <%= link_to link[:path], class: "group bg-white rounded-xl shadow-sm border border-gray-200 p-5 hover:shadow-md transition-shadow block" do %>
+          <div style="border-left: 3px solid <%= link[:border_color] %>; padding-left: 12px;">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-lg"><%= link[:icon] %></span>
+              <p class="text-sm font-semibold text-gray-900 group-hover:text-brand-green-dark transition-colors"><%= link[:label] %></p>
+            </div>
+            <p class="text-xs text-gray-400"><%= link[:desc] %></p>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  </div>
+</div>

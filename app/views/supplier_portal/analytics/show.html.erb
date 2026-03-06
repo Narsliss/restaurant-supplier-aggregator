@@ -1,0 +1,83 @@
+<div class="space-y-6">
+  <%# Page header %>
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Analytics</h1>
+    <p class="mt-1 text-sm text-gray-500">Performance overview for <%= current_supplier.name %></p>
+  </div>
+
+  <%# Tabs %>
+  <%= render "supplier_portal/analytics/tabs", active_tab: "overview" %>
+
+  <%# Date range filter %>
+  <%= render "supplier_portal/analytics/date_range_filter", form_path: supplier_portal_analytics_path %>
+
+  <%# Stat cards %>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <%
+      cards = [
+        { label: "Total Revenue", value: number_to_currency(@stats[:revenue]), change: @stats[:revenue_change] },
+        { label: "Total Orders", value: number_with_delimiter(@stats[:orders]), change: @stats[:orders_change] },
+        { label: "Avg Order Value", value: number_to_currency(@stats[:avg_value]), change: @stats[:avg_value_change] },
+        { label: "Unique Customers", value: number_with_delimiter(@stats[:customers]), change: @stats[:customers_change] }
+      ]
+    %>
+    <% cards.each do |card| %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <p class="text-sm font-medium text-gray-500"><%= card[:label] %></p>
+        <p class="mt-2 text-2xl font-bold text-gray-900"><%= card[:value] %></p>
+        <% if card[:change] %>
+          <% change_str = card[:change] > 0 ? "+#{card[:change]}%" : "#{card[:change]}%" %>
+          <% color = card[:change] > 0 ? "color: #16a34a;" : card[:change] < 0 ? "color: #dc2626;" : "color: #6b7280;" %>
+          <p class="mt-1 text-sm" style="<%= color %>"><%= change_str %> vs prior period</p>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <%# Charts %>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <%# Revenue Over Time %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <h3 class="text-sm font-medium text-gray-700 mb-4">Revenue Over Time</h3>
+      <% if @weekly_revenue.present? && @weekly_revenue.values.any? { |v| v.to_f > 0 } %>
+        <% max = @weekly_revenue.values.map(&:to_f).max %>
+        <div class="flex items-end gap-1 h-48">
+          <% @weekly_revenue.each do |date, value| %>
+            <div class="flex flex-col items-center justify-end flex-1 min-w-0 h-full">
+              <span class="text-xs text-gray-500 mb-1 truncate w-full text-center"><%= number_to_currency(value, precision: 0) %></span>
+              <div class="w-full bg-brand-orange rounded-t transition-all"
+                   style="height: <%= [(value.to_f / max * 140).round, 4].max %>px"></div>
+              <span class="text-xs text-gray-400 mt-1 truncate w-full text-center"><%= date.strftime("%b %d") %></span>
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="flex items-center justify-center h-48 text-sm text-gray-400">
+          No data for this period
+        </div>
+      <% end %>
+    </div>
+
+    <%# Orders Over Time %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      <h3 class="text-sm font-medium text-gray-700 mb-4">Orders Over Time</h3>
+      <% if @weekly_orders.present? && @weekly_orders.values.any? { |v| v.to_i > 0 } %>
+        <% max = @weekly_orders.values.map(&:to_i).max %>
+        <div class="flex items-end gap-1 h-48">
+          <% @weekly_orders.each do |date, value| %>
+            <div class="flex flex-col items-center justify-end flex-1 min-w-0 h-full">
+              <span class="text-xs text-gray-500 mb-1"><%= value %></span>
+              <div class="w-full bg-brand-green rounded-t transition-all"
+                   style="height: <%= [(value.to_f / max * 140).round, 4].max %>px"></div>
+              <span class="text-xs text-gray-400 mt-1 truncate w-full text-center"><%= date.strftime("%b %d") %></span>
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="flex items-center justify-center h-48 text-sm text-gray-400">
+          No data for this period
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>

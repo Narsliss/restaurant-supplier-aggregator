@@ -1,0 +1,87 @@
+<% content_for :title, "Supplier Portal — Reset Password" %>
+
+<div class="flex min-h-screen">
+  <%# Left panel %>
+  <div class="hidden lg:flex lg:w-1/2 relative overflow-hidden" style="background-color: #3A6147;">
+    <div class="absolute -bottom-24 -left-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(212,148,58,0.08);"></div>
+    <div class="absolute -top-24 -right-24 w-80 h-80 rounded-full blur-3xl" style="background-color: rgba(74,124,89,0.1);"></div>
+    <div class="relative z-10 flex flex-col justify-between p-12 w-full">
+      <div>
+        <%= render "shared/logo", variant: :login %>
+        <p class="mt-3 text-lg" style="color: #9ca3af;">Supplier Portal</p>
+      </div>
+      <div class="space-y-6">
+        <h2 class="text-2xl text-white font-heading leading-relaxed">Reset your password</h2>
+        <p style="color: #9ca3af;" class="leading-relaxed">We'll send you a link to reset your password.</p>
+      </div>
+      <p class="text-xs" style="color: #6b7280;">&copy; <%= Date.current.year %> SupplierHub</p>
+    </div>
+  </div>
+
+  <%# Right: Form %>
+  <div class="flex flex-1 flex-col justify-center px-6 py-12 lg:flex-none lg:w-1/2 lg:px-20 xl:px-24">
+    <div class="mx-auto w-full max-w-sm lg:w-96">
+      <div class="lg:hidden mb-10 text-center">
+        <%= render "shared/logo", variant: :login_mobile %>
+      </div>
+
+      <% if params[:sent] %>
+        <div>
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50">
+            <svg class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+            </svg>
+          </div>
+          <h2 class="text-3xl font-heading font-bold tracking-tight text-gray-900">Check your email</h2>
+          <p class="mt-2 text-sm text-gray-500">
+            If an account exists with that email address, we've sent a password reset link.
+          </p>
+        </div>
+
+        <div class="mt-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
+          <p class="text-sm text-blue-700">The link will expire in 6 hours.</p>
+        </div>
+
+        <div class="mt-8">
+          <p class="text-center text-sm text-gray-500">
+            <%= link_to "Back to sign in", new_supplier_user_session_path,
+                class: "font-semibold text-brand-orange hover:text-brand-orange-dark transition-colors" %>
+          </p>
+        </div>
+      <% else %>
+        <div>
+          <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-orange-50">
+            <svg class="h-6 w-6 text-brand-orange" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+          </div>
+          <h2 class="text-3xl font-heading font-bold tracking-tight text-gray-900">Forgot your password?</h2>
+          <p class="mt-2 text-sm text-gray-500">Enter your email and we'll send you a reset link.</p>
+        </div>
+
+        <div class="mt-8">
+          <%= form_for(resource, as: resource_name, url: supplier_user_password_path, html: { method: :post, class: "space-y-5" }) do |f| %>
+            <div>
+              <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
+              <div class="mt-1.5">
+                <%= f.email_field :email, autofocus: true, autocomplete: "email",
+                    class: "block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3",
+                    placeholder: "you@supplier.com" %>
+              </div>
+            </div>
+
+            <div class="pt-1">
+              <%= f.submit "Send reset link",
+                  class: "flex w-full justify-center rounded-lg bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-dark transition-colors cursor-pointer" %>
+            </div>
+          <% end %>
+
+          <p class="mt-8 text-center text-sm text-gray-500">
+            <%= link_to "Back to sign in", new_supplier_user_session_path,
+                class: "font-semibold text-brand-orange hover:text-brand-orange-dark transition-colors" %>
+          </p>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>

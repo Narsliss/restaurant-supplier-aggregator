@@ -1,0 +1,173 @@
+<% content_for(:title) { "Abandoned Carts — #{current_supplier.name} Supplier Portal" } %>
+
+<div class="space-y-6">
+  <%# Page header %>
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Abandoned Carts</h1>
+    <p class="mt-1 text-sm text-gray-500">Orders started but never completed</p>
+  </div>
+
+  <%# Stat cards — inverted color logic (increase = bad) %>
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <%
+      cards = [
+        { label: "Incomplete Orders", value: number_with_delimiter(@stats[:count]), change: @stats[:count_change] },
+        { label: "Lost Revenue",      value: number_to_currency(@stats[:lost_revenue]), change: @stats[:lost_revenue_change] },
+        { label: "Avg Cart Value",    value: number_to_currency(@stats[:avg_value]), change: @stats[:avg_value_change] },
+        { label: "Failed Orders",     value: number_with_delimiter(@stats[:failed_count]), change: @stats[:failed_change] }
+      ]
+    %>
+    <% cards.each do |card| %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <p class="text-sm font-medium text-gray-500"><%= card[:label] %></p>
+        <p class="mt-2 text-2xl font-bold text-gray-900"><%= card[:value] %></p>
+        <% if card[:change] %>
+          <% change_str = card[:change] > 0 ? "+#{card[:change]}%" : "#{card[:change]}%" %>
+          <%# Inverted: increase in abandoned carts is bad (red), decrease is good (green) %>
+          <% color = card[:change] > 0 ? "color: #dc2626;" : card[:change] < 0 ? "color: #16a34a;" : "color: #6b7280;" %>
+          <p class="mt-1 text-sm" style="<%= color %>"><%= change_str %> vs prior period</p>
+        <% else %>
+          <p class="mt-1 text-sm text-gray-400">—</p>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <%# Filter bar %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+    <%= form_tag(supplier_portal_abandoned_carts_path, method: :get, class: "flex flex-col sm:flex-row gap-3") do %>
+      <select name="status_type" class="rounded-lg border-gray-300 text-sm py-2 px-3 focus:border-brand-green focus:ring-brand-green">
+        <option value="" <%= 'selected' unless params[:status_type].present? %>>All Types</option>
+        <option value="abandoned" <%= 'selected' if params[:status_type] == 'abandoned' %>>Abandoned (pending > 24h)</option>
+        <option value="failed" <%= 'selected' if params[:status_type] == 'failed' %>>Failed</option>
+        <option value="cancelled" <%= 'selected' if params[:status_type] == 'cancelled' %>>Cancelled</option>
+      </select>
+
+      <div data-controller="date-range">
+        <select name="date_range" data-action="change->date-range#toggle" data-date-range-target="select"
+                class="rounded-lg border-gray-300 text-sm py-2 px-3 focus:border-brand-green focus:ring-brand-green">
+          <option value="7d" <%= 'selected' if @date_range == '7d' %>>Last 7 Days</option>
+          <option value="30d" <%= 'selected' if @date_range == '30d' %>>Last 30 Days</option>
+          <option value="90d" <%= 'selected' if @date_range == '90d' %>>Last 90 Days</option>
+          <option value="" <%= 'selected' if @date_range.blank? %>>All Time</option>
+          <option value="custom" <%= 'selected' if @date_range == 'custom' %>>Custom</option>
+        </select>
+
+        <div data-date-range-target="customFields" class="<%= @date_range == 'custom' ? 'flex' : 'hidden' %> gap-2 mt-2 sm:mt-0 sm:ml-2 sm:inline-flex">
+          <input type="date" name="start_date" value="<%= params[:start_date] %>"
+                 class="rounded-lg border-gray-300 text-sm py-2 px-3 focus:border-brand-green focus:ring-brand-green">
+          <input type="date" name="end_date" value="<%= params[:end_date] %>"
+                 class="rounded-lg border-gray-300 text-sm py-2 px-3 focus:border-brand-green focus:ring-brand-green">
+        </div>
+      </div>
+
+      <button type="submit"
+              class="rounded-lg bg-brand-green px-4 py-2 text-sm font-medium text-white hover:bg-brand-green-dark transition-colors cursor-pointer">
+        Apply
+      </button>
+    <% end %>
+  </div>
+
+  <%# Results count %>
+  <p class="text-sm text-gray-500"><%= number_with_delimiter(@total_count) %> result<%= @total_count == 1 ? '' : 's' %></p>
+
+  <%# Table %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <%# Desktop table %>
+    <div class="hidden sm:block overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Items</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cart Value</th>
+            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Age</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @orders.each do |order| %>
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 text-sm font-medium">
+                  <%= link_to (order.organization&.name || "—"), supplier_portal_abandoned_cart_path(order),
+                      class: "text-brand-green-dark hover:underline" %>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500">
+                  <% if order.location %>
+                    <%= order.location.name %>
+                    <% if order.location.city.present? %>
+                      <span class="text-gray-400">— <%= order.location.city %></span>
+                    <% end %>
+                  <% else %>
+                    <span class="text-gray-400">—</span>
+                  <% end %>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= order.order_items.size %></td>
+                <td class="px-6 py-4 text-sm font-medium text-gray-900 text-right"><%= number_to_currency(order.total_amount) %></td>
+                <td class="px-6 py-4 text-center">
+                  <% case order.status
+                     when "pending" %>
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium" style="background-color: #fef3c7; color: #92400e;">Abandoned</span>
+                  <% when "failed" %>
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium" style="background-color: #fee2e2; color: #991b1b;">Failed</span>
+                  <% when "cancelled" %>
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium" style="background-color: #f3f4f6; color: #374151;">Cancelled</span>
+                  <% end %>
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-500"><%= time_ago_in_words(order.created_at) %> ago</td>
+                <td class="px-6 py-4 text-sm text-gray-500"><%= order.created_at.strftime("%-m/%-d/%y") %></td>
+              </tr>
+          <% end %>
+          <% if @orders.empty? %>
+            <tr>
+              <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-400">
+                No abandoned carts found for this period
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+
+    <%# Mobile cards %>
+    <div class="sm:hidden divide-y divide-gray-200">
+      <% @orders.each do |order| %>
+        <%= link_to supplier_portal_abandoned_cart_path(order), class: "block p-4 hover:bg-gray-50" do %>
+          <div class="flex justify-between items-start">
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-gray-900 truncate"><%= order.organization&.name || "—" %></p>
+              <p class="text-xs text-gray-400 mt-0.5">
+                <%= order.location&.name %>
+                · <%= order.order_items.size %> items
+                · <%= time_ago_in_words(order.created_at) %> ago
+              </p>
+            </div>
+            <div class="text-right ml-3 flex-shrink-0">
+              <p class="text-sm font-semibold text-gray-900"><%= number_to_currency(order.total_amount) %></p>
+              <% case order.status
+                 when "pending" %>
+                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium mt-1" style="background-color: #fef3c7; color: #92400e;">Abandoned</span>
+              <% when "failed" %>
+                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium mt-1" style="background-color: #fee2e2; color: #991b1b;">Failed</span>
+              <% when "cancelled" %>
+                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium mt-1" style="background-color: #f3f4f6; color: #374151;">Cancelled</span>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      <% end %>
+      <% if @orders.empty? %>
+        <div class="p-12 text-center text-sm text-gray-400">No abandoned carts found for this period</div>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Pagination %>
+  <% if @total_count > @per_page %>
+    <%= render "supplier_portal/shared/pagination",
+        page: @page, per_page: @per_page, total_count: @total_count,
+        base_path: supplier_portal_abandoned_carts_path %>
+  <% end %>
+</div>

@@ -1,0 +1,74 @@
+<% content_for(:title) { "Invite Supplier User — Admin — SupplierHub" } %>
+
+<div class="space-y-6">
+  <%# Header %>
+  <div>
+    <%= link_to "← Supplier Portal Users", admin_supplier_portal_users_path,
+        class: "text-sm text-brand-green-dark hover:underline" %>
+    <h1 class="text-3xl font-bold text-gray-900 mt-2">Invite Supplier User</h1>
+    <p class="text-gray-500 mt-1">Send an invitation to a supplier team member</p>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden max-w-2xl">
+    <div class="px-6 py-5">
+      <%= form_tag admin_supplier_portal_users_path, method: :post, class: "space-y-6" do %>
+        <% if defined?(@errors) && @errors.any? %>
+          <div class="rounded-lg border border-red-200 bg-red-50 p-4">
+            <h3 class="text-sm font-medium text-red-800">Please fix the following errors:</h3>
+            <ul class="mt-2 list-disc pl-5 text-sm text-red-700">
+              <% @errors.full_messages.each do |msg| %>
+                <li><%= msg %></li>
+              <% end %>
+            </ul>
+          </div>
+        <% end %>
+
+        <div>
+          <label for="supplier_id" class="block text-sm font-medium text-gray-700">Supplier</label>
+          <div class="mt-1.5">
+            <select name="supplier_id" id="supplier_id" required
+                    class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3">
+              <option value="">Select a supplier…</option>
+              <% @suppliers.each do |supplier| %>
+                <option value="<%= supplier.id %>" <%= 'selected' if params[:supplier_id].to_s == supplier.id.to_s %>>
+                  <%= supplier.name %>
+                </option>
+              <% end %>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+          <div class="mt-1.5">
+            <input type="email" name="email" id="email" required
+                   value="<%= params[:email] %>"
+                   placeholder="supplier-rep@example.com"
+                   class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3">
+          </div>
+          <p class="mt-1 text-xs text-gray-400">The invitation link will be shown after creation (no email is sent automatically).</p>
+        </div>
+
+        <div>
+          <label for="role" class="block text-sm font-medium text-gray-700">Role</label>
+          <div class="mt-1.5">
+            <select name="role" id="role" required
+                    class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm py-2.5 px-3">
+              <option value="admin" <%= 'selected' if params[:role] == 'admin' %>>Admin — Full access to supplier portal</option>
+              <option value="rep" <%= 'selected' if params[:role] == 'rep' || params[:role].blank? %>>Rep — Standard access</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="pt-4 flex items-center gap-3">
+          <button type="submit"
+                  class="inline-flex items-center rounded-lg bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-dark transition-colors cursor-pointer">
+            Send Invitation
+          </button>
+          <%= link_to "Cancel", admin_supplier_portal_users_path,
+              class: "text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors" %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>
