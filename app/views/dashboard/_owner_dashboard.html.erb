@@ -1,0 +1,328 @@
+<%# ============================================================= %>
+<%# OWNER DASHBOARD — "The Business"                              %>
+<%# Focus: system usage, team adoption, macro financial view      %>
+<%# ============================================================= %>
+
+<!-- Hero Banner -->
+<div class="-mx-4 sm:-mx-6 lg:-mx-8 -mt-10 mb-8">
+  <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+    <img src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1920&q=80"
+         alt="Restaurant kitchen"
+         class="absolute inset-0 h-full w-full object-cover opacity-15"
+         onerror="this.style.display='none'">
+    <div class="relative px-6 py-10 sm:px-12 sm:py-14">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+        <div>
+          <h1 class="text-3xl sm:text-4xl font-heading font-bold text-white tracking-wide">
+            Welcome back, <%= current_user.first_name || current_user.email.split('@').first %>
+          </h1>
+          <p class="mt-2 text-lg text-gray-300 font-body">Business overview for your organization.</p>
+          <div class="mt-5 flex flex-wrap gap-3">
+            <%= link_to select_list_orders_path, class: "inline-flex items-center rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
+              <svg class="-ml-0.5 mr-1.5 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+              </svg>
+              New Order
+            <% end %>
+            <%= link_to "View Reports", reports_path, class: "inline-flex items-center rounded-md bg-white/10 backdrop-blur px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-white/20 transition-colors border border-white/20" %>
+          </div>
+        </div>
+        <div class="flex-shrink-0 text-right rounded-lg bg-white/10 backdrop-blur border border-white/20 px-6 py-5">
+          <p class="text-sm font-medium text-white/80">Total Savings</p>
+          <p class="mt-1 text-3xl sm:text-4xl font-bold text-white tracking-tight"><%= number_to_currency(@stats[:total_savings]) %></p>
+          <% if @stats[:total_savings] > 0 %>
+            <p class="mt-1 text-sm text-white/60">across all orders</p>
+          <% else %>
+            <p class="mt-1 text-sm text-white/60">start ordering to save</p>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2FA Alerts -->
+<% if @pending_2fa_requests.any? %>
+  <div class="mb-6 rounded-md bg-brand-orange-50 border border-brand-orange/20 p-4">
+    <div class="flex">
+      <div class="flex-shrink-0">
+        <svg class="h-5 w-5 text-brand-orange" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+        </svg>
+      </div>
+      <div class="ml-3">
+        <h3 class="text-sm font-medium text-brand-orange-dark">Verification Required</h3>
+        <div class="mt-2 text-sm text-brand-orange-dark/80">
+          <ul class="list-disc list-inside">
+            <% @pending_2fa_requests.each do |request| %>
+              <li><%= request.supplier.name %> — expires in <%= distance_of_time_in_words(Time.current, request.expires_at) %></li>
+            <% end %>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+<% end %>
+
+<!-- Setup Wizard (inline) -->
+<% if @onboarding_steps.present? && !@onboarding_complete %>
+  <div class="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-heading font-semibold text-white">Finish Setting Up</h3>
+          <p class="mt-0.5 text-sm text-white/70">Complete these steps to get the most out of SupplierHub.</p>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-white/80">
+              <%= @onboarding_steps.count { |s| s[:done] } %> / <%= @onboarding_steps.size %>
+            </span>
+            <div class="w-20 h-2 bg-white/20 rounded-full overflow-hidden">
+              <div class="h-full bg-white rounded-full transition-all duration-500"
+                   style="width: <%= (@onboarding_steps.count { |s| s[:done] }.to_f / @onboarding_steps.size * 100).round %>%"></div>
+            </div>
+          </div>
+          <%= button_to dismiss_onboarding_path, method: :post, class: "text-sm text-white/60 hover:text-white transition-colors" do %>
+            Dismiss
+          <% end %>
+        </div>
+      </div>
+    </div>
+    <ol class="divide-y divide-gray-100">
+      <% @onboarding_steps.each_with_index do |step, i| %>
+        <li class="flex items-center gap-4 px-6 py-4 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
+          <div class="flex-shrink-0">
+            <% if step[:done] %>
+              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green">
+                <svg class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                </svg>
+              </div>
+            <% else %>
+              <div class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 text-xs font-semibold text-gray-500"><%= i + 1 %></div>
+            <% end %>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>"><%= step[:title] %></p>
+            <p class="mt-0.5 text-xs text-gray-500"><%= step[:description] %></p>
+          </div>
+          <% if !step[:done] && step[:cta] %>
+            <%= link_to step[:cta], step[:path], class: "flex-shrink-0 inline-flex items-center rounded-md bg-brand-orange px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
+          <% elsif step[:done] %>
+            <span class="flex-shrink-0 inline-flex items-center gap-1 text-xs text-brand-green font-medium">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                </svg>
+              Done
+            </span>
+          <% end %>
+        </li>
+      <% end %>
+    </ol>
+  </div>
+<% end %>
+
+<!-- Stat Cards -->
+<dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+  <%# Spend This Month %>
+  <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 shadow sm:px-6 sm:pt-6">
+    <dt>
+      <div class="absolute rounded-md bg-brand-orange p-3">
+        <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </div>
+      <p class="ml-16 text-sm font-medium text-gray-500">Spend This Month</p>
+    </dt>
+    <dd class="ml-16">
+      <p class="text-2xl font-semibold text-gray-900"><%= number_to_currency(@stats[:spend_this_month]) %></p>
+      <% if @stats[:spend_change] %>
+        <p class="mt-0.5 text-sm <%= @stats[:spend_change] > 0 ? 'text-red-600' : @stats[:spend_change] < 0 ? 'text-green-600' : 'text-gray-500' %>">
+          <%= @stats[:spend_change] > 0 ? "+#{@stats[:spend_change]}%" : "#{@stats[:spend_change]}%" %> vs last month
+        </p>
+      <% end %>
+    </dd>
+  </div>
+
+  <%# Savings This Month %>
+  <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 shadow sm:px-6 sm:pt-6">
+    <dt>
+      <div class="absolute rounded-md bg-brand-green p-3">
+        <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+        </svg>
+      </div>
+      <p class="ml-16 text-sm font-medium text-gray-500">Savings This Month</p>
+    </dt>
+    <dd class="ml-16">
+      <p class="text-2xl font-semibold text-green-600"><%= number_to_currency(@stats[:savings_this_month]) %></p>
+      <% if @stats[:savings_change] %>
+        <p class="mt-0.5 text-sm <%= @stats[:savings_change] > 0 ? 'text-green-600' : @stats[:savings_change] < 0 ? 'text-red-600' : 'text-gray-500' %>">
+          <%= @stats[:savings_change] > 0 ? "+#{@stats[:savings_change]}%" : "#{@stats[:savings_change]}%" %> vs last month
+        </p>
+      <% end %>
+    </dd>
+  </div>
+
+  <%# Team Members %>
+  <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 shadow sm:px-6 sm:pt-6">
+    <dt>
+      <div class="absolute rounded-md bg-brand-green-dark p-3">
+        <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+        </svg>
+      </div>
+      <p class="ml-16 text-sm font-medium text-gray-500">Team Members</p>
+    </dt>
+    <dd class="ml-16">
+      <p class="text-2xl font-semibold text-gray-900"><%= @stats[:team_members] %></p>
+    </dd>
+  </div>
+
+  <%# Restaurants %>
+  <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 shadow sm:px-6 sm:pt-6">
+    <dt>
+      <div class="absolute rounded-md bg-brand-blue p-3">
+        <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
+        </svg>
+      </div>
+      <p class="ml-16 text-sm font-medium text-gray-500">Restaurants</p>
+    </dt>
+    <dd class="ml-16">
+      <p class="text-2xl font-semibold text-gray-900"><%= @stats[:restaurants] %></p>
+    </dd>
+  </div>
+</dl>
+
+<!-- Weekly Spending Trend (full width) -->
+<div class="bg-white shadow rounded-lg mb-8">
+  <div class="px-4 py-5 sm:px-6 border-b border-gray-100">
+    <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Weekly Spending</h3>
+  </div>
+  <div class="p-6">
+    <% max_total = [@weekly_trend.map { |w| w[:total] }.max.to_f, 1].max %>
+    <% if @weekly_trend.any? { |w| w[:total] > 0 } %>
+      <div class="flex items-stretch justify-between h-48 gap-2">
+        <% @weekly_trend.each do |week| %>
+          <div class="flex flex-col items-center justify-end flex-1">
+            <% if week[:total] > 0 %>
+              <span class="text-xs text-gray-500 mb-1 whitespace-nowrap"><%= number_to_currency(week[:total], precision: 0) %></span>
+            <% end %>
+            <div class="w-full bg-brand-orange rounded-t transition-all"
+                 style="height: <%= week[:total] > 0 ? [(week[:total] / max_total * 100).round, 4].max : 2 %>%">
+            </div>
+            <p class="text-xs text-gray-500 mt-2"><%= week[:label] %></p>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-48 text-sm text-gray-400">No spending data yet</div>
+    <% end %>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+  <!-- Team Activity (horizontal bars) -->
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
+      <div>
+        <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Team Activity</h3>
+        <p class="mt-0.5 text-xs text-gray-500">Orders per team member this month</p>
+      </div>
+      <%= link_to "Manage Team", organization_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
+    </div>
+    <% if @team_activity.any? %>
+      <div class="px-4 py-4 sm:px-6 space-y-4">
+        <% max_orders = @team_activity.map { |r| r[:order_count] }.max.to_f %>
+        <% @team_activity.each do |row| %>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium text-gray-900 truncate"><%= row[:user]&.full_name || "Unknown" %></span>
+              <div class="text-right shrink-0 ml-3">
+                <span class="text-sm font-semibold text-gray-900"><%= row[:order_count] %> orders</span>
+                <span class="text-xs text-gray-500 ml-1">(<%= number_to_currency(row[:total_spent]) %>)</span>
+              </div>
+            </div>
+            <div class="bg-gray-100 rounded-full h-2">
+              <div class="bg-brand-green h-2 rounded-full transition-all"
+                   style="width: <%= max_orders > 0 ? (row[:order_count] / max_orders * 100).round(1) : 0 %>%"></div>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="px-4 py-8 text-center text-sm text-gray-400">No orders this month</div>
+    <% end %>
+  </div>
+
+  <!-- Restaurant Performance (horizontal bars) -->
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-4 py-5 sm:px-6 border-b border-gray-100">
+      <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Restaurant Performance</h3>
+      <p class="mt-0.5 text-xs text-gray-500">Spending by restaurant this month</p>
+    </div>
+    <% if @location_stats.any? { |r| r[:monthly_spend] > 0 } %>
+      <div class="px-4 py-4 sm:px-6 space-y-4">
+        <% max_loc_spend = @location_stats.map { |r| r[:monthly_spend] }.max.to_f %>
+        <% @location_stats.each do |row| %>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium text-gray-900 truncate"><%= row[:location].name %></span>
+              <div class="text-right shrink-0 ml-3">
+                <span class="text-sm font-semibold text-gray-900"><%= number_to_currency(row[:monthly_spend]) %></span>
+                <span class="text-xs text-gray-500 ml-1">(<%= row[:order_count] %> orders)</span>
+              </div>
+            </div>
+            <div class="bg-gray-100 rounded-full h-2">
+              <div class="bg-brand-orange h-2 rounded-full transition-all"
+                   style="width: <%= max_loc_spend > 0 ? (row[:monthly_spend] / max_loc_spend * 100).round(1) : 0 %>%"></div>
+            </div>
+            <% if row[:savings] > 0 %>
+              <p class="mt-0.5 text-xs text-green-600">Saved <%= number_to_currency(row[:savings]) %></p>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="px-4 py-8 text-center text-sm text-gray-400">No orders this month</div>
+    <% end %>
+  </div>
+</div>
+
+<!-- Supplier Connections -->
+<div class="mt-6 bg-white shadow rounded-lg">
+  <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
+    <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Supplier Connections</h3>
+    <%= link_to supplier_credentials_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" do %>
+      Manage
+    <% end %>
+  </div>
+  <ul role="list" class="divide-y divide-gray-200">
+    <% @supplier_credentials.each do |credential| %>
+      <li class="px-4 py-4 sm:px-6">
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-medium text-gray-900"><%= credential.supplier.name %></p>
+          <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
+            <%= case credential.status
+                when 'active' then 'bg-brand-green-100 text-brand-green-dark'
+                when 'pending' then 'bg-yellow-100 text-yellow-800'
+                when 'failed', 'hold' then 'bg-red-100 text-red-800'
+                else 'bg-gray-100 text-gray-800'
+                end %>">
+            <%= credential.status.titleize %>
+          </span>
+        </div>
+        <% if credential.last_login_at %>
+          <p class="mt-1 text-xs text-gray-500">Last connected: <%= time_ago_in_words(credential.last_login_at) %> ago</p>
+        <% end %>
+      </li>
+    <% end %>
+    <% if @supplier_credentials.empty? %>
+      <li class="px-4 py-8 text-center text-gray-500">
+        No suppliers connected. <%= link_to "Add your first supplier", new_supplier_credential_path, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
+      </li>
+    <% end %>
+  </ul>
+</div>

@@ -42,7 +42,6 @@
       <ol class="divide-y divide-gray-100">
         <% @chef_onboarding_steps.each_with_index do |step, i| %>
           <li class="flex items-center gap-4 px-6 py-5 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
-            <%# Step indicator %>
             <div class="flex-shrink-0">
               <% if step[:done] %>
                 <div class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-green">
@@ -56,8 +55,6 @@
                 </div>
               <% end %>
             </div>
-
-            <%# Step content %>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>">
                 <%= step[:title] %>
@@ -67,8 +64,6 @@
               </p>
               <p class="mt-0.5 text-sm text-gray-500"><%= step[:description] %></p>
             </div>
-
-            <%# Action button — hide CTA if a prior required step is incomplete %>
             <% prior_required_incomplete = @chef_onboarding_steps[0...i].any? { |s| s[:required] && !s[:done] } %>
             <% if !step[:done] && step[:cta] && !prior_required_incomplete %>
               <%= link_to step[:cta], step[:path],
@@ -133,7 +128,6 @@
       <ol class="divide-y divide-gray-100">
         <% @onboarding_steps.each_with_index do |step, i| %>
           <li class="flex items-center gap-4 px-6 py-5 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
-            <%# Step indicator %>
             <div class="flex-shrink-0">
               <% if step[:done] %>
                 <div class="flex h-9 w-9 items-center justify-center rounded-full bg-brand-green">
@@ -147,8 +141,6 @@
                 </div>
               <% end %>
             </div>
-
-            <%# Step content %>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>">
                 <%= step[:title] %>
@@ -158,8 +150,6 @@
               </p>
               <p class="mt-0.5 text-sm text-gray-500"><%= step[:description] %></p>
             </div>
-
-            <%# Action button — hide CTA if a prior required step is incomplete %>
             <% prior_required_incomplete = @onboarding_steps[0...i].any? { |s| s[:required] && !s[:done] } %>
             <% if !step[:done] && step[:cta] && !prior_required_incomplete %>
               <%= link_to step[:cta], step[:path],
@@ -191,48 +181,8 @@
 
 <% else %>
   <%# ============================================================= %>
-  <%# NORMAL DASHBOARD — shown after onboarding is complete          %>
+  <%# ROLE-SPECIFIC DASHBOARDS                                      %>
   <%# ============================================================= %>
-
-  <!-- Hero Banner -->
-  <div class="-mx-4 sm:-mx-6 lg:-mx-8 -mt-10 mb-8">
-    <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
-      <img src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1920&q=80"
-           alt="Restaurant kitchen"
-           class="absolute inset-0 h-full w-full object-cover opacity-15"
-           onerror="this.style.display='none'">
-      <div class="relative px-6 py-12 sm:px-12 sm:py-16">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
-          <div>
-            <h1 class="text-3xl sm:text-4xl font-heading font-bold text-white tracking-wide">
-              Welcome back, <%= current_user.first_name || current_user.email.split('@').first %>
-            </h1>
-            <p class="mt-2 text-lg text-gray-300 font-body">Manage your suppliers, track orders, and compare prices — all in one place.</p>
-            <div class="mt-6 flex flex-wrap gap-3">
-              <% unless @read_only %>
-                <%= link_to select_list_orders_path, class: "inline-flex items-center rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
-                  <svg class="-ml-0.5 mr-1.5 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
-                  </svg>
-                  New Order
-                <% end %>
-              <% end %>
-              <%= link_to "View Orders", orders_path, class: "inline-flex items-center rounded-md bg-white/10 backdrop-blur px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-white/20 transition-colors border border-white/20" %>
-            </div>
-          </div>
-          <div class="flex-shrink-0 text-right sm:text-right rounded-lg bg-white/10 backdrop-blur border border-white/20 px-6 py-5">
-            <p class="text-sm font-medium text-white/80">Total Savings</p>
-            <p class="mt-1 text-3xl sm:text-4xl font-bold text-white tracking-tight"><%= number_to_currency(@stats[:total_savings]) %></p>
-            <% if @stats[:total_savings] > 0 %>
-              <p class="mt-1 text-sm text-white/60">across <%= @stats[:active_suppliers] %> suppliers</p>
-            <% else %>
-              <p class="mt-1 text-sm text-white/60">start ordering to save</p>
-            <% end %>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <% if params[:context] == "location_required" %>
     <div class="mb-6 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
@@ -240,243 +190,11 @@
     </div>
   <% end %>
 
-  <!-- Setup Wizard (inline) — shown until all steps complete or dismissed -->
-  <% if @onboarding_steps.present? && !@onboarding_complete %>
-    <div class="mb-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div class="px-6 py-4 border-b border-gray-100" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="text-base font-heading font-semibold text-white">Finish Setting Up</h3>
-            <p class="mt-0.5 text-sm text-white/70">Complete these steps to get the most out of SupplierHub.</p>
-          </div>
-          <div class="flex items-center gap-4">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-white/80">
-                <%= @onboarding_steps.count { |s| s[:done] } %> / <%= @onboarding_steps.size %>
-              </span>
-              <div class="w-20 h-2 bg-white/20 rounded-full overflow-hidden">
-                <div class="h-full bg-white rounded-full transition-all duration-500"
-                     style="width: <%= (@onboarding_steps.count { |s| s[:done] }.to_f / @onboarding_steps.size * 100).round %>%"></div>
-              </div>
-            </div>
-            <%= button_to dismiss_onboarding_path, method: :post, class: "text-sm text-white/60 hover:text-white transition-colors" do %>
-              Dismiss
-            <% end %>
-          </div>
-        </div>
-      </div>
-
-      <ol class="divide-y divide-gray-100">
-        <% @onboarding_steps.each_with_index do |step, i| %>
-          <li class="flex items-center gap-4 px-6 py-4 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
-            <div class="flex-shrink-0">
-              <% if step[:done] %>
-                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green">
-                  <svg class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
-                  </svg>
-                </div>
-              <% else %>
-                <div class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 text-xs font-semibold text-gray-500">
-                  <%= i + 1 %>
-                </div>
-              <% end %>
-            </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>">
-                <%= step[:title] %>
-              </p>
-              <p class="mt-0.5 text-xs text-gray-500"><%= step[:description] %></p>
-            </div>
-            <% if !step[:done] && step[:cta] %>
-              <%= link_to step[:cta], step[:path],
-                  class: "flex-shrink-0 inline-flex items-center rounded-md bg-brand-orange px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
-            <% elsif step[:done] %>
-              <span class="flex-shrink-0 inline-flex items-center gap-1 text-xs text-brand-green font-medium">
-                <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
-                </svg>
-                Done
-              </span>
-            <% end %>
-          </li>
-        <% end %>
-      </ol>
-    </div>
+  <% if owner? %>
+    <%= render "dashboard/owner_dashboard" %>
+  <% elsif current_role == 'manager' %>
+    <%= render "dashboard/manager_dashboard" %>
+  <% else %>
+    <%= render "dashboard/chef_dashboard" %>
   <% end %>
-
-  <!-- 2FA Alerts -->
-  <% if @pending_2fa_requests.any? %>
-    <div class="mb-6 rounded-md bg-brand-orange-50 border border-brand-orange/20 p-4">
-      <div class="flex">
-        <div class="flex-shrink-0">
-          <svg class="h-5 w-5 text-brand-orange" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-          </svg>
-        </div>
-        <div class="ml-3">
-          <h3 class="text-sm font-medium text-brand-orange-dark">Verification Required</h3>
-          <div class="mt-2 text-sm text-brand-orange-dark/80">
-            <p><%= @pending_2fa_requests.count %> supplier(s) require verification code:</p>
-            <ul class="list-disc list-inside mt-1">
-              <% @pending_2fa_requests.each do |request| %>
-                <li><%= request.supplier.name %> - expires in <%= distance_of_time_in_words(Time.current, request.expires_at) %></li>
-              <% end %>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-  <% end %>
-
-  <!-- Stats -->
-  <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
-      <dt>
-        <div class="absolute rounded-md bg-brand-green-dark p-3">
-          <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-          </svg>
-        </div>
-        <p class="ml-16 truncate text-sm font-medium text-gray-500">Total Orders</p>
-      </dt>
-      <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-        <p class="text-2xl font-semibold text-gray-900"><%= @stats[:total_orders] %></p>
-      </dd>
-    </div>
-
-    <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
-      <dt>
-        <div class="absolute rounded-md bg-brand-green p-3">
-          <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-          </svg>
-        </div>
-        <p class="ml-16 truncate text-sm font-medium text-gray-500">Orders This Month</p>
-      </dt>
-      <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-        <p class="text-2xl font-semibold text-gray-900"><%= @stats[:orders_this_month] %></p>
-      </dd>
-    </div>
-
-    <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
-      <dt>
-        <div class="absolute rounded-md bg-brand-orange p-3">
-          <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
-          </svg>
-        </div>
-        <p class="ml-16 truncate text-sm font-medium text-gray-500">Active Suppliers</p>
-      </dt>
-      <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-        <p class="text-2xl font-semibold text-gray-900"><%= @stats[:active_suppliers] %></p>
-      </dd>
-    </div>
-
-    <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-12 pt-5 shadow sm:px-6 sm:pt-6">
-      <dt>
-        <div class="absolute rounded-md bg-brand-blue p-3">
-          <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-          </svg>
-        </div>
-        <p class="ml-16 truncate text-sm font-medium text-gray-500">Matched Lists</p>
-      </dt>
-      <dd class="ml-16 flex items-baseline pb-6 sm:pb-7">
-        <p class="text-2xl font-semibold text-gray-900"><%= @stats[:order_lists] %></p>
-      </dd>
-    </div>
-  </dl>
-
-  <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-    <!-- Recent Orders -->
-    <div class="bg-white shadow rounded-lg">
-      <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
-        <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Recent Orders</h3>
-        <%= link_to orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" do %>
-          <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
-          View All
-        <% end %>
-      </div>
-      <ul role="list" class="divide-y divide-gray-200">
-        <% @recent_orders.each do |order| %>
-          <li>
-            <%= link_to order, class: "block hover:bg-brand-green-50 transition-colors" do %>
-              <div class="px-4 py-4 sm:px-6">
-                <div class="flex items-center justify-between">
-                  <p class="truncate text-sm font-medium text-brand-green-dark">
-                    <%= order.supplier.name %>
-                  </p>
-                  <div class="ml-2 flex flex-shrink-0">
-                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
-                      <%= case order.status
-                          when 'submitted', 'confirmed' then 'bg-green-100 text-green-800'
-                          when 'processing' then 'bg-blue-100 text-blue-800'
-                          when 'failed' then 'bg-red-100 text-red-800'
-                          when 'pending_review', 'pending_manual' then 'bg-yellow-100 text-yellow-800'
-                          else 'bg-gray-100 text-gray-800'
-                          end %>">
-                      <%= order.status.titleize %>
-                    </span>
-                  </div>
-                </div>
-                <div class="mt-2 sm:flex sm:justify-between">
-                  <div class="sm:flex">
-                    <p class="flex items-center text-sm text-gray-500">
-                      <%= number_to_currency(order.total_amount) %>
-                    </p>
-                  </div>
-                  <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                    <p><%= time_ago_in_words(order.created_at) %> ago</p>
-                  </div>
-                </div>
-              </div>
-            <% end %>
-          </li>
-        <% end %>
-        <% if @recent_orders.empty? %>
-          <li class="px-4 py-8 text-center text-gray-500">
-            No orders yet. <%= link_to "Create your first order", select_list_orders_path, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
-          </li>
-        <% end %>
-      </ul>
-    </div>
-
-    <!-- Supplier Status -->
-    <div class="bg-white shadow rounded-lg">
-      <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
-        <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Supplier Connections</h3>
-        <%= link_to supplier_credentials_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" do %>
-          <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          Manage
-        <% end %>
-      </div>
-      <ul role="list" class="divide-y divide-gray-200">
-        <% @supplier_credentials.each do |credential| %>
-          <li class="px-4 py-4 sm:px-6">
-            <div class="flex items-center justify-between">
-              <p class="text-sm font-medium text-gray-900"><%= credential.supplier.name %></p>
-              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
-                <%= case credential.status
-                    when 'active' then 'bg-brand-green-100 text-brand-green-dark'
-                    when 'pending' then 'bg-yellow-100 text-yellow-800'
-                    when 'failed', 'hold' then 'bg-red-100 text-red-800'
-                    else 'bg-gray-100 text-gray-800'
-                    end %>">
-                <%= credential.status.titleize %>
-              </span>
-            </div>
-            <% if credential.last_login_at %>
-              <p class="mt-1 text-xs text-gray-500">Last connected: <%= time_ago_in_words(credential.last_login_at) %> ago</p>
-            <% end %>
-          </li>
-        <% end %>
-        <% if @supplier_credentials.empty? %>
-          <li class="px-4 py-8 text-center text-gray-500">
-            No suppliers connected. <%= link_to "Add your first supplier", new_supplier_credential_path, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
-          </li>
-        <% end %>
-      </ul>
-    </div>
-  </div>
 <% end %>

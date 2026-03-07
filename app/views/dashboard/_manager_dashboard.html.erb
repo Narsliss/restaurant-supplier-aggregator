@@ -1,0 +1,217 @@
+<%# ============================================================= %>
+<%# MANAGER DASHBOARD — "The Numbers"                             %>
+<%# Focus: spending, savings, financial breakdowns                 %>
+<%# ============================================================= %>
+
+<!-- Hero Banner -->
+<div class="-mx-4 sm:-mx-6 lg:-mx-8 -mt-10 mb-8">
+  <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+    <img src="https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1920&q=80"
+         alt="Restaurant kitchen"
+         class="absolute inset-0 h-full w-full object-cover opacity-15"
+         onerror="this.style.display='none'">
+    <div class="relative px-6 py-10 sm:px-12 sm:py-14">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+        <div>
+          <h1 class="text-3xl sm:text-4xl font-heading font-bold text-white tracking-wide">
+            Welcome back, <%= current_user.first_name || current_user.email.split('@').first %>
+          </h1>
+          <p class="mt-2 text-lg text-gray-300 font-body">Financial overview for your restaurants.</p>
+          <div class="mt-5">
+            <%= link_to "View Full Reports", reports_path, class: "inline-flex items-center rounded-md bg-white/10 backdrop-blur px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-white/20 transition-colors border border-white/20" %>
+          </div>
+        </div>
+        <div class="flex-shrink-0 text-right rounded-lg bg-white/10 backdrop-blur border border-white/20 px-6 py-5">
+          <p class="text-sm font-medium text-white/80">Savings This Month</p>
+          <p class="mt-1 text-3xl sm:text-4xl font-bold text-white tracking-tight"><%= number_to_currency(@stats[:savings_this_month]) %></p>
+          <% if @stats[:savings_change] %>
+            <p class="mt-1 text-sm <%= @stats[:savings_change] > 0 ? 'text-green-300' : @stats[:savings_change] < 0 ? 'text-red-300' : 'text-white/60' %>">
+              <%= @stats[:savings_change] > 0 ? "+#{@stats[:savings_change]}%" : "#{@stats[:savings_change]}%" %> vs last month
+            </p>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Stat Cards with % Change -->
+<dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+  <%
+    cards = [
+      { label: "Spend This Month", value: number_to_currency(@stats[:spend_this_month]), change: @stats[:spend_change], icon_color: "bg-brand-orange",
+        icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />' },
+      { label: "Savings This Month", value: number_to_currency(@stats[:savings_this_month]), change: @stats[:savings_change], icon_color: "bg-brand-green",
+        icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />', value_color: "text-green-600" },
+      { label: "Orders This Month", value: @stats[:orders_this_month], change: @stats[:orders_change], icon_color: "bg-brand-green-dark",
+        icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />' },
+      { label: "Avg Order Value", value: number_to_currency(@stats[:avg_order_value]), change: @stats[:avg_order_change], icon_color: "bg-brand-blue",
+        icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />' }
+    ]
+  %>
+  <% cards.each do |card| %>
+    <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 shadow sm:px-6 sm:pt-6">
+      <dt>
+        <div class="absolute rounded-md <%= card[:icon_color] %> p-3">
+          <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><%= card[:icon].html_safe %></svg>
+        </div>
+        <p class="ml-16 text-sm font-medium text-gray-500"><%= card[:label] %></p>
+      </dt>
+      <dd class="ml-16">
+        <p class="text-2xl font-semibold <%= card[:value_color] || 'text-gray-900' %>"><%= card[:value] %></p>
+        <% if card[:change] %>
+          <p class="mt-0.5 text-sm <%= card[:change] > 0 ? 'text-green-600' : card[:change] < 0 ? 'text-red-600' : 'text-gray-500' %>">
+            <%= card[:change] > 0 ? "+#{card[:change]}%" : "#{card[:change]}%" %> vs last month
+          </p>
+        <% end %>
+      </dd>
+    </div>
+  <% end %>
+</dl>
+
+<!-- Weekly Spending Trend (full width) -->
+<div class="bg-white shadow rounded-lg mb-8">
+  <div class="px-4 py-5 sm:px-6 border-b border-gray-100">
+    <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Weekly Spending</h3>
+  </div>
+  <div class="p-6">
+    <% max_total = [@weekly_trend.map { |w| w[:total] }.max.to_f, 1].max %>
+    <% if @weekly_trend.any? { |w| w[:total] > 0 } %>
+      <div class="flex items-stretch justify-between h-48 gap-2">
+        <% @weekly_trend.each do |week| %>
+          <div class="flex flex-col items-center justify-end flex-1">
+            <% if week[:total] > 0 %>
+              <span class="text-xs text-gray-500 mb-1 whitespace-nowrap"><%= number_to_currency(week[:total], precision: 0) %></span>
+            <% end %>
+            <div class="w-full bg-brand-orange rounded-t transition-all"
+                 style="height: <%= week[:total] > 0 ? [(week[:total] / max_total * 100).round, 4].max : 2 %>%">
+            </div>
+            <p class="text-xs text-gray-500 mt-2"><%= week[:label] %></p>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-48 text-sm text-gray-400">No spending data yet</div>
+    <% end %>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+  <!-- Spending by Restaurant (horizontal bars) -->
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-4 py-5 sm:px-6 border-b border-gray-100">
+      <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Spending by Restaurant</h3>
+      <p class="mt-0.5 text-xs text-gray-500">This month</p>
+    </div>
+    <% if @location_stats.any? { |r| r[:monthly_spend] > 0 } %>
+      <div class="px-4 py-4 sm:px-6 space-y-4">
+        <% max_loc_spend = @location_stats.map { |r| r[:monthly_spend] }.max.to_f %>
+        <% @location_stats.each do |row| %>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium text-gray-900 truncate"><%= row[:location].name %></span>
+              <div class="text-right shrink-0 ml-3">
+                <span class="text-sm font-semibold text-gray-900"><%= number_to_currency(row[:monthly_spend]) %></span>
+                <span class="text-xs text-gray-500 ml-1">(<%= row[:order_count] %> orders)</span>
+              </div>
+            </div>
+            <div class="bg-gray-100 rounded-full h-2">
+              <div class="bg-brand-green h-2 rounded-full transition-all"
+                   style="width: <%= max_loc_spend > 0 ? (row[:monthly_spend] / max_loc_spend * 100).round(1) : 0 %>%"></div>
+            </div>
+            <% if row[:savings] > 0 %>
+              <p class="mt-0.5 text-xs text-green-600">Saved <%= number_to_currency(row[:savings]) %></p>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="px-4 py-8 text-center text-sm text-gray-400">No orders this month</div>
+    <% end %>
+  </div>
+
+  <!-- Spending by Supplier (horizontal bars) -->
+  <div class="bg-white shadow rounded-lg">
+    <div class="px-4 py-5 sm:px-6 border-b border-gray-100">
+      <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Spending by Supplier</h3>
+      <p class="mt-0.5 text-xs text-gray-500">This month</p>
+    </div>
+    <% if @by_supplier.any? %>
+      <div class="px-4 py-4 sm:px-6 space-y-4">
+        <% max_sup_spend = @by_supplier.map { |r| r[:total_spent] }.max.to_f %>
+        <% @by_supplier.each do |row| %>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium text-gray-900 truncate"><%= row[:supplier].name %></span>
+              <div class="text-right shrink-0 ml-3">
+                <span class="text-sm font-semibold text-gray-900"><%= number_to_currency(row[:total_spent]) %></span>
+                <span class="text-xs text-gray-500 ml-1">(<%= row[:order_count] %> orders)</span>
+              </div>
+            </div>
+            <div class="bg-gray-100 rounded-full h-2">
+              <div class="bg-brand-orange h-2 rounded-full transition-all"
+                   style="width: <%= max_sup_spend > 0 ? (row[:total_spent] / max_sup_spend * 100).round(1) : 0 %>%"></div>
+            </div>
+            <% if row[:savings] > 0 %>
+              <p class="mt-0.5 text-xs text-green-600">Saved <%= number_to_currency(row[:savings]) %></p>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="px-4 py-8 text-center text-sm text-gray-400">No orders this month</div>
+    <% end %>
+  </div>
+</div>
+
+<!-- Recent Orders -->
+<div class="mt-6 bg-white shadow rounded-lg">
+  <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
+    <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Recent Orders</h3>
+    <%= link_to orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" do %>
+      View All
+    <% end %>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Restaurant</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ordered By</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Status</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Date</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        <% @recent_orders.each do |order| %>
+          <tr class="hover:bg-brand-green-50 transition-colors cursor-pointer" onclick="window.location='<%= order_path(order) %>'">
+            <td class="px-4 py-3 text-sm font-medium text-gray-900"><%= order.supplier.name %></td>
+            <td class="px-4 py-3 text-sm text-gray-500"><%= order.location&.name %></td>
+            <td class="px-4 py-3 text-sm text-gray-500"><%= order.user&.full_name %></td>
+            <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right"><%= number_to_currency(order.total_amount) %></td>
+            <td class="px-4 py-3 text-right">
+              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium
+                <%= case order.status
+                    when 'submitted', 'confirmed' then 'bg-green-100 text-green-800'
+                    when 'processing', 'verifying' then 'bg-blue-100 text-blue-800'
+                    when 'failed' then 'bg-red-100 text-red-800'
+                    when 'price_changed' then 'bg-yellow-100 text-yellow-800'
+                    else 'bg-gray-100 text-gray-800'
+                    end %>">
+                <%= order.status.titleize %>
+              </span>
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-500 text-right"><%= time_ago_in_words(order.created_at) %> ago</td>
+          </tr>
+        <% end %>
+        <% if @recent_orders.empty? %>
+          <tr>
+            <td colspan="6" class="px-4 py-8 text-center text-gray-500">No orders yet.</td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>

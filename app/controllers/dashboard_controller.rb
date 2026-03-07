@@ -41,19 +41,8 @@ class DashboardController < ApplicationController
   def load_owner_dashboard
     org = current_user.current_organization
 
-    # Cache base relations to avoid rebuilding scoped queries multiple times
     base_orders = scoped_orders
     base_credentials = scoped_credentials
-    base_order_lists = scoped_order_lists
-
-    @recent_orders = base_orders
-      .includes(:supplier, :location, :user)
-      .order(created_at: :desc)
-      .limit(10)
-
-    @order_lists = base_order_lists
-      .order(last_used_at: :desc, updated_at: :desc)
-      .limit(5)
 
     @supplier_credentials = base_credentials
       .includes(:supplier, :user)
@@ -64,83 +53,158 @@ class DashboardController < ApplicationController
       .where("expires_at > ?", Time.current)
       .includes(supplier_credential: :supplier)
 
-    # Combine order stats into fewer queries
-    order_stats = base_orders.pick(
-      Arel.sql("COUNT(*)"),
-      Arel.sql("COUNT(CASE WHEN orders.created_at >= '#{Time.current.beginning_of_month.iso8601}' THEN 1 END)"),
-      Arel.sql("COALESCE(SUM(savings_amount), 0)")
+    # Stats with current + prior month for % change
+    month_start = Time.current.beginning_of_month
+    prior_month_start = 1.month.ago.beginning_of_month
+    prior_month_end = month_start - 1.second
+
+    current_month_stats = base_orders.where("orders.created_at >= ?", month_start).pick(
+      Arel.sql("COALESCE(SUM(total_amount), 0)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)"),
+      Arel.sql("COUNT(*)")
+    )
+    prior_month_stats = base_orders.where(created_at: prior_month_start..prior_month_end).pick(
+      Arel.sql("COALESCE(SUM(total_amount), 0)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)"),
+      Arel.sql("COUNT(*)")
     )
 
+    all_time_savings = base_orders.sum(:savings_amount) || 0
+
     @stats = {
-      total_orders: order_stats[0],
-      orders_this_month: order_stats[1],
-      active_suppliers: base_credentials.where(status: 'active').count,
-      order_lists: base_order_lists.count,
-      total_savings: order_stats[2],
+      total_savings: all_time_savings,
+      spend_this_month: current_month_stats[0],
+      spend_change: percentage_change(current_month_stats[0], prior_month_stats[0]),
+      savings_this_month: current_month_stats[1],
+      savings_change: percentage_change(current_month_stats[1], prior_month_stats[1]),
       team_members: org&.member_count || 0,
-      restaurants: org&.locations&.count || 0
+      restaurants: org&.locations&.count || 0,
+      active_suppliers: base_credentials.where(status: 'active').count
     }
 
-    # Setup wizard — same steps as the hard gate wizard, but shown inline
-    # on the dashboard as optional guidance until all complete or dismissed
+    # Setup wizard (inline)
     @onboarding_steps = build_owner_setup_steps(org)
     @onboarding_complete = @onboarding_steps.all? { |s| s[:done] } || current_user.onboarding_dismissed_at?
     @onboarding_hard_gate = false
 
-    # Per-restaurant breakdown — single grouped query instead of 2 queries per location
-    locations = org&.locations || Location.none
-    month_start = Time.current.beginning_of_month
+    # Weekly spending trend (8 weeks)
+    @weekly_trend = load_weekly_trend(base_orders)
 
-    loc_counts = org.orders.where(location_id: locations.select(:id))
-      .group(:location_id)
-      .count
-    loc_monthly = org.orders.where(location_id: locations.select(:id))
+    # Team activity — orders per member this month
+    member_rows = base_orders.where("orders.created_at >= ?", month_start)
+      .group(:user_id)
+      .pluck(
+        Arel.sql("user_id"),
+        Arel.sql("COUNT(*)"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)")
+      )
+    users_by_id = User.where(id: member_rows.map(&:first)).index_by(&:id)
+    @team_activity = member_rows.map do |row|
+      { user: users_by_id[row[0]], order_count: row[1], total_spent: row[2] }
+    end.sort_by { |r| -r[:order_count] }
+
+    # Restaurant performance — per-location this month
+    locations = org&.locations || Location.none
+    loc_stats = org.orders.where(location_id: locations.select(:id))
       .where("orders.created_at >= ?", month_start)
       .group(:location_id)
-      .sum(:total_amount)
+      .pluck(
+        Arel.sql("location_id"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)"),
+        Arel.sql("COALESCE(SUM(savings_amount), 0)")
+      ).index_by(&:first)
 
     @location_stats = locations.map do |loc|
+      row = loc_stats[loc.id]
       {
         location: loc,
-        order_count: loc_counts[loc.id] || 0,
-        monthly_spend: loc_monthly[loc.id] || 0
+        monthly_spend: row ? row[1] : 0,
+        order_count: row ? row[2] : 0,
+        savings: row ? row[3] : 0
       }
-    end
+    end.sort_by { |r| -r[:monthly_spend] }
   end
 
   def load_manager_dashboard
     base_orders = scoped_orders
     base_credentials = scoped_credentials
-    base_order_lists = scoped_order_lists
 
     @recent_orders = base_orders
       .includes(:supplier, :location, :user)
       .order(created_at: :desc)
       .limit(10)
 
-    @order_lists = base_order_lists
-      .order(last_used_at: :desc, updated_at: :desc)
-      .limit(5)
-
-    @supplier_credentials = base_credentials
-      .includes(:supplier, :user)
-      .order(:created_at)
-
     @pending_2fa_requests = Supplier2faRequest.none
 
-    order_stats = base_orders.pick(
+    # Stats with current + prior month for % change
+    month_start = Time.current.beginning_of_month
+    prior_month_start = 1.month.ago.beginning_of_month
+    prior_month_end = month_start - 1.second
+
+    current_month_stats = base_orders.where("orders.created_at >= ?", month_start).pick(
+      Arel.sql("COALESCE(SUM(total_amount), 0)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)"),
       Arel.sql("COUNT(*)"),
-      Arel.sql("COUNT(CASE WHEN orders.created_at >= '#{Time.current.beginning_of_month.iso8601}' THEN 1 END)"),
-      Arel.sql("COALESCE(SUM(savings_amount), 0)")
+      Arel.sql("CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(total_amount) / COUNT(*), 2) ELSE 0 END")
+    )
+    prior_month_stats = base_orders.where(created_at: prior_month_start..prior_month_end).pick(
+      Arel.sql("COALESCE(SUM(total_amount), 0)"),
+      Arel.sql("COALESCE(SUM(savings_amount), 0)"),
+      Arel.sql("COUNT(*)"),
+      Arel.sql("CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(total_amount) / COUNT(*), 2) ELSE 0 END")
     )
 
     @stats = {
-      total_orders: order_stats[0],
-      orders_this_month: order_stats[1],
-      active_suppliers: base_credentials.where(status: 'active').count,
-      order_lists: base_order_lists.count,
-      total_savings: order_stats[2]
+      spend_this_month: current_month_stats[0],
+      spend_change: percentage_change(current_month_stats[0], prior_month_stats[0]),
+      savings_this_month: current_month_stats[1],
+      savings_change: percentage_change(current_month_stats[1], prior_month_stats[1]),
+      orders_this_month: current_month_stats[2],
+      orders_change: percentage_change(current_month_stats[2], prior_month_stats[2]),
+      avg_order_value: current_month_stats[3],
+      avg_order_change: percentage_change(current_month_stats[3], prior_month_stats[3])
     }
+
+    # Weekly spending trend (8 weeks)
+    @weekly_trend = load_weekly_trend(base_orders)
+
+    # Spending by restaurant
+    org = current_user.current_organization
+    locations = accessible_locations
+    loc_stats = base_orders.where("orders.created_at >= ?", month_start)
+      .where(location_id: locations.select(:id))
+      .group(:location_id)
+      .pluck(
+        Arel.sql("location_id"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)"),
+        Arel.sql("COALESCE(SUM(savings_amount), 0)")
+      ).index_by(&:first)
+
+    @location_stats = locations.map do |loc|
+      row = loc_stats[loc.id]
+      {
+        location: loc,
+        monthly_spend: row ? row[1] : 0,
+        order_count: row ? row[2] : 0,
+        savings: row ? row[3] : 0
+      }
+    end.sort_by { |r| -r[:monthly_spend] }
+
+    # Spending by supplier
+    supplier_rows = base_orders.where("orders.created_at >= ?", month_start)
+      .group(:supplier_id)
+      .pluck(
+        Arel.sql("supplier_id"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)"),
+        Arel.sql("COALESCE(SUM(savings_amount), 0)")
+      )
+    suppliers_by_id = Supplier.where(id: supplier_rows.map(&:first)).index_by(&:id)
+    @by_supplier = supplier_rows.map do |row|
+      { supplier: suppliers_by_id[row[0]], total_spent: row[1], order_count: row[2], savings: row[3] }
+    end.sort_by { |r| -r[:total_spent] }
 
     @read_only = true
   end
@@ -155,42 +219,64 @@ class DashboardController < ApplicationController
   def load_chef_dashboard
     base_orders = scoped_orders
     base_credentials = scoped_credentials
-    base_order_lists = scoped_order_lists
-
-    @recent_orders = base_orders
-      .includes(:supplier, :location)
-      .order(created_at: :desc)
-      .limit(5)
-
-    # Order lists are shared per-location — chef sees all lists at their restaurant
-    @order_lists = base_order_lists
-      .order(last_used_at: :desc, updated_at: :desc)
-      .limit(5)
-
-    @supplier_credentials = base_credentials
-      .includes(:supplier)
-      .order(:created_at)
 
     @pending_2fa_requests = current_user.supplier_2fa_requests
       .pending
       .where("expires_at > ?", Time.current)
       .includes(supplier_credential: :supplier)
 
-    order_stats = base_orders.pick(
-      Arel.sql("COUNT(*)"),
-      Arel.sql("COUNT(CASE WHEN orders.created_at >= '#{Time.current.beginning_of_month.iso8601}' THEN 1 END)"),
-      Arel.sql("COALESCE(SUM(savings_amount), 0)")
-    )
+    # Stats: orders this week, next delivery, pending verifications
+    week_start = Time.current.beginning_of_week
+    orders_this_week = base_orders.where("orders.created_at >= ?", week_start).count
+
+    next_delivery_order = base_orders
+      .where("delivery_date >= ?", Date.current)
+      .where.not(status: %w[cancelled failed])
+      .order(delivery_date: :asc)
+      .includes(:supplier)
+      .first
+
+    pending_verification_count = base_orders
+      .where(status: %w[verifying price_changed])
+      .count
 
     @stats = {
-      total_orders: order_stats[0],
-      orders_this_month: order_stats[1],
-      active_suppliers: base_credentials.where(status: 'active').count,
-      order_lists: base_order_lists.count,
-      total_savings: order_stats[2]
+      orders_this_week: orders_this_week,
+      next_delivery: next_delivery_order,
+      pending_verifications: pending_verification_count
     }
 
-    # Getting-started cards for chefs (shown after at least one credential connected)
+    # Upcoming deliveries — orders with future delivery dates, grouped by date
+    @upcoming_deliveries = base_orders
+      .where("delivery_date >= ?", Date.current)
+      .where.not(status: %w[cancelled failed])
+      .includes(:supplier, :order_items)
+      .order(delivery_date: :asc)
+      .limit(10)
+      .group_by(&:delivery_date)
+
+    # Daily order totals for the current week (bar chart)
+    daily_data = base_orders.where("orders.created_at >= ?", week_start)
+      .group(Arel.sql("DATE(orders.created_at)"))
+      .pluck(
+        Arel.sql("DATE(orders.created_at)"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)")
+      ).index_by(&:first)
+
+    @daily_orders = (0..6).map do |day_offset|
+      day = week_start.to_date + day_offset.days
+      row = daily_data[day]
+      { date: day, label: day.strftime("%a"), total: row ? row[1] : 0, count: row ? row[2] : 0 }
+    end
+
+    # Recent orders
+    @recent_orders = base_orders
+      .includes(:supplier, :location)
+      .order(created_at: :desc)
+      .limit(8)
+
+    # Getting-started cards for chefs
     org = current_user.current_organization
     @getting_started = [
       { title: "Connect a supplier", description: "Link your supplier account to pull in pricing and order guides", done: true, path: new_supplier_credential_path, cta: "Connect" },
@@ -270,6 +356,29 @@ class DashboardController < ApplicationController
       }
     ]
     end
+  end
+
+  # Shared: 8-week spending trend bar chart data
+  def load_weekly_trend(base_orders)
+    eight_weeks_ago = 8.weeks.ago.beginning_of_week.beginning_of_day
+    weekly_data = base_orders.where("orders.created_at >= ?", eight_weeks_ago)
+      .group(Arel.sql("date_trunc('week', orders.created_at)"))
+      .pluck(
+        Arel.sql("date_trunc('week', orders.created_at)"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)")
+      ).index_by { |row| row[0].to_date }
+
+    (0..7).map do |weeks_ago|
+      week_start = (Date.current - weeks_ago.weeks).beginning_of_week
+      row = weekly_data[week_start]
+      { week: week_start, label: week_start.strftime("%b %d"), total: row ? row[1] : 0, count: row ? row[2] : 0 }
+    end.reverse
+  end
+
+  def percentage_change(current, previous)
+    return nil if previous.nil? || previous.zero?
+    ((current - previous).to_f / previous * 100).round(1)
   end
 
   def load_chef_onboarding_steps
