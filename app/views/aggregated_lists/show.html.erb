@@ -141,13 +141,13 @@
                      data-inline-edit-url-value="<%= rename_aggregated_list_product_match_path(@aggregated_list, match) %>"
                      data-inline-edit-field-value="canonical_name"
                      class="group flex items-start gap-1">
-                  <span class="text-sm font-medium text-gray-900 cursor-pointer hover:text-brand-orange transition-colors"
+                  <span class="text-sm font-medium text-gray-900 cursor-pointer hover:text-brand-orange transition-colors underline decoration-dashed decoration-gray-300 decoration-1 underline-offset-2 hover:decoration-brand-orange"
                         data-inline-edit-target="display"
                         data-action="click->inline-edit#edit"
                         title="Click to rename"><%= match.display_name %></span>
                   <button data-inline-edit-target="icon"
                           data-action="click->inline-edit#edit"
-                          class="opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 text-gray-400 hover:text-brand-orange flex-shrink-0"
+                          class="opacity-40 group-hover:opacity-100 transition-opacity mt-0.5 text-gray-400 hover:text-brand-orange flex-shrink-0"
                           title="Rename product">
                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
