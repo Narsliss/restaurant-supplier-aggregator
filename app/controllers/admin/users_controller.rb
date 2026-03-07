@@ -3,26 +3,7 @@ class Admin::UsersController < Admin::BaseController
   before_action :require_impersonation_session, only: [:stop_impersonating]
 
   def index
-    @users = User.where(role: 'user')
-                 .includes(:current_organization)
-                 .order(sort_column => sort_direction)
-
-    # Search
-    if params[:q].present?
-      @users = @users.where('email ILIKE :q OR first_name ILIKE :q OR last_name ILIKE :q', q: "%#{params[:q]}%")
-    end
-
-    # Filters
-    case params[:filter]
-    when 'active'  then @users = @users.where('current_sign_in_at >= ?', 7.days.ago)
-    when 'dormant' then @users = @users.where('current_sign_in_at < ? OR current_sign_in_at IS NULL', 30.days.ago)
-    when 'locked'  then @users = @users.where.not(locked_at: nil)
-    end
-
-    @page = (params[:page] || 1).to_i
-    @per_page = 25
-    @total_count = @users.count
-    @users = @users.offset((@page - 1) * @per_page).limit(@per_page)
+    redirect_to admin_organizations_path, status: :moved_permanently
   end
 
   def show
