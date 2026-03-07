@@ -105,10 +105,10 @@
         <% end %>
       </div>
     <% else %>
-      <div class="space-y-6">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <% @lists_by_supplier.each do |supplier, lists| %>
           <div class="bg-white shadow rounded-lg">
-            <div class="px-4 py-5 sm:px-6 flex justify-between items-center border-b border-gray-100">
+            <div class="px-4 py-3 flex justify-between items-center border-b border-gray-700">
               <div>
                 <h3 class="text-lg font-heading font-medium leading-6 text-gray-900"><%= supplier.name %></h3>
                 <p class="mt-1 text-sm text-gray-500"><%= pluralize(lists.size, "list") %></p>
@@ -128,9 +128,9 @@
                     class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
               <% end %>
             </div>
-            <ul class="divide-y divide-gray-100">
+            <ul>
               <% lists.each do |list| %>
-                <li class="px-4 py-4 sm:px-6 hover:bg-gray-50">
+                <li class="px-4 py-2.5 hover:bg-gray-50 border-t border-gray-200">
                   <%= link_to supplier_list_path(list), class: "flex justify-between items-center" do %>
                     <div>
                       <p class="text-sm font-medium text-gray-900"><%= list.name %></p>
