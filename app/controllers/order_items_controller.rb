@@ -2,7 +2,7 @@ class OrderItemsController < ApplicationController
   before_action :set_order
   before_action :set_order_item, only: [:update, :destroy]
 
-  # POST /order-history/:order_id/order_items
+  # POST /orders/:order_id/order_items
   # Adds a product to a pending order (e.g., from suggestion quick-add).
   # Expects JSON: { supplier_product_id: Integer, quantity: Integer }
   def create
@@ -59,7 +59,7 @@ class OrderItemsController < ApplicationController
     }
   end
 
-  # PATCH /order-history/:order_id/order_items/:id
+  # PATCH /orders/:order_id/order_items/:id
   # Updates quantity on a single item, recalculates order totals.
   # Returns JSON with updated item + order totals + minimum status.
   def update
@@ -84,7 +84,7 @@ class OrderItemsController < ApplicationController
     render json: order_item_json
   end
 
-  # DELETE /order-history/:order_id/order_items/:id
+  # DELETE /orders/:order_id/order_items/:id
   # Removes an item. If order has no items left, destroys the empty order.
   def destroy
     unless @order.pending?

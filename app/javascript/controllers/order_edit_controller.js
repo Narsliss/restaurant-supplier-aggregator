@@ -259,7 +259,7 @@ export default class extends Controller {
     if (this._debounceTimers[key]) clearTimeout(this._debounceTimers[key])
 
     this._debounceTimers[key] = setTimeout(() => {
-      fetch(`/order-history/${this.orderIdValue}/order_items/${itemId}`, {
+      fetch(`/orders/${this.orderIdValue}/order_items/${itemId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -276,7 +276,7 @@ export default class extends Controller {
   }
 
   _deleteItem(itemId) {
-    fetch(`/order-history/${this.orderIdValue}/order_items/${itemId}`, {
+    fetch(`/orders/${this.orderIdValue}/order_items/${itemId}`, {
       method: "DELETE",
       headers: {
         "X-CSRF-Token": this._csrfToken(),
@@ -290,7 +290,7 @@ export default class extends Controller {
     .then(data => {
       // If all items removed, redirect to order history
       if (data && data.order_removed) {
-        window.location.href = "/order-history"
+        window.location.href = "/orders"
       }
     })
     .catch(err => console.error("Error deleting item:", err))
@@ -301,7 +301,7 @@ export default class extends Controller {
     if (this._debounceTimers[key]) clearTimeout(this._debounceTimers[key])
 
     this._debounceTimers[key] = setTimeout(() => {
-      fetch(`/order-history/${this.orderIdValue}`, {
+      fetch(`/orders/${this.orderIdValue}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

@@ -168,7 +168,7 @@ export default class extends Controller {
     btn.disabled = true
     btn.classList.add("opacity-50", "cursor-not-allowed")
 
-    fetch(`/order-history/${orderId}/order_items`, {
+    fetch(`/orders/${orderId}/order_items`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -536,7 +536,7 @@ export default class extends Controller {
 
   skipAllVerification() {
     const csrfToken = this._csrfToken()
-    fetch(`/order-history/skip_verification`, {
+    fetch(`/orders/skip_verification`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -564,7 +564,7 @@ export default class extends Controller {
   skipOrderVerification(event) {
     const orderId = event.currentTarget.dataset.orderId
     const csrfToken = this._csrfToken()
-    fetch(`/order-history/skip_verification`, {
+    fetch(`/orders/skip_verification`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -585,7 +585,7 @@ export default class extends Controller {
 
   retryVerification() {
     const csrfToken = this._csrfToken()
-    fetch(`/order-history/retry_verification`, {
+    fetch(`/orders/retry_verification`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -608,7 +608,7 @@ export default class extends Controller {
   retryOrderVerification(event) {
     const orderId = event.currentTarget.dataset.orderId
     const csrfToken = this._csrfToken()
-    fetch(`/order-history/retry_verification`, {
+    fetch(`/orders/retry_verification`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -643,7 +643,7 @@ export default class extends Controller {
   }
 
   _pollVerificationStatus() {
-    fetch(`/order-history/verification_status?batch_id=${this.batchIdValue}`, {
+    fetch(`/orders/verification_status?batch_id=${this.batchIdValue}`, {
       headers: { "Accept": "application/json" }
     })
     .then(res => res.json())
@@ -726,7 +726,7 @@ export default class extends Controller {
 
     // If no more orders on page (all submitted), redirect
     if (this.orderCardTargets.length === 0) {
-      window.location.href = "/order-history"
+      window.location.href = "/orders"
     }
 
     // Update submit button states based on verification results
@@ -1223,7 +1223,7 @@ export default class extends Controller {
   _checkIfAllDone() {
     // If no more order cards, redirect to order history
     if (this.orderCardTargets.length === 0) {
-      window.location.href = "/order-history"
+      window.location.href = "/orders"
     }
   }
 
@@ -1236,7 +1236,7 @@ export default class extends Controller {
     this._debounceTimers[key] = setTimeout(() => {
       const csrfToken = this._csrfToken()
 
-      fetch(`/order-history/${orderId}/order_items/${itemId}`, {
+      fetch(`/orders/${orderId}/order_items/${itemId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -1255,7 +1255,7 @@ export default class extends Controller {
   _deleteItem(itemId, orderId) {
     const csrfToken = this._csrfToken()
 
-    fetch(`/order-history/${orderId}/order_items/${itemId}`, {
+    fetch(`/orders/${orderId}/order_items/${itemId}`, {
       method: "DELETE",
       headers: {
         "X-CSRF-Token": csrfToken,
@@ -1275,7 +1275,7 @@ export default class extends Controller {
     this._debounceTimers[key] = setTimeout(() => {
       const csrfToken = this._csrfToken()
 
-      fetch(`/order-history/${orderId}`, {
+      fetch(`/orders/${orderId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

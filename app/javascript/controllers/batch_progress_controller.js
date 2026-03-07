@@ -9,7 +9,7 @@ import { Controller } from "@hotwired/stimulus"
  *
  * Usage:
  *   <div data-controller="batch-progress"
- *        data-batch-progress-url-value="/order-history/batch_placement_status?batch_id=..."
+ *        data-batch-progress-url-value="/orders/batch_placement_status?batch_id=..."
  *        data-batch-progress-processing-value="true">
  *     <div data-batch-progress-target="orderCard" data-order-id="123">
  *       <span data-status-badge>Processing</span>

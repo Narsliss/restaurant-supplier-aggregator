@@ -95,8 +95,8 @@ Rails.application.routes.draw do
     end
   end
 
-  # Supplier Lists (scraped order guides) — URL: /order-lists
-  resources :supplier_lists, only: %i[index show], path: "order-lists" do
+  # Supplier Lists (scraped order guides) — URL: /order-guides
+  resources :supplier_lists, only: %i[index show], path: "order-guides" do
     member do
       post :sync
     end
@@ -158,8 +158,8 @@ Rails.application.routes.draw do
     end
   end
 
-  # Orders — URL: /order-history
-  resources :orders, path: "order-history" do
+  # Orders
+  resources :orders do
     member do
       post :submit
       post :cancel
