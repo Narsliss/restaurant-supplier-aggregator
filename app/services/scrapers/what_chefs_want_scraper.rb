@@ -4,7 +4,8 @@ module Scrapers
     PLATFORM_URL = 'https://whatchefswant.cutanddry.com'.freeze
     LOGIN_URL = "#{BASE_URL}/customer-login/".freeze
     ORDER_MINIMUM = 150.00
-    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live WCW orders
+    # Checkout is controlled by supplier.checkout_enabled? (database flag)
+    # No hardcoded gate — OrderPlacementService passes dry_run: true when checkout is disabled
 
     # What Chefs Want (Cut+Dry platform) categories for catalog browsing
     # Categories are browsed via filter buttons on the order page
@@ -381,8 +382,7 @@ module Scrapers
     public
 
     def checkout(dry_run: false)
-      effective_dry_run = dry_run || !CHECKOUT_LIVE
-      logger.info "[WhatChefsWant] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
+      logger.info "[WhatChefsWant] checkout starting (dry_run=#{dry_run})"
 
       # Reuse the browser from add_to_cart (cart doesn't persist across sessions)
       ensure_order_browser!
@@ -467,7 +467,7 @@ module Scrapers
         # ═══════════════════════════════════════════
         # ═══ SAFETY GATE — DRY RUN CHECK ══════════
         # ═══════════════════════════════════════════
-        if effective_dry_run
+        if dry_run
           logger.info "[WhatChefsWant] DRY RUN COMPLETE — stopping before Submit Order"
           logger.info "[WhatChefsWant] Would have placed order: total=$#{order_total}"
 

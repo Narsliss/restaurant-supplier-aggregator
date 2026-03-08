@@ -2,7 +2,8 @@ module Scrapers
   class UsFoodsScraper < BaseScraper
     BASE_URL = 'https://order.usfoods.com'.freeze
     ORDER_MINIMUM = 250.00
-    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live US Foods orders
+    # Checkout is controlled by supplier.checkout_enabled? (database flag)
+    # No hardcoded gate — OrderPlacementService passes dry_run: true when checkout is disabled
 
     # Azure AD B2C login selectors
     USERID_FIELD = '#signInName-facade'.freeze
@@ -1759,8 +1760,7 @@ module Scrapers
     end
 
     def checkout(dry_run: false)
-      effective_dry_run = dry_run || !CHECKOUT_LIVE
-      logger.info "[UsFoods] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
+      logger.info "[UsFoods] checkout starting (dry_run=#{dry_run})"
 
       # Reuse the persistent browser from add_to_cart (order context is preserved)
       ensure_order_browser!
@@ -1822,32 +1822,35 @@ module Scrapers
           # already excludes OOS items (US Foods grays them out but keeps them visible).
         end
 
-        # Step 8: Navigate to checkout/review page
-        proceed_to_checkout_page_usf
-
-        # Step 9: Extract checkout data
-        checkout_data = extract_checkout_data_usf
-        logger.info "[UsFoods] Checkout: total=#{checkout_data[:total]}, delivery=#{checkout_data[:delivery_date]}"
-
         # ═══════════════════════════════════════════
         # ═══ SAFETY GATE — DRY RUN CHECK ══════════
+        # US Foods has single-step checkout (Submit Order on the cart page
+        # immediately places the order). The gate MUST be checked before
+        # navigating away from the cart page.
         # ═══════════════════════════════════════════
-        if effective_dry_run
-          logger.info "[UsFoods] DRY RUN COMPLETE — stopping before final submit"
-          logger.info "[UsFoods] Would have placed order: total=#{checkout_data[:total]}"
+        if dry_run
+          logger.info "[UsFoods] DRY RUN COMPLETE — stopping before checkout"
+          logger.info "[UsFoods] Would have placed order: subtotal=#{cart_data[:subtotal]}"
 
           return {
             confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
-            total: checkout_data[:total] || cart_data[:subtotal],
-            delivery_date: checkout_data[:delivery_date],
+            total: cart_data[:subtotal],
+            delivery_date: nil,
             dry_run: true,
             cart_items: cart_data[:items],
-            checkout_summary: checkout_data
+            checkout_summary: { subtotal: cart_data[:subtotal], item_count: cart_data[:item_count] }
           }
         end
 
-        # Step 10: LIVE ORDER — Click final submit
-        logger.warn "[UsFoods] PLACING LIVE ORDER — clicking submit"
+        # Step 8: LIVE ORDER — Navigate to checkout (this submits on US Foods)
+        logger.warn "[UsFoods] PLACING LIVE ORDER — proceeding to checkout"
+        proceed_to_checkout_page_usf
+
+        # Step 9: Extract confirmation data from the order-submitted page
+        checkout_data = extract_checkout_data_usf
+        logger.info "[UsFoods] Checkout: total=#{checkout_data[:total]}, delivery=#{checkout_data[:delivery_date]}"
+
+        # Step 10: Click final submit if there's a separate confirmation step
         click_place_order_button_usf
 
         # Step 11: Wait for confirmation

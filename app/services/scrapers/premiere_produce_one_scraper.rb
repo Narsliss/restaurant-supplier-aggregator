@@ -3,7 +3,8 @@ module Scrapers
     BASE_URL = 'https://premierproduceone.pepr.app'.freeze
     LOGIN_URL = "#{BASE_URL}/".freeze
     ORDER_MINIMUM = 0.00
-    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live PPO orders
+    # Checkout is controlled by supplier.checkout_enabled? (database flag)
+    # No hardcoded gate — OrderPlacementService passes dry_run: true when checkout is disabled
 
     # PPO categories for catalog browsing
     # Categories are browsed via URL pattern with category parameter
@@ -1223,8 +1224,7 @@ module Scrapers
     public
 
     def checkout(dry_run: false)
-      effective_dry_run = dry_run || !CHECKOUT_LIVE
-      logger.info "[PremiereProduceOne] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
+      logger.info "[PremiereProduceOne] checkout starting (dry_run=#{dry_run})"
 
       with_browser do
         # Step 1: Session restore + login (replicate from add_to_cart)
@@ -1291,7 +1291,7 @@ module Scrapers
         # ═══════════════════════════════════════════
         # ═══ SAFETY GATE — DRY RUN CHECK ══════════
         # ═══════════════════════════════════════════
-        if effective_dry_run
+        if dry_run
           logger.info "[PremiereProduceOne] DRY RUN COMPLETE — stopping before final submit"
           logger.info "[PremiereProduceOne] Would have placed order: total=#{checkout_data[:total]}"
 

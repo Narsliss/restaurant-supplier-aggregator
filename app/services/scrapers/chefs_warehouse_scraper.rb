@@ -3,7 +3,8 @@ module Scrapers
     BASE_URL = 'https://www.chefswarehouse.com'.freeze
     ORDER_URL = 'https://order.chefswarehouse.com'.freeze
     ORDER_MINIMUM = 200.00
-    CHECKOUT_LIVE = false # HARD SAFETY GATE: set to true ONLY when ready for live CW orders
+    # Checkout is controlled by supplier.checkout_enabled? (database flag)
+    # No hardcoded gate — OrderPlacementService passes dry_run: true when checkout is disabled
 
     # Override with_browser to use longer timeout and stealth options
     # CW's Vue.js SPA needs more time and may trigger bot detection
@@ -538,8 +539,7 @@ module Scrapers
     end
 
     def checkout(dry_run: false)
-      effective_dry_run = dry_run || !CHECKOUT_LIVE
-      logger.info "[ChefsWarehouse] checkout starting (dry_run=#{effective_dry_run}, CHECKOUT_LIVE=#{CHECKOUT_LIVE})"
+      logger.info "[ChefsWarehouse] checkout starting (dry_run=#{dry_run})"
 
       with_browser do
         # Step 1: Restore session / login
@@ -585,7 +585,7 @@ module Scrapers
         # ═══════════════════════════════════════════
         # ═══ SAFETY GATE — DRY RUN CHECK ══════════
         # ═══════════════════════════════════════════
-        if effective_dry_run
+        if dry_run
           logger.info "[ChefsWarehouse] DRY RUN COMPLETE — stopping before final submit"
           logger.info "[ChefsWarehouse] Would have placed order: total=#{checkout_data[:total]}"
 
