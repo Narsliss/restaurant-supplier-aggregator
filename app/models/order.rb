@@ -119,7 +119,7 @@ class Order < ApplicationRecord
   end
 
   def can_delete?
-    status.in?(%w[pending verifying price_changed failed cancelled])
+    status.in?(%w[pending verifying price_changed failed cancelled dry_run_complete])
   end
 
   # --- Price verification ---
