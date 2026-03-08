@@ -5,11 +5,14 @@ export default class extends Controller {
   static values = { supplierMinimums: Object }
 
   connect() {
+    this._buildMatchIndex()
+    this._csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
     this.updateTotals()
     this._setupFixedUI()
   }
 
   disconnect() {
+    if (this._updateRAF) cancelAnimationFrame(this._updateRAF)
     if (this._scrollHandler) window.removeEventListener("scroll", this._scrollHandler)
     if (this._fixedBar) this._fixedBar.remove()
     if (this._floatingHeader) this._floatingHeader.remove()
@@ -212,12 +215,59 @@ export default class extends Controller {
     }
   }
 
-  // Set the value for ALL inputs sharing the same match ID (desktop + mobile)
-  _setMatchQuantity(matchId, value) {
-    this.quantityInputTargets.forEach(input => {
-      if (input.dataset.matchId === matchId) {
-        input.value = value
+  // Build O(1) lookup maps: matchId → [inputs] and matchId → [lineTotals]
+  // Avoids scanning all 1000+ targets on every +/- click
+  _buildMatchIndex() {
+    this._matchInputs = {}
+    this._matchLineTotals = {}
+    this.quantityInputTargets.forEach((input, index) => {
+      const matchId = input.dataset.matchId
+      if (matchId) {
+        if (!this._matchInputs[matchId]) this._matchInputs[matchId] = []
+        this._matchInputs[matchId].push(input)
+        if (this.lineTotalTargets[index]) {
+          if (!this._matchLineTotals[matchId]) this._matchLineTotals[matchId] = []
+          this._matchLineTotals[matchId].push(this.lineTotalTargets[index])
+        }
       }
+    })
+  }
+
+  // Set the value for ALL inputs sharing the same match ID (desktop + mobile)
+  // Uses index map for O(1) lookup instead of scanning all targets
+  _setMatchQuantity(matchId, value) {
+    const inputs = this._matchInputs?.[matchId]
+    if (inputs) {
+      inputs.forEach(input => input.value = value)
+    } else {
+      // Fallback if index not built yet
+      this.quantityInputTargets.forEach(input => {
+        if (input.dataset.matchId === matchId) input.value = value
+      })
+    }
+  }
+
+  // Instantly update the line total for ONE match — gives immediate visual feedback
+  _updateMatchLineTotal(matchId) {
+    const inputs = this._matchInputs?.[matchId]
+    if (!inputs?.length) return
+    const input = inputs[0]
+    const qty = parseInt(input.value) || 0
+    const price = parseFloat(input.dataset.price) || 0
+    const lineTotal = qty * price
+    const text = lineTotal > 0 ? `$${lineTotal.toFixed(2)}` : "\u2014"
+    const totals = this._matchLineTotals?.[matchId]
+    if (totals) totals.forEach(el => el.textContent = text)
+  }
+
+  // Defer heavy KPI recalculation to next animation frame
+  // This lets the browser paint the quantity + line total change FIRST,
+  // then recalculate running totals, supplier breakdowns, etc.
+  _scheduleUpdateTotals() {
+    if (this._updateRAF) cancelAnimationFrame(this._updateRAF)
+    this._updateRAF = requestAnimationFrame(() => {
+      this._updateRAF = null
+      this.updateTotals()
     })
   }
 
@@ -341,11 +391,10 @@ export default class extends Controller {
     const newSupplierId = cell.dataset.supplierIdValue
 
     // Update all quantity inputs for this match (desktop + mobile) with new price/supplier
-    this.quantityInputTargets.forEach(input => {
-      if (input.dataset.matchId === matchId) {
-        input.dataset.price = newPrice
-        input.dataset.supplierId = newSupplierId
-      }
+    const matchInputs = this._matchInputs?.[matchId] || []
+    matchInputs.forEach(input => {
+      input.dataset.price = newPrice
+      input.dataset.supplierId = newSupplierId
     })
 
     // Update visual state: remove ring from all cells for this match, add to selected
@@ -376,15 +425,19 @@ export default class extends Controller {
       overridesDiv.appendChild(input)
     }
 
-    this.updateTotals()
+    this._updateMatchLineTotal(matchId)
+    this._scheduleUpdateTotals()
   }
 
   increment(event) {
     const input = event.currentTarget.closest("[data-order-builder-row]").querySelector("[data-order-builder-target='quantityInput']")
     const newValue = (parseInt(input.value) || 0) + 1
-    // Set all inputs for this match (desktop + mobile) to the new value
-    this._setMatchQuantity(input.dataset.matchId, newValue)
-    this.updateTotals()
+    const matchId = input.dataset.matchId
+    // Instant visual feedback: update input + line total immediately
+    this._setMatchQuantity(matchId, newValue)
+    this._updateMatchLineTotal(matchId)
+    // Defer heavy KPI recalc to next frame so browser paints the change first
+    this._scheduleUpdateTotals()
   }
 
   decrement(event) {
@@ -392,16 +445,19 @@ export default class extends Controller {
     const current = parseInt(input.value) || 0
     if (current > 0) {
       const newValue = current - 1
-      // Set all inputs for this match (desktop + mobile) to the new value
-      this._setMatchQuantity(input.dataset.matchId, newValue)
-      this.updateTotals()
+      const matchId = input.dataset.matchId
+      this._setMatchQuantity(matchId, newValue)
+      this._updateMatchLineTotal(matchId)
+      this._scheduleUpdateTotals()
     }
   }
 
   clearQuantity(event) {
     const input = event.currentTarget.closest("[data-order-builder-row]").querySelector("[data-order-builder-target='quantityInput']")
-    this._setMatchQuantity(input.dataset.matchId, 0)
-    this.updateTotals()
+    const matchId = input.dataset.matchId
+    this._setMatchQuantity(matchId, 0)
+    this._updateMatchLineTotal(matchId)
+    this._scheduleUpdateTotals()
   }
 
   // === Per-supplier breakdown (progress bars + subtotals) ===
@@ -517,14 +573,12 @@ export default class extends Controller {
     const spId = button.dataset.supplierProductId
     if (!spId) return
 
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
-
     try {
       const response = await fetch("/favorite_products/toggle", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
+          "X-CSRF-Token": this._csrfToken,
           "Accept": "application/json"
         },
         body: JSON.stringify({ supplier_product_id: spId })
