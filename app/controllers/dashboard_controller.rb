@@ -42,6 +42,7 @@ class DashboardController < ApplicationController
     org = current_user.current_organization
 
     base_orders = scoped_orders
+    kpi_orders = base_orders.kpi_eligible
     base_credentials = scoped_credentials
 
     @supplier_credentials = base_credentials
@@ -54,22 +55,23 @@ class DashboardController < ApplicationController
       .includes(supplier_credential: :supplier)
 
     # Stats with current + prior month for % change
+    # Only count orders that were actually submitted to suppliers (kpi_eligible)
     month_start = Time.current.beginning_of_month
     prior_month_start = 1.month.ago.beginning_of_month
     prior_month_end = month_start - 1.second
 
-    current_month_stats = base_orders.where("orders.created_at >= ?", month_start).pick(
+    current_month_stats = kpi_orders.where("orders.created_at >= ?", month_start).pick(
       Arel.sql("COALESCE(SUM(total_amount), 0)"),
       Arel.sql("COALESCE(SUM(savings_amount), 0)"),
       Arel.sql("COUNT(*)")
     )
-    prior_month_stats = base_orders.where(created_at: prior_month_start..prior_month_end).pick(
+    prior_month_stats = kpi_orders.where(created_at: prior_month_start..prior_month_end).pick(
       Arel.sql("COALESCE(SUM(total_amount), 0)"),
       Arel.sql("COALESCE(SUM(savings_amount), 0)"),
       Arel.sql("COUNT(*)")
     )
 
-    all_time_savings = base_orders.sum(:savings_amount) || 0
+    all_time_savings = kpi_orders.sum(:savings_amount) || 0
 
     @stats = {
       total_savings: all_time_savings,
@@ -88,10 +90,10 @@ class DashboardController < ApplicationController
     @onboarding_hard_gate = false
 
     # Weekly spending trend (8 weeks)
-    @weekly_trend = load_weekly_trend(base_orders)
+    @weekly_trend = load_weekly_trend(kpi_orders)
 
     # Team activity — orders per member this month
-    member_rows = base_orders.where("orders.created_at >= ?", month_start)
+    member_rows = kpi_orders.where("orders.created_at >= ?", month_start)
       .group(:user_id)
       .pluck(
         Arel.sql("user_id"),
@@ -105,7 +107,7 @@ class DashboardController < ApplicationController
 
     # Restaurant performance — per-location this month
     locations = org&.locations || Location.none
-    loc_stats = org.orders.where(location_id: locations.select(:id))
+    loc_stats = org.orders.kpi_eligible.where(location_id: locations.select(:id))
       .where("orders.created_at >= ?", month_start)
       .group(:location_id)
       .pluck(
@@ -128,6 +130,7 @@ class DashboardController < ApplicationController
 
   def load_manager_dashboard
     base_orders = scoped_orders
+    kpi_orders = base_orders.kpi_eligible
     base_credentials = scoped_credentials
 
     @recent_orders = base_orders
@@ -138,17 +141,18 @@ class DashboardController < ApplicationController
     @pending_2fa_requests = Supplier2faRequest.none
 
     # Stats with current + prior month for % change
+    # Only count orders that were actually submitted to suppliers (kpi_eligible)
     month_start = Time.current.beginning_of_month
     prior_month_start = 1.month.ago.beginning_of_month
     prior_month_end = month_start - 1.second
 
-    current_month_stats = base_orders.where("orders.created_at >= ?", month_start).pick(
+    current_month_stats = kpi_orders.where("orders.created_at >= ?", month_start).pick(
       Arel.sql("COALESCE(SUM(total_amount), 0)"),
       Arel.sql("COALESCE(SUM(savings_amount), 0)"),
       Arel.sql("COUNT(*)"),
       Arel.sql("CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(total_amount) / COUNT(*), 2) ELSE 0 END")
     )
-    prior_month_stats = base_orders.where(created_at: prior_month_start..prior_month_end).pick(
+    prior_month_stats = kpi_orders.where(created_at: prior_month_start..prior_month_end).pick(
       Arel.sql("COALESCE(SUM(total_amount), 0)"),
       Arel.sql("COALESCE(SUM(savings_amount), 0)"),
       Arel.sql("COUNT(*)"),
@@ -167,12 +171,12 @@ class DashboardController < ApplicationController
     }
 
     # Weekly spending trend (8 weeks)
-    @weekly_trend = load_weekly_trend(base_orders)
+    @weekly_trend = load_weekly_trend(kpi_orders)
 
     # Spending by restaurant
     org = current_user.current_organization
     locations = accessible_locations
-    loc_stats = base_orders.where("orders.created_at >= ?", month_start)
+    loc_stats = kpi_orders.where("orders.created_at >= ?", month_start)
       .where(location_id: locations.select(:id))
       .group(:location_id)
       .pluck(
@@ -193,7 +197,7 @@ class DashboardController < ApplicationController
     end.sort_by { |r| -r[:monthly_spend] }
 
     # Spending by supplier
-    supplier_rows = base_orders.where("orders.created_at >= ?", month_start)
+    supplier_rows = kpi_orders.where("orders.created_at >= ?", month_start)
       .group(:supplier_id)
       .pluck(
         Arel.sql("supplier_id"),

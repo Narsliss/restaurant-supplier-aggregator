@@ -156,11 +156,11 @@ class OrdersController < ApplicationController
   end
 
   def destroy
-    if @order.pending?
+    if @order.can_delete?
       @order.destroy
-      redirect_to orders_path
+      redirect_to orders_path, notice: "Order deleted."
     else
-      redirect_to @order
+      redirect_to @order, alert: "Cannot delete a submitted order."
     end
   end
 

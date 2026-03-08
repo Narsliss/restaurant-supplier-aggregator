@@ -13,7 +13,8 @@ class ReportsController < ApplicationController
 
     # Location filter
     @selected_location_id = params[:location_id]&.to_i
-    orders = scoped_orders.where(created_at: date_range)
+    # Only count orders that were actually submitted to suppliers (kpi_eligible)
+    orders = scoped_orders.kpi_eligible.where(created_at: date_range)
     orders = orders.for_location(Location.find(@selected_location_id)) if @selected_location_id.present? && @selected_location_id > 0
 
     # Summary stats — single query with multiple aggregations

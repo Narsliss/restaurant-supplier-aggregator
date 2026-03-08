@@ -57,6 +57,11 @@ class Order < ApplicationRecord
 
   VERIFICATION_STATUSES = %w[pending verifying verified price_changed failed skipped].freeze
 
+  # Statuses that represent real orders (submitted to suppliers) — used for KPI aggregation
+  KPI_STATUSES = %w[submitted confirmed dry_run_complete].freeze
+
+  scope :kpi_eligible, -> { where(status: KPI_STATUSES) }
+
   # Price change threshold — differences within 5% are auto-accepted
   PRICE_CHANGE_THRESHOLD = 0.05
 
@@ -111,6 +116,10 @@ class Order < ApplicationRecord
 
   def can_cancel?
     pending? || processing? || verifying? || price_changed? || status == "pending_review"
+  end
+
+  def can_delete?
+    status.in?(%w[pending verifying price_changed failed cancelled])
   end
 
   # --- Price verification ---
