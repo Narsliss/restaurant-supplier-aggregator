@@ -125,7 +125,8 @@ module Orders
       if result[:cart_items]&.any?
         lines << "Cart items verified: #{result[:cart_items].count}"
         result[:cart_items].each do |item|
-          lines << "  - #{item['name']} (#{item['sku']}): qty #{item['quantity']} @ $#{item['price']}"
+          item = item.symbolize_keys if item.respond_to?(:symbolize_keys)
+          lines << "  - #{item[:name]} (#{item[:sku]}): qty #{item[:quantity]} @ $#{item[:price]}"
         end
       end
       lines.join("\n")
