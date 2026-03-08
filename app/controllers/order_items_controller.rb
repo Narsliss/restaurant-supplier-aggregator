@@ -79,7 +79,8 @@ class OrderItemsController < ApplicationController
       line_total: @order_item.unit_price * new_qty
     )
     @order.recalculate_totals!
-    @order.update!(savings_amount: @order.calculate_savings)
+    # Skip calculate_savings here — it does N+1 queries (one per item)
+    # and the client uses optimistic UI. Savings recalculated at submission.
 
     render json: order_item_json
   end

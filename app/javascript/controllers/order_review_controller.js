@@ -27,6 +27,8 @@ export default class extends Controller {
   connect() {
     this._debounceTimers = {}
     this._pollingInterval = null
+    this._recalcRAF = null
+    this._cachedCsrfToken = null
     this._updateSubmitStates()
 
     // Always start polling — verification kicks off automatically on page load
@@ -37,6 +39,7 @@ export default class extends Controller {
 
   disconnect() {
     this._stopPolling()
+    if (this._recalcRAF) cancelAnimationFrame(this._recalcRAF)
   }
 
   // --- Quantity adjustments ---
@@ -81,11 +84,14 @@ export default class extends Controller {
       }
     })
 
-    // Instant client-side update
+    // Instant line-total update (lightweight — no layout reads)
     this._updateLineTotal(itemId, quantity)
-    this._recalculateOrderTotals(orderId)
-    this._recalculateSummary()
-    this._updateMinimumStatus()
+
+    // Defer heavy recalculations to next animation frame so the browser
+    // can paint the input + line-total changes immediately.
+    // With ~500 items (1000 DOM rows for desktop+mobile), the full
+    // recalculation is too expensive to run synchronously on every click.
+    this._scheduleRecalculation()
 
     // Debounced server persist
     this._debouncePatch(itemId, orderId, quantity)
@@ -123,20 +129,17 @@ export default class extends Controller {
       }
     })
 
-    this._recalculateOrderTotals(orderId)
-    this._recalculateSummary()
-    this._updateMinimumStatus()
-
     // Check if order card has no items left
     const card = this._cardForOrder(orderId)
     if (card) {
       const remaining = card.querySelectorAll("[data-order-review-target='itemRow']").length
       if (remaining === 0) {
         card.remove()
-        this._recalculateSummary()
-        this._updateMinimumStatus()
       }
     }
+
+    // Defer all recalculation to next frame (single pass)
+    this._scheduleRecalculation()
 
     // Server DELETE
     this._deleteItem(itemId, orderId)
@@ -968,6 +971,222 @@ export default class extends Controller {
 
   // --- Recalculation helpers ---
 
+  // Coalesce multiple rapid clicks into a single recalculation in the next frame.
+  // This lets the browser paint input/line-total changes immediately.
+  _scheduleRecalculation() {
+    if (this._recalcRAF) cancelAnimationFrame(this._recalcRAF)
+    this._recalcRAF = requestAnimationFrame(() => {
+      this._recalcRAF = null
+      this._recalculateAll()
+    })
+  }
+
+  // Single-pass recalculation that replaces the previous pattern of calling
+  // _recalculateOrderTotals + _recalculateSummary + _updateMinimumStatus
+  // + _updateSubmitStates in sequence. Those four functions each independently
+  // looped through all item rows checking offsetParent (forces layout reflow).
+  // With ~500 items (1000 rows for desktop+mobile), that caused massive
+  // layout thrashing: 4 passes × 1000 offsetParent reads with DOM writes
+  // between passes.
+  //
+  // This version reads ALL layout data in one pass (single reflow), then
+  // does all DOM writes without interleaved reads.
+  _recalculateAll() {
+    // ── Phase 1: READ — collect all row data in a single pass ──
+    // Reading offsetParent only once per row (without intervening writes)
+    // triggers a single layout computation instead of thousands.
+    const cardData = []
+    let totalItems = 0
+    let totalAmount = 0
+
+    this.orderCardTargets.forEach(card => {
+      const orderId = card.dataset.orderId
+      const minimum = parseFloat(card.dataset.minimum) || 0
+      const caseMin = parseInt(card.dataset.caseMinimum) || 0
+
+      const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
+      let subtotal = 0
+      let itemCount = 0
+      let totalCases = 0
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        // offsetParent is the only layout-forcing read — done in a batch
+        if (row.offsetParent === null) continue
+
+        const unitPrice = parseFloat(row.dataset.unitPrice) || 0
+        const input = row.querySelector("[data-order-review-target='quantityInput']")
+        const qty = input ? (parseInt(input.value) || 0) : 0
+        subtotal += unitPrice * qty
+        totalCases += qty
+        itemCount++
+      }
+
+      totalItems += itemCount
+      totalAmount += subtotal
+
+      const meetsMinium = minimum === 0 || subtotal >= minimum
+      const hasDate = this._hasValidDeliveryDate(orderId)
+      const verificationStatus = card.dataset.verificationStatus
+      const isVerified = ["verified", "price_changed", "skipped"].includes(verificationStatus)
+      const hasNoUnavailable = !card.querySelector("[data-in-stock='false']")
+      const canSubmit = meetsMinium && hasDate && isVerified && hasNoUnavailable
+
+      cardData.push({
+        orderId, card, subtotal, itemCount, totalCases,
+        minimum, caseMin, meetsMinium, canSubmit
+      })
+    })
+
+    // ── Phase 2: WRITE — all DOM mutations, no layout reads ──
+    let allCanSubmit = true
+
+    for (let c = 0; c < cardData.length; c++) {
+      const { orderId, card, subtotal, itemCount, totalCases,
+              minimum, caseMin, meetsMinium, canSubmit } = cardData[c]
+
+      if (!canSubmit) allCanSubmit = false
+
+      // Order subtotals
+      this.orderSubtotalTargets.forEach(el => {
+        if (el.dataset.orderId === orderId) el.textContent = this._formatCurrency(subtotal)
+      })
+      this.orderSubtotalFooterTargets.forEach(el => {
+        if (el.dataset.orderId === orderId) el.textContent = this._formatCurrency(subtotal)
+      })
+      this.orderItemCountTargets.forEach(el => {
+        if (el.dataset.orderId === orderId) el.textContent = itemCount
+      })
+
+      // Minimum badge
+      this.minimumBadgeTargets.forEach(badge => {
+        if (badge.dataset.orderId === orderId) {
+          if (meetsMinium) {
+            badge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"
+            badge.textContent = "Ready"
+          } else {
+            badge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"
+            badge.textContent = "Minimum not met"
+          }
+        }
+      })
+
+      // Shortfall text
+      this.minimumShortfallTargets.forEach(el => {
+        if (el.dataset.orderId === orderId) {
+          if (meetsMinium) {
+            el.style.display = "none"
+          } else {
+            const shortfall = minimum - subtotal
+            el.style.display = "inline"
+            el.textContent = `(Need ${this._formatCurrency(shortfall)} more for minimum)`
+          }
+        }
+      })
+
+      // Card ring
+      if (meetsMinium) {
+        card.classList.remove("ring-2", "ring-yellow-400")
+      } else {
+        card.classList.add("ring-2", "ring-yellow-400")
+      }
+
+      // Warning banners
+      this.minimumWarningTargets.forEach(warning => {
+        if (warning.dataset.orderId === orderId) {
+          warning.style.display = meetsMinium ? "none" : "block"
+          if (!meetsMinium) {
+            const supplierName = card.dataset.supplierName
+            const shortfall = minimum - subtotal
+            const p = warning.querySelector("p")
+            if (p) {
+              p.innerHTML = `
+                <span class="font-medium">Warning:</span>
+                ${supplierName} order minimum not met.
+                <span class="text-yellow-600">
+                  Current: ${this._formatCurrency(subtotal)},
+                  Need: ${this._formatCurrency(shortfall)} more
+                  (Minimum: ${this._formatCurrency(minimum)})
+                </span>
+              `
+            }
+          }
+        }
+      })
+
+      // Suggestions
+      this.suggestionsSectionTargets.forEach(el => {
+        if (el.dataset.orderId === orderId) {
+          el.style.display = meetsMinium ? "none" : ""
+        }
+      })
+
+      // Case minimum
+      if (caseMin > 0) {
+        const meetsCaseMin = totalCases >= caseMin
+
+        this.caseMinimumWarningTargets.forEach(warning => {
+          if (warning.dataset.orderId === orderId) {
+            warning.style.display = meetsCaseMin ? "none" : "block"
+            if (!meetsCaseMin) {
+              const shortfallEl = warning.querySelector("[data-order-review-target='caseMinimumShortfall']")
+              if (shortfallEl) {
+                const diff = caseMin - totalCases
+                shortfallEl.textContent =
+                  `You currently have ${totalCases} case${totalCases === 1 ? '' : 's'} — ${diff} more needed. An additional charge may apply.`
+              }
+            }
+          }
+        })
+
+        this.caseMinimumBadgeTargets.forEach(badge => {
+          if (badge.dataset.orderId === orderId) {
+            if (meetsCaseMin) {
+              badge.style.display = "none"
+            } else {
+              badge.style.display = ""
+              const diff = caseMin - totalCases
+              badge.textContent = `${diff} more case${diff === 1 ? '' : 's'} needed`
+            }
+          }
+        })
+      }
+
+      // Per-supplier submit button
+      this.supplierSubmitBtnTargets.forEach(btn => {
+        if (btn.dataset.orderId === orderId) {
+          if (canSubmit) {
+            btn.disabled = false
+            btn.classList.remove("bg-gray-300", "cursor-not-allowed")
+            btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+          } else {
+            btn.disabled = true
+            btn.classList.add("bg-gray-300", "cursor-not-allowed")
+            btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+          }
+        }
+      })
+    }
+
+    // Summary bar
+    if (this.hasSummaryOrdersTarget) this.summaryOrdersTarget.textContent = cardData.length
+    if (this.hasSummaryItemsTarget) this.summaryItemsTarget.textContent = totalItems
+    if (this.hasSummaryTotalTarget) this.summaryTotalTarget.textContent = this._formatCurrency(totalAmount)
+
+    // Submit All button
+    this.submitAllBtnTargets.forEach(btn => {
+      if (allCanSubmit && cardData.length > 0) {
+        btn.disabled = false
+        btn.classList.remove("bg-gray-300", "cursor-not-allowed")
+        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+      } else {
+        btn.disabled = true
+        btn.classList.add("bg-gray-300", "cursor-not-allowed")
+        btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+      }
+    })
+  }
+
   _recalculateOrderTotals(orderId) {
     const card = this._cardForOrder(orderId)
     if (!card) return
@@ -1317,7 +1536,10 @@ export default class extends Controller {
   }
 
   _csrfToken() {
-    return document.querySelector("meta[name='csrf-token']")?.content
+    if (!this._cachedCsrfToken) {
+      this._cachedCsrfToken = document.querySelector("meta[name='csrf-token']")?.content
+    }
+    return this._cachedCsrfToken
   }
 
   _formatCurrency(amount) {
