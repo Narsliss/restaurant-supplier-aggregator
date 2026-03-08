@@ -167,7 +167,8 @@ export default class extends Controller {
           : navBottom
 
         let currentCategoryHtml = null
-        this.categorySectionTargets.forEach(section => {
+        const categorySections = this._cachedCategorySections || this.categorySectionTargets
+        categorySections.forEach(section => {
           if (section.tagName === "TR") {
             const rect = section.getBoundingClientRect()
             if (rect.top <= headerBottom + 2) {
@@ -216,20 +217,51 @@ export default class extends Controller {
   }
 
   // Build O(1) lookup maps: matchId → [inputs] and matchId → [lineTotals]
-  // Avoids scanning all 1000+ targets on every +/- click
+  // Also caches the full target arrays — each access of this.xxxTargets in Stimulus
+  // runs querySelectorAll on the entire DOM, which is catastrophic inside loops.
   _buildMatchIndex() {
     this._matchInputs = {}
     this._matchLineTotals = {}
-    this.quantityInputTargets.forEach((input, index) => {
+    // Cache these ONCE — avoids 2000+ querySelectorAll calls in updateTotals()
+    this._cachedQuantityInputs = this.quantityInputTargets
+    this._cachedLineTotals = this.lineTotalTargets
+    this._cachedQuantityInputs.forEach((input, index) => {
       const matchId = input.dataset.matchId
       if (matchId) {
         if (!this._matchInputs[matchId]) this._matchInputs[matchId] = []
         this._matchInputs[matchId].push(input)
-        if (this.lineTotalTargets[index]) {
+        if (this._cachedLineTotals[index]) {
           if (!this._matchLineTotals[matchId]) this._matchLineTotals[matchId] = []
-          this._matchLineTotals[matchId].push(this.lineTotalTargets[index])
+          this._matchLineTotals[matchId].push(this._cachedLineTotals[index])
         }
       }
+    })
+    // Cache category sections for scroll handler (fires every scroll event)
+    this._cachedCategorySections = this.categorySectionTargets
+    // Also cache supplier breakdown original elements (avoid querySelectorAll per supplier per click)
+    this._origSupplierCards = {}
+    this._origSupplierSubtotals = {}
+    this._origSupplierProgressBars = {}
+    this._origSupplierMinLabels = {}
+    this.element.querySelectorAll("[data-supplier-breakdown-id]").forEach(el => {
+      const id = el.dataset.supplierBreakdownId
+      if (!this._origSupplierCards[id]) this._origSupplierCards[id] = []
+      this._origSupplierCards[id].push(el)
+    })
+    this.element.querySelectorAll("[data-supplier-subtotal]").forEach(el => {
+      const id = el.dataset.supplierSubtotal
+      if (!this._origSupplierSubtotals[id]) this._origSupplierSubtotals[id] = []
+      this._origSupplierSubtotals[id].push(el)
+    })
+    this.element.querySelectorAll("[data-supplier-progress-bar]").forEach(el => {
+      const id = el.dataset.supplierProgressBar
+      if (!this._origSupplierProgressBars[id]) this._origSupplierProgressBars[id] = []
+      this._origSupplierProgressBars[id].push(el)
+    })
+    this.element.querySelectorAll("[data-supplier-minimum-label]").forEach(el => {
+      const id = el.dataset.supplierMinimumLabel
+      if (!this._origSupplierMinLabels[id]) this._origSupplierMinLabels[id] = []
+      this._origSupplierMinLabels[id].push(el)
     })
   }
 
@@ -260,14 +292,18 @@ export default class extends Controller {
     if (totals) totals.forEach(el => el.textContent = text)
   }
 
-  // Defer heavy KPI recalculation to next animation frame
-  // This lets the browser paint the quantity + line total change FIRST,
-  // then recalculate running totals, supplier breakdowns, etc.
+  // Defer heavy KPI recalculation AFTER the browser paints.
+  // Single RAF runs BEFORE paint — so we use double-RAF:
+  //   1st RAF → runs before paint → schedules 2nd RAF
+  //   Browser paints (user sees instant qty + line total change)
+  //   2nd RAF → runs updateTotals() with KPI recalc
   _scheduleUpdateTotals() {
     if (this._updateRAF) cancelAnimationFrame(this._updateRAF)
     this._updateRAF = requestAnimationFrame(() => {
-      this._updateRAF = null
-      this.updateTotals()
+      this._updateRAF = requestAnimationFrame(() => {
+        this._updateRAF = null
+        this.updateTotals()
+      })
     })
   }
 
@@ -278,7 +314,13 @@ export default class extends Controller {
     const supplierTotals = {}
     const seenMatches = new Set()
 
-    this.quantityInputTargets.forEach((input, index) => {
+    // Use cached arrays — NOT this.quantityInputTargets / this.lineTotalTargets!
+    // Each Stimulus getter calls querySelectorAll on the entire DOM.
+    // Inside a loop of 1000, that's 2000+ full DOM scans = ~1 second of lag.
+    const inputs = this._cachedQuantityInputs || this.quantityInputTargets
+    const lineTotals = this._cachedLineTotals || this.lineTotalTargets
+
+    inputs.forEach((input, index) => {
       const matchId = input.dataset.matchId
       const qty = parseInt(input.value) || 0
       const price = parseFloat(input.dataset.price) || 0
@@ -286,8 +328,8 @@ export default class extends Controller {
       const lineTotal = qty * price
 
       // Update the line total display for this row
-      if (this.lineTotalTargets[index]) {
-        this.lineTotalTargets[index].textContent = lineTotal > 0
+      if (lineTotals[index]) {
+        lineTotals[index].textContent = lineTotal > 0
           ? `$${lineTotal.toFixed(2)}`
           : "\u2014"
       }
@@ -471,7 +513,7 @@ export default class extends Controller {
 
       // Show/hide supplier card based on whether it has items
       const cardEls = [
-        ...this.element.querySelectorAll(`[data-supplier-breakdown-id="${supplierId}"]`),
+        ...(this._origSupplierCards?.[supplierId] || []),
         ...(this._fixedSupplierCards?.[supplierId] || [])
       ]
       cardEls.forEach(el => {
@@ -484,7 +526,7 @@ export default class extends Controller {
 
       // Update subtotal text in both original and cloned elements
       const subtotalEls = [
-        ...this.element.querySelectorAll(`[data-supplier-subtotal="${supplierId}"]`),
+        ...(this._origSupplierSubtotals?.[supplierId] || []),
         ...(this._fixedSupplierSubtotals?.[supplierId] || [])
       ]
       subtotalEls.forEach(el => el.textContent = formattedSubtotal)
@@ -495,7 +537,7 @@ export default class extends Controller {
         const met = subtotal >= minimum
 
         const progressEls = [
-          ...this.element.querySelectorAll(`[data-supplier-progress-bar="${supplierId}"]`),
+          ...(this._origSupplierProgressBars?.[supplierId] || []),
           ...(this._fixedSupplierProgressBars?.[supplierId] || [])
         ]
         progressEls.forEach(bar => {
@@ -512,7 +554,7 @@ export default class extends Controller {
 
         // Update the minimum label: checkmark when met, fraction when not
         const labelEls = [
-          ...this.element.querySelectorAll(`[data-supplier-minimum-label="${supplierId}"]`),
+          ...(this._origSupplierMinLabels?.[supplierId] || []),
           ...(this._fixedSupplierMinLabels?.[supplierId] || [])
         ]
         labelEls.forEach(el => {
