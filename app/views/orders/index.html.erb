@@ -96,7 +96,12 @@
                       Saved <%= number_to_currency(group_savings) %>
                     </span>
                   <% end %>
-                  <% if orders.first.batch_id.present? %>
+                  <% pending_in_group = orders.select { |o| o.can_submit? } %>
+                  <% if pending_in_group.any? && orders.first.batch_id.present? %>
+                    <%= link_to "Submit Remaining",
+                        review_orders_path(batch_id: orders.first.batch_id),
+                        class: "inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold text-white bg-brand-orange hover:bg-brand-orange-dark transition-colors" %>
+                  <% elsif orders.first.batch_id.present? %>
                     <%= link_to "View Batch", batch_progress_orders_path(batch_id: orders.first.batch_id), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
                   <% elsif orders.first.order_list_id.present? %>
                     <%= link_to "View Batch", batch_progress_orders_path(order_list_id: orders.first.order_list_id), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
@@ -131,8 +136,18 @@
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Confirmed</span>
                       <% elsif order.submitted? %>
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
+                      <% elsif order.can_submit? %>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Waiting to Submit</span>
+                        <% if order.batch_id.present? %>
+                          <%= link_to "Continue", review_orders_path(batch_id: order.batch_id), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+                        <% end %>
+                      <% elsif order.failed? %>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Failed</span>
+                        <%= link_to "Retry", order_path(order), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
                       <% end %>
-                      <%= link_to "View", order_path(order), class: "hidden sm:inline text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+                      <% if order.submitted? || order.confirmed? || order.dry_run_complete? %>
+                        <%= link_to "View", order_path(order), class: "hidden sm:inline text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
+                      <% end %>
                     </div>
                   </div>
                 </div>

@@ -47,6 +47,20 @@ class OrdersController < ApplicationController
 
     # Group orders by order_list_id or batch_id for split/batch order display
     all_orders = orders_scope.to_a
+
+    # Include pending/failed siblings from the same batch so incomplete batches
+    # are visible in Order History with action links to resume submission.
+    batch_ids = all_orders.filter_map(&:batch_id).uniq
+    if batch_ids.any?
+      pending_siblings = scoped_orders
+        .where(batch_id: batch_ids)
+        .where(status: %w[pending verifying price_changed failed])
+        .where.not(id: all_orders.map(&:id))
+        .includes(:supplier, :location, :order_items, :order_list, :user)
+        .to_a
+      all_orders.concat(pending_siblings)
+    end
+
     @order_groups = all_orders.group_by { |o| o.order_list_id || o.batch_id || "standalone_#{o.id}" }
       .values
       .sort_by { |group| group.map(&:submitted_at).compact.max || Time.at(0) }
@@ -307,7 +321,7 @@ class OrdersController < ApplicationController
       # Check if they've all been submitted already
       submitted = scoped_orders.for_batch(@batch_id).where(status: %w[processing submitted confirmed])
       if submitted.any?
-        redirect_to orders_path
+        redirect_to batch_progress_orders_path(batch_id: @batch_id)
       else
         redirect_to orders_path
       end
