@@ -17,33 +17,38 @@ class OrdersController < ApplicationController
   end
 
   def index
-    orders_scope = scoped_orders
+    # Build filter scope WITHOUT includes — includes(:order_items) causes
+    # LEFT JOIN that inflates sum() aggregates (one row per item).
+    kpi_scope = scoped_orders
       .where(status: %w[submitted confirmed dry_run_complete])
-      .includes(:supplier, :location, :order_items, :order_list, :user)
-      .order(submitted_at: :desc)
 
     # Default date range: last 30 days
     @date_from = params[:date_from].present? ? Date.parse(params[:date_from]) : 30.days.ago.to_date
     @date_to = params[:date_to].present? ? Date.parse(params[:date_to]) : Date.current
 
-    orders_scope = orders_scope.where("submitted_at >= ?", @date_from.beginning_of_day)
-    orders_scope = orders_scope.where("submitted_at <= ?", @date_to.end_of_day)
+    kpi_scope = kpi_scope.where("submitted_at >= ?", @date_from.beginning_of_day)
+    kpi_scope = kpi_scope.where("submitted_at <= ?", @date_to.end_of_day)
 
     # Filter by supplier
     if params[:supplier_id].present?
-      orders_scope = orders_scope.where(supplier_id: params[:supplier_id])
+      kpi_scope = kpi_scope.where(supplier_id: params[:supplier_id])
     end
 
     # Search by order ID or confirmation number
     if params[:search].present?
       search_term = "%#{params[:search]}%"
-      orders_scope = orders_scope.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
+      kpi_scope = kpi_scope.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
     end
 
-    # KPI: total savings across filtered orders
-    @total_savings = orders_scope.sum(:savings_amount)
-    @total_spent = orders_scope.sum(:total_amount)
-    @order_count = orders_scope.count
+    # KPI: total savings across filtered orders (computed before includes to avoid join inflation)
+    @total_savings = kpi_scope.sum(:savings_amount)
+    @total_spent = kpi_scope.sum(:total_amount)
+    @order_count = kpi_scope.count
+
+    # Now add includes for eager loading the order list
+    orders_scope = kpi_scope
+      .includes(:supplier, :location, :order_items, :order_list, :user)
+      .order(submitted_at: :desc)
 
     # Group orders by order_list_id or batch_id for split/batch order display
     all_orders = orders_scope.to_a
