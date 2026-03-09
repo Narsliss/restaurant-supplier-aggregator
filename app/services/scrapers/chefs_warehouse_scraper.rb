@@ -1887,6 +1887,9 @@ module Scrapers
       # Navigate to the checkout REVIEW page — DO NOT click order-finalizing buttons.
       # Only click navigation buttons (checkout, proceed, review).
       # "Place Order" / "Submit" are handled by click_place_order_button AFTER the dry run gate.
+      #
+      # CW has no separate checkout page — the cart page IS the checkout page.
+      # If we detect a "Submit Order" button on the current page, we're already there.
       clicked = browser.evaluate(<<~JS)
         (function() {
           var excludeClasses = ['search-button', 'clear-button', 'close-button'];
@@ -1901,6 +1904,16 @@ module Scrapers
 
           // SAFETY: Order-finalizing text — never click these before dry run gate
           var orderFinalizing = /submit order|place order|complete order/i;
+
+          // Phase 0: Check if we're already on the checkout page
+          // (i.e. a "Submit Order" / "Place Order" button is visible — no navigation needed)
+          var allButtons = document.querySelectorAll('button, input[type="submit"], a.btn, [role="button"]');
+          for (var btn of allButtons) {
+            var btnText = (btn.innerText || btn.value || '').trim().toLowerCase();
+            if (orderFinalizing.test(btnText) && btn.offsetParent !== null) {
+              return { clicked: true, text: 'Already on checkout page', method: 'already-on-checkout' };
+            }
+          }
 
           // Phase 1: Navigation text matches only
           var navTargets = ['checkout', 'proceed to checkout', 'proceed', 'continue to checkout', 'review order', 'view cart'];
@@ -1935,14 +1948,14 @@ module Scrapers
       JS
 
       if clicked && clicked['clicked']
-        logger.info "[ChefsWarehouse] Clicked checkout button: #{clicked.inspect}"
+        logger.info "[ChefsWarehouse] Checkout navigation: #{clicked.inspect}"
       else
         logger.warn "[ChefsWarehouse] Could not find checkout button — logging page state"
         log_page_state('checkout_button_not_found')
         raise ScrapingError, 'Could not find checkout/proceed button'
       end
 
-      sleep 5 # Wait for checkout page to load (Vue SPA navigation)
+      sleep 5 unless clicked['method'] == 'already-on-checkout' # No need to wait if already there
 
       # Log checkout page structure for discovery
       logger.info "[ChefsWarehouse] Checkout page URL: #{browser.current_url}"
