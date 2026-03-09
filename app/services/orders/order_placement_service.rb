@@ -71,10 +71,20 @@ module Orders
 
           { success: true, order: order.reload, dry_run: true }
         else
+          # Use supplier-reported total, but fall back to our calculated subtotal
+          # if the supplier total is missing or suspiciously lower than our line items.
+          reported_total = result[:total]
+          calculated_total = order.calculated_subtotal
+          best_total = if reported_total && reported_total >= calculated_total
+                         reported_total
+                       else
+                         calculated_total
+                       end
+
           order.update!(
             status: 'submitted',
             confirmation_number: result[:confirmation_number],
-            total_amount: result[:total],
+            total_amount: best_total,
             submitted_at: Time.current,
             delivery_date: result[:delivery_date]
           )
