@@ -44,8 +44,15 @@ module Orders
         # Re-check: if item removal dropped us below the order minimum, fail early
         recheck_order_minimum_after_removals!
 
-        # Step 5: Attempt checkout (with dry_run if checkout not enabled for this supplier)
-        dry_run = !order.supplier.checkout_enabled?
+        # Step 5: Attempt checkout
+        # Production always places real orders; development always dry-runs.
+        # The per-supplier checkout_enabled flag is only checked in production
+        # as an additional per-supplier kill switch.
+        dry_run = if Rails.env.production?
+                    !order.supplier.checkout_enabled?
+                  else
+                    true # Always dry-run in development/test
+                  end
         result = scraper.checkout(dry_run: dry_run)
 
         # Step 6: Record result
