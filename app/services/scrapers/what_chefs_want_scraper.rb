@@ -3,7 +3,7 @@ module Scrapers
     BASE_URL = 'https://www.whatchefswant.com'.freeze
     PLATFORM_URL = 'https://whatchefswant.cutanddry.com'.freeze
     LOGIN_URL = "#{BASE_URL}/customer-login/".freeze
-    ORDER_MINIMUM = 150.00
+    ORDER_MINIMUM = 0.00
     # Checkout is controlled by supplier.checkout_enabled? (database flag)
     # No hardcoded gate — OrderPlacementService passes dry_run: true when checkout is disabled
 
