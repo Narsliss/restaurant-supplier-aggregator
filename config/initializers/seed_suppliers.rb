@@ -57,7 +57,12 @@ Rails.application.config.after_initialize do
     supplier = Supplier.find_or_initialize_by(code: attrs[:code])
     # Derive password_required from auth_type
     password_required = attrs[:auth_type] == 'password'
-    supplier.assign_attributes(attrs.merge(active: true, password_required: password_required))
+    merged = attrs.merge(active: true, password_required: password_required)
+    # Production: checkout always enabled (real orders).
+    # Development/test: checkout disabled (dry-run only).
+    # OrderPlacementService also enforces this, but belt-and-suspenders.
+    merged[:checkout_enabled] = Rails.env.production?
+    supplier.assign_attributes(merged)
     supplier.save! if supplier.new_record? || supplier.changed?
   end
 rescue ActiveRecord::NoDatabaseError, ActiveRecord::StatementInvalid => e
