@@ -2,7 +2,7 @@ module Scrapers
   class ChefsWarehouseScraper < BaseScraper
     BASE_URL = 'https://www.chefswarehouse.com'.freeze
     ORDER_URL = 'https://order.chefswarehouse.com'.freeze
-    ORDER_MINIMUM = 200.00
+    ORDER_MINIMUM = 400.00
     # Checkout is controlled by supplier.checkout_enabled? (database flag)
     # No hardcoded gate — OrderPlacementService passes dry_run: true when checkout is disabled
 

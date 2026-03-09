@@ -29,8 +29,8 @@ suppliers_data = [
     scraper_class: 'Scrapers::ChefsWarehouseScraper',
     password_required: true,
     requirements: [
-      { type: 'order_minimum', numeric_value: 200.00,
-        error_message: "Chef's Warehouse requires a minimum order of $200.00. Your current total is ${{current_total}}." }
+      { type: 'order_minimum', numeric_value: 400.00,
+        error_message: "Chef's Warehouse requires a minimum order of $400.00. Your current total is ${{current_total}}." }
     ]
   },
   {
