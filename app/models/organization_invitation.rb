@@ -78,7 +78,7 @@ class OrganizationInvitation < ApplicationRecord
       invitation_sent_at: Time.current
     )
 
-    # TODO: Send email
+    OrganizationInvitationMailer.invite(self).deliver_later
     true
   end
 

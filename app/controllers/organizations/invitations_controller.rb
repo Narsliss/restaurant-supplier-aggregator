@@ -17,7 +17,7 @@ module Organizations
       end
 
       if @invitation.save
-        # TODO: Send invitation email
+        OrganizationInvitationMailer.invite(@invitation).deliver_later
         redirect_to organization_path(invited: @invitation.email)
       else
         redirect_to organization_path(error: @invitation.errors.full_messages.first)
