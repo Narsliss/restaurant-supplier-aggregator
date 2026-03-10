@@ -529,15 +529,20 @@
       <%= link_to "Back to Order Lists", supplier_lists_path,
           class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
 
-      <% all_have_credentials = @review_orders.all? { |r| r[:has_credentials] } %>
-      <% all_verified = !@verifying && @review_orders.all? { |r| r[:verification_status].in?(%w[verified price_changed skipped]) } %>
-      <% can_submit_all = all_have_credentials && @summary[:all_minimums_met] && all_verified %>
-      <%= button_to "Submit All Orders",
-          submit_batch_orders_path(batch_id: @batch_id, aggregated_list_id: @aggregated_list_id),
+      <% submittable = @review_orders.select { |r| r[:has_credentials] && r[:meets_minimum] && !r[:order].verifying? && r[:verification_status].in?(%w[verified price_changed skipped]) } %>
+      <% skipped_for_creds = @review_orders.count { |r| !r[:has_credentials] } %>
+      <% can_submit_all = submittable.any? %>
+      <% submit_ids = submittable.map { |r| r[:order].id } %>
+      <% btn_label = submittable.size == @review_orders.size ? "Submit All Orders" : "Submit #{submittable.size} of #{@review_orders.size} Orders" %>
+      <%= button_to btn_label,
+          submit_batch_orders_path(batch_id: @batch_id, order_ids: submit_ids, aggregated_list_id: @aggregated_list_id),
           method: :post,
           class: "px-6 py-2 text-sm font-semibold text-white rounded-md shadow-sm transition-colors text-center #{can_submit_all ? 'bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'bg-gray-300 cursor-not-allowed'}",
           disabled: !can_submit_all,
           data: { order_review_target: "submitAllBtn" } %>
+      <% if skipped_for_creds > 0 %>
+        <p class="text-xs text-red-600 text-right"><%= skipped_for_creds %> order<%= skipped_for_creds == 1 ? '' : 's' %> skipped (no credentials)</p>
+      <% end %>
     </div>
   </div>
 </div>
