@@ -104,6 +104,10 @@ module Orders
         handle_2fa_required(e)
       rescue StandardError => e
         handle_generic_error(e)
+      ensure
+        # Close persistent order browser if scraper uses one (PPO, US Foods, WCW).
+        # Idempotent — safe even if checkout already closed it.
+        scraper&.close_order_browser! if scraper&.respond_to?(:close_order_browser!)
       end
     end
 

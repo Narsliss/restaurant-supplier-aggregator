@@ -608,75 +608,44 @@ module Scrapers
 
     def add_to_cart(items, delivery_date: nil)
       @target_delivery_date = delivery_date
+      ensure_order_browser!
 
-      with_browser do
-        # PPO requires full login with 2FA - restore session first
-        navigate_to(BASE_URL)
-        if restore_session
-          browser.refresh
-          wait_for_react_render(timeout: 15)
+      logger.info "[PremiereProduceOne] Logged in, starting add-to-cart for #{items.size} items"
+      logger.info "[PremiereProduceOne] Target delivery date: #{@target_delivery_date || 'default'}"
+
+      added_items = []
+      failed_items = []
+
+      items.each do |item|
+        begin
+          add_single_item_to_cart(item)
+          added_items << item
+          logger.info "[PremiereProduceOne] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
+        rescue StandardError => e
+          logger.warn "[PremiereProduceOne] Failed to add SKU #{item[:sku]}: #{e.message}"
+          failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
         end
 
-        unless logged_in?
-          # Full login with 2FA handling
-          perform_login_steps
-
-          if two_fa_page?
-            # Need verification code
-            code = wait_for_user_code(attempt: 1, resent: false)
-            raise AuthenticationError, 'Verification timed out' unless code
-
-            type_code_and_submit(code)
-            sleep 5
-            wait_for_page_load
-
-            raise AuthenticationError, 'Login failed after 2FA' unless logged_in?
-
-            save_session
-            credential.mark_active!
-            mark_2fa_request_verified!
-            TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
-
-          end
-
-          save_session unless logged_in?
-        end
-
-        logger.info "[PremiereProduceOne] Logged in, starting add-to-cart for #{items.size} items"
-        logger.info "[PremiereProduceOne] Target delivery date: #{@target_delivery_date || 'default'}"
-
-        added_items = []
-        failed_items = []
-
-        items.each do |item|
-          begin
-            add_single_item_to_cart(item)
-            added_items << item
-            logger.info "[PremiereProduceOne] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
-          rescue StandardError => e
-            logger.warn "[PremiereProduceOne] Failed to add SKU #{item[:sku]}: #{e.message}"
-            failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
-          end
-
-          rate_limit_delay
-        end
-
-        if failed_items.any?
-          if added_items.empty?
-            # ALL items failed — nothing in the cart, can't proceed
-            raise ItemUnavailableError.new(
-              "#{failed_items.count} item(s) could not be added",
-              items: failed_items
-            )
-          else
-            # Some items failed but others succeeded — log warning and continue
-            logger.warn "[PremiereProduceOne] #{failed_items.count} item(s) skipped (unavailable): " \
-                        "#{failed_items.map { |i| i[:sku] }.join(', ')}"
-          end
-        end
-
-        { added: added_items.count, failed: failed_items }
+        rate_limit_delay
       end
+
+      if failed_items.any?
+        if added_items.empty?
+          # ALL items failed — nothing in the cart, can't proceed.
+          # Close browser before raising to prevent leak.
+          close_order_browser!
+          raise ItemUnavailableError.new(
+            "#{failed_items.count} item(s) could not be added",
+            items: failed_items
+          )
+        else
+          # Some items failed but others succeeded — log warning and continue
+          logger.warn "[PremiereProduceOne] #{failed_items.count} item(s) skipped (unavailable): " \
+                      "#{failed_items.map { |i| i[:sku] }.join(', ')}"
+        end
+      end
+
+      { added: added_items.count, failed: failed_items }
     end
 
     private
@@ -726,11 +695,10 @@ module Scrapers
       # CRITICAL: Wait for React to process the add-to-cart action.
       # Without this pause, closing the modal immediately can cancel the add.
       # Items with no fulfillment history (never ordered) take longer to register.
-      sleep 1.5
+      sleep 2.5
 
-      # Verify the + click actually registered: after adding, the modal should show
-      # a quantity display (e.g., "1") and the + button changes to "Increase quantity".
-      # Also check if a "Decrease quantity" button appeared (indicates item was added).
+      # Diagnostic: verify the + click registered (informational only — do NOT retry
+      # the click here, as the CDP mouse.click is reliable and a retry would double the qty).
       add_verified = browser.evaluate(<<~JS)
         (function() {
           var modalContainers = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
@@ -755,18 +723,12 @@ module Scrapers
         })()
       JS
 
-      logger.info "[PremiereProduceOne] Add verification for SKU #{item[:sku]}: #{add_verified.inspect}"
-
-      # If add didn't register, try clicking + again
-      unless add_verified&.dig('verified')
-        logger.warn "[PremiereProduceOne] Add not verified for SKU #{item[:sku]}, retrying + click"
-        retry_clicked = click_modal_add_button_ppo(item[:sku])
-        if retry_clicked
-          sleep 1.5
-          logger.info "[PremiereProduceOne] Retry + click for SKU #{item[:sku]} completed"
-        else
-          logger.warn "[PremiereProduceOne] Retry + click failed for SKU #{item[:sku]}"
-        end
+      if add_verified&.dig('verified')
+        logger.info "[PremiereProduceOne] Add verified for SKU #{item[:sku]}: decrease button present"
+      else
+        # Log but do NOT retry — retrying causes double-add because the CDP click
+        # already succeeded; React just hasn't rendered the decrease button yet.
+        logger.warn "[PremiereProduceOne] Add not visually verified for SKU #{item[:sku]} (React may still be rendering): #{add_verified.inspect}"
       end
 
       # Additional clicks for qty > 1: after first add, the modal shows decrease/increase buttons
@@ -1251,46 +1213,17 @@ module Scrapers
 
     def checkout(dry_run: false)
       logger.info "[PremiereProduceOne] checkout starting (dry_run=#{dry_run})"
+      ensure_order_browser!
 
-      with_browser do
-        # Step 1: Session restore + login (replicate from add_to_cart)
-        navigate_to(BASE_URL)
-        if restore_session
-          browser.refresh
-          wait_for_react_render(timeout: 15)
-        end
-
-        unless logged_in?
-          logger.info '[PremiereProduceOne] Not logged in, performing login'
-          perform_login_steps
-
-          if two_fa_page?
-            code = wait_for_user_code(attempt: 1, resent: false)
-            raise AuthenticationError, 'Verification timed out' unless code
-
-            type_code_and_submit(code)
-            sleep 5
-            wait_for_page_load
-
-            raise AuthenticationError, 'Login failed after 2FA' unless logged_in?
-
-            save_session
-            credential.mark_active!
-            mark_2fa_request_verified!
-            TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
-          end
-
-          save_session
-        end
-
-        # Step 2: Navigate to cart page
+      begin
+        # Step 1: Navigate to cart page
         navigate_to_cart_page_ppo
 
-        # Step 3: Extract cart data
+        # Step 2: Extract cart data
         cart_data = extract_cart_data_ppo
         logger.info "[PremiereProduceOne] Cart: #{cart_data[:item_count]} items, subtotal=#{cart_data[:subtotal]}"
 
-        # Step 4: Validate cart — Pepper may not expose item count via inputs,
+        # Step 3: Validate cart — Pepper may not expose item count via inputs,
         # so also check subtotal as an indicator the cart has items.
         if cart_data[:item_count] == 0 && cart_data[:subtotal] == 0
           raise ScrapingError, 'Cart is empty'
@@ -1299,7 +1232,7 @@ module Scrapers
           logger.warn "[PremiereProduceOne] item_count=0 but subtotal=$#{cart_data[:subtotal]} — Pepper may not expose qty inputs. Proceeding."
         end
 
-        # Step 5: Check for unavailable items
+        # Step 4: Check for unavailable items
         if cart_data[:unavailable_items].any?
           raise ItemUnavailableError.new(
             "#{cart_data[:unavailable_items].count} item(s) are unavailable",
@@ -1307,10 +1240,10 @@ module Scrapers
           )
         end
 
-        # Step 6: Navigate to checkout/review page
+        # Step 5: Navigate to checkout/review page
         proceed_to_checkout_page_ppo
 
-        # Step 7: Extract checkout data
+        # Step 6: Extract checkout data
         checkout_data = extract_checkout_data_ppo
         logger.info "[PremiereProduceOne] Checkout: total=#{checkout_data[:total]}, delivery=#{checkout_data[:delivery_date]}"
 
@@ -1331,23 +1264,58 @@ module Scrapers
           }
         end
 
-        # Step 8: LIVE ORDER — Click final submit
+        # Step 7: LIVE ORDER — Click final submit
         logger.warn "[PremiereProduceOne] PLACING LIVE ORDER — clicking submit"
         click_place_order_button_ppo
 
-        # Step 9: Wait for confirmation
+        # Step 8: Wait for confirmation
         confirmation = wait_for_order_confirmation_ppo
 
         logger.info "[PremiereProduceOne] Order placed: #{confirmation[:confirmation_number]}"
         confirmation
+      ensure
+        close_order_browser!
       end
     end
 
-    def clear_cart
-      logger.info '[PremiereProduceOne] Clearing cart...'
+    # ── Persistent browser for ordering flow ──
+    # Keeps one browser alive across clear_cart → add_to_cart → checkout
+    # so cart state is preserved. Matches the US Foods / WCW pattern.
+    def ensure_order_browser!
+      return if @browser # Already have an open browser
 
-      with_browser do
-        # Restore session
+      logger.info '[PremiereProduceOne] Starting order browser (persistent for checkout flow)'
+
+      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
+      headless_mode = false if Rails.env.development?
+
+      browser_opts = {
+        headless: headless_mode,
+        timeout: 420, # 7 minutes for 2FA wait
+        process_timeout: 60,
+        window_size: [1920, 1080]
+      }
+
+      if headless_mode
+        browser_opts[:browser_options] = {
+          "no-sandbox": true,
+          "disable-gpu": true,
+          "disable-dev-shm-usage": true
+        }
+      else
+        browser_opts[:browser_options] = {
+          "no-sandbox": true,
+          "start-maximized": true
+        }
+        browser_opts[:headless] = false
+      end
+
+      browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
+
+      @browser = Ferrum::Browser.new(**browser_opts)
+
+      # Login (wrapped in rescue to close browser on failure)
+      begin
         navigate_to(BASE_URL)
         if restore_session
           browser.refresh
@@ -1355,9 +1323,46 @@ module Scrapers
         end
 
         unless logged_in?
-          logger.warn '[PremiereProduceOne] Cannot clear cart: not logged in (2FA required)'
-          return
+          logger.info '[PremiereProduceOne] Order browser not logged in, performing login'
+          perform_login_steps
+
+          if two_fa_page?
+            code = wait_for_user_code(attempt: 1, resent: false)
+            raise AuthenticationError, 'Verification timed out' unless code
+
+            type_code_and_submit(code)
+            sleep 5
+            wait_for_page_load
+
+            raise AuthenticationError, 'Login failed after 2FA' unless logged_in?
+
+            credential.mark_active!
+            mark_2fa_request_verified!
+            TwoFactorChannel.broadcast_to(credential.user, { type: 'code_result', success: true })
+          end
+
+          save_session
         end
+      rescue => e
+        close_order_browser!
+        raise
+      end
+
+      logger.info '[PremiereProduceOne] Order browser ready'
+    end
+
+    def close_order_browser!
+      save_session if @browser
+      @browser&.quit
+      @browser = nil
+    rescue StandardError => e
+      logger.debug "[PremiereProduceOne] Error closing order browser: #{e.message}"
+      @browser = nil
+    end
+
+    def clear_cart
+      logger.info '[PremiereProduceOne] Clearing cart...'
+      ensure_order_browser!
 
         # IMPORTANT: In Pepper, /cart shows the Order Guide (NOT the shopping cart).
         # The actual cart is a MODAL/PANEL opened by clicking the "View Order" button
@@ -1496,10 +1501,10 @@ module Scrapers
 
         # ── Pepper cart removal strategy (CDP mouse clicks) ──
         # Scoped to the cart panel to avoid hitting order guide buttons underneath.
-        # Pepper cart items have qty controls:
-        #   - When qty > 1: "Decrease quantity" button (minus icon)
-        #   - When qty = 1: trash/delete button (replaces the minus)
-        # To remove: click trash directly (qty is always 1 for items added via order guide).
+        #
+        # PRIMARY: Hover over each cart item row to reveal hidden trash icon, then
+        # click it — removes the item in one click regardless of quantity.
+        # FALLBACK: If hover-trash fails, use decrease/trash buttons directly.
         #
         # CRITICAL: React Native Web Pressable components ignore el.click().
         # We MUST use Ferrum's browser.mouse.click(x:, y:) for real CDP mouse events.
@@ -1508,13 +1513,109 @@ module Scrapers
 
         removed_count = 0
         total_clicks = 0
-        max_total_clicks = 2000 # absolute safety limit
+        max_total_clicks = 200 # safety limit (much lower now — hover-trash is O(n) not O(n*qty))
         stale_rounds = 0
+        hover_trash_failed = false
 
         loop do
           break if total_clicks >= max_total_clicks
 
-          # Scan buttons WITHIN THE CART PANEL for decrease/trash
+          # ── Strategy 1: Hover to reveal trash icon ──
+          # PPO shows a trash icon on hover that removes the entire item regardless of qty.
+          unless hover_trash_failed
+            row_result = browser.evaluate(<<~JS)
+              (function() {
+                var scope = #{panel_sel ? "document.querySelector('#{panel_sel}')" : 'document'};
+                if (!scope) scope = document;
+
+                // Find cart item rows — look for elements with qty controls or product info
+                // Cart items typically have a container with price/qty text
+                var candidates = scope.querySelectorAll('[role="button"], [data-testid], div, li');
+                for (var el of candidates) {
+                  if (el.offsetParent === null) continue;
+                  var rect = el.getBoundingClientRect();
+                  // Cart item rows are typically 50-150px tall, within the panel
+                  if (rect.height < 40 || rect.height > 200) continue;
+                  if (rect.width < 150) continue;
+
+                  // Check if this row has qty-related content (decrease/increase buttons or qty text)
+                  var innerButtons = el.querySelectorAll('button, [role="button"]');
+                  var hasQtyControl = false;
+                  for (var btn of innerButtons) {
+                    var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    if (aria.includes('decrease') || aria.includes('increase')) {
+                      hasQtyControl = true;
+                      break;
+                    }
+                  }
+                  if (!hasQtyControl) continue;
+
+                  // Found a cart item row — return its center for hovering
+                  el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                  var newRect = el.getBoundingClientRect();
+                  return {
+                    found: true, type: 'item-row',
+                    x: newRect.left + newRect.width / 2,
+                    y: newRect.top + newRect.height / 2,
+                    width: newRect.width, height: newRect.height
+                  };
+                }
+                return { found: false, type: 'no-item-rows' };
+              })()
+            JS
+
+            if row_result && row_result['found']
+              # Hover over the item row to reveal the trash icon
+              browser.mouse.move(x: row_result['x'].to_f, y: row_result['y'].to_f)
+              sleep 0.8 # Wait for hover state / trash icon to appear
+
+              # Look for the trash icon that appeared on hover
+              trash_result = browser.evaluate(<<~JS)
+                (function() {
+                  var scope = #{panel_sel ? "document.querySelector('#{panel_sel}')" : 'document'};
+                  if (!scope) scope = document;
+                  var buttons = scope.querySelectorAll('button, [role="button"]');
+                  for (var btn of buttons) {
+                    if (btn.offsetParent === null) continue;
+                    var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    var btnText = (btn.textContent || '').trim().toLowerCase();
+                    if (aria.includes('trash') || aria.includes('remove') || aria.includes('delete') ||
+                        btnText === 'remove' || btnText === 'delete' || btnText === '×' || btnText === 'x') {
+                      var rect = btn.getBoundingClientRect();
+                      // Only match if this trash button is near the hovered row
+                      var rowY = #{row_result['y']};
+                      if (Math.abs(rect.top + rect.height/2 - rowY) < 80) {
+                        return {
+                          found: true, aria: aria, text: btnText,
+                          x: rect.left + rect.width / 2,
+                          y: rect.top + rect.height / 2
+                        };
+                      }
+                    }
+                  }
+                  return { found: false };
+                })()
+              JS
+
+              if trash_result && trash_result['found']
+                total_clicks += 1
+                removed_count += 1
+                logger.info "[PremiereProduceOne] Hover-trash: removed item #{removed_count} at (#{trash_result['x']}, #{trash_result['y']}) (click ##{total_clicks})"
+                browser.mouse.click(x: trash_result['x'].to_f, y: trash_result['y'].to_f)
+                sleep 0.5
+                confirm_pepper_modal
+                sleep 0.5
+                wait_for_react_render(timeout: 5)
+                next
+              else
+                # Trash didn't appear on hover — fall through to decrease-button strategy
+                logger.info "[PremiereProduceOne] Hover-trash: no trash icon appeared on hover, falling back to decrease buttons"
+                hover_trash_failed = true
+              end
+            end
+          end
+
+          # ── Strategy 2 (fallback): Click decrease/trash buttons directly ──
           result = browser.evaluate(<<~JS)
             (function() {
               var scope = #{panel_sel ? "document.querySelector('#{panel_sel}')" : 'document'};
@@ -1525,14 +1626,24 @@ module Scrapers
                 var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
                 var btnText = (btn.textContent || '').trim().toLowerCase();
 
-                // Match: "Decrease quantity" (the minus button) or trash/remove/delete
-                if (aria.includes('decrease') || aria.includes('trash') ||
-                    aria.includes('remove') || aria.includes('delete') ||
+                // Match: trash/remove/delete FIRST (removes item entirely at qty=1)
+                if (aria.includes('trash') || aria.includes('remove') || aria.includes('delete') ||
                     btnText === 'remove' || btnText === 'delete') {
                   btn.scrollIntoView({ behavior: 'instant', block: 'center' });
                   var rect = btn.getBoundingClientRect();
                   return {
-                    found: true, aria: aria, btnText: btnText,
+                    found: true, aria: aria, btnText: btnText, is_trash: true,
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                  };
+                }
+
+                // Then "Decrease quantity" (the minus button)
+                if (aria.includes('decrease')) {
+                  btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                  var rect = btn.getBoundingClientRect();
+                  return {
+                    found: true, aria: aria, btnText: btnText, is_trash: false,
                     x: rect.left + rect.width / 2,
                     y: rect.top + rect.height / 2
                   };
@@ -1544,9 +1655,6 @@ module Scrapers
 
           # No decrease/trash buttons left → cart is empty
           if result.nil? || !result['found']
-            reason = result&.dig('reason') || 'unknown'
-
-            # Maybe buttons haven't rendered yet — retry a few times
             stale_rounds += 1
             if stale_rounds >= 3
               logger.info "[PremiereProduceOne] No decrease/trash buttons found after #{stale_rounds} checks — cart should be empty (#{removed_count} items removed, #{total_clicks} clicks)"
@@ -1561,9 +1669,8 @@ module Scrapers
           stale_rounds = 0
           total_clicks += 1
 
-          # Log progress
+          is_trash = result['is_trash']
           aria = result['aria'] || ''
-          is_trash = aria.include?('trash') || aria.include?('remove') || aria.include?('delete')
 
           if is_trash
             removed_count += 1
@@ -1574,8 +1681,6 @@ module Scrapers
 
           # CDP mouse click — the ONLY way to trigger React Native Web Pressable
           browser.mouse.click(x: result['x'].to_f, y: result['y'].to_f)
-
-          # Brief pause for React to update the button state
           sleep 0.3
 
           # Handle any confirmation modal after trash click
@@ -1669,7 +1774,6 @@ module Scrapers
         end
 
         save_session
-      end
     end
 
     # Discover the button layout for a single cart item.
@@ -3290,10 +3394,61 @@ module Scrapers
     end
 
     def extract_cart_data_ppo
+      # First, open the View Order panel to see actual cart items
+      # (the /cart page shows the order guide, NOT the shopping cart)
+      view_order_btn = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('button, [role="button"]');
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+            if (aria.includes('view order')) {
+              var rect = btn.getBoundingClientRect();
+              return { found: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            }
+          }
+          return { found: false };
+        })()
+      JS
+
+      if view_order_btn && view_order_btn['found']
+        browser.mouse.click(x: view_order_btn['x'].to_f, y: view_order_btn['y'].to_f)
+        sleep 2
+        wait_for_react_render(timeout: 10)
+        logger.info '[PremiereProduceOne] Opened View Order panel for cart data extraction'
+      else
+        logger.warn '[PremiereProduceOne] View Order button not found — extracting from full page (may include order guide items)'
+      end
+
       cart_data = browser.evaluate(<<~JS)
         (function() {
           var result = { items: [], subtotal: 0, item_count: 0, unavailable: [] };
-          var pageText = document.body ? document.body.innerText : '';
+
+          // Scope to cart panel if one exists (avoid reading order guide items)
+          var panel = null;
+          var dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+          if (dialogs.length > 0) panel = dialogs[dialogs.length - 1];
+
+          if (!panel) {
+            // Try fixed/absolute positioned panel on right side
+            var allEls = document.querySelectorAll('div, section, aside');
+            for (var el of allEls) {
+              var style = window.getComputedStyle(el);
+              if ((style.position === 'fixed' || style.position === 'absolute') &&
+                  el.getBoundingClientRect().right > window.innerWidth * 0.5 &&
+                  el.getBoundingClientRect().width > 200 &&
+                  el.getBoundingClientRect().width < window.innerWidth * 0.8) {
+                var text = (el.textContent || '').toLowerCase();
+                if (text.includes('place order') || text.includes('view order') || text.includes('subtotal')) {
+                  panel = el;
+                  break;
+                }
+              }
+            }
+          }
+
+          var pageText = panel ? panel.innerText : (document.body ? document.body.innerText : '');
+          result.scoped_to_panel = !!panel;
 
           // Subtotal: check for aria-label="View Order" button first (Pepper's cart total button)
           var viewOrderBtn = document.querySelector('[aria-label="View Order"]');
@@ -3389,7 +3544,8 @@ module Scrapers
         })()
       JS
 
-      logger.info "[PremiereProduceOne] Cart extraction: items=#{(cart_data['items'] || []).size}, subtotal=#{cart_data['subtotal']}, item_count=#{cart_data['item_count']}"
+      scoped = cart_data['scoped_to_panel'] ? 'cart panel' : 'full page (WARN: may include order guide)'
+      logger.info "[PremiereProduceOne] Cart extraction (#{scoped}): items=#{(cart_data['items'] || []).size}, subtotal=#{cart_data['subtotal']}, item_count=#{cart_data['item_count']}"
 
       {
         items: (cart_data['items'] || []).map { |i| { name: i['name'], sku: i['sku'], price: i['price'], quantity: i['quantity'] } },
