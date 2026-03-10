@@ -3882,7 +3882,8 @@ module Scrapers
         url_changed = current_url != pre_click_url && current_url.match?(/confirm|success|thank|receipt|complete/i)
 
         # Detection 2: Page text contains confirmation keywords
-        text_confirmed = page_text.match?(/confirmation|order\s*(?:placed|submitted|received|complete)|thank\s*you|order\s*#|successfully/i)
+        # PPO shows "Your order is queued" on successful submit
+        text_confirmed = page_text.match?(/confirmation|order\s*(?:placed|submitted|received|complete|queued)|thank\s*you|order\s*#|successfully|order is queued/i)
 
         if url_changed || text_confirmed
           logger.info "[PremiereProduceOne] Order confirmed after #{elapsed}s (url_changed=#{url_changed}, text_confirmed=#{text_confirmed})"
@@ -3903,7 +3904,7 @@ module Scrapers
         # Detection 3: Cart is now empty (order went through and cleared the cart)
         # Only check after giving the confirmation page a chance to load (15s+)
         if elapsed > 15 && current_url != pre_click_url
-          cart_empty = page_text.match?(/cart is empty|no items in|your order has been/i)
+          cart_empty = page_text.match?(/cart is empty|no items in|your order has been|order is queued/i)
           if cart_empty
             logger.info "[PremiereProduceOne] Cart empty after submit — order likely placed (#{elapsed}s)"
             return {
