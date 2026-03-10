@@ -1416,27 +1416,41 @@ export default class extends Controller {
         if (btn.dataset.orderId === orderId) {
           if (canSubmit) {
             btn.disabled = false
-            btn.classList.remove("bg-gray-300", "cursor-not-allowed")
-            btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+            btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+            btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
           } else {
             btn.disabled = true
-            btn.classList.add("bg-gray-300", "cursor-not-allowed")
-            btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+            btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+            btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
           }
         }
       })
     })
 
-    // Update "Submit All" button
+    // Update "Submit All" button text and state
+    const submittableCount = cardData.filter(c => c.canSubmit).length
+    const totalCount = cardData.length
     this.submitAllBtnTargets.forEach(btn => {
-      if (allCanSubmit && this.orderCardTargets.length > 0) {
+      // Update button text to reflect current submittable count
+      const label = submittableCount === totalCount
+        ? "Submit All Orders"
+        : `Submit ${submittableCount} of ${totalCount} Orders`
+      // button_to wraps text in a child element
+      const textEl = btn.querySelector("input[type='submit']") || btn
+      if (textEl.value !== undefined && textEl.type === "submit") {
+        textEl.value = label
+      } else {
+        btn.textContent = label
+      }
+
+      if (submittableCount > 0 && this.orderCardTargets.length > 0) {
         btn.disabled = false
-        btn.classList.remove("bg-gray-300", "cursor-not-allowed")
-        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+        btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
       } else {
         btn.disabled = true
-        btn.classList.add("bg-gray-300", "cursor-not-allowed")
-        btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+        btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+        btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
       }
     })
   }

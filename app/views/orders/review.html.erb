@@ -236,18 +236,12 @@
             <% unless review[:has_credentials] %>
               <span class="text-xs text-gray-400">No credentials</span>
             <% end %>
-            <% if can_submit %>
-              <%= button_to "Submit Order",
-                  submit_batch_orders_path(batch_id: @batch_id, order_ids: [order.id], aggregated_list_id: @aggregated_list_id),
-                  method: :post,
-                  class: "px-4 py-1.5 rounded-md text-sm font-semibold text-white shadow-sm bg-brand-orange hover:bg-brand-orange-dark cursor-pointer",
-                  data: { order_review_target: "supplierSubmitBtn", order_id: order.id.to_s } %>
-            <% else %>
-              <span class="px-4 py-1.5 rounded-md text-sm font-semibold text-gray-400 bg-gray-600 inline-block opacity-50 cursor-not-allowed"
-                    data-order-review-target="supplierSubmitBtn" data-order-id="<%= order.id %>">
-                Submit Order
-              </span>
-            <% end %>
+            <%= button_to "Submit Order",
+                submit_batch_orders_path(batch_id: @batch_id, order_ids: [order.id], aggregated_list_id: @aggregated_list_id),
+                method: :post,
+                disabled: !can_submit,
+                class: "px-4 py-1.5 rounded-md text-sm font-semibold shadow-sm #{can_submit ? 'text-white bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'text-gray-400 bg-gray-600 opacity-50 cursor-not-allowed'}",
+                data: { order_review_target: "supplierSubmitBtn", order_id: order.id.to_s } %>
           </div>
         </div>
 
@@ -537,20 +531,15 @@
       <% submittable = @review_orders.select { |r| r[:has_credentials] && r[:meets_minimum] && !r[:order].verifying? && r[:verification_status].in?(%w[verified price_changed skipped]) } %>
       <% skipped_for_creds = @review_orders.count { |r| !r[:has_credentials] } %>
       <% can_submit_all = submittable.any? %>
-      <% submit_ids = submittable.map { |r| r[:order].id } %>
+      <%# Include all credentialed order IDs in the form — server-side submit_batch validates status/dates %>
+      <% all_credentialed_ids = @review_orders.select { |r| r[:has_credentials] }.map { |r| r[:order].id } %>
       <% btn_label = submittable.size == @review_orders.size ? "Submit All Orders" : "Submit #{submittable.size} of #{@review_orders.size} Orders" %>
-      <% if can_submit_all %>
-        <%= button_to btn_label,
-            submit_batch_orders_path(batch_id: @batch_id, order_ids: submit_ids, aggregated_list_id: @aggregated_list_id),
-            method: :post,
-            class: "px-6 py-2 text-sm font-semibold text-white rounded-md shadow-sm bg-brand-orange hover:bg-brand-orange-dark cursor-pointer text-center",
-            data: { order_review_target: "submitAllBtn" } %>
-      <% else %>
-        <span class="px-6 py-2 text-sm font-semibold text-gray-400 bg-gray-600 rounded-md shadow-sm text-center inline-block opacity-50 cursor-not-allowed"
-              data-order-review-target="submitAllBtn">
-          <%= btn_label %>
-        </span>
-      <% end %>
+      <%= button_to btn_label,
+          submit_batch_orders_path(batch_id: @batch_id, order_ids: all_credentialed_ids, aggregated_list_id: @aggregated_list_id),
+          method: :post,
+          disabled: !can_submit_all,
+          class: "px-6 py-2 text-sm font-semibold rounded-md shadow-sm text-center #{can_submit_all ? 'text-white bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'text-gray-400 bg-gray-600 opacity-50 cursor-not-allowed'}",
+          data: { order_review_target: "submitAllBtn" } %>
       <% if skipped_for_creds > 0 %>
         <p class="text-xs text-red-600 text-right"><%= skipped_for_creds %> order<%= skipped_for_creds == 1 ? '' : 's' %> skipped (no credentials)</p>
       <% end %>
