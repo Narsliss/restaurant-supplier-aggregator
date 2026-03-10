@@ -3938,10 +3938,17 @@ module Scrapers
       logger.info "[PremiereProduceOne] Selecting delivery date: #{target.strftime('%B %d, %Y')}"
 
       # Step 2: Click the delivery dropdown
-      # Coordinate-based clicks fail when overlays/panels cover the button.
-      # Instead, find the DOM element directly and dispatch pointer events on it.
-      # Walk the DOM to find the element, then walk UP to its clickable ancestor.
-      click_result = browser.evaluate(<<~JS)
+      # Order 367 (only successful test) worked on the REVIEW page using
+      # elementFromPoint + pointer events. The key insight: React Native Web's
+      # Pressable/Responder system responds to events that bubble UP from the
+      # actual child element under the pointer (a <span>, SVG <path>, etc.),
+      # NOT from the parent container. elementFromPoint finds that child element.
+      #
+      # Strategy: CDP mouse.click first (most realistic), then elementFromPoint
+      # + pointer events (Order 367's proven method) as fallback.
+
+      # First, scroll element into view and get fresh coordinates
+      btn_coords = browser.evaluate(<<~JS)
         (function() {
           var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
           var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
@@ -3962,48 +3969,97 @@ module Scrapers
             }
           }
 
-          if (!target) return { clicked: false, reason: 'element not found' };
+          if (!target) return { found: false };
 
-          // Scroll into view first
           target.scrollIntoView({ behavior: 'instant', block: 'center' });
-
-          // Get fresh coordinates after scroll
           var rect = target.getBoundingClientRect();
-          var cx = rect.x + rect.width / 2;
-          var cy = rect.y + rect.height / 2;
-
-          // Dispatch pointer events directly on the found element (not elementFromPoint)
-          target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
-          target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
-          target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-
-          return { clicked: true, text: (target.textContent || '').trim().substring(0, 60), tag: target.tagName, x: cx, y: cy, hasSvg: !!target.querySelector('svg') };
+          return { found: true, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, text: (target.textContent || '').trim().substring(0, 60) };
         })()
       JS
-      logger.info "[PremiereProduceOne] Direct DOM click result: #{click_result.inspect}"
 
-      unless click_result && click_result['clicked']
-        logger.warn "[PremiereProduceOne] Could not click delivery dropdown — using default date"
+      unless btn_coords && btn_coords['found']
+        logger.warn "[PremiereProduceOne] Could not find delivery dropdown for clicking — using default date"
         return
       end
+
+      cx = btn_coords['x'].to_f
+      cy = btn_coords['y'].to_f
+      logger.info "[PremiereProduceOne] Delivery button at (#{cx}, #{cy}): #{btn_coords['text']}"
+
+      # Method 1: CDP mouse.click (most realistic browser-level simulation)
+      logger.info "[PremiereProduceOne] Attempting CDP mouse.click at (#{cx}, #{cy})"
+      browser.mouse.click(x: cx, y: cy)
       sleep 2
 
-      # Wait for "Select date" calendar modal
-      calendar_found = false
-      8.times do |attempt|
-        calendar_found = browser.evaluate(<<~JS)
+      calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
+
+      unless calendar_found
+        # Method 2: elementFromPoint + pointer events (Order 367's proven method)
+        # elementFromPoint returns the TOPMOST child element at the coordinates
+        # (e.g., <span>, <svg>, <path>), and dispatching on it causes proper
+        # event bubbling through React Native Web's Responder system.
+        logger.info "[PremiereProduceOne] CDP click didn't open calendar — trying elementFromPoint + pointer events"
+        efp_result = browser.evaluate(<<~JS)
           (function() {
-            var text = document.body ? document.body.innerText : '';
-            return /Select date/i.test(text);
+            var cx = #{cx};
+            var cy = #{cy};
+            var el = document.elementFromPoint(cx, cy);
+            if (!el) return { clicked: false, reason: 'no element at point' };
+
+            // Log what elementFromPoint found vs the container
+            var info = { tag: el.tagName, text: (el.textContent || '').trim().substring(0, 60), className: (el.className || '').toString().substring(0, 80) };
+
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
+            el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+
+            info.clicked = true;
+            return info;
           })()
         JS
-        break if calendar_found
-        logger.info "[PremiereProduceOne] Waiting for calendar modal (attempt #{attempt + 1}/8)..."
-        sleep 1
+        logger.info "[PremiereProduceOne] elementFromPoint result: #{efp_result.inspect}"
+        sleep 2
+
+        calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
       end
 
       unless calendar_found
-        logger.warn "[PremiereProduceOne] Calendar modal did not appear — using default date"
+        # Method 3: Try clicking different offsets (SVG chevron area on right side)
+        logger.info "[PremiereProduceOne] Still no calendar — trying right-side click (chevron area)"
+        right_x = btn_coords['x'].to_f + 50  # Offset towards the chevron
+        browser.mouse.click(x: right_x, y: cy)
+        sleep 2
+        calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
+      end
+
+      # Wait for calendar with polling
+      unless calendar_found
+        5.times do |attempt|
+          calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
+          break if calendar_found
+          logger.info "[PremiereProduceOne] Waiting for calendar modal (attempt #{attempt + 1}/5)..."
+          sleep 1
+        end
+      end
+
+      unless calendar_found
+        # Log page state for debugging
+        page_diag = browser.evaluate(<<~JS)
+          (function() {
+            var url = window.location.href;
+            var bodyText = (document.body ? document.body.innerText : '').substring(0, 300);
+            // Check what element is at the click coordinates
+            var elAtPoint = document.elementFromPoint(#{cx}, #{cy});
+            var elInfo = elAtPoint ? { tag: elAtPoint.tagName, text: (elAtPoint.textContent || '').trim().substring(0, 80), className: (elAtPoint.className || '').toString().substring(0, 80) } : null;
+            // Look for any modals or overlays
+            var modals = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], [class*="modal"], [class*="overlay"], [class*="popup"]')).map(function(m) {
+              return { tag: m.tagName, text: (m.textContent || '').trim().substring(0, 40), visible: m.offsetParent !== null };
+            }).slice(0, 5);
+            return { url: url, bodySnippet: bodyText, elementAtClick: elInfo, modals: modals };
+          })()
+        JS
+        logger.warn "[PremiereProduceOne] Calendar modal did not appear — diagnostics: #{page_diag.inspect}"
+        logger.warn "[PremiereProduceOne] Using default delivery date"
         return
       end
 
