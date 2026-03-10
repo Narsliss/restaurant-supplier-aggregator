@@ -3956,27 +3956,37 @@ module Scrapers
 
       logger.info "[PremiereProduceOne] Selecting delivery date: #{target.strftime('%B %d, %Y')}"
 
-      # Step 2: Click the dropdown using elementFromPoint + pointer events (proven method for PPO)
-      # First scroll the button into view and log what elementFromPoint finds
-      click_info = browser.evaluate(<<~JS)
-        (function() {
-          var x = #{delivery_btn['x'].to_f};
-          var y = #{delivery_btn['y'].to_f};
-          var el = document.elementFromPoint(x, y);
-          var info = { x: x, y: y, found: !!el };
-          if (el) {
-            info.tag = el.tagName;
-            info.text = (el.textContent || '').trim().substring(0, 80);
-            info.classes = (el.className || '').substring(0, 60);
-            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
-            el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
-          }
-          return info;
-        })()
-      JS
-      logger.info "[PremiereProduceOne] elementFromPoint click: #{click_info.inspect}"
+      # Step 2: Click the delivery dropdown
+      # Use CDP mouse.click (browser-level, bypasses DOM overlays like the View Order panel)
+      # then fall back to elementFromPoint + pointer events if CDP doesn't work.
+      x = delivery_btn['x'].to_f
+      y = delivery_btn['y'].to_f
+      logger.info "[PremiereProduceOne] Clicking delivery dropdown at (#{x}, #{y}) via CDP mouse"
+      browser.mouse.click(x: x, y: y)
       sleep 2
+
+      # Check if calendar opened
+      calendar_check = browser.evaluate("(function() { return /Select date/i.test(document.body ? document.body.innerText : ''); })()")
+      unless calendar_check
+        # CDP didn't work — try elementFromPoint + pointer events as fallback
+        logger.info "[PremiereProduceOne] CDP click didn't open calendar, trying pointer events fallback"
+        click_info = browser.evaluate(<<~JS)
+          (function() {
+            var x = #{x};
+            var y = #{y};
+            var el = document.elementFromPoint(x, y);
+            var info = { x: x, y: y, found: !!el, tag: el ? el.tagName : null, text: el ? (el.textContent || '').trim().substring(0, 80) : null };
+            if (el) {
+              el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
+              el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
+              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+            }
+            return info;
+          })()
+        JS
+        logger.info "[PremiereProduceOne] Pointer events fallback: #{click_info.inspect}"
+        sleep 2
+      end
 
       # Wait for "Select date" calendar modal
       calendar_found = false
