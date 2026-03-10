@@ -3957,36 +3957,55 @@ module Scrapers
       logger.info "[PremiereProduceOne] Selecting delivery date: #{target.strftime('%B %d, %Y')}"
 
       # Step 2: Click the delivery dropdown
-      # Use CDP mouse.click (browser-level, bypasses DOM overlays like the View Order panel)
-      # then fall back to elementFromPoint + pointer events if CDP doesn't work.
-      x = delivery_btn['x'].to_f
-      y = delivery_btn['y'].to_f
-      logger.info "[PremiereProduceOne] Clicking delivery dropdown at (#{x}, #{y}) via CDP mouse"
-      browser.mouse.click(x: x, y: y)
-      sleep 2
+      # Coordinate-based clicks fail when overlays/panels cover the button.
+      # Instead, find the DOM element directly and dispatch pointer events on it.
+      # Walk the DOM to find the element, then walk UP to its clickable ancestor.
+      click_result = browser.evaluate(<<~JS)
+        (function() {
+          var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
+          var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
+          var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
+          var target = null;
+          var bestScore = -1;
 
-      # Check if calendar opened
-      calendar_check = browser.evaluate("(function() { return /Select date/i.test(document.body ? document.body.innerText : ''); })()")
-      unless calendar_check
-        # CDP didn't work — try elementFromPoint + pointer events as fallback
-        logger.info "[PremiereProduceOne] CDP click didn't open calendar, trying pointer events fallback"
-        click_info = browser.evaluate(<<~JS)
-          (function() {
-            var x = #{x};
-            var y = #{y};
-            var el = document.elementFromPoint(x, y);
-            var info = { x: x, y: y, found: !!el, tag: el ? el.tagName : null, text: el ? (el.textContent || '').trim().substring(0, 80) : null };
-            if (el) {
-              el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
-              el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
-              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            var text = (el.textContent || el.innerText || '').trim();
+            if (text.length > 100 || text.length < 10) continue;
+            if (!datePattern.test(text) || !deliveryKeywords.test(text)) continue;
+            var hasSvg = !!el.querySelector('svg');
+            var score = (hasSvg ? 100 : 0) + (100 - text.length);
+            if (score > bestScore) {
+              bestScore = score;
+              target = el;
             }
-            return info;
-          })()
-        JS
-        logger.info "[PremiereProduceOne] Pointer events fallback: #{click_info.inspect}"
-        sleep 2
+          }
+
+          if (!target) return { clicked: false, reason: 'element not found' };
+
+          // Scroll into view first
+          target.scrollIntoView({ behavior: 'instant', block: 'center' });
+
+          // Get fresh coordinates after scroll
+          var rect = target.getBoundingClientRect();
+          var cx = rect.x + rect.width / 2;
+          var cy = rect.y + rect.height / 2;
+
+          // Dispatch pointer events directly on the found element (not elementFromPoint)
+          target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
+          target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
+          target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+
+          return { clicked: true, text: (target.textContent || '').trim().substring(0, 60), tag: target.tagName, x: cx, y: cy, hasSvg: !!target.querySelector('svg') };
+        })()
+      JS
+      logger.info "[PremiereProduceOne] Direct DOM click result: #{click_result.inspect}"
+
+      unless click_result && click_result['clicked']
+        logger.warn "[PremiereProduceOne] Could not click delivery dropdown — using default date"
+        return
       end
+      sleep 2
 
       # Wait for "Select date" calendar modal
       calendar_found = false
