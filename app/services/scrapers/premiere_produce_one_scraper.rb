@@ -1419,11 +1419,68 @@ module Scrapers
           return
         end
 
-        # Log what buttons are now available in the cart panel
+        # ── Identify the cart panel container ──
+        # The View Order click opens a side panel/overlay. We must scope all
+        # button searches to this panel to avoid clicking order guide buttons underneath.
+        # The panel is typically: [role="dialog"], a right-aligned fixed/absolute container,
+        # or the element containing "Place Order" / cart total text.
+        cart_panel_selector = browser.evaluate(<<~JS)
+          (function() {
+            // Strategy 1: dialog/modal role
+            var dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+            if (dialogs.length > 0) return { selector: '[role="dialog"], [aria-modal="true"]', method: 'dialog-role' };
+
+            // Strategy 2: fixed/absolute positioned panel on right side of screen
+            var allEls = document.querySelectorAll('div, section, aside');
+            for (var el of allEls) {
+              if (el.offsetParent === null && el.style.display !== 'none') continue;
+              var style = window.getComputedStyle(el);
+              if ((style.position === 'fixed' || style.position === 'absolute') &&
+                  el.getBoundingClientRect().right > window.innerWidth * 0.5 &&
+                  el.getBoundingClientRect().width > 200 &&
+                  el.getBoundingClientRect().width < window.innerWidth * 0.8) {
+                var text = (el.textContent || '').toLowerCase();
+                if (text.includes('place order') || text.includes('view order') || text.includes('subtotal')) {
+                  el.setAttribute('data-cart-panel', 'true');
+                  return { selector: '[data-cart-panel="true"]', method: 'fixed-panel' };
+                }
+              }
+            }
+
+            // Strategy 3: find container with "Place Order" button text
+            var placeOrderBtns = document.querySelectorAll('button, [role="button"]');
+            for (var btn of placeOrderBtns) {
+              if (btn.offsetParent === null) continue;
+              var btnText = (btn.textContent || '').trim().toLowerCase();
+              if (btnText.includes('place order')) {
+                // Walk up to a significant container
+                var container = btn;
+                for (var i = 0; i < 10 && container.parentElement; i++) {
+                  container = container.parentElement;
+                  var rect = container.getBoundingClientRect();
+                  if (rect.height > 300 && rect.width > 200 && rect.width < window.innerWidth * 0.8) {
+                    container.setAttribute('data-cart-panel', 'true');
+                    return { selector: '[data-cart-panel="true"]', method: 'place-order-ancestor' };
+                  }
+                }
+              }
+            }
+
+            // Fallback: search entire document
+            return { selector: null, method: 'fallback-full-page' };
+          })()
+        JS
+
+        panel_sel = cart_panel_selector&.dig('selector')
+        logger.info "[PremiereProduceOne] Cart panel detection: #{cart_panel_selector.inspect}"
+
+        # Log what buttons are available in the cart panel
         cart_buttons = browser.evaluate(<<~JS)
           (function() {
+            var scope = #{panel_sel ? "document.querySelector('#{panel_sel}')" : 'document'};
+            if (!scope) scope = document;
             var results = [];
-            var buttons = document.querySelectorAll('button, [role="button"]');
+            var buttons = scope.querySelectorAll('button, [role="button"]');
             for (var btn of buttons) {
               if (btn.offsetParent === null) continue;
               var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
@@ -1438,17 +1495,16 @@ module Scrapers
         logger.info "[PremiereProduceOne] Cart panel buttons: #{cart_buttons.inspect}"
 
         # ── Pepper cart removal strategy (CDP mouse clicks) ──
-        # Pepper (React Native Web) cart items have qty controls:
-        #   - When qty > 1: "Decrease quantity" button (minus icon) + qty display + "Increase quantity" button
-        #   - When qty = 1: trash/delete button (replaces the minus) + qty display + "Increase quantity" button
-        # To remove an item: click decrease until qty=1, then click trash.
+        # Scoped to the cart panel to avoid hitting order guide buttons underneath.
+        # Pepper cart items have qty controls:
+        #   - When qty > 1: "Decrease quantity" button (minus icon)
+        #   - When qty = 1: trash/delete button (replaces the minus)
+        # To remove: click trash directly (qty is always 1 for items added via order guide).
         #
         # CRITICAL: React Native Web Pressable components ignore el.click().
-        # We MUST use Ferrum's browser.mouse.click(x:, y:) which sends real
-        # CDP Input.dispatchMouseEvent — same pattern used in open_product_modal_ppo.
+        # We MUST use Ferrum's browser.mouse.click(x:, y:) for real CDP mouse events.
         #
-        # SAFETY: We NEVER click "Increase quantity". We only click buttons whose
-        # aria-label matches "Decrease quantity" or trash/remove/delete patterns.
+        # SAFETY: We NEVER click "Increase quantity".
 
         removed_count = 0
         total_clicks = 0
@@ -1458,10 +1514,12 @@ module Scrapers
         loop do
           break if total_clicks >= max_total_clicks
 
-          # Scan ALL visible buttons for decrease/trash — return COORDINATES, not click in JS
+          # Scan buttons WITHIN THE CART PANEL for decrease/trash
           result = browser.evaluate(<<~JS)
             (function() {
-              var buttons = document.querySelectorAll('button, [role="button"]');
+              var scope = #{panel_sel ? "document.querySelector('#{panel_sel}')" : 'document'};
+              if (!scope) scope = document;
+              var buttons = scope.querySelectorAll('button, [role="button"]');
               for (var btn of buttons) {
                 if (btn.offsetParent === null) continue;
                 var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
@@ -1480,7 +1538,7 @@ module Scrapers
                   };
                 }
               }
-              return { found: false, reason: 'no decrease/trash buttons on page' };
+              return { found: false, reason: 'no decrease/trash buttons in cart panel' };
             })()
           JS
 
@@ -1573,11 +1631,13 @@ module Scrapers
               browser.mouse.click(x: view_order_check['x']&.to_f || 0, y: view_order_check['y']&.to_f || 0) rescue nil
               sleep 2
               wait_for_react_render(timeout: 5)
-              # Re-run the removal loop (simplified — just click decrease/trash buttons)
+              # Re-run the removal loop scoped to cart panel
               20.times do
                 btn = browser.evaluate(<<~JS)
                   (function() {
-                    var buttons = document.querySelectorAll('button, [role="button"]');
+                    var scope = #{panel_sel ? "document.querySelector('#{panel_sel}')" : 'document'};
+                    if (!scope) scope = document;
+                    var buttons = scope.querySelectorAll('button, [role="button"]');
                     for (var btn of buttons) {
                       if (btn.offsetParent === null) continue;
                       var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
