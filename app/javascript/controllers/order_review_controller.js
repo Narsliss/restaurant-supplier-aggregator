@@ -31,10 +31,10 @@ export default class extends Controller {
     this._cachedCsrfToken = null
     this._updateSubmitStates()
 
-    // Always start polling — verification kicks off automatically on page load
-    if (this.verifyingValue) {
-      this._startPolling()
-    }
+    // Always start polling — verification may complete before the page finishes
+    // loading (race condition), so poll regardless of initial verifying state.
+    // Polling stops itself once all orders are settled.
+    this._startPolling()
   }
 
   disconnect() {
