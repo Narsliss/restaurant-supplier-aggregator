@@ -1240,33 +1240,14 @@ module Scrapers
           )
         end
 
-        # Step 5: Select delivery date on the CART page (before navigating to review)
-        # The delivery dropdown ("Cutoff: 7:00 PM ET | DELIVERY Mar 16") is on the
-        # cart page — it's not available on the review/checkout page.
-        # IMPORTANT: The View Order sidebar panel may be open from cart extraction,
-        # covering the delivery button. Close it first by pressing Escape or clicking outside.
-        if @target_delivery_date
-          browser.evaluate(<<~JS)
-            (function() {
-              // Try closing any open panel/overlay: press Escape, click backdrop, or click close button
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-              // Look for close/X buttons in overlays
-              var closeBtn = document.querySelector('[aria-label="close"], [aria-label="Close"], [aria-label="dismiss"]');
-              if (closeBtn) closeBtn.click();
-              // Click outside any panel to dismiss
-              var backdrop = document.querySelector('[class*="backdrop"], [class*="overlay"], [class*="Overlay"]');
-              if (backdrop) backdrop.click();
-            })()
-          JS
-          sleep 1.5
-          # Scroll to top so the delivery dropdown (y=148) is visible and not behind anything
-          browser.evaluate('window.scrollTo(0, 0)')
-          sleep 0.5
-          select_delivery_date_ppo
-        end
-
-        # Step 5.5: Navigate to checkout/review page
+        # Step 5: Navigate to checkout/review page
         proceed_to_checkout_page_ppo
+
+        # Step 5.5: Select delivery date on the REVIEW page (Order Summary panel)
+        # The cart page has a "Cutoff: ... | DELIVERY Mar 16" label but it doesn't
+        # open a date picker — only the review page's Order Summary panel does.
+        # Order 367 confirmed this: the calendar only opened on the review page.
+        select_delivery_date_ppo if @target_delivery_date
 
         # Step 6: Extract checkout data
         checkout_data = extract_checkout_data_ppo
