@@ -1364,26 +1364,39 @@ module Scrapers
         # (cart icon with $ total) in the top-right nav bar.
         # We must click that button via CDP mouse to open the cart panel.
 
-        # First check if "View Order" button exists (indicates items in cart)
-        view_order = browser.evaluate(<<~JS)
-          (function() {
-            var buttons = document.querySelectorAll('button, [role="button"]');
-            for (var btn of buttons) {
-              if (btn.offsetParent === null) continue;
-              var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
-              if (aria.includes('view order')) {
-                var text = (btn.textContent || '').trim();
-                var rect = btn.getBoundingClientRect();
-                return { found: true, text: text, aria: aria,
-                         x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        # Check if "View Order" button exists (indicates items in cart).
+        # The cart total in the nav bar may load asynchronously after React renders,
+        # so retry several times with pauses to avoid a false "cart empty" result.
+        view_order = nil
+        5.times do |check_attempt|
+          view_order = browser.evaluate(<<~JS)
+            (function() {
+              var buttons = document.querySelectorAll('button, [role="button"]');
+              for (var btn of buttons) {
+                if (btn.offsetParent === null) continue;
+                var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                if (aria.includes('view order')) {
+                  var text = (btn.textContent || '').trim();
+                  var rect = btn.getBoundingClientRect();
+                  return { found: true, text: text, aria: aria,
+                           x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                }
               }
-            }
-            return { found: false };
-          })()
-        JS
+              return { found: false };
+            })()
+          JS
+
+          break if view_order && view_order['found']
+
+          if check_attempt < 4
+            logger.info "[PremiereProduceOne] View Order button not found yet (attempt #{check_attempt + 1}/5), waiting..."
+            sleep 3
+            wait_for_react_render(timeout: 10)
+          end
+        end
 
         if !view_order || !view_order['found']
-          logger.info '[PremiereProduceOne] No "View Order" button found — cart appears empty'
+          logger.info '[PremiereProduceOne] No "View Order" button found after 5 checks — cart appears empty'
           save_session
           return
         end
