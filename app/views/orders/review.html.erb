@@ -231,7 +231,12 @@
                 <%= review[:cases_to_minimum].to_i %> more case<%= review[:cases_to_minimum].to_i == 1 ? '' : 's' %> needed
               </span>
             <% end %>
-            <% can_submit = review[:meets_minimum] && !order.verifying? && order.verification_status.in?(%w[verified price_changed skipped]) %>
+            <% can_submit = review[:has_credentials] && review[:meets_minimum] && !order.verifying? && order.verification_status.in?(%w[verified price_changed skipped]) %>
+            <% unless review[:has_credentials] %>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                No credentials — <%= link_to "connect #{order.supplier.name}", supplier_credentials_path, class: "underline font-semibold" %>
+              </span>
+            <% end %>
             <%= button_to "Submit Order",
                 submit_batch_orders_path(batch_id: @batch_id, order_ids: [order.id], aggregated_list_id: @aggregated_list_id),
                 method: :post,
@@ -524,8 +529,9 @@
       <%= link_to "Back to Order Lists", supplier_lists_path,
           class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
 
+      <% all_have_credentials = @review_orders.all? { |r| r[:has_credentials] } %>
       <% all_verified = !@verifying && @review_orders.all? { |r| r[:verification_status].in?(%w[verified price_changed skipped]) } %>
-      <% can_submit_all = @summary[:all_minimums_met] && all_verified %>
+      <% can_submit_all = all_have_credentials && @summary[:all_minimums_met] && all_verified %>
       <%= button_to "Submit All Orders",
           submit_batch_orders_path(batch_id: @batch_id, aggregated_list_id: @aggregated_list_id),
           method: :post,

@@ -364,6 +364,12 @@ class OrdersController < ApplicationController
         []
       end
 
+      # Check if the current user has active credentials for this supplier
+      has_credentials = current_user.supplier_credentials.exists?(
+        supplier: order.supplier,
+        status: 'active'
+      )
+
       {
         order: order,
         supplier: order.supplier,
@@ -382,7 +388,8 @@ class OrdersController < ApplicationController
         verified_total: order.verified_total,
         price_change_amount: order.price_change_amount,
         verification_error: order.verification_error,
-        suggestions: suggestions
+        suggestions: suggestions,
+        has_credentials: has_credentials
       }
     end
 
@@ -420,6 +427,16 @@ class OrdersController < ApplicationController
       supplier_names = missing_dates.map { |o| o.supplier.name }.join(", ")
       redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: params[:aggregated_list_id]),
         alert: "Please set a delivery date (after today) for: #{supplier_names}"
+      return
+    end
+
+    # Server-side credential check — reject orders the user can't place
+    user_supplier_ids = current_user.supplier_credentials.where(status: 'active').pluck(:supplier_id)
+    missing_creds = orders.reject { |o| user_supplier_ids.include?(o.supplier_id) }
+    if missing_creds.any?
+      supplier_names = missing_creds.map { |o| o.supplier.name }.uniq.join(", ")
+      redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: params[:aggregated_list_id]),
+        alert: "You don't have credentials for: #{supplier_names}. Please connect your account before ordering."
       return
     end
 
