@@ -237,12 +237,18 @@
                 No credentials — <%= link_to "connect #{order.supplier.name}", supplier_credentials_path, class: "underline font-semibold" %>
               </span>
             <% end %>
-            <%= button_to "Submit Order",
-                submit_batch_orders_path(batch_id: @batch_id, order_ids: [order.id], aggregated_list_id: @aggregated_list_id),
-                method: :post,
-                class: "px-4 py-1.5 rounded-md text-sm font-semibold text-white shadow-sm transition-colors #{can_submit ? 'bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'bg-gray-300 cursor-not-allowed'}",
-                disabled: !can_submit,
-                data: { order_review_target: "supplierSubmitBtn", order_id: order.id.to_s } %>
+            <% if can_submit %>
+              <%= button_to "Submit Order",
+                  submit_batch_orders_path(batch_id: @batch_id, order_ids: [order.id], aggregated_list_id: @aggregated_list_id),
+                  method: :post,
+                  class: "px-4 py-1.5 rounded-md text-sm font-semibold text-white shadow-sm bg-brand-orange hover:bg-brand-orange-dark cursor-pointer",
+                  data: { order_review_target: "supplierSubmitBtn", order_id: order.id.to_s } %>
+            <% else %>
+              <span class="px-4 py-1.5 rounded-md text-sm font-semibold text-gray-400 bg-gray-600 inline-block opacity-50 cursor-not-allowed"
+                    data-order-review-target="supplierSubmitBtn" data-order-id="<%= order.id %>">
+                Submit Order
+              </span>
+            <% end %>
           </div>
         </div>
 
@@ -534,12 +540,18 @@
       <% can_submit_all = submittable.any? %>
       <% submit_ids = submittable.map { |r| r[:order].id } %>
       <% btn_label = submittable.size == @review_orders.size ? "Submit All Orders" : "Submit #{submittable.size} of #{@review_orders.size} Orders" %>
-      <%= button_to btn_label,
-          submit_batch_orders_path(batch_id: @batch_id, order_ids: submit_ids, aggregated_list_id: @aggregated_list_id),
-          method: :post,
-          class: "px-6 py-2 text-sm font-semibold text-white rounded-md shadow-sm transition-colors text-center #{can_submit_all ? 'bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'bg-gray-300 cursor-not-allowed'}",
-          disabled: !can_submit_all,
-          data: { order_review_target: "submitAllBtn" } %>
+      <% if can_submit_all %>
+        <%= button_to btn_label,
+            submit_batch_orders_path(batch_id: @batch_id, order_ids: submit_ids, aggregated_list_id: @aggregated_list_id),
+            method: :post,
+            class: "px-6 py-2 text-sm font-semibold text-white rounded-md shadow-sm bg-brand-orange hover:bg-brand-orange-dark cursor-pointer text-center",
+            data: { order_review_target: "submitAllBtn" } %>
+      <% else %>
+        <span class="px-6 py-2 text-sm font-semibold text-gray-400 bg-gray-600 rounded-md shadow-sm text-center inline-block opacity-50 cursor-not-allowed"
+              data-order-review-target="submitAllBtn">
+          <%= btn_label %>
+        </span>
+      <% end %>
       <% if skipped_for_creds > 0 %>
         <p class="text-xs text-red-600 text-right"><%= skipped_for_creds %> order<%= skipped_for_creds == 1 ? '' : 's' %> skipped (no credentials)</p>
       <% end %>
