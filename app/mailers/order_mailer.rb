@@ -5,9 +5,10 @@ class OrderMailer < ApplicationMailer
     mail(to: @user.email, subject: "Order ##{order.id} Submitted Successfully")
   end
 
-  def order_failed(order)
+  def order_failed(order, error_message = nil)
     @order = order
     @user = order.user
+    @error_message = error_message
     mail(to: @user.email, subject: "Order ##{order.id} Failed - Action Required")
   end
 

@@ -3426,11 +3426,43 @@ module Scrapers
 
           // Scope to cart panel if one exists (avoid reading order guide items)
           var panel = null;
+
+          // Strategy 1: role="dialog" or aria-modal
           var dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
           if (dialogs.length > 0) panel = dialogs[dialogs.length - 1];
 
+          // Strategy 2: Find container with "Order Summary" heading (PPO's overlay)
           if (!panel) {
-            // Try fixed/absolute positioned panel on right side
+            var allEls = document.querySelectorAll('div, section, aside');
+            for (var el of allEls) {
+              var text = (el.textContent || '').substring(0, 500).toLowerCase();
+              if (text.includes('order summary') && text.includes('estimated total') &&
+                  el.getBoundingClientRect().width > 200) {
+                // Make sure it's not the full body (should be smaller)
+                if (el.getBoundingClientRect().width < window.innerWidth * 0.9) {
+                  panel = el;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Strategy 3: Container with "Place" + "order" button and "Estimated Total"
+          if (!panel) {
+            var allEls = document.querySelectorAll('div, section, aside');
+            for (var el of allEls) {
+              var text = (el.textContent || '').toLowerCase();
+              if (/place.*order/i.test(text) && text.includes('estimated total') &&
+                  el.getBoundingClientRect().width > 200 &&
+                  el.getBoundingClientRect().width < window.innerWidth * 0.9) {
+                panel = el;
+                break;
+              }
+            }
+          }
+
+          // Strategy 4: Fixed/absolute positioned panel on right side
+          if (!panel) {
             var allEls = document.querySelectorAll('div, section, aside');
             for (var el of allEls) {
               var style = window.getComputedStyle(el);
@@ -3439,7 +3471,7 @@ module Scrapers
                   el.getBoundingClientRect().width > 200 &&
                   el.getBoundingClientRect().width < window.innerWidth * 0.8) {
                 var text = (el.textContent || '').toLowerCase();
-                if (text.includes('place order') || text.includes('view order') || text.includes('subtotal')) {
+                if (/place.*order/i.test(text) || text.includes('view order') || text.includes('subtotal') || text.includes('estimated total')) {
                   panel = el;
                   break;
                 }
@@ -3764,58 +3796,76 @@ module Scrapers
     end
 
     def click_place_order_button_ppo
-      # Scroll to bottom where the submit button lives
-      browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-      sleep 2
+      # The "Place X of Y orders (Z items)" button lives at the bottom of the
+      # Order Summary overlay panel — NOT the main page.  We need to:
+      #   1. Scroll WITHIN the overlay (not window.scrollTo)
+      #   2. Match dynamic text like "Place 2 of 2 orders (7 items)" via regex
+      #   3. Use CDP mouse.click for React Native Web Pressable components
 
-      clicked = browser.evaluate(<<~JS)
+      # Step 1: Find the button and scroll it into view within the overlay
+      button_info = browser.evaluate(<<~JS)
         (function() {
           var exclude = /search|clear|close|cancel|filter|back|sign|log|add note/i;
-          var targets = ['place order', 'submit order', 'complete order', 'confirm order', 'submit'];
+          // Regex: "place" ... "order" with anything in between (handles "Place 2 of 2 orders (7 items)")
+          var placeOrderRegex = /place.*order/i;
+          var exactTargets = ['submit order', 'complete order', 'confirm order'];
           var elements = document.querySelectorAll('button, [role="button"]');
 
           for (var el of elements) {
             if (el.offsetParent === null) continue;
-            // Use textContent for React Native Web
-            var text = (el.textContent || el.innerText || '').trim().toLowerCase();
-            if (text.length > 60 || text.length === 0) continue;
-            if (exclude.test(text)) continue;
-            for (var target of targets) {
-              if (text.includes(target)) {
-                el.scrollIntoView({ behavior: 'instant', block: 'center' });
-                el.click();
-                return { clicked: true, text: text };
+            var text = (el.textContent || el.innerText || '').trim();
+            var lowerText = text.toLowerCase();
+            if (lowerText.length > 80 || lowerText.length === 0) continue;
+            if (exclude.test(lowerText)) continue;
+
+            var matched = placeOrderRegex.test(lowerText);
+            if (!matched) {
+              for (var target of exactTargets) {
+                if (lowerText.includes(target)) { matched = true; break; }
               }
+            }
+
+            if (matched) {
+              // Scroll within overlay — scrollIntoView works regardless of scroll context
+              el.scrollIntoView({ behavior: 'instant', block: 'center' });
+              var rect = el.getBoundingClientRect();
+              return {
+                found: true,
+                text: text,
+                x: rect.x + rect.width / 2,
+                y: rect.y + rect.height / 2,
+                width: rect.width,
+                height: rect.height
+              };
             }
           }
 
-          // Check fixed/sticky footer
-          var fixedEls = Array.from(document.querySelectorAll('*')).filter(function(el) {
-            var style = window.getComputedStyle(el);
-            return (style.position === 'fixed' || style.position === 'sticky') && el.offsetParent !== null;
-          });
-          for (var fixedEl of fixedEls) {
-            var btns = fixedEl.querySelectorAll('button, [role="button"]');
-            for (var btn of btns) {
-              var text = (btn.textContent || '').trim().toLowerCase();
-              if (text.length > 0 && text.length < 60 && !exclude.test(text)) {
-                for (var target of targets) {
-                  if (text.includes(target)) {
-                    btn.click();
-                    return { clicked: true, text: text, method: 'fixed-footer' };
-                  }
-                }
-              }
-            }
+          // Diagnostic: list all visible button texts for debugging
+          var allBtns = [];
+          for (var el of elements) {
+            if (el.offsetParent === null) continue;
+            var t = (el.textContent || '').trim();
+            if (t.length > 0 && t.length < 80) allBtns.push(t.substring(0, 60));
           }
-
-          return { clicked: false };
+          return { found: false, visible_buttons: allBtns.slice(0, 20) };
         })()
       JS
 
-      raise ScrapingError, 'Could not find place order button' unless clicked && clicked['clicked']
+      logger.info "[PremiereProduceOne] Place order button search: #{button_info.inspect}"
 
-      logger.info "[PremiereProduceOne] Clicked place order: #{clicked.inspect}"
+      unless button_info && button_info['found']
+        raise ScrapingError, "Could not find place order button. Visible buttons: #{button_info&.dig('visible_buttons')&.first(10)&.inspect}"
+      end
+
+      # Step 2: Click via CDP mouse (required for React Native Web Pressable)
+      sleep 0.5 # Let scrollIntoView settle
+      x = button_info['x'].to_f
+      y = button_info['y'].to_f
+      logger.warn "[PremiereProduceOne] PLACING LIVE ORDER — clicking '#{button_info['text']}' at (#{x}, #{y})"
+      browser.mouse.click(x: x, y: y)
+      sleep 2
+
+      logger.info "[PremiereProduceOne] Place order button clicked successfully"
     end
 
     def wait_for_order_confirmation_ppo
