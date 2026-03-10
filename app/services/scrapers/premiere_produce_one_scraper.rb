@@ -3886,29 +3886,38 @@ module Scrapers
       target_short = "#{target.strftime('%b')} #{target_day}" # "Mar 16"
 
       # Step 1: Find the delivery date dropdown button
-      # The actual button text is short (~37 chars), e.g. "Cutoff: 7:00 PM ET | DELIVERY Mar 16"
-      # Parent containers (sidebar with category filters) can be ~160 chars and also match.
-      # Use a tight 80-char limit and require SVG (the chevron ▼) to find the real button.
+      # PPO's Pepper cart page has a delivery dropdown near the top with an SVG chevron.
+      # Current format: "Cutoff: 7:00 PM ET | DELIVERY Mar 16" (~37 chars)
+      # We match broadly: any short clickable element containing a date pattern
+      # plus a delivery-related keyword, so this survives PPO label changes.
       delivery_btn = browser.evaluate(<<~JS)
         (function() {
           var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
           var candidates = [];
+          // Month name (abbreviated or full) followed by 1-2 digit day
+          var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
+          // Broad delivery-related keywords (survives label changes)
+          var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
+
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
-            if (text.length > 80) continue;
-            if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
-              var hasSvg = !!el.querySelector('svg');
-              var rect = el.getBoundingClientRect();
-              candidates.push({ found: true, text: text, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, hasSvg: hasSvg, len: text.length });
-            }
+            if (text.length > 100 || text.length < 10) continue;
+            var hasDate = datePattern.test(text);
+            var hasKeyword = deliveryKeywords.test(text);
+            if (!hasDate || !hasKeyword) continue;
+
+            var hasSvg = !!el.querySelector('svg');
+            var rect = el.getBoundingClientRect();
+            // Score: SVG (chevron) is strong signal, shorter text = more specific element
+            var score = (hasSvg ? 100 : 0) + (100 - text.length);
+            candidates.push({ found: true, text: text, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, hasSvg: hasSvg, len: text.length, score: score });
           }
-          // Prefer the element with an SVG (chevron), otherwise shortest text
-          candidates.sort(function(a, b) {
-            if (a.hasSvg !== b.hasSvg) return a.hasSvg ? -1 : 1;
-            return a.len - b.len;
-          });
-          return candidates.length > 0 ? candidates[0] : { found: false };
+          candidates.sort(function(a, b) { return b.score - a.score; });
+          if (candidates.length > 0) {
+            return candidates[0];
+          }
+          return { found: false };
         })()
       JS
 
@@ -4080,12 +4089,14 @@ module Scrapers
       sleep 2
       updated_text = browser.evaluate(<<~JS)
         (function() {
+          var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
+          var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
           var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
-            if (text.length > 80) continue;
-            if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
+            if (text.length > 100 || text.length < 10) continue;
+            if (datePattern.test(text) && deliveryKeywords.test(text)) {
               return text;
             }
           }
