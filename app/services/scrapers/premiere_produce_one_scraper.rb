@@ -872,11 +872,11 @@ module Scrapers
               return false;
             }
 
-            // Strategy 1: Find the SMALLEST element matching the product name
+            // Strategy 1: Find the BEST element matching the product name
+            // Scoring: exact match > full containment > significant word overlap
             if (productName) {
               var nameUpper = productName.toUpperCase();
-              var nameWords = nameUpper.split(/\\s+/);
-              var shortName = nameWords.length > 3 ? nameWords.slice(0, Math.ceil(nameWords.length * 0.6)).join(' ') : nameUpper;
+              var nameWords = nameUpper.split(/\\s+/).filter(function(w) { return w.length > 2; });
 
               var allElements = document.querySelectorAll('div, span, p, li, a');
               var nameMatches = [];
@@ -888,17 +888,38 @@ module Scrapers
                 if (text.length < 5 || text.length > 200) continue;
                 if (isNavText(text)) continue;
 
-                var matches = textUpper.includes(nameUpper) ||
-                              nameUpper.includes(textUpper) ||
-                              textUpper.includes(shortName) ||
-                              shortName.includes(textUpper);
+                // Score the match quality (higher = better)
+                var score = 0;
+                var textWords = textUpper.split(/\\s+/).filter(function(w) { return w.length > 2; });
 
-                if (matches) {
+                if (textUpper === nameUpper) {
+                  score = 100; // Exact match
+                } else if (textUpper.includes(nameUpper)) {
+                  score = 80; // Element contains full product name
+                } else if (nameUpper.includes(textUpper) && textWords.length >= 2) {
+                  // Product name contains element text — require at least 2 significant words
+                  // to prevent single-word matches like "ZUCCHINI" matching any zucchini
+                  score = 60;
+                } else {
+                  // Word overlap: count how many product name words appear in element text
+                  var matchedWords = 0;
+                  for (var w of nameWords) {
+                    if (textUpper.includes(w)) matchedWords++;
+                  }
+                  var overlapRatio = nameWords.length > 0 ? matchedWords / nameWords.length : 0;
+                  // Require >50% word overlap to consider it a match
+                  if (overlapRatio > 0.5 && matchedWords >= 2) {
+                    score = Math.round(overlapRatio * 50);
+                  }
+                }
+
+                if (score > 0) {
                   var rect = el.getBoundingClientRect();
                   if (rect.width > 30 && rect.height > 10) {
                     nameMatches.push({
                       text: text,
                       textLen: text.length,
+                      score: score,
                       x: rect.left + rect.width / 2,
                       y: rect.top + rect.height / 2,
                       width: rect.width,
@@ -908,8 +929,11 @@ module Scrapers
                 }
               }
 
-              // Sort by text length (shortest first = most specific element)
-              nameMatches.sort(function(a, b) { return a.textLen - b.textLen; });
+              // Sort by score (highest first), then by text length (shortest first for tiebreak)
+              nameMatches.sort(function(a, b) {
+                if (b.score !== a.score) return b.score - a.score;
+                return a.textLen - b.textLen;
+              });
 
               if (nameMatches.length > 0) {
                 var best = nameMatches[0];
@@ -1002,15 +1026,17 @@ module Scrapers
               var skuPattern = new RegExp('(?:Case|Each|Piece|Pack|Bag|Box|Unit)\\\\s*[•·]\\\\s*' + targetSku);
               var hasModal = document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length > 0;
               // Also search for just the raw SKU number near a bullet/dot
-              var rawSkuPattern = new RegExp('[•·]\\\\s*' + targetSku);
-              // And look for dialog content specifically
+              var rawSkuPattern = new RegExp('[•·]\\\\s*' + targetSku + '(?:\\\\D|$)');
+              // Look for dialog content — use word-boundary match to prevent substring false positives
+              // e.g., SKU "567" must not match "5678" in the dialog
               var dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
               var dialogText = '';
               for (var d of dialogs) { dialogText += (d.textContent || '') + ' '; }
+              var skuBoundaryPattern = new RegExp('(?:^|\\\\D)' + targetSku + '(?:\\\\D|$)');
               return {
                 has_sku_text: skuPattern.test(body),
                 has_raw_sku: rawSkuPattern.test(body),
-                has_sku_in_dialog: dialogText.includes(targetSku),
+                has_sku_in_dialog: skuBoundaryPattern.test(dialogText),
                 has_modal_role: hasModal,
                 dialog_text: dialogText.substring(0, 300),
                 body_preview: body.substring(0, 600)
@@ -1498,21 +1524,75 @@ module Scrapers
 
         logger.info "[PremiereProduceOne] Cart clearing complete: #{removed_count} items removed, #{total_clicks} total clicks"
 
-        # Verify cart is empty
-        sleep 2
-        page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+        # Verify cart is empty — retry clearing if items remain
+        max_verify_attempts = 3
+        max_verify_attempts.times do |attempt|
+          sleep 2
+          page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
 
-        # Check for the "Place order" button or any dollar amount — indicates items remain
-        has_place_order = page_text.match?(/place order/i)
-        has_price = page_text.match?(/\$\d+\.\d{2}/)
+          if page_text.match?(/cart is empty|no items|your cart is empty/i)
+            logger.info '[PremiereProduceOne] Cart confirmed empty!'
+            save_session
+            return
+          end
 
-        if page_text.match?(/cart is empty|no items/i)
-          logger.info '[PremiereProduceOne] Cart confirmed empty!'
-        elsif has_place_order || has_price
-          logger.warn "[PremiereProduceOne] Cart may still have items (place_order=#{has_place_order}, has_price=#{has_price})"
-          logger.warn "[PremiereProduceOne] Cart text: #{page_text[0..200]}"
-        else
-          logger.info '[PremiereProduceOne] Cart appears cleared (no Place Order button or prices found)'
+          # Check if the "View Order" button still shows a dollar amount (items remain)
+          view_order_check = browser.evaluate(<<~JS)
+            (function() {
+              var buttons = document.querySelectorAll('button, [role="button"]');
+              for (var btn of buttons) {
+                if (btn.offsetParent === null) continue;
+                var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                if (aria.includes('view order')) {
+                  var text = (btn.textContent || '').trim();
+                  return { found: true, text: text, has_price: /\\$\\d/.test(text) };
+                }
+              }
+              return { found: false };
+            })()
+          JS
+
+          if view_order_check && view_order_check['found'] && view_order_check['has_price']
+            logger.warn "[PremiereProduceOne] Cart still has items (View Order shows: #{view_order_check['text'].inspect}), retry #{attempt + 1}/#{max_verify_attempts}"
+
+            if attempt < max_verify_attempts - 1
+              # Re-open cart panel and try clearing again
+              browser.mouse.click(x: view_order_check['x']&.to_f || 0, y: view_order_check['y']&.to_f || 0) rescue nil
+              sleep 2
+              wait_for_react_render(timeout: 5)
+              # Re-run the removal loop (simplified — just click decrease/trash buttons)
+              20.times do
+                btn = browser.evaluate(<<~JS)
+                  (function() {
+                    var buttons = document.querySelectorAll('button, [role="button"]');
+                    for (var btn of buttons) {
+                      if (btn.offsetParent === null) continue;
+                      var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+                      if (aria.includes('decrease') || aria.includes('trash') ||
+                          aria.includes('remove') || aria.includes('delete')) {
+                        btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        var rect = btn.getBoundingClientRect();
+                        return { found: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+                      }
+                    }
+                    return { found: false };
+                  })()
+                JS
+                break if btn.nil? || !btn['found']
+                browser.mouse.click(x: btn['x'].to_f, y: btn['y'].to_f)
+                sleep 0.5
+              end
+              next
+            end
+
+            # Final attempt failed — raise so we don't add items on top of a dirty cart
+            raise ScrapingError, "Failed to clear cart after #{max_verify_attempts} attempts — items remain (#{view_order_check['text'].inspect})"
+          else
+            # No View Order button with price — cart is likely empty
+            logger.info '[PremiereProduceOne] Cart appears cleared (no View Order button with price found)'
+            save_session
+            return
+          end
         end
 
         save_session
@@ -3511,12 +3591,23 @@ module Scrapers
 
     def wait_for_order_confirmation_ppo
       start_time = Time.current
-      timeout = 30
+      timeout = 90
+      pre_click_url = browser.current_url rescue ''
 
       loop do
         page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
+        current_url = browser.current_url rescue ''
+        elapsed = (Time.current - start_time).round(1)
 
-        if page_text.match?(/confirmation|order\s*(?:placed|submitted|received)|thank\s*you|order\s*#/i)
+        # Detection 1: URL changed to a confirmation/success/thank-you page
+        url_changed = current_url != pre_click_url && current_url.match?(/confirm|success|thank|receipt|complete/i)
+
+        # Detection 2: Page text contains confirmation keywords
+        text_confirmed = page_text.match?(/confirmation|order\s*(?:placed|submitted|received|complete)|thank\s*you|order\s*#|successfully/i)
+
+        if url_changed || text_confirmed
+          logger.info "[PremiereProduceOne] Order confirmed after #{elapsed}s (url_changed=#{url_changed}, text_confirmed=#{text_confirmed})"
+
           conf_match = page_text.match(/order\s*#?\s*[:\s]*([A-Z0-9-]+)/i) ||
                        page_text.match(/confirmation\s*#?\s*[:\s]*([A-Z0-9-]+)/i) ||
                        page_text.match(/#(\d{4,})/)
@@ -3530,13 +3621,32 @@ module Scrapers
           }
         end
 
-        if page_text.match?(/error|failed|could not|unable to/i) && !page_text.match?(/confirmation|success|submitted/i)
+        # Detection 3: Cart is now empty (order went through and cleared the cart)
+        # Only check after giving the confirmation page a chance to load (15s+)
+        if elapsed > 15 && current_url != pre_click_url
+          cart_empty = page_text.match?(/cart is empty|no items in|your order has been/i)
+          if cart_empty
+            logger.info "[PremiereProduceOne] Cart empty after submit — order likely placed (#{elapsed}s)"
+            return {
+              confirmation_number: "PPO-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+              total: nil,
+              delivery_date: nil
+            }
+          end
+        end
+
+        if page_text.match?(/error|failed|could not|unable to/i) && !page_text.match?(/confirmation|success|submitted|complete/i)
           raise ScrapingError, "Checkout failed: #{page_text[0..300]}"
         end
 
-        raise ScrapingError, 'Checkout confirmation timeout (30s)' if Time.current - start_time > timeout
+        if Time.current - start_time > timeout
+          logger.error "[PremiereProduceOne] Checkout confirmation timeout (#{timeout}s)"
+          logger.error "[PremiereProduceOne] Final URL: #{current_url}"
+          logger.error "[PremiereProduceOne] Final page text (first 500): #{page_text[0..500]}"
+          raise ScrapingError, "Checkout confirmation timeout (#{timeout}s) — order may have been placed, check PPO directly"
+        end
 
-        sleep 1
+        sleep 2
       end
     end
 
