@@ -63,21 +63,39 @@ DATABASE_URL=<postgresql-url>
 PROCESS_TYPE=web|worker
 ```
 
-### Deployment Commands
+### Deployment Workflow
+**CRITICAL: Always push to GitHub BEFORE deploying to Railway.**
+Never deploy untracked code to production. The correct order is:
+
 ```bash
-# Deploy web service
-railway up --service web --detach
+# 1. Commit and push to GitHub first (version track it)
+git push origin main
 
-# Deploy worker service
-railway up --service worker --detach
+# 2. Deploy web service
+railway link -s pretty-friendship
+railway up --detach
 
+# 3. Deploy worker service
+railway link -s worker
+railway up --detach
+
+# 4. Verify
+railway logs --service pretty-friendship
+railway logs --service worker
+```
+
+### Railway Commands
+```bash
 # Check status
-railway service status --service web
+railway service status --service pretty-friendship
 railway service status --service worker
 
-# View logs
-railway logs --service web
-railway logs --service worker
+# View logs (must link to service first)
+railway link -s pretty-friendship
+railway logs
+
+railway link -s worker
+railway logs
 ```
 
 ### Railway URLs
