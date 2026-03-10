@@ -365,11 +365,10 @@ class OrdersController < ApplicationController
       end
 
       # Check if the current user has credentials for this supplier
-      # Accept 'active' (validated) and 'pending' (just entered, not yet validated)
-      has_credentials = current_user.supplier_credentials.where(
-        supplier: order.supplier,
-        status: %w[active pending]
-      ).exists?
+      # Uses scoped_credentials which respects org/role/location visibility
+      has_credentials = scoped_credentials.where(
+        supplier: order.supplier
+      ).where.not(status: %w[expired failed]).exists?
 
       {
         order: order,
@@ -432,7 +431,7 @@ class OrdersController < ApplicationController
     end
 
     # Server-side credential check — filter out orders the user can't place
-    user_supplier_ids = current_user.supplier_credentials.where(status: %w[active pending]).pluck(:supplier_id)
+    user_supplier_ids = scoped_credentials.where.not(status: %w[expired failed]).pluck(:supplier_id)
     submittable, skipped = orders.partition { |o| user_supplier_ids.include?(o.supplier_id) }
 
     if submittable.empty?
