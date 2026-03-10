@@ -1030,7 +1030,8 @@ export default class extends Controller {
       const verificationStatus = card.dataset.verificationStatus
       const isVerified = ["verified", "price_changed", "skipped"].includes(verificationStatus)
       const hasNoUnavailable = !card.querySelector("[data-in-stock='false']")
-      const canSubmit = meetsMinium && hasDate && isVerified && hasNoUnavailable
+      const hasCredentials = card.dataset.hasCredentials !== "false"
+      const canSubmit = hasCredentials && meetsMinium && hasDate && isVerified && hasNoUnavailable
 
       cardData.push({
         orderId, card, subtotal, itemCount, totalCases,
@@ -1405,7 +1406,8 @@ export default class extends Controller {
       const hasDate = this._hasValidDeliveryDate(orderId)
       const isVerified = ["verified", "price_changed", "skipped"].includes(verificationStatus)
       const hasNoUnavailable = !card.querySelector("[data-in-stock='false']")
-      const canSubmit = meetsMinimum && hasDate && isVerified && hasNoUnavailable
+      const hasCredentials = card.dataset.hasCredentials !== "false"
+      const canSubmit = hasCredentials && meetsMinimum && hasDate && isVerified && hasNoUnavailable
 
       if (!canSubmit) allCanSubmit = false
 

@@ -179,7 +179,8 @@
            data-supplier-name="<%= supplier.name %>"
            data-minimum="<%= minimum || 0 %>"
            data-case-minimum="<%= review[:case_minimum] || 0 %>"
-           data-verification-status="<%= order.verification_status %>">
+           data-verification-status="<%= order.verification_status %>"
+           data-has-credentials="<%= review[:has_credentials] %>">
 
         <%# Supplier header %>
         <div class="px-4 py-3 bg-gray-50 border-b flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
@@ -233,8 +234,8 @@
             <% end %>
             <% can_submit = review[:has_credentials] && review[:meets_minimum] && !order.verifying? && order.verification_status.in?(%w[verified price_changed skipped]) %>
             <% unless review[:has_credentials] %>
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                No credentials — <%= link_to "connect #{order.supplier.name}", supplier_credentials_path, class: "underline font-semibold" %>
+              <span class="text-xs text-gray-400">
+                <%= link_to "Connect #{order.supplier.name} to order →", supplier_credentials_path, class: "underline hover:text-gray-300" %>
               </span>
             <% end %>
             <% if can_submit %>
