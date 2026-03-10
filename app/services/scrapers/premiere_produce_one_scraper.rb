@@ -3884,12 +3884,17 @@ module Scrapers
       target_short = "#{target.strftime('%b')} #{target_day}" # "Mar 16"
 
       # Step 1: Find the delivery date dropdown button
+      # The dropdown text is short (e.g., "Cutoff: 7:00 PM ET | DELIVERY for Mar 11")
+      # so we filter out large container elements that happen to contain "DELIVERY" in product text.
       delivery_btn = browser.evaluate(<<~JS)
         (function() {
           var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
+            // The delivery dropdown is a short element — skip anything over 200 chars
+            // (large containers include product descriptions with "DELIVERY" in them)
+            if (text.length > 200) continue;
             if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
               el.scrollIntoView({ behavior: 'instant', block: 'center' });
               var rect = el.getBoundingClientRect();
@@ -4072,6 +4077,7 @@ module Scrapers
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
+            if (text.length > 200) continue;
             if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
               return text;
             }
