@@ -56,13 +56,17 @@ module Orders
         result = scraper.checkout(dry_run: dry_run)
 
         # Step 6: Record result
+        # Resolve delivery date: prefer the confirmed date from the supplier
+        # (parsed to a real Date), but fall back to the user's original date.
+        confirmed_delivery = resolve_delivery_date(result[:delivery_date], order.delivery_date)
+
         if result[:dry_run]
           order.update!(
             status: 'dry_run_complete',
             confirmation_number: result[:confirmation_number],
             total_amount: result[:total],
             submitted_at: Time.current,
-            delivery_date: result[:delivery_date] || order.delivery_date,
+            delivery_date: confirmed_delivery,
             notes: [order.notes, dry_run_summary(result)].compact.join("\n\n")
           )
           order.order_items.update_all(status: 'pending')
@@ -80,7 +84,7 @@ module Orders
             confirmation_number: result[:confirmation_number],
             total_amount: best_total,
             submitted_at: Time.current,
-            delivery_date: result[:delivery_date]
+            delivery_date: confirmed_delivery
           )
           order.order_items.update_all(status: 'added')
 
@@ -557,6 +561,35 @@ module Orders
 
     def format_currency(amount)
       "$#{'%.2f' % amount}"
+    end
+
+    # Parse the supplier-confirmed delivery date string (e.g., "Mar 16")
+    # into a real Date. Falls back to the user's original delivery_date
+    # if the scraper string is nil, blank, or unparseable.
+    def resolve_delivery_date(scraper_date_str, original_date)
+      return original_date if scraper_date_str.blank?
+
+      # Already a Date/Time object? Use it directly.
+      return scraper_date_str.to_date if scraper_date_str.respond_to?(:to_date) && !scraper_date_str.is_a?(String)
+
+      # Try parsing partial strings like "Mar 16" by assuming the current year
+      # (or next year if the month has already passed).
+      parsed = begin
+        date = Date.parse(scraper_date_str)
+        # Date.parse("Mar 16") gives 2026-03-16 — but if the month/day
+        # is ambiguous and year isn't included, it defaults to current year.
+        date
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      if parsed
+        Rails.logger.info "[OrderPlacement] Resolved delivery date: '#{scraper_date_str}' → #{parsed}"
+        parsed
+      else
+        Rails.logger.warn "[OrderPlacement] Could not parse delivery date '#{scraper_date_str}', keeping original: #{original_date}"
+        original_date
+      end
     end
   end
 end

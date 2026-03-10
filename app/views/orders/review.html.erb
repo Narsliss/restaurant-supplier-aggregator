@@ -1,7 +1,7 @@
 <div class="max-w-5xl mx-auto pb-24"
      data-controller="order-review"
      data-order-review-batch-id-value="<%= @batch_id %>"
-     data-order-review-verifying-value="<%= @verifying %>"
+     data-order-review-verifying-value="true"
      data-order-review-aggregated-list-id-value="<%= @aggregated_list_id %>">
   <div class="mb-6">
     <% if @aggregated_list_id.present? %>
@@ -20,7 +20,8 @@
     </div>
   </div>
 
-  <%# Verification progress banner (shown when verifying) %>
+  <%# Verification progress banner — re-check since verification may have completed during render %>
+  <% @verifying = @orders.any? { |o| o.reload.verifying? } %>
   <div class="mb-6 <%= @verifying ? '' : 'hidden' %>" data-order-review-target="verificationBanner">
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
       <div class="flex items-center gap-3">
@@ -188,20 +189,22 @@
             <div class="flex items-center gap-2">
               <h3 class="font-medium text-gray-900"><%= supplier.name %></h3>
               <%# Verification status indicator per order %>
+              <%# Reload order to get latest verification status (may have completed during page render) %>
+              <% order.reload %>
               <span class="<%= order.verifying? ? '' : 'hidden' %>" data-order-review-target="verifyingIndicator" data-order-id="<%= order.id %>">
                 <svg class="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                   <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               </span>
-              <span class="hidden items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800" data-order-review-target="verifiedBadge" data-order-id="<%= order.id %>">
+              <span class="<%= order.verification_status == 'verified' ? 'flex' : 'hidden' %> items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800" data-order-review-target="verifiedBadge" data-order-id="<%= order.id %>">
                 <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
                 Verified
               </span>
-              <span class="hidden items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800" data-order-review-target="priceChangedBadge" data-order-id="<%= order.id %>">
+              <span class="<%= order.verification_status == 'price_changed' ? 'flex' : 'hidden' %> items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800" data-order-review-target="priceChangedBadge" data-order-id="<%= order.id %>">
                 Price Changed
               </span>
-              <span class="hidden items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800" data-order-review-target="verifyFailedBadge" data-order-id="<%= order.id %>">
+              <span class="<%= order.verification_status == 'failed' ? 'flex' : 'hidden' %> items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800" data-order-review-target="verifyFailedBadge" data-order-id="<%= order.id %>">
                 Verification Failed
               </span>
             </div>
@@ -546,3 +549,27 @@
     </div>
   </div>
 </div>
+
+<%# Inline polling fallback — only runs when orders are actively verifying %>
+<% if @verifying %>
+<script>
+(function() {
+  var batchId = "<%= @batch_id %>";
+  if (!batchId) return;
+
+  var pollInterval = setInterval(function() {
+    fetch("/orders/verification_status?batch_id=" + batchId, { headers: { "Accept": "application/json" } })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data.summary && data.summary.all_complete) {
+          clearInterval(pollInterval);
+          window.location.reload();
+        }
+      })
+      .catch(function() {});
+  }, 3000);
+
+  setTimeout(function() { clearInterval(pollInterval); }, 120000);
+})();
+</script>
+<% end %>

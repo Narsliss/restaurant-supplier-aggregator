@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_09_185409) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_10_190356) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -33,7 +33,13 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_09_185409) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "catalog_search_status"
+    t.bigint "location_id"
+    t.string "list_type", default: "custom", null: false
+    t.boolean "auto_sync", default: false, null: false
+    t.boolean "shared_across_org", default: false, null: false
     t.index ["created_by_id"], name: "index_aggregated_lists_on_created_by_id"
+    t.index ["location_id"], name: "index_aggregated_lists_on_location_id"
+    t.index ["organization_id", "list_type", "location_id"], name: "idx_aggregated_lists_master_unique", unique: true, where: "((list_type)::text = 'master'::text)"
     t.index ["organization_id", "name"], name: "index_aggregated_lists_on_organization_id_and_name", unique: true
     t.index ["organization_id"], name: "index_aggregated_lists_on_organization_id"
   end
@@ -182,16 +188,18 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_09_185409) do
 
   create_table "order_list_items", force: :cascade do |t|
     t.bigint "order_list_id", null: false
-    t.bigint "product_id", null: false
+    t.bigint "product_id"
     t.decimal "quantity", precision: 10, scale: 2, default: "1.0", null: false
     t.text "notes"
     t.integer "position", default: 0
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "product_match_id"
     t.index ["order_list_id", "position"], name: "index_order_list_items_on_order_list_id_and_position"
     t.index ["order_list_id", "product_id"], name: "index_order_list_items_on_order_list_id_and_product_id", unique: true
     t.index ["order_list_id"], name: "index_order_list_items_on_order_list_id"
     t.index ["product_id"], name: "index_order_list_items_on_product_id"
+    t.index ["product_match_id"], name: "index_order_list_items_on_product_match_id"
   end
 
   create_table "order_lists", force: :cascade do |t|
@@ -204,6 +212,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_09_185409) do
     t.datetime "updated_at", null: false
     t.bigint "organization_id"
     t.bigint "location_id"
+    t.string "visibility", default: "location", null: false
     t.index ["location_id", "name"], name: "idx_order_lists_location_name", unique: true, where: "(location_id IS NOT NULL)"
     t.index ["location_id"], name: "index_order_lists_on_location_id"
     t.index ["organization_id", "location_id"], name: "idx_order_lists_org_location"
@@ -335,8 +344,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_09_185409) do
     t.integer "position", default: 0
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "category"
     t.index ["aggregated_list_id", "position"], name: "index_product_matches_on_aggregated_list_id_and_position"
     t.index ["aggregated_list_id"], name: "index_product_matches_on_aggregated_list_id"
+    t.index ["category"], name: "index_product_matches_on_category"
     t.index ["match_status"], name: "index_product_matches_on_match_status"
   end
 
@@ -814,6 +825,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_09_185409) do
 
   add_foreign_key "aggregated_list_mappings", "aggregated_lists", on_delete: :cascade
   add_foreign_key "aggregated_list_mappings", "supplier_lists", on_delete: :cascade
+  add_foreign_key "aggregated_lists", "locations", on_delete: :nullify
   add_foreign_key "aggregated_lists", "organizations"
   add_foreign_key "aggregated_lists", "users", column: "created_by_id"
   add_foreign_key "billing_events", "subscriptions"
@@ -836,6 +848,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_09_185409) do
   add_foreign_key "order_items", "orders", on_delete: :cascade
   add_foreign_key "order_items", "supplier_products", on_delete: :restrict
   add_foreign_key "order_list_items", "order_lists", on_delete: :cascade
+  add_foreign_key "order_list_items", "product_matches", on_delete: :nullify
   add_foreign_key "order_list_items", "products", on_delete: :cascade
   add_foreign_key "order_lists", "locations", on_delete: :nullify
   add_foreign_key "order_lists", "organizations"

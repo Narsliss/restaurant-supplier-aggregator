@@ -3758,8 +3758,9 @@ module Scrapers
             }
           }
 
-          // Delivery date extraction
+          // Delivery date extraction — PPO uses "DELIVERY Mar 16" in the dropdown
           var datePatterns = [
+            /DELIVERY\\s+(?:for\\s+)?(\\w+\\s+\\d{1,2})/i,
             /deliver(?:y|s)?[:\\s]*(\\w+day,?\\s*\\w+\\s+\\d{1,2})/i,
             /deliver(?:y|s)?\\s*(?:date)?[:\\s]*(\\w+\\s+\\d{1,2},?\\s*\\d{4})/i,
             /deliver(?:y|s)?\\s*(?:date)?[:\\s]*(\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})/i,
@@ -3880,16 +3881,16 @@ module Scrapers
       target = @target_delivery_date.is_a?(Date) ? @target_delivery_date : Date.parse(@target_delivery_date.to_s)
       target_day = target.day
       target_month_year = target.strftime('%B %Y') # e.g., "March 2026"
+      target_short = "#{target.strftime('%b')} #{target_day}" # "Mar 16"
 
-      # Step 1: Find and click the delivery date dropdown
+      # Step 1: Find the delivery date dropdown button
       delivery_btn = browser.evaluate(<<~JS)
         (function() {
-          var regex = /DELIVERY\\s*for\\s*\\w+\\s+\\d+/i;
-          var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"]');
+          var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
-            if (regex.test(text) || /Cutoff.*DELIVERY/i.test(text)) {
+            if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
               el.scrollIntoView({ behavior: 'instant', block: 'center' });
               var rect = el.getBoundingClientRect();
               return { found: true, text: text, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
@@ -3906,20 +3907,32 @@ module Scrapers
 
       logger.info "[PremiereProduceOne] Current delivery: #{delivery_btn['text']}"
 
-      # Check if the target date is already selected (e.g., "DELIVERY for Mar 13" and target is March 13)
-      target_short = "#{target.strftime('%b')} #{target_day}" # "Mar 13"
+      # Check if target date is already selected
       if delivery_btn['text'].include?(target_short)
         logger.info "[PremiereProduceOne] Delivery date already set to #{target_short} — no change needed"
         return
       end
 
       logger.info "[PremiereProduceOne] Selecting delivery date: #{target.strftime('%B %d, %Y')}"
-      browser.mouse.click(x: delivery_btn['x'].to_f, y: delivery_btn['y'].to_f)
-      sleep 1.5
 
-      # Step 2: Wait for "Select date" calendar modal
+      # Step 2: Click the dropdown using elementFromPoint + pointer events (proven method for PPO)
+      browser.evaluate(<<~JS)
+        (function() {
+          var x = #{delivery_btn['x'].to_f};
+          var y = #{delivery_btn['y'].to_f};
+          var el = document.elementFromPoint(x, y);
+          if (el) {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
+            el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+          }
+        })()
+      JS
+      sleep 2
+
+      # Wait for "Select date" calendar modal
       calendar_found = false
-      5.times do |attempt|
+      8.times do |attempt|
         calendar_found = browser.evaluate(<<~JS)
           (function() {
             var text = document.body ? document.body.innerText : '';
@@ -3927,7 +3940,7 @@ module Scrapers
           })()
         JS
         break if calendar_found
-        logger.info "[PremiereProduceOne] Waiting for calendar modal (attempt #{attempt + 1}/5)..."
+        logger.info "[PremiereProduceOne] Waiting for calendar modal (attempt #{attempt + 1}/8)..."
         sleep 1
       end
 
@@ -3955,7 +3968,7 @@ module Scrapers
         logger.info "[PremiereProduceOne] Calendar showing: #{current_month || 'unknown'}"
 
         if current_month && current_month.downcase == target_month_year.downcase
-          break # correct month
+          break
         end
 
         if nav_attempt >= 5
@@ -3978,23 +3991,6 @@ module Scrapers
                 }
               }
             }
-            // Fallback: find SVG arrow buttons near the month header
-            var svgButtons = document.querySelectorAll('button svg, [role="button"] svg');
-            var arrows = [];
-            for (var svg of svgButtons) {
-              var parent = svg.closest('button, [role="button"]');
-              if (parent && parent.offsetParent !== null) {
-                var rect = parent.getBoundingClientRect();
-                if (rect.width > 0 && rect.width < 80) {
-                  arrows.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-                }
-              }
-            }
-            // The rightmost arrow is typically "next month"
-            if (arrows.length >= 2) {
-              arrows.sort(function(a, b) { return b.x - a.x; });
-              return { found: true, x: arrows[0].x, y: arrows[0].y };
-            }
             return { found: false };
           })()
         JS
@@ -4012,46 +4008,35 @@ module Scrapers
       day_info = browser.evaluate(<<~JS)
         (function() {
           var targetDay = #{target_day};
-          // Look for day cells in the calendar — elements with just a number as text
           var candidates = document.querySelectorAll('*');
           var dayElements = [];
           for (var el of candidates) {
-            if (el.children.length > 0) continue; // leaf nodes only
+            if (el.children.length > 0) continue;
             if (el.offsetParent === null) continue;
             var text = (el.textContent || '').trim();
             if (text === String(targetDay)) {
               var rect = el.getBoundingClientRect();
-              // Calendar day cells are typically small (20-50px) and positioned in the calendar area
               if (rect.width > 10 && rect.width < 80 && rect.height > 10 && rect.height < 80) {
                 var style = window.getComputedStyle(el);
-                var opacity = parseFloat(style.opacity);
-                if (opacity < 0.5) continue; // skip disabled/greyed-out dates
-                dayElements.push({
-                  x: rect.x + rect.width / 2,
-                  y: rect.y + rect.height / 2,
-                  width: rect.width,
-                  height: rect.height,
-                  text: text
-                });
+                if (parseFloat(style.opacity) < 0.5) continue;
+                dayElements.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, width: rect.width, height: rect.height });
               }
             }
           }
-          if (dayElements.length === 0) return { found: false, candidates: 0 };
-          // If multiple matches, take the one most likely in the calendar grid (largest bounding box)
+          if (dayElements.length === 0) return { found: false };
           dayElements.sort(function(a, b) { return (b.width * b.height) - (a.width * a.height); });
-          return { found: true, x: dayElements[0].x, y: dayElements[0].y, text: dayElements[0].text, count: dayElements.length };
+          return { found: true, x: dayElements[0].x, y: dayElements[0].y, count: dayElements.length };
         })()
       JS
 
       unless day_info && day_info['found']
         logger.warn "[PremiereProduceOne] Day #{target_day} not found in calendar — using default date"
-        # Close the modal
         browser.evaluate("(function() { var x = document.querySelector('[aria-label=\"close\"], [aria-label=\"Close\"]'); if (x) x.click(); })()")
         sleep 0.5
         return
       end
 
-      logger.info "[PremiereProduceOne] Clicking day #{day_info['text']} at (#{day_info['x']}, #{day_info['y']}) [#{day_info['count']} matches]"
+      logger.info "[PremiereProduceOne] Clicking day #{target_day} at (#{day_info['x']}, #{day_info['y']})"
       browser.mouse.click(x: day_info['x'].to_f, y: day_info['y'].to_f)
       sleep 0.5
 
@@ -4063,9 +4048,8 @@ module Scrapers
             if (btn.offsetParent === null) continue;
             var text = (btn.textContent || btn.innerText || '').trim().toLowerCase();
             if (text === 'save') {
-              btn.scrollIntoView({ behavior: 'instant', block: 'center' });
               var rect = btn.getBoundingClientRect();
-              return { found: true, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, text: text };
+              return { found: true, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
             }
           }
           return { found: false };
@@ -4075,21 +4059,20 @@ module Scrapers
       if save_btn && save_btn['found']
         logger.info "[PremiereProduceOne] Clicking Save button"
         browser.mouse.click(x: save_btn['x'].to_f, y: save_btn['y'].to_f)
-        sleep 1.5
+        sleep 2
       else
         logger.warn "[PremiereProduceOne] Save button not found — date may not be saved"
       end
 
-      # Step 6: Verify the date changed
-      sleep 1
-      updated_btn = browser.evaluate(<<~JS)
+      # Step 6: Wait for calendar to close and page to update, then verify
+      sleep 2
+      updated_text = browser.evaluate(<<~JS)
         (function() {
-          var regex = /DELIVERY\\s*for\\s*\\w+\\s+\\d+/i;
-          var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"]');
+          var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
-            if (regex.test(text) || /Cutoff.*DELIVERY/i.test(text)) {
+            if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
               return text;
             }
           }
@@ -4097,15 +4080,13 @@ module Scrapers
         })()
       JS
 
-      if updated_btn
-        logger.info "[PremiereProduceOne] Delivery date after selection: #{updated_btn}"
-        if updated_btn.include?(target_short)
+      if updated_text
+        logger.info "[PremiereProduceOne] Delivery date after selection: #{updated_text}"
+        if updated_text.include?(target_short)
           logger.info "[PremiereProduceOne] ✓ Delivery date confirmed: #{target_short}"
         else
-          logger.warn "[PremiereProduceOne] Delivery date may not have changed (expected #{target_short}, got: #{updated_btn})"
+          logger.warn "[PremiereProduceOne] Expected #{target_short}, got: #{updated_text}"
         end
-      else
-        logger.warn "[PremiereProduceOne] Could not re-read delivery date button after selection"
       end
     end
 
