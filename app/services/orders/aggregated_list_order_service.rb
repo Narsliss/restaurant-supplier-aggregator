@@ -92,10 +92,12 @@ module Orders
         chosen = if override_supplier_id
           prices.find { |p| p[:supplier].id == override_supplier_id && p[:price].present? }
         end
-        chosen ||= in_stock_prices.min_by { |p| p[:price] } if in_stock_prices.any?
+        # Use the same per-unit-aware logic as ProductMatch#cheapest_supplier
+        # so the order routing matches what the UI highlights as "cheapest".
+        chosen ||= pm.cheapest_supplier
         next unless chosen
 
-        most_expensive = in_stock_prices.max_by { |p| p[:price] }
+        most_expensive = pm.most_expensive_supplier
 
         supplier_list_item = chosen[:item]
         supplier_product = supplier_list_item.supplier_product
