@@ -1240,11 +1240,13 @@ module Scrapers
           )
         end
 
-        # Step 5: Navigate to checkout/review page
-        proceed_to_checkout_page_ppo
-
-        # Step 5.5: Select delivery date if specified
+        # Step 5: Select delivery date on the CART page (before navigating to review)
+        # The delivery dropdown ("Cutoff: 7:00 PM ET | DELIVERY Mar 16") is on the
+        # cart page — it's not available on the review/checkout page.
         select_delivery_date_ppo if @target_delivery_date
+
+        # Step 5.5: Navigate to checkout/review page
+        proceed_to_checkout_page_ppo
 
         # Step 6: Extract checkout data
         checkout_data = extract_checkout_data_ppo
@@ -3884,24 +3886,29 @@ module Scrapers
       target_short = "#{target.strftime('%b')} #{target_day}" # "Mar 16"
 
       # Step 1: Find the delivery date dropdown button
-      # The dropdown text is short (e.g., "Cutoff: 7:00 PM ET | DELIVERY for Mar 11")
-      # so we filter out large container elements that happen to contain "DELIVERY" in product text.
+      # The actual button text is short (~37 chars), e.g. "Cutoff: 7:00 PM ET | DELIVERY Mar 16"
+      # Parent containers (sidebar with category filters) can be ~160 chars and also match.
+      # Use a tight 80-char limit and require SVG (the chevron ▼) to find the real button.
       delivery_btn = browser.evaluate(<<~JS)
         (function() {
           var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
+          var candidates = [];
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
-            // The delivery dropdown is a short element — skip anything over 200 chars
-            // (large containers include product descriptions with "DELIVERY" in them)
-            if (text.length > 200) continue;
+            if (text.length > 80) continue;
             if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
-              el.scrollIntoView({ behavior: 'instant', block: 'center' });
+              var hasSvg = !!el.querySelector('svg');
               var rect = el.getBoundingClientRect();
-              return { found: true, text: text, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+              candidates.push({ found: true, text: text, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, hasSvg: hasSvg, len: text.length });
             }
           }
-          return { found: false };
+          // Prefer the element with an SVG (chevron), otherwise shortest text
+          candidates.sort(function(a, b) {
+            if (a.hasSvg !== b.hasSvg) return a.hasSvg ? -1 : 1;
+            return a.len - b.len;
+          });
+          return candidates.length > 0 ? candidates[0] : { found: false };
         })()
       JS
 
@@ -4077,7 +4084,7 @@ module Scrapers
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
-            if (text.length > 200) continue;
+            if (text.length > 80) continue;
             if (/Cutoff.*DELIVERY/i.test(text) || /DELIVERY\\s*(for\\s*)?\\w+\\s+\\d+/i.test(text)) {
               return text;
             }
