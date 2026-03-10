@@ -1243,7 +1243,27 @@ module Scrapers
         # Step 5: Select delivery date on the CART page (before navigating to review)
         # The delivery dropdown ("Cutoff: 7:00 PM ET | DELIVERY Mar 16") is on the
         # cart page — it's not available on the review/checkout page.
-        select_delivery_date_ppo if @target_delivery_date
+        # IMPORTANT: The View Order sidebar panel may be open from cart extraction,
+        # covering the delivery button. Close it first by pressing Escape or clicking outside.
+        if @target_delivery_date
+          browser.evaluate(<<~JS)
+            (function() {
+              // Try closing any open panel/overlay: press Escape, click backdrop, or click close button
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+              // Look for close/X buttons in overlays
+              var closeBtn = document.querySelector('[aria-label="close"], [aria-label="Close"], [aria-label="dismiss"]');
+              if (closeBtn) closeBtn.click();
+              // Click outside any panel to dismiss
+              var backdrop = document.querySelector('[class*="backdrop"], [class*="overlay"], [class*="Overlay"]');
+              if (backdrop) backdrop.click();
+            })()
+          JS
+          sleep 1.5
+          # Scroll to top so the delivery dropdown (y=148) is visible and not behind anything
+          browser.evaluate('window.scrollTo(0, 0)')
+          sleep 0.5
+          select_delivery_date_ppo
+        end
 
         # Step 5.5: Navigate to checkout/review page
         proceed_to_checkout_page_ppo
@@ -3937,18 +3957,25 @@ module Scrapers
       logger.info "[PremiereProduceOne] Selecting delivery date: #{target.strftime('%B %d, %Y')}"
 
       # Step 2: Click the dropdown using elementFromPoint + pointer events (proven method for PPO)
-      browser.evaluate(<<~JS)
+      # First scroll the button into view and log what elementFromPoint finds
+      click_info = browser.evaluate(<<~JS)
         (function() {
           var x = #{delivery_btn['x'].to_f};
           var y = #{delivery_btn['y'].to_f};
           var el = document.elementFromPoint(x, y);
+          var info = { x: x, y: y, found: !!el };
           if (el) {
+            info.tag = el.tagName;
+            info.text = (el.textContent || '').trim().substring(0, 80);
+            info.classes = (el.className || '').substring(0, 60);
             el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
             el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse' }));
             el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
           }
+          return info;
         })()
       JS
+      logger.info "[PremiereProduceOne] elementFromPoint click: #{click_info.inspect}"
       sleep 2
 
       # Wait for "Select date" calendar modal
