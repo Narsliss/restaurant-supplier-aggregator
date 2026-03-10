@@ -234,9 +234,7 @@
             <% end %>
             <% can_submit = review[:has_credentials] && review[:meets_minimum] && !order.verifying? && order.verification_status.in?(%w[verified price_changed skipped]) %>
             <% unless review[:has_credentials] %>
-              <span class="text-xs text-gray-400">
-                <%= link_to "Connect #{order.supplier.name} to order →", supplier_credentials_path, class: "underline hover:text-gray-300" %>
-              </span>
+              <span class="text-xs text-gray-400">No credentials</span>
             <% end %>
             <% if can_submit %>
               <%= button_to "Submit Order",
