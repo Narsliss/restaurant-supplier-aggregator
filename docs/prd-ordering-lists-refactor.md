@@ -12,7 +12,9 @@ SupplierHub currently requires users to create a "Comparison List" every time th
 
 This refactor flips the model: **match all products from all suppliers once** at the location level, with a human confirming every match. Then let chefs create lightweight **Ordering Lists** — simple subsets of confirmed products — that they can reorder from with one click. No re-matching, no setup friction, no lost work when suppliers change.
 
-**The key principle**: AI *proposes* matches, but a human always *confirms* them. This happens once during initial setup, and again only for new items when a supplier is added. Confirmed matches are never touched — they're permanent until a human changes them.
+**The key principles**:
+1. AI *proposes* matches, but a human always *confirms* them. This happens once during initial setup, and again only for new items when a supplier is added. Confirmed matches are never touched — they're permanent until a human changes them.
+2. **Adding a supplier is purely additive.** If a chef spent hours matching PPO, WCW, and US Foods — confirming matches, renaming products, setting canonical names — then later adds Chef's Warehouse, every single previous match is preserved exactly as-is. The new supplier's items are proposed as matches against existing products. The chef only reviews the new items. Zero rework.
 
 ---
 
@@ -155,6 +157,15 @@ When a matched list includes multiple order guides from the same supplier, the s
 
 Incremental matching runs when a chef **adds a new supplier order guide** to an existing matched list. It does NOT re-match existing products on daily syncs — daily syncs only update prices.
 
+**⚠️ CRITICAL GUARANTEE: Adding a supplier is purely additive.** A chef who spent hours confirming matches, renaming products, and organizing their list must never lose that work when connecting a new supplier. The following are **never modified** by incremental matching:
+
+- Confirmed match statuses (confirmed, rejected, manual)
+- Canonical/display names (including manual renames)
+- Product categories and positions
+- Confidence scores on confirmed matches
+- Existing supplier-to-match associations
+- Ordering list references to matched products
+
 | Requirement | Details |
 |-------------|---------|
 | Additive only | New supplier products are proposed as matches against existing confirmed matches — never deletes or modifies confirmed matches |
@@ -176,6 +187,7 @@ Incremental matching runs when a chef **adds a new supplier order guide** to an 
 | Chef removes items from an order guide | **No** — existing matches stay valid | No | No — match and product data preserved |
 | Daily supplier price sync | **No** — prices update on existing matches | No | No — prices update automatically |
 | Product discontinued by supplier | **No** — handled by existing discontinuation logic | No | Match preserved; product flagged as unavailable |
+| Chef connects a brand new supplier | **No** — sync creates SupplierList only | No — chef manually adds guide to matched list | No — nothing happens until chef takes action |
 | Chef clicks "Re-match All" | Yes — full reset | Yes — all matches need re-confirmation | Yes — intentional full reset |
 
 #### 6.3 Organization Promotion (Owner-Only)
@@ -570,7 +582,8 @@ Owner navigates to Supplier Data → Matched Lists
 | Incremental matching produces lower quality than full re-match | Medium | Medium | Keep "Re-match All" as a recovery option; track match quality metrics |
 | Matched list grows very large (500+ products) | Medium | Low | Category grouping, pagination, status filters (confirmed / needs review) |
 | Ordering lists become stale if products are discontinued | Low | Medium | Show "unavailable" badge on discontinued items; prompt to remove |
-| Migration breaks existing AggregatedList #8 data | Low | High | Migration is additive (sets `list_type = 'matched'`); no data deleted |
+| Adding a supplier destroys existing match work | **Must be zero** | **Critical** | Incremental matching is read-only on existing matches; only creates new ProductMatchItems for the new supplier; all confirmed names/statuses/scores are immutable during incremental match |
+| Migration breaks existing production matched list | Low | High | Migration is additive (sets `list_type = 'matched'`); no data deleted |
 | Team members accidentally edit shared ordering lists | Medium | Low | Show "last edited by [name]" on lists; consider edit history later |
 | Navigation consolidation confuses existing users | Low | Medium | "Supplier Data" label is intuitive; credentials and matching are closely related setup tasks |
 
