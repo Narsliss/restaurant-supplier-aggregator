@@ -15,14 +15,14 @@ class AggregatedList < ApplicationRecord
   # Scopes
   scope :for_organization, ->(org) { where(organization: org) }
   scope :matched, -> { where(match_status: 'matched') }
-  scope :matched_lists, -> { where(list_type: 'matched') }
-  scope :custom_lists, -> { where(list_type: %w[custom master]) }
+  scope :matched_lists, -> { where(list_type: %w[matched master]) }
+  scope :custom_lists, -> { where(list_type: 'custom') }
   scope :for_location, ->(loc) { where(location_id: loc.is_a?(Integer) ? loc : loc.id) }
   scope :promoted, -> { where(promoted_org_wide: true) }
 
   # List type methods
   def matched_list?
-    list_type == 'matched'
+    list_type.in?(%w[matched master])
   end
 
   def custom_list?

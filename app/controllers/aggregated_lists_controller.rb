@@ -151,7 +151,11 @@ class AggregatedListsController < ApplicationController
     @aggregated_list.organization = current_user.current_organization
     @aggregated_list.created_by = current_user
     @aggregated_list.list_type = params[:list_type] if params[:list_type].present?
-    @aggregated_list.location_id = current_location&.id if @aggregated_list.matched_list?
+
+    if @aggregated_list.matched_list?
+      @aggregated_list.location_id = current_location&.id
+      @aggregated_list.name = "#{current_location.name} Matched List"
+    end
 
     if @aggregated_list.save
       # Connect selected supplier lists

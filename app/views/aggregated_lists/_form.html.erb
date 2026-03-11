@@ -22,15 +22,17 @@
 
   <div class="bg-white shadow rounded-lg p-6">
     <div class="space-y-4">
-      <div>
-        <%= f.label :name, matched ? "Matched List Name" : "Comparison Name", class: "block text-sm font-medium text-gray-700" %>
-        <%= f.text_field :name,
-            placeholder: matched ? "e.g., All Suppliers - Main St Kitchen" : "e.g., Staples, Produce, Weekend Prep",
-            class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
-        <p class="mt-1 text-xs text-gray-500">
-          <%= matched ? 'A descriptive name for this location\'s matched product list.' : 'Give this comparison a name that describes the type of products.' %>
-        </p>
-      </div>
+      <% unless matched %>
+        <div>
+          <%= f.label :name, "Comparison Name", class: "block text-sm font-medium text-gray-700" %>
+          <%= f.text_field :name,
+              placeholder: "e.g., Staples, Produce, Weekend Prep",
+              class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+          <p class="mt-1 text-xs text-gray-500">
+            Give this comparison a name that describes the type of products.
+          </p>
+        </div>
+      <% end %>
 
       <div>
         <%= f.label :description, class: "block text-sm font-medium text-gray-700" %>

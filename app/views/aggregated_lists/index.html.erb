@@ -53,9 +53,9 @@
               <p class="mt-1 text-sm text-gray-500"><%= list.description %></p>
             <% end %>
             <div class="mt-4 flex flex-wrap gap-2">
-              <% list.supplier_lists.each do |sl| %>
+              <% list.supplier_lists.map(&:supplier).uniq.each do |supplier| %>
                 <span class="inline-flex items-center rounded-full bg-brand-green-50 px-2.5 py-0.5 text-xs font-medium text-brand-green-dark">
-                  <%= sl.supplier.name %>
+                  <%= supplier.name %>
                 </span>
               <% end %>
             </div>
