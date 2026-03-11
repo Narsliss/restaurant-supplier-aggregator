@@ -246,8 +246,10 @@ class AggregatedListsController < ApplicationController
   end
 
   def supplier_items_search
-    supplier_list = @aggregated_list.supplier_lists.find_by(supplier_id: params[:supplier_id])
-    items = supplier_list&.supplier_list_items || SupplierListItem.none
+    supplier_list_ids = @aggregated_list.supplier_lists
+                                        .where(supplier_id: params[:supplier_id])
+                                        .pluck(:id)
+    items = SupplierListItem.where(supplier_list_id: supplier_list_ids)
 
     if params[:q].present?
       items = items.where("LOWER(name) LIKE ?", "%#{params[:q].downcase}%")
