@@ -645,6 +645,29 @@ module Scrapers
         end
       end
 
+      # IMPORTANT: Wait for PPO's API to finalize all cart additions before checkout.
+      # The last item added has no "next item search" buffer — without this pause,
+      # navigating to /cart can reload the page before PPO's backend confirms the add,
+      # causing the last item to silently disappear from the cart.
+      logger.info "[PremiereProduceOne] All items processed. Waiting for cart to settle..."
+      sleep 3
+
+      # Verify cart total reflects expected item count by checking the View Order button
+      cart_check = browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('button, [role="button"]');
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+            if (aria.includes('view order')) {
+              return { found: true, text: (btn.textContent || '').trim() };
+            }
+          }
+          return { found: false };
+        })()
+      JS
+      logger.info "[PremiereProduceOne] Cart button after add-to-cart: #{cart_check.inspect}"
+
       { added: added_items.count, failed: failed_items }
     end
 
@@ -672,9 +695,9 @@ module Scrapers
       # Without clearing, React may not re-filter when overwriting the input value.
       search_input.focus
       set_react_input_value(search_input, '')
-      sleep 0.5 # Let React process the cleared input
+      sleep 1 # Let React process the cleared input and show all items
       set_react_input_value(search_input, item[:sku].to_s)
-      sleep 3 # Wait for React to filter/search results (production can be slower)
+      sleep 4 # Wait for React to filter/search results
 
       # Log page state after search for debugging
       page_text = browser.evaluate("document.body ? document.body.innerText.substring(0, 600) : ''") || ''
@@ -692,9 +715,10 @@ module Scrapers
       raise ScrapingError, "Could not click add button in modal for SKU #{item[:sku]}" unless add_clicked
       logger.info "[PremiereProduceOne] Clicked + for SKU #{item[:sku]} (1/#{quantity_to_add})"
 
-      # Wait for React to process the add-to-cart action.
+      # CRITICAL: Wait for React to process the add-to-cart action.
       # Without this pause, closing the modal immediately can cancel the add.
-      sleep 1.5
+      # Items with no fulfillment history (never ordered) take longer to register.
+      sleep 2.5
 
       # Diagnostic: verify the + click registered (informational only — do NOT retry
       # the click here, as the CDP mouse.click is reliable and a retry would double the qty).
@@ -788,13 +812,13 @@ module Scrapers
       end
 
       # Wait for the last qty click to register before closing modal
-      sleep 0.5
+      sleep 1
 
       # Step 5: Close the modal
       close_product_modal_ppo
 
       logger.info "[PremiereProduceOne] Added SKU #{item[:sku]} qty #{quantity_to_add} to cart"
-      sleep 0.3 # Brief pause before next item
+      sleep 1 # Pause before next item (or before checkout for last item)
     end
 
     # Open the product detail modal by clicking the product row in the order guide.
@@ -819,10 +843,16 @@ module Scrapers
                                 'menu', 'settings', 'account', 'no results', 'search'];
 
             // First: check if modal is already open with our SKU
-            var body = document.body ? document.body.innerText : '';
+            // IMPORTANT: Only check inside modal elements ([role="dialog"], [aria-modal="true"]),
+            // NOT the full page body — the order guide listing also shows "Case • SKU" text.
             var skuPattern = new RegExp('(?:Case|Each|Piece|Pack|Bag|Box|Unit)\\\\s*[•·]\\\\s*' + targetSku);
-            if (skuPattern.test(body)) {
-              return { already_open: true };
+            var modals = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+            for (var modal of modals) {
+              if (modal.offsetParent === null) continue;
+              var modalText = (modal.textContent || '').trim();
+              if (skuPattern.test(modalText)) {
+                return { already_open: true };
+              }
             }
 
             function isNavText(text) {
