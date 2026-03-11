@@ -1,0 +1,152 @@
+<div class="max-w-6xl mx-auto pb-6" data-controller="order-builder"
+     data-order-builder-supplier-minimums-value="<%= (@suppliers.each_with_object({}) { |s, h| h[s.id] = { name: s.name, minimum: nil, is_blocking: false } }).to_json %>">
+  <div class="mb-6">
+    <%= link_to "&larr; New Order".html_safe, select_list_orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
+  </div>
+
+  <div class="mb-6">
+    <h1 class="text-2xl font-heading font-bold text-gray-900">Build Order</h1>
+    <p class="mt-1 text-sm text-gray-500"><%= @order_list.name %> &middot; <%= pluralize(@items.size, "item") %></p>
+    <div class="mt-2 flex flex-wrap gap-1.5">
+      <% @suppliers.each do |supplier| %>
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+          <%= supplier.name %>
+        </span>
+      <% end %>
+    </div>
+  </div>
+
+  <%= form_with(url: create_from_order_list_orders_path, method: :post, id: "order-form") do |form| %>
+    <%= hidden_field_tag :order_list_id, @order_list.id %>
+    <div id="supplier-overrides"></div>
+
+    <%# Command bar %>
+    <div id="order-builder-command-bar" class="bg-gray-50 py-2">
+      <div class="flex items-center gap-2">
+        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">
+          <span class="text-xs font-medium text-gray-500 uppercase">Items</span>
+          <span class="text-lg font-bold text-gray-900" data-order-builder-target="itemCount">0</span>
+        </div>
+        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">
+          <span class="text-xs font-medium text-gray-500 uppercase">Total</span>
+          <span class="text-lg font-bold text-gray-900" data-order-builder-target="runningTotal">$0.00</span>
+        </div>
+        <% @suppliers.each do |supplier| %>
+          <div class="bg-white shadow rounded-lg px-2 py-1 flex flex-col hidden" data-supplier-breakdown-id="<%= supplier.id %>">
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-[10px] font-medium text-gray-500 uppercase truncate max-w-[80px]"><%= supplier.name %></span>
+              <span class="text-xs font-bold text-gray-900 whitespace-nowrap" data-supplier-subtotal="<%= supplier.id %>">$0</span>
+            </div>
+          </div>
+        <% end %>
+        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">
+          <span class="text-xs font-medium text-gray-500 uppercase">Delivery</span>
+          <%= date_field_tag :delivery_date, Date.tomorrow, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
+        </div>
+        <div class="ml-auto shrink-0 bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-3">
+          <%= link_to "Cancel", select_list_orders_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
+          <button type="submit"
+                  disabled
+                  data-order-builder-target="submitButton"
+                  class="px-5 py-1.5 rounded-md text-sm font-semibold text-white shadow-sm transition-colors bg-gray-300 cursor-not-allowed">
+            Create Orders
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <% if @items.any? %>
+      <div class="bg-white shadow rounded-lg mb-20">
+        <table class="min-w-full divide-y divide-gray-200" id="order-builder-table">
+          <thead id="order-builder-thead">
+            <tr>
+              <th class="px-4 py-2 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Product</th>
+              <% @suppliers.each do |supplier| %>
+                <th class="px-4 py-2 text-left text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark"><%= supplier.name %></th>
+              <% end %>
+              <th class="px-4 py-2 text-center text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Qty</th>
+              <th class="px-4 py-2 text-right text-xs font-medium text-white uppercase tracking-wider bg-brand-green-dark">Line Total</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 bg-white">
+            <% @items.each_with_index do |item, idx| %>
+              <% pm = item.product_match %>
+              <% next unless pm %>
+              <%
+                # Find cheapest supplier for this item
+                cheapest_supplier_id = nil
+                cheapest_price = nil
+                supplier_product_id = nil
+                @suppliers.each do |supplier|
+                  data = @price_data.dig(item.id, supplier.id)
+                  next unless data && data[:price]
+                  if cheapest_price.nil? || data[:price] < cheapest_price
+                    cheapest_price = data[:price]
+                    cheapest_supplier_id = supplier.id
+                    supplier_product_id = data[:supplier_product]&.id
+                  end
+                end
+              %>
+              <tr class="hover:bg-gray-50"
+                  data-order-builder-target="productRow"
+                  data-product-name="<%= pm.canonical_name&.downcase %>">
+                <td class="px-4 py-3">
+                  <div class="text-sm font-medium text-gray-900"><%= pm.canonical_name %></div>
+                </td>
+                <% @suppliers.each do |supplier| %>
+                  <% data = @price_data.dig(item.id, supplier.id) %>
+                  <td class="px-4 py-3">
+                    <% if data && data[:price] %>
+                      <button type="button"
+                              class="text-left w-full group rounded px-1 py-0.5 -mx-1 transition-colors
+                                     <%= supplier.id == cheapest_supplier_id ? 'bg-green-50 ring-1 ring-green-200' : 'hover:bg-gray-100' %>"
+                              data-action="click->order-builder#selectSupplier"
+                              data-match-id="<%= pm.id %>"
+                              data-supplier-id="<%= supplier.id %>"
+                              data-price="<%= data[:price] %>"
+                              data-supplier-product-id="<%= data[:supplier_product]&.id %>">
+                        <span class="text-sm font-semibold text-gray-900">$<%= number_with_precision(data[:price], precision: 2) %></span>
+                        <% if data[:pack_size].present? %>
+                          <span class="text-xs text-gray-400 block"><%= data[:pack_size].truncate(25) %></span>
+                        <% end %>
+                        <% if data[:per_unit_price].present? %>
+                          <span class="text-[10px] text-gray-400 block">$<%= number_with_precision(data[:per_unit_price], precision: 2) %>/unit</span>
+                        <% end %>
+                      </button>
+                    <% else %>
+                      <span class="text-xs text-gray-300">—</span>
+                    <% end %>
+                  </td>
+                <% end %>
+                <td class="px-4 py-3 text-center">
+                  <input type="number"
+                         name="quantities[<%= pm.id %>]"
+                         value="0"
+                         min="0"
+                         max="999"
+                         class="w-16 text-center rounded-md border-gray-300 text-sm focus:border-brand-green focus:ring-brand-green"
+                         data-order-builder-target="quantityInput"
+                         data-match-id="<%= pm.id %>"
+                         data-price="<%= cheapest_price || 0 %>"
+                         data-supplier-id="<%= cheapest_supplier_id %>"
+                         data-supplier-product-id="<%= supplier_product_id %>"
+                         data-action="input->order-builder#updateQuantity">
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <span class="text-sm font-medium text-gray-900" data-order-builder-target="lineTotal" data-match-id="<%= pm.id %>">$0.00</span>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="bg-white shadow rounded-lg p-8 text-center">
+        <p class="text-gray-500">This order list is empty. Add products to it first.</p>
+        <p class="mt-3">
+          <%= link_to "Edit Order List", @order_list, class: "text-brand-orange hover:text-brand-orange-dark font-medium" %>
+        </p>
+      </div>
+    <% end %>
+  <% end %>
+</div>

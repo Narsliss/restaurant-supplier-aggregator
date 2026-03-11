@@ -19,9 +19,10 @@
 
           <%# Consistent link order: New Order (CTA), Supplier Data, Order History %>
           <%# Active state helpers %>
-          <% new_order_active = (controller_name == 'orders' && action_name == 'select_list') || (controller_name == 'aggregated_lists' && action_name == 'order_builder') %>
+          <% new_order_active = (controller_name == 'orders' && action_name == 'select_list') || (controller_name == 'aggregated_lists' && action_name == 'order_builder') || (controller_name == 'order_lists' && action_name == 'order_builder') %>
           <% supplier_data_active = %w[supplier_lists supplier_credentials product_matches].include?(controller_name) || (controller_name == 'aggregated_lists' && action_name != 'order_builder') %>
           <% order_history_active = controller_name == 'orders' && action_name != 'select_list' %>
+          <% order_lists_active = controller_name == 'order_lists' && action_name != 'order_builder' %>
 
           <%# — Supplier Data Dropdown %>
           <% if ops_disabled %>
@@ -59,6 +60,12 @@
           <% else %>
             <%= link_to "Order History", orders_path,
                 class: "inline-flex items-center border-b-2 #{order_history_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
+
+          <%# — Order Lists %>
+          <% unless ops_disabled %>
+            <%= link_to "Order Lists", order_lists_path,
+                class: "inline-flex items-center border-b-2 #{order_lists_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
           <%# — Admin + Products (super_admin only) %>
@@ -240,6 +247,12 @@
       <% else %>
         <%= link_to "Order History", orders_path,
             class: "block rounded-md px-3 py-2 text-base font-medium #{order_history_active ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <% end %>
+
+      <%# — Order Lists %>
+      <% unless ops_disabled %>
+        <%= link_to "Order Lists", order_lists_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{order_lists_active ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
       <% end %>
 
       <%# Suppliers link removed — now under "Supplier Data" section above %>

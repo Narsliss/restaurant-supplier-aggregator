@@ -152,6 +152,7 @@ Rails.application.routes.draw do
     member do
       post :duplicate
       get :price_comparison
+      get :order_builder
     end
     resources :order_list_items, only: %i[create update destroy]
   end
@@ -177,6 +178,7 @@ Rails.application.routes.draw do
       get :split_preview
       post :split_create
       post :create_from_aggregated_list
+      post :create_from_order_list
       get :review
       post :submit_batch
       get :verification_status

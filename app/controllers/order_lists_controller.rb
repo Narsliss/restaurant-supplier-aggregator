@@ -1,6 +1,6 @@
 class OrderListsController < ApplicationController
   before_action :require_organization!
-  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison]
+  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison order_builder]
   before_action :require_operator!, only: %i[new create edit update destroy duplicate]
   before_action :require_location_context!
 
@@ -52,6 +52,7 @@ class OrderListsController < ApplicationController
       organization: current_user.current_organization,
       location: current_location
     )
+    load_matched_products
   end
 
   def create
@@ -61,8 +62,19 @@ class OrderListsController < ApplicationController
     @order_list.location = current_location
 
     if @order_list.save
+      # Create order list items from selected product matches
+      if params[:product_match_ids].present?
+        params[:product_match_ids].each_with_index do |pm_id, i|
+          @order_list.order_list_items.create!(
+            product_match_id: pm_id,
+            quantity: 1,
+            position: i + 1
+          )
+        end
+      end
       redirect_to @order_list
     else
+      load_matched_products
       render :new, status: :unprocessable_entity
     end
   end
@@ -106,6 +118,35 @@ class OrderListsController < ApplicationController
     end
   end
 
+  def order_builder
+    @items = @order_list.order_list_items
+      .includes(product_match: { product_match_items: { supplier_list_item: [:supplier_product, { supplier_list: :supplier }] } })
+      .by_position
+
+    # Build supplier + price data from matched products
+    @suppliers = []
+    @price_data = {}
+
+    @items.each do |item|
+      next unless item.product_match
+
+      item.product_match.product_match_items.each do |pmi|
+        supplier = pmi.supplier_list_item&.supplier_list&.supplier
+        next unless supplier
+        @suppliers << supplier
+        @price_data[item.id] ||= {}
+        @price_data[item.id][supplier.id] = {
+          price: pmi.supplier_list_item.price,
+          pack_size: pmi.supplier_list_item.pack_size,
+          per_unit_price: pmi.supplier_list_item.per_unit_price,
+          supplier_product: pmi.supplier_list_item.supplier_product
+        }
+      end
+    end
+
+    @suppliers = @suppliers.uniq
+  end
+
   private
 
   def set_order_list
@@ -114,5 +155,24 @@ class OrderListsController < ApplicationController
 
   def order_list_params
     params.require(:order_list).permit(:name, :description, :is_favorite)
+  end
+
+  def load_matched_products
+    org = current_user.current_organization
+    return @product_matches = [] unless org
+
+    # Find the matched list (promoted org-wide or location-specific)
+    @matched_list = AggregatedList.for_organization(org).promoted.matched.first
+    @matched_list ||= AggregatedList.for_organization(org)
+                        .matched_lists.matched
+                        .where(location_id: current_location&.id)
+                        .first
+
+    return @product_matches = [] unless @matched_list
+
+    @product_matches = @matched_list.product_matches
+      .where(match_status: %w[confirmed auto_matched manual])
+      .includes(product_match_items: { supplier_list_item: :supplier_product })
+      .order(:position)
   end
 end
