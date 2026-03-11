@@ -10,6 +10,7 @@ class AggregatedListsController < ApplicationController
                           .order(updated_at: :desc)
     @matched_lists = @aggregated_lists.matched_lists
     @custom_lists = @aggregated_lists.custom_lists
+    @location_has_matched_list = current_location && @matched_lists.where(location_id: current_location.id).exists?
   end
 
   def show
@@ -142,6 +143,17 @@ class AggregatedListsController < ApplicationController
   end
 
   def new
+    # Redirect to existing matched list if one already exists for this location
+    if params[:list_type] == 'matched' && current_location
+      existing = AggregatedList.matched_lists
+                               .where(organization: current_user.current_organization, location_id: current_location.id)
+                               .first
+      if existing
+        redirect_to existing, notice: "This location already has a matched list."
+        return
+      end
+    end
+
     @aggregated_list = AggregatedList.new
     @available_lists = available_supplier_lists
   end
@@ -155,6 +167,15 @@ class AggregatedListsController < ApplicationController
     if @aggregated_list.matched_list?
       @aggregated_list.location_id = current_location&.id
       @aggregated_list.name = "#{current_location.name} Matched List"
+
+      # Each location can only have one matched list — redirect to existing if found
+      existing = AggregatedList.matched_lists
+                               .where(organization: @aggregated_list.organization, location_id: @aggregated_list.location_id)
+                               .first
+      if existing
+        redirect_to existing, notice: "This location already has a matched list."
+        return
+      end
     end
 
     if @aggregated_list.save

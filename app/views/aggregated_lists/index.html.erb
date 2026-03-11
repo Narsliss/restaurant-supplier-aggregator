@@ -5,12 +5,14 @@
       <h1 class="text-2xl font-heading font-bold text-gray-900">Matched Lists</h1>
       <p class="mt-1 text-sm text-gray-500">Match products across suppliers. Confirm matches once — they're preserved forever, even when you add new suppliers.</p>
     </div>
-    <%= link_to new_aggregated_list_path(list_type: 'matched'),
-        class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
-      <span class="inline-flex items-center gap-1">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        New Matched List
-      </span>
+    <% unless @location_has_matched_list %>
+      <%= link_to new_aggregated_list_path(list_type: 'matched'),
+          class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
+        <span class="inline-flex items-center gap-1">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          New Matched List
+        </span>
+      <% end %>
     <% end %>
   </div>
 
