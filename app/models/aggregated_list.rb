@@ -9,10 +9,29 @@ class AggregatedList < ApplicationRecord
   # Validations
   validates :name, presence: true, uniqueness: { scope: :organization_id }
   validates :match_status, inclusion: { in: %w[pending matching matched failed] }
+  validates :list_type, inclusion: { in: %w[matched custom master] }
+  validate :only_one_promoted_per_org, if: :promoted_org_wide?
 
   # Scopes
   scope :for_organization, ->(org) { where(organization: org) }
   scope :matched, -> { where(match_status: 'matched') }
+  scope :matched_lists, -> { where(list_type: 'matched') }
+  scope :custom_lists, -> { where(list_type: %w[custom master]) }
+  scope :for_location, ->(loc) { where(location_id: loc.is_a?(Integer) ? loc : loc.id) }
+  scope :promoted, -> { where(promoted_org_wide: true) }
+
+  # List type methods
+  def matched_list?
+    list_type == 'matched'
+  end
+
+  def custom_list?
+    list_type == 'custom'
+  end
+
+  def promoted?
+    promoted_org_wide?
+  end
 
   # Status methods
   def matched?
@@ -84,5 +103,15 @@ class AggregatedList < ApplicationRecord
 
   def review_needed?
     auto_matched_count > 0 || unmatched_count > 0
+  end
+
+  private
+
+  def only_one_promoted_per_org
+    existing = self.class.where(organization_id: organization_id, promoted_org_wide: true)
+                         .where.not(id: id)
+    if existing.exists?
+      errors.add(:promoted_org_wide, 'another list is already promoted for this organization')
+    end
   end
 end

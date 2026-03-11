@@ -1,4 +1,10 @@
+<% matched = local_assigns[:list_type] == 'matched' %>
+
 <%= form_with(model: aggregated_list, class: "space-y-6") do |f| %>
+  <% if matched %>
+    <input type="hidden" name="list_type" value="matched">
+  <% end %>
+
   <% if aggregated_list.errors.any? %>
     <div class="rounded-md bg-brand-orange-50 p-4">
       <div class="flex">
@@ -17,10 +23,13 @@
   <div class="bg-white shadow rounded-lg p-6">
     <div class="space-y-4">
       <div>
-        <%= f.label :name, "Order List Name", class: "block text-sm font-medium text-gray-700" %>
-        <%= f.text_field :name, placeholder: "e.g., Staples, Produce, Weekend Prep",
+        <%= f.label :name, matched ? "Matched List Name" : "Comparison Name", class: "block text-sm font-medium text-gray-700" %>
+        <%= f.text_field :name,
+            placeholder: matched ? "e.g., All Suppliers - Main St Kitchen" : "e.g., Staples, Produce, Weekend Prep",
             class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
-        <p class="mt-1 text-xs text-gray-500">Give this comparison a name that describes the type of products.</p>
+        <p class="mt-1 text-xs text-gray-500">
+          <%= matched ? 'A descriptive name for this location\'s matched product list.' : 'Give this comparison a name that describes the type of products.' %>
+        </p>
       </div>
 
       <div>
@@ -32,29 +41,55 @@
   </div>
 
   <div class="bg-white shadow rounded-lg p-6">
-    <h3 class="text-lg font-heading font-medium text-gray-900 mb-4">Connect Supplier Lists</h3>
-    <p class="text-sm text-gray-500 mb-4">Select one list per supplier to compare. Products will be matched across the selected lists.</p>
+    <h3 class="text-lg font-heading font-medium text-gray-900 mb-2">
+      <%= matched ? 'Select Supplier Order Guides' : 'Connect Supplier Lists' %>
+    </h3>
+    <p class="text-sm text-gray-500 mb-4">
+      <% if matched %>
+        Select the order guides to include in this matched list. You can select multiple guides from the same supplier (e.g., US Foods "Proteins" + "Produce" + "Favorites"). Products will be matched across all selected guides.
+      <% else %>
+        Select one list per supplier to compare. Products will be matched across the selected lists.
+      <% end %>
+    </p>
 
     <% selected_ids = local_assigns[:selected_list_ids] || [] %>
     <% lists_by_supplier = available_lists.group_by(&:supplier) %>
 
     <% if lists_by_supplier.empty? %>
       <p class="text-sm text-gray-500 italic">
-        No supplier lists available. <%= link_to "Sync your supplier lists", supplier_lists_path, class: "text-brand-orange hover:text-brand-orange-light" %> first.
+        No supplier lists available. <%= link_to "Sync your supplier lists", supplier_credentials_path, class: "text-brand-orange hover:text-brand-orange-light" %> first.
       </p>
     <% else %>
       <div class="space-y-4">
         <% lists_by_supplier.each do |supplier, lists| %>
           <div class="border border-gray-200 rounded-lg p-4">
             <label class="block text-sm font-medium text-gray-900 mb-2"><%= supplier.name %></label>
-            <select name="supplier_list_ids[]" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm">
-              <option value="">-- None --</option>
-              <% lists.each do |list| %>
-                <option value="<%= list.id %>" <%= 'selected' if selected_ids.include?(list.id) %>>
-                  <%= list.name %> (<%= pluralize(list.product_count, "item") %>)
-                </option>
-              <% end %>
-            </select>
+
+            <% if matched %>
+              <%# Matched lists: checkboxes — multiple guides per supplier allowed %>
+              <div class="space-y-2">
+                <% lists.each do |list| %>
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" name="supplier_list_ids[]" value="<%= list.id %>"
+                           <%= 'checked' if selected_ids.include?(list.id) %>
+                           class="rounded border-gray-300 text-brand-green focus:ring-brand-green">
+                    <span class="text-sm text-gray-700">
+                      <%= list.name %> (<%= pluralize(list.product_count, "item") %>)
+                    </span>
+                  </label>
+                <% end %>
+              </div>
+            <% else %>
+              <%# Custom comparisons: single select dropdown per supplier %>
+              <select name="supplier_list_ids[]" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm">
+                <option value="">-- None --</option>
+                <% lists.each do |list| %>
+                  <option value="<%= list.id %>" <%= 'selected' if selected_ids.include?(list.id) %>>
+                    <%= list.name %> (<%= pluralize(list.product_count, "item") %>)
+                  </option>
+                <% end %>
+              </select>
+            <% end %>
           </div>
         <% end %>
       </div>
@@ -62,9 +97,9 @@
   </div>
 
   <div class="flex justify-end gap-3">
-    <%= link_to "Cancel", supplier_lists_path,
+    <%= link_to "Cancel", aggregated_lists_path,
         class: "rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50" %>
-    <%= f.submit aggregated_list.persisted? ? "Save & Review Matching" : "Create & Match Products",
+    <%= f.submit aggregated_list.persisted? ? "Save & Review Matching" : (matched ? "Create & Start Matching" : "Create & Match Products"),
         class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors cursor-pointer" %>
   </div>
 <% end %>

@@ -1,45 +1,58 @@
 <div class="py-6">
+  <%# ===== MATCHED LISTS (Primary Section) ===== %>
   <div class="flex justify-between items-center mb-6">
     <div>
-      <h1 class="text-2xl font-heading font-bold text-gray-900">Compare Lists</h1>
-      <p class="mt-1 text-sm text-gray-500">Connect supplier lists to compare prices across suppliers.</p>
+      <h1 class="text-2xl font-heading font-bold text-gray-900">Matched Lists</h1>
+      <p class="mt-1 text-sm text-gray-500">Match products across suppliers. Confirm matches once — they're preserved forever, even when you add new suppliers.</p>
     </div>
-    <%= link_to "New Comparison", new_aggregated_list_path,
-        class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" %>
+    <%= link_to new_aggregated_list_path(list_type: 'matched'),
+        class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
+      <span class="inline-flex items-center gap-1">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        New Matched List
+      </span>
+    <% end %>
   </div>
 
-  <% if @aggregated_lists.empty? %>
-    <div class="bg-white shadow rounded-lg p-12 text-center">
+  <% if @matched_lists.empty? %>
+    <div class="bg-white shadow rounded-lg p-12 text-center mb-12">
       <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
       </svg>
-      <h3 class="mt-2 text-sm font-medium text-gray-900">No comparisons yet</h3>
-      <p class="mt-1 text-sm text-gray-500">
-        Create a comparison to match products across your supplier lists.
+      <h3 class="mt-2 text-sm font-medium text-gray-900">No matched lists yet</h3>
+      <p class="mt-1 text-sm text-gray-500 max-w-md mx-auto">
+        Create a matched list by selecting your supplier order guides. AI will propose matches across suppliers, then you review and confirm each one. Once confirmed, matches are permanent.
       </p>
-      <%= link_to "Create your first comparison", new_aggregated_list_path,
+      <%= link_to "Create your first matched list", new_aggregated_list_path(list_type: 'matched'),
           class: "mt-4 inline-block text-brand-orange hover:text-brand-orange-light font-medium text-sm" %>
     </div>
   <% else %>
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <% @aggregated_lists.each do |list| %>
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-12">
+      <% @matched_lists.each do |list| %>
         <%= link_to aggregated_list_path(list), class: "bg-white shadow rounded-lg p-6 hover:shadow-md transition-shadow" do %>
           <div class="flex justify-between items-start">
             <h3 class="text-lg font-heading font-medium text-gray-900"><%= list.name %></h3>
-            <% case list.match_status %>
-            <% when "matched" %>
-              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-800">Matched</span>
-            <% when "matching" %>
-              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">Matching...</span>
-            <% when "failed" %>
-              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-800">Failed</span>
-            <% else %>
-              <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">Pending</span>
-            <% end %>
+            <div class="flex items-center gap-2">
+              <% if list.promoted? %>
+                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-800">🌐 Org-Wide</span>
+              <% end %>
+              <% case list.match_status %>
+              <% when "matched" %>
+                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-800">Matched</span>
+              <% when "matching" %>
+                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">Matching...</span>
+              <% when "failed" %>
+                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-800">Failed</span>
+              <% else %>
+                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">Pending</span>
+              <% end %>
+            </div>
           </div>
-          <p class="mt-1 text-sm text-gray-500"><%= list.description %></p>
+          <% if list.description.present? %>
+            <p class="mt-1 text-sm text-gray-500"><%= list.description %></p>
+          <% end %>
           <div class="mt-4 flex flex-wrap gap-2">
-            <% list.supplier_lists.includes(:supplier).each do |sl| %>
+            <% list.supplier_lists.each do |sl| %>
               <span class="inline-flex items-center rounded-full bg-brand-green-50 px-2.5 py-0.5 text-xs font-medium text-brand-green-dark">
                 <%= sl.supplier.name %>
               </span>
@@ -61,6 +74,42 @@
           </div>
         <% end %>
       <% end %>
+    </div>
+  <% end %>
+
+  <%# ===== AD-HOC COMPARISONS (Secondary Section) ===== %>
+  <% if @custom_lists.any? %>
+    <div class="mt-8 pt-8 border-t-2 border-gray-200">
+      <div class="flex justify-between items-center mb-4">
+        <div>
+          <h2 class="text-lg font-heading font-semibold text-gray-900">Ad-Hoc Comparisons</h2>
+          <p class="mt-0.5 text-sm text-gray-500">One-time comparison lists for quick price checks.</p>
+        </div>
+        <%= link_to "New Comparison", new_aggregated_list_path,
+            class: "text-sm text-brand-orange hover:text-brand-orange-light font-medium" %>
+      </div>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <% @custom_lists.each do |list| %>
+          <%= link_to aggregated_list_path(list), class: "bg-white shadow rounded-lg p-4 hover:shadow-md transition-shadow" do %>
+            <div class="flex justify-between items-start">
+              <h3 class="text-sm font-medium text-gray-900"><%= list.name %></h3>
+              <% case list.match_status %>
+              <% when "matched" %>
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800">Matched</span>
+              <% when "matching" %>
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">Matching...</span>
+              <% else %>
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">Pending</span>
+              <% end %>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1">
+              <% list.supplier_lists.each do |sl| %>
+                <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"><%= sl.supplier.name %></span>
+              <% end %>
+            </div>
+          <% end %>
+        <% end %>
+      </div>
     </div>
   <% end %>
 </div>

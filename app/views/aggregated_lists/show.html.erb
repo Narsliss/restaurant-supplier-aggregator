@@ -1,6 +1,6 @@
 <div class="py-6">
   <div class="mb-6">
-    <%= link_to "&larr; Supplier Lists".html_safe, supplier_lists_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
+    <%= link_to "&larr; #{@aggregated_list.matched_list? ? 'Matched Lists' : 'Compare Lists'}".html_safe, aggregated_lists_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
   </div>
 
   <div class="flex justify-between items-center mb-6">
@@ -52,6 +52,46 @@
       <p class="text-sm text-gray-500">Unmatched</p>
     </div>
   </div>
+
+  <%# Add Supplier Guide section (matched lists only, when not currently processing) %>
+  <% if @available_guides&.any? %>
+    <div class="bg-white shadow rounded-lg p-4 mb-6 border border-dashed border-gray-300">
+      <details class="group">
+        <summary class="flex items-center justify-between cursor-pointer list-none">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-brand-green" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            <span class="text-sm font-medium text-gray-900">Add Supplier Guide</span>
+            <span class="text-xs text-gray-500">(<%= @available_guides.size %> available)</span>
+          </div>
+          <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 20 20"><path fill="currentColor" fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+        </summary>
+        <div class="mt-4 pt-4 border-t border-gray-200">
+          <p class="text-sm text-gray-500 mb-3">Select guides to add. Existing matches will be preserved — only new items will be matched.</p>
+          <%= form_with url: add_supplier_guide_aggregated_list_path(@aggregated_list), method: :post, class: "space-y-3" do %>
+            <% @available_guides.group_by(&:supplier).each do |supplier, lists| %>
+              <div class="border border-gray-200 rounded-lg p-3">
+                <span class="block text-sm font-medium text-gray-900 mb-2"><%= supplier.name %></span>
+                <div class="space-y-1.5">
+                  <% lists.each do |list| %>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" name="supplier_list_ids[]" value="<%= list.id %>"
+                             class="rounded border-gray-300 text-brand-green focus:ring-brand-green">
+                      <span class="text-sm text-gray-700"><%= list.name %> (<%= pluralize(list.product_count, "item") %>)</span>
+                    </label>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+            <div class="flex justify-end">
+              <button type="submit" class="rounded-md bg-brand-green px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors">
+                Add & Match New Items
+              </button>
+            </div>
+          <% end %>
+        </div>
+      </details>
+    </div>
+  <% end %>
 
   <% if @aggregated_list.matching? %>
     <div class="relative overflow-hidden rounded-lg bg-brand-orange/10 border-2 border-brand-orange p-5 mb-6 shadow-md"

@@ -144,9 +144,18 @@ class AiProductMatcherService
   def collect_items_by_supplier
     items = {}
     aggregated_list.supplier_lists.includes(:supplier_list_items).each do |sl|
-      items[sl.supplier_id] = sl.supplier_list_items.by_position.to_a
+      items[sl.supplier_id] ||= []
+      items[sl.supplier_id].concat(sl.supplier_list_items.by_position.to_a)
     end
-    items
+
+    # Deduplicate within each supplier by supplier_product_id
+    # (when matched lists include multiple guides from the same supplier)
+    items.transform_values do |supplier_items|
+      supplier_items
+        .group_by { |item| item.supplier_product_id || item.id }
+        .values
+        .map { |dupes| dupes.max_by { |i| i.updated_at || Time.at(0) } }
+    end
   end
 
   def finish_empty

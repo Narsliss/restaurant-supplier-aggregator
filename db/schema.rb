@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_10_190356) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_11_152829) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -37,6 +37,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_10_190356) do
     t.string "list_type", default: "custom", null: false
     t.boolean "auto_sync", default: false, null: false
     t.boolean "shared_across_org", default: false, null: false
+    t.boolean "promoted_org_wide", default: false, null: false
     t.index ["created_by_id"], name: "index_aggregated_lists_on_created_by_id"
     t.index ["location_id"], name: "index_aggregated_lists_on_location_id"
     t.index ["organization_id", "list_type", "location_id"], name: "idx_aggregated_lists_master_unique", unique: true, where: "((list_type)::text = 'master'::text)"

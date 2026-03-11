@@ -105,12 +105,13 @@ Rails.application.routes.draw do
     end
   end
 
-  # Aggregated Lists (cross-supplier list groupings — managed from Supplier Lists page)
-  resources :aggregated_lists, except: [:index] do
+  # Aggregated Lists (matched lists + ad-hoc comparison lists)
+  resources :aggregated_lists do
     member do
       post :run_matching
       post :search_catalog
       get :order_builder
+      post :add_supplier_guide
     end
     resources :product_matches, only: %i[index] do
       member do

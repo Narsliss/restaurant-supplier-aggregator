@@ -1,6 +1,14 @@
 class AggregatedListsController < ApplicationController
   before_action :require_location_context!
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder add_supplier_guide]
+
+  def index
+    @aggregated_lists = current_organization_aggregated_lists
+                          .includes(supplier_lists: :supplier)
+                          .order(updated_at: :desc)
+    @matched_lists = @aggregated_lists.matched_lists
+    @custom_lists = @aggregated_lists.custom_lists
+  end
 
   def show
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
@@ -132,6 +140,11 @@ class AggregatedListsController < ApplicationController
     end
 
     @teaser_map ||= {}
+
+    # Available guides for "Add Supplier Guide" section (matched lists only)
+    if @aggregated_list.matched_list? && @aggregated_list.matched?
+      @available_guides = available_supplier_lists.where.not(id: @aggregated_list.supplier_list_ids)
+    end
   end
 
   def new
@@ -143,6 +156,8 @@ class AggregatedListsController < ApplicationController
     @aggregated_list = AggregatedList.new(aggregated_list_params)
     @aggregated_list.organization = current_user.current_organization
     @aggregated_list.created_by = current_user
+    @aggregated_list.list_type = params[:list_type] if params[:list_type].present?
+    @aggregated_list.location_id = current_location&.id if @aggregated_list.matched_list?
 
     if @aggregated_list.save
       # Connect selected supplier lists
@@ -188,7 +203,7 @@ class AggregatedListsController < ApplicationController
   def destroy
     name = @aggregated_list.name
     @aggregated_list.destroy
-    redirect_to supplier_lists_path, notice: "\"#{name}\" has been deleted."
+    redirect_to aggregated_lists_path, notice: "\"#{name}\" has been deleted."
   end
 
   def run_matching
@@ -197,6 +212,30 @@ class AggregatedListsController < ApplicationController
       AiProductMatchJob.perform_later(@aggregated_list.id)
     end
     redirect_to @aggregated_list
+  end
+
+  def add_supplier_guide
+    new_list_ids = params[:supplier_list_ids]&.reject(&:blank?)&.map(&:to_i) || []
+    current_ids = @aggregated_list.supplier_list_ids
+
+    # Only add new ones — never remove existing in incremental mode
+    added_ids = new_list_ids - current_ids
+
+    if added_ids.empty?
+      redirect_to @aggregated_list, notice: "No new supplier guides selected."
+      return
+    end
+
+    # Create mappings for new lists only
+    added_ids.each do |id|
+      @aggregated_list.aggregated_list_mappings.create(supplier_list_id: id)
+    end
+
+    # Trigger incremental matching (preserves all existing matches)
+    @aggregated_list.mark_matching!
+    IncrementalProductMatchJob.perform_later(@aggregated_list.id, added_ids)
+
+    redirect_to @aggregated_list, notice: "Adding #{added_ids.size} supplier guide(s) and matching new products..."
   end
 
   def search_catalog
@@ -369,7 +408,7 @@ class AggregatedListsController < ApplicationController
   end
 
   def aggregated_list_params
-    params.require(:aggregated_list).permit(:name, :description)
+    params.require(:aggregated_list).permit(:name, :description, :list_type)
   end
 
   def update_list_mappings

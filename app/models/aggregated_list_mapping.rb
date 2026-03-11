@@ -7,7 +7,8 @@ class AggregatedListMapping < ApplicationRecord
   validates :supplier_list_id, uniqueness: { scope: :aggregated_list_id }
 
   # Ensure we don't map two lists from the same supplier to one aggregated list
-  validate :one_list_per_supplier
+  # (relaxed for matched lists — chefs can select multiple guides per supplier)
+  validate :one_list_per_supplier, unless: -> { aggregated_list&.matched_list? }
 
   private
 
