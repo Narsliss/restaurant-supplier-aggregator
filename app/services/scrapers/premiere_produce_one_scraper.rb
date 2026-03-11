@@ -672,9 +672,9 @@ module Scrapers
       # Without clearing, React may not re-filter when overwriting the input value.
       search_input.focus
       set_react_input_value(search_input, '')
-      sleep 1 # Let React process the cleared input and show all items
+      sleep 0.5 # Let React process the cleared input
       set_react_input_value(search_input, item[:sku].to_s)
-      sleep 4 # Wait for React to filter/search results
+      sleep 3 # Wait for React to filter/search results (production can be slower)
 
       # Log page state after search for debugging
       page_text = browser.evaluate("document.body ? document.body.innerText.substring(0, 600) : ''") || ''
@@ -692,10 +692,9 @@ module Scrapers
       raise ScrapingError, "Could not click add button in modal for SKU #{item[:sku]}" unless add_clicked
       logger.info "[PremiereProduceOne] Clicked + for SKU #{item[:sku]} (1/#{quantity_to_add})"
 
-      # CRITICAL: Wait for React to process the add-to-cart action.
+      # Wait for React to process the add-to-cart action.
       # Without this pause, closing the modal immediately can cancel the add.
-      # Items with no fulfillment history (never ordered) take longer to register.
-      sleep 2.5
+      sleep 1.5
 
       # Diagnostic: verify the + click registered (informational only — do NOT retry
       # the click here, as the CDP mouse.click is reliable and a retry would double the qty).
@@ -789,13 +788,13 @@ module Scrapers
       end
 
       # Wait for the last qty click to register before closing modal
-      sleep 1
+      sleep 0.5
 
       # Step 5: Close the modal
       close_product_modal_ppo
 
       logger.info "[PremiereProduceOne] Added SKU #{item[:sku]} qty #{quantity_to_add} to cart"
-      sleep 1 # Brief pause before next item
+      sleep 0.3 # Brief pause before next item
     end
 
     # Open the product detail modal by clicking the product row in the order guide.
@@ -1194,6 +1193,114 @@ module Scrapers
       end
     end
 
+    # Aggressively dismiss any modal/overlay/popup that may be covering the page.
+    # Unlike close_product_modal_ppo (which only checks role="dialog"/aria-modal),
+    # this also detects Pepper's product detail modals which use a full-screen
+    # backdrop div without standard ARIA modal attributes.
+    def dismiss_all_modals_ppo
+      # Detect if anything is overlaying the page by checking what's at the center
+      # of where the delivery dropdown typically lives (top-right area of cart panel)
+      modal_state = browser.evaluate(<<~JS)
+        (function() {
+          // Check for any visible close/X buttons — strong signal a modal is open
+          // IMPORTANT: Exclude buttons inside the Order Summary sidebar
+          var closeButtons = [];
+          var buttons = document.querySelectorAll('button, [role="button"], div[class*="css-"]');
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            // Skip buttons inside the Order Summary sidebar
+            var ancestor = btn.closest('[role="dialog"], [aria-modal="true"]');
+            if (ancestor) {
+              var ancestorText = (ancestor.textContent || '').substring(0, 500);
+              if (/place.*order|estimated total|order summary|submit order|view order/i.test(ancestorText)) continue;
+            }
+            var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+            var text = (btn.textContent || '').trim();
+            // Match close/X buttons: aria-label, single × character, or SVG-only small button
+            var isClose = aria.includes('close') || aria.includes('dismiss') || aria === 'x' ||
+                          text === '×' || text === 'X' || text === 'x' || text.toLowerCase() === 'close';
+            if (!isClose && btn.querySelector('svg') && !text.trim()) {
+              // Small button with only an SVG (likely X icon) — check size
+              var rect = btn.getBoundingClientRect();
+              if (rect.width < 60 && rect.height < 60 && rect.width > 10) {
+                isClose = true;
+              }
+            }
+            if (isClose) {
+              var rect = btn.getBoundingClientRect();
+              closeButtons.push({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, aria: aria, text: text.substring(0, 20) });
+            }
+          }
+
+          // Check for standard ARIA modals — but NOT the Order Summary sidebar
+          var ariaModals = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+          var hasAriaModal = false;
+          for (var m of ariaModals) {
+            if (m.offsetParent === null) continue;
+            var mText = (m.textContent || '').substring(0, 1000);
+            // Skip the Order Summary sidebar (has cart/order content)
+            if (/place.*order|estimated total|order summary|submit order|view order/i.test(mText)) continue;
+            hasAriaModal = true;
+            break;
+          }
+
+          // Check for product detail modal overlays (NOT the Order Summary sidebar)
+          // A product modal has: position:fixed, covers viewport, AND contains
+          // product-specific content like "Fulfillment history" or "Legal Disclaimer"
+          // but NOT cart/order content like "Place order", "Estimated Total", "Order Summary"
+          var hasFullScreenOverlay = false;
+          var overlays = document.querySelectorAll('div[class*="css-"]');
+          for (var ov of overlays) {
+            if (ov.offsetParent === null) continue;
+            var style = window.getComputedStyle(ov);
+            if (style.position === 'fixed' || style.position === 'absolute') {
+              var rect = ov.getBoundingClientRect();
+              if (rect.width > window.innerWidth * 0.8 && rect.height > window.innerHeight * 0.8) {
+                var ovText = (ov.textContent || '').substring(0, 1000);
+                // Positive signals: product detail modal content
+                var isProductModal = /fulfillment history|legal disclaimer/i.test(ovText);
+                // Negative signals: this is the cart/order sidebar, not a modal
+                var isCartSidebar = /place.*order|estimated total|order summary|submit order/i.test(ovText);
+                if (isProductModal && !isCartSidebar) {
+                  hasFullScreenOverlay = true;
+                  break;
+                }
+              }
+            }
+          }
+
+          return {
+            hasAriaModal: hasAriaModal,
+            hasFullScreenOverlay: hasFullScreenOverlay,
+            closeButtons: closeButtons.slice(0, 5),
+            needsDismissal: hasAriaModal || hasFullScreenOverlay
+          };
+        })()
+      JS
+
+      return unless modal_state && modal_state['needsDismissal']
+
+      logger.info "[PremiereProduceOne] Modal detected — dismissing (aria=#{modal_state['hasAriaModal']}, overlay=#{modal_state['hasFullScreenOverlay']}, closeButtons=#{modal_state['closeButtons']&.length})"
+
+      # Strategy 1: Click the first close button found
+      if modal_state['closeButtons']&.any?
+        btn = modal_state['closeButtons'].first
+        logger.info "[PremiereProduceOne] Clicking close button at (#{btn['x']}, #{btn['y']}) aria=#{btn['aria']}"
+        browser.mouse.click(x: btn['x'].to_f, y: btn['y'].to_f)
+        sleep 1
+        return
+      end
+
+      # Strategy 2: Press Escape
+      logger.info '[PremiereProduceOne] No close button, pressing Escape'
+      begin
+        browser.keyboard.type(:Escape)
+      rescue StandardError
+        browser.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, keyCode: 27 }));")
+      end
+      sleep 1
+    end
+
     def wait_for_any_selector(*selectors, timeout: 10)
       options = selectors.last.is_a?(Hash) ? selectors.pop : {}
       timeout_val = options[:timeout] || timeout
@@ -1248,6 +1355,29 @@ module Scrapers
         # open a date picker — only the review page's Order Summary panel does.
         # Order 367 confirmed this: the calendar only opened on the review page.
         select_delivery_date_ppo if @target_delivery_date
+
+        # Step 5.6: Reopen the Order Summary sidebar if it closed
+        # The calendar modal causes the sidebar to close. We need the sidebar
+        # open again for both checkout data extraction and the Place Order button.
+        if @target_delivery_date
+          sidebar_open = browser.evaluate(<<~JS)
+            (function() {
+              var placeOrderRegex = /place.*order/i;
+              var buttons = document.querySelectorAll('button, [role="button"]');
+              for (var btn of buttons) {
+                if (btn.offsetParent === null) continue;
+                var text = (btn.textContent || '').trim().toLowerCase();
+                if (placeOrderRegex.test(text)) return true;
+              }
+              return false;
+            })()
+          JS
+
+          unless sidebar_open
+            logger.info '[PremiereProduceOne] Order Summary sidebar closed after date selection — reopening'
+            proceed_to_checkout_page_ppo
+          end
+        end
 
         # Step 6: Extract checkout data
         checkout_data = extract_checkout_data_ppo
@@ -1401,8 +1531,8 @@ module Scrapers
 
           if check_attempt < 4
             logger.info "[PremiereProduceOne] View Order button not found yet (attempt #{check_attempt + 1}/5), waiting..."
-            sleep 3
-            wait_for_react_render(timeout: 10)
+            sleep 1
+            wait_for_react_render(timeout: 5)
           end
         end
 
@@ -1416,8 +1546,8 @@ module Scrapers
 
         # Click the View Order button to open the cart panel
         browser.mouse.click(x: view_order['x'].to_f, y: view_order['y'].to_f)
-        sleep 2
-        wait_for_react_render(timeout: 10)
+        sleep 1
+        wait_for_react_render(timeout: 5)
 
         # Verify cart panel opened — should now have decrease/trash buttons
         page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
@@ -1573,7 +1703,7 @@ module Scrapers
             if row_result && row_result['found']
               # Hover over the item row to reveal the trash icon
               browser.mouse.move(x: row_result['x'].to_f, y: row_result['y'].to_f)
-              sleep 0.8 # Wait for hover state / trash icon to appear
+              sleep 0.4 # Wait for hover state / trash icon to appear
 
               # Look for the trash icon that appeared on hover
               trash_result = browser.evaluate(<<~JS)
@@ -1608,10 +1738,9 @@ module Scrapers
                 removed_count += 1
                 logger.info "[PremiereProduceOne] Hover-trash: removed item #{removed_count} at (#{trash_result['x']}, #{trash_result['y']}) (click ##{total_clicks})"
                 browser.mouse.click(x: trash_result['x'].to_f, y: trash_result['y'].to_f)
-                sleep 0.5
+                sleep 0.3
                 confirm_pepper_modal
-                sleep 0.5
-                wait_for_react_render(timeout: 5)
+                sleep 0.3
                 next
               else
                 # Trash didn't appear on hover — fall through to decrease-button strategy
@@ -1667,8 +1796,7 @@ module Scrapers
               break
             end
 
-            sleep 1
-            wait_for_react_render(timeout: 5)
+            sleep 0.5
             next
           end
 
@@ -1687,20 +1815,13 @@ module Scrapers
 
           # CDP mouse click — the ONLY way to trigger React Native Web Pressable
           browser.mouse.click(x: result['x'].to_f, y: result['y'].to_f)
-          sleep 0.3
+          sleep 0.2
 
           # Handle any confirmation modal after trash click
           if is_trash
-            sleep 0.5
+            sleep 0.3
             confirm_pepper_modal
-            sleep 0.5
-            wait_for_react_render(timeout: 5)
-          end
-
-          # Periodic longer wait for React to catch up
-          if total_clicks % 50 == 0
-            sleep 1
-            wait_for_react_render(timeout: 5)
+            sleep 0.3
           end
         end
 
@@ -1709,7 +1830,7 @@ module Scrapers
         # Verify cart is empty — retry clearing if items remain
         max_verify_attempts = 3
         max_verify_attempts.times do |attempt|
-          sleep 2
+          sleep 1
           page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
 
           if page_text.match?(/cart is empty|no items|your cart is empty/i)
@@ -1740,8 +1861,7 @@ module Scrapers
             if attempt < max_verify_attempts - 1
               # Re-open cart panel and try clearing again
               browser.mouse.click(x: view_order_check['x']&.to_f || 0, y: view_order_check['y']&.to_f || 0) rescue nil
-              sleep 2
-              wait_for_react_render(timeout: 5)
+              sleep 1
               # Re-run the removal loop scoped to cart panel
               20.times do
                 btn = browser.evaluate(<<~JS)
@@ -1764,7 +1884,7 @@ module Scrapers
                 JS
                 break if btn.nil? || !btn['found']
                 browser.mouse.click(x: btn['x'].to_f, y: btn['y'].to_f)
-                sleep 0.5
+                sleep 0.3
               end
               next
             end
@@ -3291,8 +3411,8 @@ module Scrapers
     def navigate_to_cart_page_ppo
       # Try /cart first (Pepper platform standard)
       navigate_to("#{BASE_URL}/cart")
-      sleep 3
-      wait_for_react_render(timeout: 10)
+      sleep 1.5
+      wait_for_react_render(timeout: 5)
 
       page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
 
@@ -3317,17 +3437,16 @@ module Scrapers
             return false;
           })()
         JS
-        sleep 3
-        wait_for_react_render(timeout: 10)
+        sleep 1.5
+        wait_for_react_render(timeout: 5)
         page_text = browser.evaluate('document.body ? document.body.innerText : ""') rescue ''
       end
 
       logger.info "[PremiereProduceOne] Cart page URL: #{browser.current_url rescue 'unknown'}"
-      logger.info "[PremiereProduceOne] Cart page text (first 300): #{page_text[0..300]}"
 
       # Scroll to bottom to reveal sticky footer / submit button
       browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-      sleep 2
+      sleep 1
 
       # Enhanced DOM discovery for Pepper React Native Web:
       # - Use textContent (not innerText) because RN Web nests text in <div>s
@@ -3603,10 +3722,12 @@ module Scrapers
       # The "View Order" button is at the TOP of the page (sticky header at y=0).
       # It has aria-label="View Order" and textContent like "$1,396.20".
 
-      # Step 1: Look for the "View Order" button by aria-label (most reliable for Pepper)
-      clicked = browser.evaluate(<<~JS)
+      # Step 1: Find the "View Order" button and get its coordinates
+      # IMPORTANT: Do NOT use el.click() — it doesn't trigger React Native Web's
+      # Pressable/Responder system. Instead, get coordinates and use CDP mouse.click.
+      btn_info = browser.evaluate(<<~JS)
         (function() {
-          var elements = document.querySelectorAll('button, [role="button"], a');
+          var elements = document.querySelectorAll('button, [role="button"], a, div[class*="css-"]');
 
           // Priority 1: aria-label based detection (Pepper uses "View Order")
           var ariaTargets = ['view order', 'review order', 'checkout', 'view cart', 'order summary'];
@@ -3616,12 +3737,15 @@ module Scrapers
             if (!aria) continue;
             for (var target of ariaTargets) {
               if (aria.includes(target)) {
-                el.click();
+                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                var rect = el.getBoundingClientRect();
                 return {
-                  clicked: true,
+                  found: true,
                   text: (el.textContent || '').trim().substring(0, 60),
                   aria: aria,
-                  method: 'aria-label'
+                  method: 'aria-label',
+                  x: rect.x + rect.width / 2,
+                  y: rect.y + rect.height / 2
                 };
               }
             }
@@ -3641,8 +3765,9 @@ module Scrapers
             if (orderFinalizing.test(text)) continue;
             for (var target of navTargets) {
               if (text.includes(target)) {
-                el.click();
-                return { clicked: true, text: text, tag: el.tagName, method: 'textContent-match' };
+                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                var rect = el.getBoundingClientRect();
+                return { found: true, text: text, tag: el.tagName, method: 'textContent-match', x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
               }
             }
           }
@@ -3653,8 +3778,9 @@ module Scrapers
             var text = (el.textContent || '').trim();
             var hasSvg = !!el.querySelector('svg');
             if (text.match(/^\\$[\\d,]+\\.\\d{2}$/) && hasSvg) {
-              el.click();
-              return { clicked: true, text: text, method: 'price-button-with-svg' };
+              el.scrollIntoView({ behavior: 'instant', block: 'center' });
+              var rect = el.getBoundingClientRect();
+              return { found: true, text: text, method: 'price-button-with-svg', x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
             }
           }
 
@@ -3664,18 +3790,22 @@ module Scrapers
             if (link.offsetParent !== null) {
               var text = (link.textContent || '').trim().toLowerCase();
               if (!exclude.test(text) && !orderFinalizing.test(text) && text.length < 40) {
-                link.click();
-                return { clicked: true, text: text, href: link.href, method: 'href-match' };
+                link.scrollIntoView({ behavior: 'instant', block: 'center' });
+                var rect = link.getBoundingClientRect();
+                return { found: true, text: text, href: link.href, method: 'href-match', x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
               }
             }
           }
 
-          return { clicked: false };
+          return { found: false };
         })()
       JS
 
-      if clicked && clicked['clicked']
-        logger.info "[PremiereProduceOne] Clicked checkout/review button: #{clicked.inspect}"
+      if btn_info && btn_info['found']
+        logger.info "[PremiereProduceOne] Found checkout/review button: #{btn_info.inspect}"
+        # Use CDP mouse.click — el.click() doesn't trigger React NW Pressable onPress
+        browser.mouse.click(x: btn_info['x'].to_f, y: btn_info['y'].to_f)
+        logger.info "[PremiereProduceOne] CDP clicked View Order at (#{btn_info['x']}, #{btn_info['y']})"
       else
         logger.warn '[PremiereProduceOne] Could not find checkout/review button'
         named_buttons = browser.evaluate(<<~JS)
@@ -3696,8 +3826,8 @@ module Scrapers
         logger.info "[PremiereProduceOne] All actionable buttons: #{named_buttons&.inspect}"
       end
 
-      sleep 5
-      wait_for_react_render(timeout: 15)
+      sleep 2
+      wait_for_react_render(timeout: 5)
 
       # Log the resulting page state — we should now be on the review page
       current_url = browser.current_url rescue 'unknown'
@@ -3712,7 +3842,7 @@ module Scrapers
       # On Pepper, the cart page IS the checkout page. The total is in the page
       # text (or in a sticky footer). Scroll to bottom to ensure total is visible.
       browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-      sleep 2
+      sleep 1
 
       checkout_data = browser.evaluate(<<~JS)
         (function() {
@@ -3878,6 +4008,11 @@ module Scrapers
     # ── Delivery date selection on the Order Summary / checkout page ──
     # PPO shows a "Cutoff: ... | DELIVERY for Mar 11" dropdown in the Order Summary panel.
     # Clicking it opens a "Select date" calendar popup with month nav, day grid, and Save button.
+    #
+    # The site is React Native Web (Pepper). Pressable components need CDP mouse.click
+    # at coordinates — el.click() doesn't trigger the onPress handler. When CDP click
+    # fails (overlay blocking, stale coordinates), we fall back to invoking the React
+    # fiber's onPress directly, then to ancestor-walking clicks.
     def select_delivery_date_ppo
       return unless @target_delivery_date
 
@@ -3886,184 +4021,190 @@ module Scrapers
       target_month_year = target.strftime('%B %Y') # e.g., "March 2026"
       target_short = "#{target.strftime('%b')} #{target_day}" # "Mar 16"
 
-      # Step 1: Find the delivery date dropdown button
-      # PPO's Pepper cart page has a delivery dropdown near the top with an SVG chevron.
-      # Current format: "Cutoff: 7:00 PM ET | DELIVERY Mar 16" (~37 chars)
-      # We match broadly: any short clickable element containing a date pattern
-      # plus a delivery-related keyword, so this survives PPO label changes.
-      delivery_btn = browser.evaluate(<<~JS)
+      # ── Step 0: Dismiss any leftover modals/overlays ──
+      dismiss_all_modals_ppo
+
+      # ── Step 1: Find the delivery <button> element directly ──
+      # The delivery dropdown is a real <button type="button"> containing text like
+      # "Cutoff: 7:00 PM ET | DELIVERY for Mar 16" with an SVG chevron.
+      # Previous code searched div[class*="css-"] and walked up — but the <button>
+      # itself IS the clickable element. Search <button> elements directly.
+      btn_info = browser.evaluate(<<~JS)
         (function() {
-          var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
-          var candidates = [];
-          // Month name (abbreviated or full) followed by 1-2 digit day
           var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
-          // Broad delivery-related keywords (survives label changes)
           var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
 
-          for (var el of elements) {
-            if (el.offsetParent === null) continue;
-            var text = (el.textContent || el.innerText || '').trim();
+          // Priority 1: Real <button> elements (the actual Pepper delivery dropdown)
+          var buttons = document.querySelectorAll('button[type="button"], button');
+          for (var btn of buttons) {
+            if (btn.offsetParent === null) continue;
+            var text = (btn.textContent || btn.innerText || '').trim();
             if (text.length > 100 || text.length < 10) continue;
-            var hasDate = datePattern.test(text);
-            var hasKeyword = deliveryKeywords.test(text);
-            if (!hasDate || !hasKeyword) continue;
-
-            var hasSvg = !!el.querySelector('svg');
-            var rect = el.getBoundingClientRect();
-            // Score: SVG (chevron) is strong signal, shorter text = more specific element
-            var score = (hasSvg ? 100 : 0) + (100 - text.length);
-            candidates.push({ found: true, text: text, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, hasSvg: hasSvg, len: text.length, score: score });
+            if (!datePattern.test(text) || !deliveryKeywords.test(text)) continue;
+            btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+            var rect = btn.getBoundingClientRect();
+            return {
+              found: true,
+              text: text,
+              tag: 'BUTTON',
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+              width: rect.width,
+              height: rect.height
+            };
           }
-          candidates.sort(function(a, b) { return b.score - a.score; });
-          if (candidates.length > 0) {
-            return candidates[0];
-          }
-          return { found: false };
-        })()
-      JS
 
-      unless delivery_btn && delivery_btn['found']
-        logger.warn "[PremiereProduceOne] Delivery date dropdown not found — using default date"
-        return
-      end
-
-      logger.info "[PremiereProduceOne] Current delivery: #{delivery_btn['text']}"
-
-      # Check if target date is already selected
-      if delivery_btn['text'].include?(target_short)
-        logger.info "[PremiereProduceOne] Delivery date already set to #{target_short} — no change needed"
-        return
-      end
-
-      logger.info "[PremiereProduceOne] Selecting delivery date: #{target.strftime('%B %d, %Y')}"
-
-      # Step 2: Click the delivery dropdown
-      # Order 367 (only successful test) worked on the REVIEW page using
-      # elementFromPoint + pointer events. The key insight: React Native Web's
-      # Pressable/Responder system responds to events that bubble UP from the
-      # actual child element under the pointer (a <span>, SVG <path>, etc.),
-      # NOT from the parent container. elementFromPoint finds that child element.
-      #
-      # Strategy: CDP mouse.click first (most realistic), then elementFromPoint
-      # + pointer events (Order 367's proven method) as fallback.
-
-      # First, scroll element into view and get fresh coordinates
-      btn_coords = browser.evaluate(<<~JS)
-        (function() {
-          var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
-          var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
-          var elements = document.querySelectorAll('button, [role="button"], [class*="Pressable"], div[class*="css-"]');
-          var target = null;
-          var bestScore = -1;
-
+          // Priority 2: div[role="button"] or other elements (fallback)
+          var elements = document.querySelectorAll('[role="button"], div[class*="css-"]');
           for (var el of elements) {
             if (el.offsetParent === null) continue;
             var text = (el.textContent || el.innerText || '').trim();
             if (text.length > 100 || text.length < 10) continue;
             if (!datePattern.test(text) || !deliveryKeywords.test(text)) continue;
             var hasSvg = !!el.querySelector('svg');
-            var score = (hasSvg ? 100 : 0) + (100 - text.length);
-            if (score > bestScore) {
-              bestScore = score;
-              target = el;
-            }
+            if (!hasSvg) continue; // Must have the chevron SVG
+            el.scrollIntoView({ behavior: 'instant', block: 'center' });
+            var rect = el.getBoundingClientRect();
+            return {
+              found: true,
+              text: text,
+              tag: el.tagName,
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+              width: rect.width,
+              height: rect.height
+            };
           }
 
-          if (!target) return { found: false };
-
-          target.scrollIntoView({ behavior: 'instant', block: 'center' });
-          var rect = target.getBoundingClientRect();
-          return { found: true, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, text: (target.textContent || '').trim().substring(0, 60) };
+          return { found: false };
         })()
       JS
 
-      unless btn_coords && btn_coords['found']
-        logger.warn "[PremiereProduceOne] Could not find delivery dropdown for clicking — using default date"
+      unless btn_info && btn_info['found']
+        logger.warn "[PremiereProduceOne] Delivery date dropdown not found — using default date"
         return
       end
 
-      cx = btn_coords['x'].to_f
-      cy = btn_coords['y'].to_f
-      logger.info "[PremiereProduceOne] Delivery button at (#{cx}, #{cy}): #{btn_coords['text']}"
+      logger.info "[PremiereProduceOne] Found delivery button: tag=#{btn_info['tag']} text='#{btn_info['text']}' at (#{btn_info['x']}, #{btn_info['y']}) size=#{btn_info['width']}x#{btn_info['height']}"
 
-      # Method 1: CDP mouse.click (most realistic browser-level simulation)
-      logger.info "[PremiereProduceOne] Attempting CDP mouse.click at (#{cx}, #{cy})"
-      browser.mouse.click(x: cx, y: cy)
-      sleep 2
+      if btn_info['text'].include?(target_short)
+        logger.info "[PremiereProduceOne] Delivery date already set to #{target_short} — no change needed"
+        return
+      end
 
-      calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
+      logger.info "[PremiereProduceOne] Selecting delivery date: #{target.strftime('%B %d, %Y')}"
 
+      calendar_found = false
+      cx = btn_info['x'].to_f
+      cy = btn_info['y'].to_f
+
+      # Check what elementFromPoint sees at the click target — if something covers
+      # the button (sidebar backdrop, overlay div), CDP mouse.click would hit that
+      # instead and close the sidebar.
+      at_point = browser.evaluate("(function() { var el = document.elementFromPoint(#{cx}, #{cy}); return el ? { tag: el.tagName, text: (el.textContent||'').trim().substring(0,60), classes: (el.className||'').substring(0,60) } : null; })()")
+      logger.info "[PremiereProduceOne] elementFromPoint at (#{cx}, #{cy}): #{at_point.inspect}"
+
+      # Determine if the element at point IS the delivery button
+      point_is_button = at_point && at_point['tag'] == 'BUTTON' && at_point['text'].to_s.length > 10
+
+      if point_is_button
+        # ── Method 1: CDP mouse.click — element at point IS the button, safe to click ──
+        logger.info "[PremiereProduceOne] Method 1: CDP mouse.click on #{btn_info['tag']} at (#{cx}, #{cy})"
+        browser.mouse.click(x: cx, y: cy)
+        sleep 2
+        calendar_found = check_calendar_open
+      else
+        logger.info "[PremiereProduceOne] Skipping CDP click — elementFromPoint is #{at_point&.dig('tag')}, not the delivery button (would close sidebar)"
+      end
+
+      # ── Method 2: Direct .click() on the <button> element ──
+      # Use JS .click() which targets the element directly, bypassing any overlay.
+      # This is the PRIMARY method when the sidebar backdrop covers the button coordinates.
       unless calendar_found
-        # Method 2: elementFromPoint + pointer events (Order 367's proven method)
-        # elementFromPoint returns the TOPMOST child element at the coordinates
-        # (e.g., <span>, <svg>, <path>), and dispatching on it causes proper
-        # event bubbling through React Native Web's Responder system.
-        logger.info "[PremiereProduceOne] CDP click didn't open calendar — trying elementFromPoint + pointer events"
-        efp_result = browser.evaluate(<<~JS)
+        logger.info "[PremiereProduceOne] Method 2: Direct .click() on the <button>"
+        browser.evaluate(<<~JS)
           (function() {
-            var cx = #{cx};
-            var cy = #{cy};
-            var el = document.elementFromPoint(cx, cy);
-            if (!el) return { clicked: false, reason: 'no element at point' };
-
-            // Log what elementFromPoint found vs the container
-            var info = { tag: el.tagName, text: (el.textContent || '').trim().substring(0, 60), className: (el.className || '').toString().substring(0, 80) };
-
-            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
-            el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, pointerId: 1, pointerType: 'mouse' }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
-
-            info.clicked = true;
-            return info;
+            var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
+            var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
+            var buttons = document.querySelectorAll('button');
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              var text = (btn.textContent || '').trim();
+              if (text.length > 100 || text.length < 10) continue;
+              if (datePattern.test(text) && deliveryKeywords.test(text)) {
+                btn.click();
+                return true;
+              }
+            }
+            return false;
           })()
         JS
-        logger.info "[PremiereProduceOne] elementFromPoint result: #{efp_result.inspect}"
         sleep 2
+        calendar_found = check_calendar_open
+      end
 
-        calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
+      # ── Method 3: React fiber onPress invocation ──
+      unless calendar_found
+        logger.info "[PremiereProduceOne] Method 3: React fiber onPress on <button>"
+        fiber_result = browser.evaluate(<<~JS)
+          (function() {
+            var datePattern = /\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\\w*\\s+\\d{1,2}\\b/i;
+            var deliveryKeywords = /delivery|deliver|cutoff|cut-off|ship|shipping|arriving|arrival/i;
+            var buttons = document.querySelectorAll('button');
+            for (var btn of buttons) {
+              if (btn.offsetParent === null) continue;
+              var text = (btn.textContent || '').trim();
+              if (text.length > 100 || text.length < 10) continue;
+              if (!datePattern.test(text) || !deliveryKeywords.test(text)) continue;
+
+              // Walk the element and its ancestors for React fiber
+              var current = btn;
+              for (var depth = 0; depth < 10 && current && current !== document.body; depth++) {
+                var fiberKey = Object.keys(current).find(function(k) {
+                  return k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$');
+                });
+                if (fiberKey) {
+                  var fiber = current[fiberKey];
+                  var fw = 0;
+                  while (fiber && fw < 20) {
+                    if (fiber.memoizedProps && typeof (fiber.memoizedProps.onPress || fiber.memoizedProps.onClick) === 'function') {
+                      try {
+                        var handler = fiber.memoizedProps.onPress || fiber.memoizedProps.onClick;
+                        handler({ nativeEvent: {}, preventDefault: function(){}, stopPropagation: function(){} });
+                        return { success: true, depth: depth, fiberWalk: fw };
+                      } catch(e) {
+                        return { success: false, reason: 'handler threw: ' + e.message };
+                      }
+                    }
+                    fiber = fiber.return;
+                    fw++;
+                  }
+                }
+                current = current.parentElement;
+              }
+              return { success: false, reason: 'no handler found' };
+            }
+            return { success: false, reason: 'button not found' };
+          })()
+        JS
+        logger.info "[PremiereProduceOne] Fiber result: #{fiber_result.inspect}"
+        sleep 2
+        calendar_found = check_calendar_open
       end
 
       unless calendar_found
-        # Method 3: Try clicking different offsets (SVG chevron area on right side)
-        logger.info "[PremiereProduceOne] Still no calendar — trying right-side click (chevron area)"
-        right_x = btn_coords['x'].to_f + 50  # Offset towards the chevron
-        browser.mouse.click(x: right_x, y: cy)
-        sleep 2
-        calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
-      end
-
-      # Wait for calendar with polling
-      unless calendar_found
-        5.times do |attempt|
-          calendar_found = browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
-          break if calendar_found
-          logger.info "[PremiereProduceOne] Waiting for calendar modal (attempt #{attempt + 1}/5)..."
-          sleep 1
+        begin
+          screenshot_path = "/tmp/ppo_delivery_debug_#{Time.current.strftime('%H%M%S')}.png"
+          browser.screenshot(path: screenshot_path)
+          logger.info "[PremiereProduceOne] Debug screenshot: #{screenshot_path}"
+        rescue => e
+          logger.warn "[PremiereProduceOne] Screenshot failed: #{e.message}"
         end
-      end
-
-      unless calendar_found
-        # Log page state for debugging
-        page_diag = browser.evaluate(<<~JS)
-          (function() {
-            var url = window.location.href;
-            var bodyText = (document.body ? document.body.innerText : '').substring(0, 300);
-            // Check what element is at the click coordinates
-            var elAtPoint = document.elementFromPoint(#{cx}, #{cy});
-            var elInfo = elAtPoint ? { tag: elAtPoint.tagName, text: (elAtPoint.textContent || '').trim().substring(0, 80), className: (elAtPoint.className || '').toString().substring(0, 80) } : null;
-            // Look for any modals or overlays
-            var modals = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], [class*="modal"], [class*="overlay"], [class*="popup"]')).map(function(m) {
-              return { tag: m.tagName, text: (m.textContent || '').trim().substring(0, 40), visible: m.offsetParent !== null };
-            }).slice(0, 5);
-            return { url: url, bodySnippet: bodyText, elementAtClick: elInfo, modals: modals };
-          })()
-        JS
-        logger.warn "[PremiereProduceOne] Calendar modal did not appear — diagnostics: #{page_diag.inspect}"
-        logger.warn "[PremiereProduceOne] Using default delivery date"
+        logger.warn "[PremiereProduceOne] All 3 methods failed to open calendar — using default delivery date"
         return
       end
 
-      # Step 3: Navigate to correct month if needed
+      # ── Step 2: Navigate to correct month if needed ──
       6.times do |nav_attempt|
         current_month = browser.evaluate(<<~JS)
           (function() {
@@ -4090,7 +4231,6 @@ module Scrapers
           break
         end
 
-        # Click the > (next month) arrow
         next_arrow = browser.evaluate(<<~JS)
           (function() {
             var buttons = document.querySelectorAll('button, [role="button"]');
@@ -4098,7 +4238,7 @@ module Scrapers
               if (btn.offsetParent === null) continue;
               var text = (btn.textContent || btn.innerText || '').trim();
               var aria = (btn.getAttribute('aria-label') || '').toLowerCase();
-              if (text === '>' || text === '›' || text === '▸' || aria.includes('next') || aria.includes('forward')) {
+              if (text === '>' || text === '\\u203A' || text === '\\u25B8' || aria.includes('next') || aria.includes('forward')) {
                 var rect = btn.getBoundingClientRect();
                 if (rect.width > 0 && rect.width < 80) {
                   return { found: true, x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
@@ -4118,7 +4258,7 @@ module Scrapers
         end
       end
 
-      # Step 4: Click the target day
+      # ── Step 3: Click the target day ──
       day_info = browser.evaluate(<<~JS)
         (function() {
           var targetDay = #{target_day};
@@ -4154,7 +4294,7 @@ module Scrapers
       browser.mouse.click(x: day_info['x'].to_f, y: day_info['y'].to_f)
       sleep 0.5
 
-      # Step 5: Click "Save"
+      # ── Step 4: Click "Save" ──
       save_btn = browser.evaluate(<<~JS)
         (function() {
           var buttons = document.querySelectorAll('button, [role="button"]');
@@ -4178,7 +4318,7 @@ module Scrapers
         logger.warn "[PremiereProduceOne] Save button not found — date may not be saved"
       end
 
-      # Step 6: Wait for calendar to close and page to update, then verify
+      # ── Step 5: Verify delivery date updated ──
       sleep 2
       updated_text = browser.evaluate(<<~JS)
         (function() {
@@ -4200,11 +4340,16 @@ module Scrapers
       if updated_text
         logger.info "[PremiereProduceOne] Delivery date after selection: #{updated_text}"
         if updated_text.include?(target_short)
-          logger.info "[PremiereProduceOne] ✓ Delivery date confirmed: #{target_short}"
+          logger.info "[PremiereProduceOne] Delivery date confirmed: #{target_short}"
         else
           logger.warn "[PremiereProduceOne] Expected #{target_short}, got: #{updated_text}"
         end
       end
+    end
+
+    # Helper: check if the "Select date" calendar modal is open
+    def check_calendar_open
+      browser.evaluate("(function() { return /select date/i.test(document.body ? document.body.innerText : ''); })()")
     end
 
     def wait_for_order_confirmation_ppo
