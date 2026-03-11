@@ -29,6 +29,19 @@ class AiProductMatcherService
   def call
     aggregated_list.mark_matching!
 
+    # Before destroying old matches, save:
+    # 1. old_product_match_id → supplier_list_item_ids (to map old→new matches)
+    # 2. order_list_item_id → old_product_match_id (to know which items need relinking)
+    old_match_sli_ids = aggregated_list.product_matches
+      .joins(:product_match_items)
+      .pluck('product_matches.id', 'product_match_items.supplier_list_item_id')
+      .group_by(&:first)
+      .transform_values { |pairs| pairs.map(&:last) }
+
+    orphaned_oli_map = OrderListItem
+      .where(product_match_id: aggregated_list.product_match_ids)
+      .pluck(:id, :product_match_id)
+
     # Clear existing matches (re-running matching)
     aggregated_list.product_matches.destroy_all
 
@@ -119,6 +132,10 @@ class AiProductMatcherService
     end
 
     aggregated_list.mark_matched!
+
+    # Re-link orphaned order list items to new product matches
+    relink_order_list_items!(old_match_sli_ids, orphaned_oli_map)
+
     Rails.logger.info "[AiMatcher] Complete: #{results}"
     results
   rescue StandardError => e
@@ -129,6 +146,43 @@ class AiProductMatcherService
   end
 
   private
+
+  # After rematching, order list items have product_match_id = NULL (nullified by FK).
+  # Re-link them by finding which new ProductMatch contains the same supplier_list_items
+  # as the old one.
+  #
+  # old_match_sli_ids: { old_product_match_id => [supplier_list_item_id, ...] }
+  # orphaned_oli_map:  [[order_list_item_id, old_product_match_id], ...]
+  def relink_order_list_items!(old_match_sli_ids, orphaned_oli_map)
+    return if orphaned_oli_map.empty?
+
+    # Build reverse lookup: supplier_list_item_id → new product_match_id
+    new_sli_to_match = aggregated_list.product_matches
+      .joins(:product_match_items)
+      .pluck('product_match_items.supplier_list_item_id', 'product_matches.id')
+      .to_h
+
+    # Build old_match_id → new_match_id mapping
+    remap = {}
+    old_match_sli_ids.each do |old_match_id, sli_ids|
+      new_match_id = sli_ids.filter_map { |sli_id| new_sli_to_match[sli_id] }.first
+      remap[old_match_id] = new_match_id if new_match_id
+    end
+
+    return if remap.empty?
+
+    # Update orphaned order list items with their new product_match_id
+    relinked = 0
+    orphaned_oli_map.each do |oli_id, old_match_id|
+      new_match_id = remap[old_match_id]
+      next unless new_match_id
+
+      OrderListItem.where(id: oli_id, product_match_id: nil).update_all(product_match_id: new_match_id)
+      relinked += 1
+    end
+
+    Rails.logger.info "[AiMatcher] Re-linked #{relinked} order list items after rematching"
+  end
 
   # Remove SupplierListItems that were created by a previous catalog search run.
   # These are synthetic items — they'll be re-created by CatalogSearchService

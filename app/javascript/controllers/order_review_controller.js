@@ -135,6 +135,12 @@ export default class extends Controller {
       const remaining = card.querySelectorAll("[data-order-review-target='itemRow']").length
       if (remaining === 0) {
         card.remove()
+      } else {
+        // If no more out-of-stock items remain, clear the unavailable banner
+        if (!card.querySelector("[data-in-stock='false']")) {
+          const banner = card.querySelector(".unavailable-banner")
+          if (banner) banner.remove()
+        }
       }
     }
 
@@ -708,6 +714,9 @@ export default class extends Controller {
       // Mark out-of-stock items (from verification)
       if (order.unavailable_items && order.unavailable_items.length > 0) {
         this._markUnavailableItems(orderId, order.unavailable_items)
+      } else {
+        // Clear unavailable banner + data-in-stock flags if no items are out of stock
+        this._clearUnavailableState(orderId)
       }
     })
 
@@ -803,6 +812,23 @@ export default class extends Controller {
     }
 
     this._updateSubmitStates()
+  }
+
+  _clearUnavailableState(orderId) {
+    const card = this._cardForOrder(orderId)
+    if (!card) return
+
+    // Remove the unavailable banner
+    const banner = card.querySelector(".unavailable-banner")
+    if (banner) banner.remove()
+
+    // Clear any data-in-stock="false" flags on remaining rows
+    card.querySelectorAll("[data-in-stock='false']").forEach(el => {
+      el.dataset.inStock = "true"
+      el.classList.remove("bg-red-50")
+      const badge = el.querySelector("[data-order-review-target='stockBadge']")
+      if (badge) badge.remove()
+    })
   }
 
   _showOrderVerified(orderId) {
@@ -1385,7 +1411,8 @@ export default class extends Controller {
   }
 
   _updateSubmitStates() {
-    let allCanSubmit = true
+    let submittableCount = 0
+    const totalCount = this.orderCardTargets.length
 
     this.orderCardTargets.forEach(card => {
       const orderId = card.dataset.orderId
@@ -1409,7 +1436,7 @@ export default class extends Controller {
       const hasCredentials = card.dataset.hasCredentials !== "false"
       const canSubmit = hasCredentials && meetsMinimum && hasDate && isVerified && hasNoUnavailable
 
-      if (!canSubmit) allCanSubmit = false
+      if (canSubmit) submittableCount++
 
       // Update per-supplier submit button
       this.supplierSubmitBtnTargets.forEach(btn => {
@@ -1428,14 +1455,10 @@ export default class extends Controller {
     })
 
     // Update "Submit All" button text and state
-    const submittableCount = cardData.filter(c => c.canSubmit).length
-    const totalCount = cardData.length
     this.submitAllBtnTargets.forEach(btn => {
-      // Update button text to reflect current submittable count
       const label = submittableCount === totalCount
         ? "Submit All Orders"
         : `Submit ${submittableCount} of ${totalCount} Orders`
-      // button_to wraps text in a child element
       const textEl = btn.querySelector("input[type='submit']") || btn
       if (textEl.value !== undefined && textEl.type === "submit") {
         textEl.value = label
@@ -1443,7 +1466,7 @@ export default class extends Controller {
         btn.textContent = label
       }
 
-      if (submittableCount > 0 && this.orderCardTargets.length > 0) {
+      if (submittableCount > 0 && totalCount > 0) {
         btn.disabled = false
         btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
         btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")

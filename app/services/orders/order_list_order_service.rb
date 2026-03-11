@@ -34,7 +34,8 @@ module Orders
             delivery_date: delivery_date,
             notes: "Created from #{order_list.name}",
             organization_id: user.current_organization&.id,
-            batch_id: batch_id
+            batch_id: batch_id,
+            order_list_id: order_list.id
           )
 
           now = Time.current
@@ -74,7 +75,9 @@ module Orders
 
     def build_selected_items
       selected = []
+      processed_match_ids = Set.new
 
+      # Process order list items first
       items = order_list.order_list_items
         .includes(product_match: { product_match_items: [:supplier, { supplier_list_item: :supplier_product }] })
 
@@ -85,37 +88,55 @@ module Orders
         qty = quantities[pm.id.to_s]
         next if qty.nil? || qty <= 0
 
-        # Compute prices once per match
-        prices = pm.prices_by_supplier
-        in_stock_prices = prices.select { |p| p[:price].present? && p[:in_stock] }
-
-        override_supplier_id = supplier_overrides[pm.id.to_s]
-        chosen = if override_supplier_id
-          prices.find { |p| p[:supplier].id == override_supplier_id && p[:price].present? }
+        result = build_item_from_match(pm, qty)
+        if result
+          selected << result
+          processed_match_ids << pm.id
         end
-        # Use the same per-unit-aware logic as ProductMatch#cheapest_supplier
-        chosen ||= pm.cheapest_supplier
-        next unless chosen
+      end
 
-        most_expensive = pm.most_expensive_supplier
+      # Process extra matches from the full matched list (quantities submitted
+      # for product matches not in the order list)
+      extra_match_ids = quantities.select { |_, v| v.to_i > 0 }.keys.map(&:to_s) - processed_match_ids.map(&:to_s)
+      if extra_match_ids.any?
+        extra_matches = ProductMatch.where(id: extra_match_ids)
+          .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
 
-        supplier_list_item = chosen[:item]
-        supplier_product = supplier_list_item.supplier_product
+        extra_matches.each do |pm|
+          qty = quantities[pm.id.to_s].to_i
+          next if qty <= 0
 
-        # Skip items without a linked SupplierProduct
-        next unless supplier_product
-
-        selected << {
-          product_match_id: pm.id,
-          supplier_id: chosen[:supplier].id,
-          supplier_product_id: supplier_product.id,
-          quantity: qty,
-          unit_price: supplier_list_item.price || supplier_product.current_price,
-          worst_price: most_expensive&.dig(:price)
-        }
+          result = build_item_from_match(pm, qty)
+          selected << result if result
+        end
       end
 
       selected
+    end
+
+    def build_item_from_match(pm, qty)
+      override_supplier_id = supplier_overrides[pm.id.to_s]
+      chosen = if override_supplier_id
+        prices = pm.prices_by_supplier
+        prices.find { |p| p[:supplier].id == override_supplier_id && p[:price].present? }
+      end
+      chosen ||= pm.cheapest_supplier
+      return nil unless chosen
+
+      most_expensive = pm.most_expensive_supplier
+
+      supplier_list_item = chosen[:item]
+      supplier_product = supplier_list_item.supplier_product
+      return nil unless supplier_product
+
+      {
+        product_match_id: pm.id,
+        supplier_id: chosen[:supplier].id,
+        supplier_product_id: supplier_product.id,
+        quantity: qty,
+        unit_price: supplier_list_item.price || supplier_product.current_price,
+        worst_price: most_expensive&.dig(:price)
+      }
     end
   end
 end

@@ -56,7 +56,7 @@
         <% end %>
         <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">
           <span class="text-xs font-medium text-gray-500 uppercase">Delivery</span>
-          <%= date_field_tag :delivery_date, Date.tomorrow, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
+          <%= date_field_tag :delivery_date, nil, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
         </div>
         <div class="ml-auto shrink-0 bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-3">
           <%= link_to "Cancel", select_list_orders_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
@@ -88,19 +88,10 @@
               <% pm = item.product_match %>
               <% next unless pm %>
               <%
-                # Find cheapest supplier for this item
-                cheapest_supplier_id = nil
-                cheapest_price = nil
-                supplier_product_id = nil
-                @suppliers.each do |supplier|
-                  data = @price_data.dig(item.id, supplier.id)
-                  next unless data && data[:price]
-                  if cheapest_price.nil? || data[:price] < cheapest_price
-                    cheapest_price = data[:price]
-                    cheapest_supplier_id = supplier.id
-                    supplier_product_id = data[:supplier_product]&.id
-                  end
-                end
+                # Use model's cheapest_supplier (respects per-unit pricing)
+                cheapest = pm.cheapest_supplier
+                cheapest_supplier_id = cheapest&.dig(:supplier)&.id
+                cheapest_price = cheapest&.dig(:price) || 0
               %>
               <tr class="hover:bg-gray-50"
                   data-order-builder-target="productRow"
@@ -222,18 +213,10 @@
           <tbody class="divide-y divide-gray-200 bg-white">
             <% @extra_matches.each do |pm| %>
               <%
-                cheapest_supplier_id = nil
-                cheapest_price = nil
-                supplier_product_id = nil
-                @suppliers.each do |supplier|
-                  data = @extra_price_data.dig(pm.id, supplier.id)
-                  next unless data && data[:price]
-                  if cheapest_price.nil? || data[:price] < cheapest_price
-                    cheapest_price = data[:price]
-                    cheapest_supplier_id = supplier.id
-                    supplier_product_id = data[:supplier_product]&.id
-                  end
-                end
+                # Use model's cheapest_supplier (respects per-unit pricing)
+                cheapest = pm.cheapest_supplier
+                cheapest_supplier_id = cheapest&.dig(:supplier)&.id
+                cheapest_price = cheapest&.dig(:price) || 0
               %>
               <tr class="hover:bg-gray-50"
                   data-order-builder-target="productRow"
