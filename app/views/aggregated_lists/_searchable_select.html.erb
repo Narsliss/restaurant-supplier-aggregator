@@ -1,8 +1,11 @@
-<%# Searchable select for product assignment.
-    Shows all items in a scrollable list with a search filter at top.
-    Locals: field_name (string), items (ActiveRecord collection), selected_id (integer or nil)
-            show_no_match (boolean, optional) — adds a "No Match" option at top %>
-<div data-controller="searchable-select" class="relative">
+<%# AJAX-powered searchable select for product assignment.
+    Fetches results from server on demand — renders zero items at page load.
+    Locals: field_name (string), search_url (string), supplier_id (integer),
+            selected_id (integer or nil), show_no_match (boolean, optional) %>
+<div data-controller="searchable-select"
+     data-searchable-select-url-value="<%= search_url %>"
+     data-searchable-select-supplier-id-value="<%= supplier_id %>"
+     class="relative">
   <input type="hidden"
          data-searchable-select-target="hidden"
          name="<%= field_name %>"
@@ -28,13 +31,6 @@
           data-action="click->searchable-select#select"
           class="cursor-pointer px-3 py-1.5 text-red-500 font-medium hover:bg-red-50 hover:text-red-700 border-b border-gray-100">
         ✕ No Match — Remove from group
-      </li>
-    <% end %>
-    <% items.each do |opt| %>
-      <li data-value="<%= opt.id %>"
-          data-action="click->searchable-select#select"
-          class="cursor-pointer px-3 py-1.5 hover:bg-brand-orange hover:text-white <%= opt.id == selected_id ? 'bg-brand-orange/10 font-medium' : '' %>">
-        <%= opt.name.truncate(50) %> — <%= opt.price ? "$#{'%.2f' % opt.price}" : 'N/A' %>
       </li>
     <% end %>
   </ul>

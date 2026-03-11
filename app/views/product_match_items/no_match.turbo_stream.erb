@@ -12,7 +12,8 @@
                  supplier: @old_supplier,
                  item: nil,
                  pmi: nil,
-                 available_items: @available_items %>
+                 search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                 supplier_id: @old_supplier.id %>
     </td>
   <% end %>
 <% end %>
@@ -37,16 +38,16 @@
                        supplier: supplier,
                        item: orphan_item,
                        pmi: orphan_pmi,
-                       available_items: @available_items %>
+                       search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                       supplier_id: supplier.id %>
           <% else %>
-            <% other_available = @aggregated_list.supplier_lists.find_by(supplier_id: supplier.id)
-                                   &.supplier_list_items&.select(:id, :name, :sku, :price, :pack_size)&.order(:name) || [] %>
             <%= render "aggregated_lists/supplier_cell",
                        product_match: @new_orphan_match,
                        supplier: supplier,
                        item: nil,
                        pmi: nil,
-                       available_items: other_available %>
+                       search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                       supplier_id: supplier.id %>
           <% end %>
         </td>
       <% end %>

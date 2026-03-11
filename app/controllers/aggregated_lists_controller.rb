@@ -1,6 +1,6 @@
 class AggregatedListsController < ApplicationController
   before_action :require_location_context!
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder add_supplier_guide promote demote]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder add_supplier_guide promote demote supplier_items_search]
   before_action :require_owner!, only: %i[promote demote]
   before_action :require_not_promoted!, only: %i[edit update destroy run_matching add_supplier_guide]
 
@@ -90,14 +90,6 @@ class AggregatedListsController < ApplicationController
         most_expensive_supplier: most_expensive&.dig(:supplier),
         spread: spread
       }
-    end
-
-    # Load all items per supplier for dropdown reassignment
-    @items_by_supplier = {}
-    @supplier_lists.each do |sl|
-      @items_by_supplier[sl.supplier_id] = sl.supplier_list_items
-                                             .select(:id, :name, :sku, :price, :pack_size)
-                                             .order(:name)
     end
 
     # Teaser columns: show catalog data from suppliers not mapped to this list
@@ -251,6 +243,21 @@ class AggregatedListsController < ApplicationController
   def demote
     @aggregated_list.update!(promoted_org_wide: false)
     redirect_to @aggregated_list, notice: "\"#{@aggregated_list.name}\" is no longer the organization-wide list."
+  end
+
+  def supplier_items_search
+    supplier_list = @aggregated_list.supplier_lists.find_by(supplier_id: params[:supplier_id])
+    items = supplier_list&.supplier_list_items || SupplierListItem.none
+
+    if params[:q].present?
+      items = items.where("LOWER(name) LIKE ?", "%#{params[:q].downcase}%")
+    end
+
+    results = items.select(:id, :name, :price, :pack_size).order(:name).limit(15)
+
+    render json: results.map { |i|
+      { id: i.id, name: i.name.truncate(60), price: i.price ? "$#{'%.2f' % i.price}" : "N/A", pack_size: i.pack_size }
+    }
   end
 
   def search_catalog

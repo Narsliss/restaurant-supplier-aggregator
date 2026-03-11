@@ -22,7 +22,6 @@ class ProductMatchItemsController < ApplicationController
     @removed_match_ids = remove_duplicate_rows(new_item.id, @product_match.id)
 
     @supplier = Supplier.find(supplier_id)
-    @available_items = load_available_items(supplier_id)
 
     respond_to do |format|
       format.html do
@@ -71,8 +70,6 @@ class ProductMatchItemsController < ApplicationController
         )
       end
 
-      @available_items = load_available_items(@old_supplier.id)
-
       respond_to do |format|
         format.html do
           redirect_to aggregated_list_path(@aggregated_list),
@@ -91,7 +88,6 @@ class ProductMatchItemsController < ApplicationController
     @removed_match_ids = remove_duplicate_rows(new_item.id, @product_match.id)
 
     @supplier = @product_match_item.supplier
-    @available_items = load_available_items(@supplier.id)
 
     respond_to do |format|
       format.html do
@@ -103,16 +99,6 @@ class ProductMatchItemsController < ApplicationController
   end
 
   private
-
-  # Load all items for a supplier's list within this aggregated list (for the Change dropdown)
-  def load_available_items(supplier_id)
-    supplier_list = @aggregated_list.supplier_lists.find_by(supplier_id: supplier_id)
-    return [] unless supplier_list
-
-    supplier_list.supplier_list_items
-                 .select(:id, :name, :sku, :price, :pack_size)
-                 .order(:name)
-  end
 
   # When a supplier_list_item is assigned to a match row, find any OTHER
   # ProductMatch rows in the same aggregated list that contain this same item.

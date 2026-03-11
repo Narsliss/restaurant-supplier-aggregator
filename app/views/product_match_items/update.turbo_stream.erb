@@ -5,7 +5,8 @@
                supplier: @supplier,
                item: @product_match_item.supplier_list_item,
                pmi: @product_match_item,
-               available_items: @available_items %>
+               search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+               supplier_id: @supplier.id %>
   </td>
 <% end %>
 

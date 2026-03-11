@@ -4,7 +4,8 @@
       supplier         — the Supplier for this column
       item             — the SupplierListItem (or nil if unmatched)
       pmi              — the ProductMatchItem (or nil)
-      available_items  — all SupplierListItems for this supplier (for dropdown)
+      search_url       — AJAX search endpoint URL
+      supplier_id      — supplier ID for search scoping
       is_cheapest      — boolean (optional, default false)
       is_most_expensive — boolean (optional, default false)
 %>
@@ -35,14 +36,15 @@
       <span class="ml-1 text-xs text-red-500">Out of stock</span>
     <% end %>
   </div>
-  <% if pmi && available_items.any? %>
+  <% if pmi %>
     <details class="mt-1">
       <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Change</summary>
       <div class="mt-1">
         <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
           <%= render "aggregated_lists/searchable_select",
                      field_name: "product_match_item[supplier_list_item_id]",
-                     items: available_items,
+                     search_url: search_url,
+                     supplier_id: supplier_id,
                      selected_id: item.id,
                      show_no_match: true %>
         <% end %>
@@ -51,19 +53,20 @@
   <% end %>
 <% else %>
   <span class="text-sm text-gray-400 italic">No match</span>
-  <% if pmi && available_items.any? %>
+  <% if pmi %>
     <details class="mt-1">
       <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
       <div class="mt-1">
         <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
           <%= render "aggregated_lists/searchable_select",
                      field_name: "product_match_item[supplier_list_item_id]",
-                     items: available_items,
+                     search_url: search_url,
+                     supplier_id: supplier_id,
                      selected_id: nil %>
         <% end %>
       </div>
     </details>
-  <% elsif available_items.any? %>
+  <% else %>
     <details class="mt-1">
       <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
       <div class="mt-1">
@@ -72,7 +75,8 @@
           <%= hidden_field_tag "product_match_item[supplier_id]", supplier.id %>
           <%= render "aggregated_lists/searchable_select",
                      field_name: "product_match_item[supplier_list_item_id]",
-                     items: available_items,
+                     search_url: search_url,
+                     supplier_id: supplier_id,
                      selected_id: nil %>
         <% end %>
       </div>

@@ -244,7 +244,6 @@
                   <% lookup = @match_supplier_map.dig(match.id, supplier.id) %>
                   <% item = lookup&.dig(:item) %>
                   <% pmi = lookup&.dig(:pmi) %>
-                  <% available_items = @items_by_supplier[supplier.id] || [] %>
                   <% is_cheapest = item && price_info[:cheapest_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
                   <% is_most_expensive = item && price_info[:most_expensive_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
                   <%= render "aggregated_lists/supplier_cell",
@@ -252,7 +251,8 @@
                              supplier: supplier,
                              item: item,
                              pmi: pmi,
-                             available_items: available_items,
+                             search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                             supplier_id: supplier.id,
                              is_cheapest: is_cheapest,
                              is_most_expensive: is_most_expensive %>
                 </td>
