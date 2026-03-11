@@ -250,20 +250,40 @@ class AggregatedListsController < ApplicationController
   end
 
   def supplier_items_search
-    supplier_list_ids = @aggregated_list.supplier_lists
-                                        .where(supplier_id: params[:supplier_id])
-                                        .pluck(:id)
-    items = SupplierListItem.where(supplier_list_id: supplier_list_ids)
+    supplier_id = params[:supplier_id]
+    query = params[:q].to_s.downcase.strip
 
-    if params[:q].present?
-      items = items.where("LOWER(name) LIKE ?", "%#{params[:q].downcase}%")
+    # 1. Order guide items (already on the user's lists) — these have SupplierListItem IDs
+    supplier_list_ids = @aggregated_list.supplier_lists
+                                        .where(supplier_id: supplier_id)
+                                        .pluck(:id)
+    guide_items = SupplierListItem.where(supplier_list_id: supplier_list_ids)
+    guide_items = guide_items.where("LOWER(name) LIKE ?", "%#{query}%") if query.present?
+    guide_results = guide_items.select(:id, :name, :price, :pack_size, :supplier_product_id)
+                               .order(:name).limit(15)
+
+    # Track which catalog products are already covered by order guide items
+    covered_product_ids = guide_results.filter_map(&:supplier_product_id).to_set
+
+    # 2. Full catalog items (not on any order guide) — these use supplier_product: prefix
+    remaining = 15 - guide_results.size
+    catalog_results = []
+    if remaining > 0
+      catalog = SupplierProduct.where(supplier_id: supplier_id, discontinued: false)
+      catalog = catalog.where("LOWER(supplier_name) LIKE ?", "%#{query}%") if query.present?
+      catalog = catalog.where.not(id: covered_product_ids.to_a) if covered_product_ids.any?
+      catalog_results = catalog.select(:id, :supplier_name, :current_price, :pack_size)
+                               .order(:supplier_name).limit(remaining)
     end
 
-    results = items.select(:id, :name, :price, :pack_size).order(:name).limit(15)
-
-    render json: results.map { |i|
-      { id: i.id, name: i.name.truncate(60), price: i.price ? "$#{'%.2f' % i.price}" : "N/A", pack_size: i.pack_size }
+    json = guide_results.map { |i|
+      { id: i.id, name: i.name.truncate(60), price: i.price ? "$#{'%.2f' % i.price}" : "N/A", pack_size: i.pack_size, source: "guide" }
     }
+    json += catalog_results.map { |sp|
+      { id: "sp_#{sp.id}", name: sp.supplier_name.truncate(60), price: sp.current_price ? "$#{'%.2f' % sp.current_price}" : "N/A", pack_size: sp.pack_size, source: "catalog" }
+    }
+
+    render json: json
   end
 
   def search_catalog

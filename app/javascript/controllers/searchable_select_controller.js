@@ -115,7 +115,16 @@ export default class extends Controller {
 
       let text = `${item.name} — ${item.price}`
       if (item.pack_size) text += ` (${item.pack_size})`
-      li.textContent = text
+
+      if (item.source === "catalog") {
+        const span = document.createElement("span")
+        span.className = "text-xs text-blue-500 ml-1"
+        span.textContent = "(catalog)"
+        li.textContent = text
+        li.appendChild(span)
+      } else {
+        li.textContent = text
+      }
 
       this.listTarget.appendChild(li)
     })
