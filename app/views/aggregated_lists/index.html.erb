@@ -29,50 +29,66 @@
   <% else %>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-12">
       <% @matched_lists.each do |list| %>
-        <%= link_to aggregated_list_path(list), class: "bg-white shadow rounded-lg p-6 hover:shadow-md transition-shadow" do %>
-          <div class="flex justify-between items-start">
-            <h3 class="text-lg font-heading font-medium text-gray-900"><%= list.name %></h3>
-            <div class="flex items-center gap-2">
-              <% if list.promoted? %>
-                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-800">🌐 Org-Wide</span>
-              <% end %>
-              <% case list.match_status %>
-              <% when "matched" %>
-                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-800">Matched</span>
-              <% when "matching" %>
-                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">Matching...</span>
-              <% when "failed" %>
-                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-800">Failed</span>
-              <% else %>
-                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">Pending</span>
-              <% end %>
+        <div class="bg-white shadow rounded-lg hover:shadow-md transition-shadow">
+          <%= link_to aggregated_list_path(list), class: "block p-6" do %>
+            <div class="flex justify-between items-start">
+              <h3 class="text-lg font-heading font-medium text-gray-900"><%= list.name %></h3>
+              <div class="flex items-center gap-2">
+                <% if list.promoted? %>
+                  <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-800">🌐 Org-Wide</span>
+                <% end %>
+                <% case list.match_status %>
+                <% when "matched" %>
+                  <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-800">Matched</span>
+                <% when "matching" %>
+                  <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800">Matching...</span>
+                <% when "failed" %>
+                  <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-100 text-red-800">Failed</span>
+                <% else %>
+                  <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">Pending</span>
+                <% end %>
+              </div>
             </div>
-          </div>
-          <% if list.description.present? %>
-            <p class="mt-1 text-sm text-gray-500"><%= list.description %></p>
-          <% end %>
-          <div class="mt-4 flex flex-wrap gap-2">
-            <% list.supplier_lists.each do |sl| %>
-              <span class="inline-flex items-center rounded-full bg-brand-green-50 px-2.5 py-0.5 text-xs font-medium text-brand-green-dark">
-                <%= sl.supplier.name %>
-              </span>
+            <% if list.description.present? %>
+              <p class="mt-1 text-sm text-gray-500"><%= list.description %></p>
             <% end %>
-          </div>
-          <div class="mt-4 grid grid-cols-3 gap-4 text-center text-sm">
-            <div>
-              <p class="font-semibold text-gray-900"><%= list.total_match_count %></p>
-              <p class="text-gray-500">Products</p>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <% list.supplier_lists.each do |sl| %>
+                <span class="inline-flex items-center rounded-full bg-brand-green-50 px-2.5 py-0.5 text-xs font-medium text-brand-green-dark">
+                  <%= sl.supplier.name %>
+                </span>
+              <% end %>
             </div>
-            <div>
-              <p class="font-semibold text-green-600"><%= list.confirmed_count %></p>
-              <p class="text-gray-500">Confirmed</p>
+            <div class="mt-4 grid grid-cols-3 gap-4 text-center text-sm">
+              <div>
+                <p class="font-semibold text-gray-900"><%= list.total_match_count %></p>
+                <p class="text-gray-500">Products</p>
+              </div>
+              <div>
+                <p class="font-semibold text-green-600"><%= list.confirmed_count %></p>
+                <p class="text-gray-500">Confirmed</p>
+              </div>
+              <div>
+                <p class="font-semibold text-amber-600"><%= list.auto_matched_count %></p>
+                <p class="text-gray-500">To Review</p>
+              </div>
             </div>
-            <div>
-              <p class="font-semibold text-amber-600"><%= list.auto_matched_count %></p>
-              <p class="text-gray-500">To Review</p>
+          <% end %>
+
+          <% if owner? %>
+            <div class="px-6 pb-4">
+              <% if list.promoted? %>
+                <%= button_to "Demote from Org-Wide", demote_aggregated_list_path(list),
+                    method: :post,
+                    class: "w-full text-center rounded-md border border-purple-300 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 transition-colors" %>
+              <% else %>
+                <%= button_to "Promote to Org-Wide", promote_aggregated_list_path(list),
+                    method: :post,
+                    class: "w-full text-center rounded-md border border-purple-300 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 transition-colors" %>
+              <% end %>
             </div>
-          </div>
-        <% end %>
+          <% end %>
+        </div>
       <% end %>
     </div>
   <% end %>

@@ -112,6 +112,8 @@ Rails.application.routes.draw do
       post :search_catalog
       get :order_builder
       post :add_supplier_guide
+      post :promote
+      post :demote
     end
     resources :product_matches, only: %i[index] do
       member do

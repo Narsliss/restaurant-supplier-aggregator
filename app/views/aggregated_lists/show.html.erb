@@ -5,14 +5,36 @@
 
   <div class="flex justify-between items-center mb-6">
     <div>
-      <h1 class="text-2xl font-heading font-bold text-gray-900"><%= @aggregated_list.name %></h1>
+      <h1 class="text-2xl font-heading font-bold text-gray-900">
+        <%= @aggregated_list.name %>
+        <% if @aggregated_list.promoted? %>
+          <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 ml-2 align-middle">🌐 Org-Wide</span>
+        <% end %>
+      </h1>
       <p class="mt-1 text-sm text-gray-500">
         <%= @suppliers.map(&:name).join(" vs ") %>
         <span class="mx-1">&middot;</span>
         <%= pluralize(@stats[:total], "product") %>
+        <% if @aggregated_list.promoted? %>
+          <span class="mx-1">&middot;</span>
+          <span class="text-purple-600 font-medium">Read-only (promoted)</span>
+        <% end %>
       </p>
     </div>
     <div class="flex gap-3">
+      <%# Promote / Demote buttons (owner only) %>
+      <% if owner? && @aggregated_list.matched_list? %>
+        <% if @aggregated_list.promoted? %>
+          <%= button_to "Demote from Org-Wide", demote_aggregated_list_path(@aggregated_list),
+              method: :post,
+              class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors" %>
+        <% else %>
+          <%= button_to "Promote to Org-Wide", promote_aggregated_list_path(@aggregated_list),
+              method: :post,
+              class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-purple-300 text-purple-700 hover:bg-purple-50 transition-colors" %>
+        <% end %>
+      <% end %>
+
       <% if @aggregated_list.matching? || @aggregated_list.searching_catalog? %>
         <span class="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md bg-gray-100 text-gray-400 cursor-not-allowed">
           <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -21,6 +43,8 @@
           </svg>
           Processing...
         </span>
+      <% elsif @aggregated_list.promoted? %>
+        <%# No edit/rematch controls when promoted — read-only %>
       <% else %>
         <%= link_to "&larr; Modify List Settings".html_safe, edit_aggregated_list_path(@aggregated_list),
             class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
@@ -54,7 +78,7 @@
   </div>
 
   <%# Add Supplier Guide section (matched lists only, when not currently processing) %>
-  <% if @available_guides&.any? %>
+  <% if @available_guides&.any? && !@aggregated_list.promoted? %>
     <div class="bg-white shadow rounded-lg p-4 mb-6 border border-dashed border-gray-300">
       <details class="group">
         <summary class="flex items-center justify-between cursor-pointer list-none">
@@ -177,27 +201,33 @@
             <tr id="<%= dom_id(match) %>" class="<%= match.unmatched? ? 'bg-amber-50/50' : '' %> hover:bg-gray-50">
               <!-- Canonical name column (click pencil to rename) -->
               <td class="px-4 py-3 sticky left-0 bg-inherit z-10">
-                <div data-controller="inline-edit"
-                     data-inline-edit-url-value="<%= rename_aggregated_list_product_match_path(@aggregated_list, match) %>"
-                     data-inline-edit-field-value="canonical_name"
-                     class="group flex items-start gap-1">
-                  <span class="text-sm font-medium text-gray-900 cursor-pointer hover:text-brand-orange transition-colors underline decoration-dashed decoration-gray-300 decoration-1 underline-offset-2 hover:decoration-brand-orange"
-                        data-inline-edit-target="display"
-                        data-action="click->inline-edit#edit"
-                        title="Click to rename"><%= match.display_name %></span>
-                  <button data-inline-edit-target="icon"
+                <% if @aggregated_list.promoted? %>
+                  <div class="flex items-start gap-1">
+                    <span class="text-sm font-medium text-gray-900"><%= match.display_name %></span>
+                  </div>
+                <% else %>
+                  <div data-controller="inline-edit"
+                       data-inline-edit-url-value="<%= rename_aggregated_list_product_match_path(@aggregated_list, match) %>"
+                       data-inline-edit-field-value="canonical_name"
+                       class="group flex items-start gap-1">
+                    <span class="text-sm font-medium text-gray-900 cursor-pointer hover:text-brand-orange transition-colors underline decoration-dashed decoration-gray-300 decoration-1 underline-offset-2 hover:decoration-brand-orange"
+                          data-inline-edit-target="display"
                           data-action="click->inline-edit#edit"
-                          class="opacity-40 group-hover:opacity-100 transition-opacity mt-0.5 text-gray-400 hover:text-brand-orange flex-shrink-0"
-                          title="Rename product">
-                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
-                    </svg>
-                  </button>
-                  <input type="text"
-                         data-inline-edit-target="input"
-                         data-action="blur->inline-edit#save keydown->inline-edit#keydown"
-                         class="hidden text-sm font-medium text-gray-900 bg-white border border-brand-green rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-green w-full">
-                </div>
+                          title="Click to rename"><%= match.display_name %></span>
+                    <button data-inline-edit-target="icon"
+                            data-action="click->inline-edit#edit"
+                            class="opacity-40 group-hover:opacity-100 transition-opacity mt-0.5 text-gray-400 hover:text-brand-orange flex-shrink-0"
+                            title="Rename product">
+                      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
+                      </svg>
+                    </button>
+                    <input type="text"
+                           data-inline-edit-target="input"
+                           data-action="blur->inline-edit#save keydown->inline-edit#keydown"
+                           class="hidden text-sm font-medium text-gray-900 bg-white border border-brand-green rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-green w-full">
+                  </div>
+                <% end %>
                 <div class="text-xs text-gray-500">
                   <% if match.confidence_score && match.confidence_score > 0 %>
                     <span class="<%= match.confidence_score >= 0.8 ? 'text-green-600' : 'text-amber-600' %>">
@@ -250,17 +280,19 @@
                       </svg>
                     </span>
                   <% end %>
-                  <button type="button"
-                          class="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
-                          title="Remove from list"
-                          data-dismiss-url="<%= reject_aggregated_list_product_match_path(@aggregated_list, match) %>"
-                          data-match-row="<%= dom_id(match) %>"
-                          data-match-name="<%= match.display_name %>"
-                          onclick="dismissMatch(this)">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                  </button>
+                  <% unless @aggregated_list.promoted? %>
+                    <button type="button"
+                            class="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                            title="Remove from list"
+                            data-dismiss-url="<%= reject_aggregated_list_product_match_path(@aggregated_list, match) %>"
+                            data-match-row="<%= dom_id(match) %>"
+                            data-match-name="<%= match.display_name %>"
+                            onclick="dismissMatch(this)">
+                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                      </svg>
+                    </button>
+                  <% end %>
                 </div>
               </td>
             </tr>

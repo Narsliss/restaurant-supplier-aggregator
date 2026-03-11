@@ -1,6 +1,8 @@
 class AggregatedListsController < ApplicationController
   before_action :require_location_context!
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder add_supplier_guide]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder add_supplier_guide promote demote]
+  before_action :require_owner!, only: %i[promote demote]
+  before_action :require_not_promoted!, only: %i[edit update destroy run_matching add_supplier_guide]
 
   def index
     @aggregated_lists = current_organization_aggregated_lists
@@ -238,6 +240,19 @@ class AggregatedListsController < ApplicationController
     redirect_to @aggregated_list, notice: "Adding #{added_ids.size} supplier guide(s) and matching new products..."
   end
 
+  def promote
+    if @aggregated_list.update(promoted_org_wide: true)
+      redirect_to @aggregated_list, notice: "\"#{@aggregated_list.name}\" is now the organization-wide list."
+    else
+      redirect_to @aggregated_list, alert: @aggregated_list.errors.full_messages.to_sentence
+    end
+  end
+
+  def demote
+    @aggregated_list.update!(promoted_org_wide: false)
+    redirect_to @aggregated_list, notice: "\"#{@aggregated_list.name}\" is no longer the organization-wide list."
+  end
+
   def search_catalog
     unless @aggregated_list.matched?
       redirect_to @aggregated_list
@@ -391,6 +406,12 @@ class AggregatedListsController < ApplicationController
 
   def set_aggregated_list
     @aggregated_list = current_organization_aggregated_lists.find(params[:id])
+  end
+
+  def require_not_promoted!
+    return unless @aggregated_list&.promoted?
+
+    redirect_to @aggregated_list, alert: "This list is promoted to organization-wide and cannot be edited. Demote it first to make changes."
   end
 
   def current_organization_aggregated_lists
