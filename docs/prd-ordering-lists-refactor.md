@@ -38,41 +38,65 @@ Today's product matching workflow has several friction points:
 
 ### Two-Layer Architecture
 
-**Layer 1: Master Match List (one-time setup per location)**
-- One per location (optionally shared across the entire organization)
-- Automatically includes all supplier order guides synced for that location
-- AI proposes matches; a chef reviews and confirms each one (one-time effort)
-- When a new supplier is added: AI proposes matches for new items only → chef reviews just those
+**Layer 1: Matched Lists (chef-created, per location)**
+- Chefs create matched lists for their location by selecting which supplier order guides to include
+- AI proposes matches across the selected suppliers; the chef reviews and confirms each one
+- Each location can have multiple matched lists (e.g., one chef might create "All Suppliers" while another creates "Produce Only")
 - Confirmed matches are permanent and never modified by the system
-- This is the "source of truth" for cross-supplier product comparison
+- An owner can optionally **promote** any location's matched list to be the org-wide standard — but this is rare, especially when locations have different suppliers or pricing
+- If no org-wide list is promoted, each location simply uses its own matched lists (the common case)
 
 **Layer 2: Ordering Lists (user-created, lightweight)**
-- Simple subsets of products from the Master Match List
+- Simple subsets of products from a matched list
 - Created by picking products from the matched list and naming the list (e.g., "Monday Produce," "Prep List," "Weekend Brunch")
-- Shared across the organization by default, with a private toggle for personal lists
+- Shared at the location level by default, with private and org-wide options
 - Each item references a matched product — prices and supplier options stay current automatically
 - One-click ordering: open a list, set quantities, submit
+
+### Navigation: "Supplier Data" Dropdown
+
+A key lesson from the first implementation: separate navigation items for Supplier Credentials, Matched Lists, and Order Lists created clutter. The updated navigation consolidates related items:
+
+```
+┌─────────────────────────────┐
+│  Supplier Data ▾            │  ← single dropdown
+│  ├── Supplier Credentials   │  ← connect/manage logins
+│  └── Matched Lists          │  ← view/create matched lists
+│                             │
+│  Order Lists                │  ← separate top-level nav item
+└─────────────────────────────┘
+```
+
+**Supplier Data** groups the setup/configuration layer (credentials + matching) together because they're closely related — you connect a supplier, then match its products. **Order Lists** stays top-level because it's the daily workflow chefs use most.
 
 ### How It Works
 
 ```
-INITIAL SETUP (one-time):
+SETUP (per location):
   Chef connects suppliers → order guides sync
-  → AI proposes matches across all suppliers
+  → Chef creates a Matched List, selecting which supplier guides to include
+  → AI proposes matches across selected suppliers
   → Chef reviews & confirms each match (same as current workflow)
   → Done. This never needs to happen again for these products.
 
 NEW SUPPLIER ADDED (rare):
-  New supplier syncs → AI proposes matches for new items only
+  New supplier syncs → chef adds new guide to existing matched list
+  → AI proposes matches for new items only
   → Chef reviews & confirms ONLY the new items
   → All previously confirmed matches: completely untouched
 
-DAILY ORDERING (the new part):
+DAILY ORDERING (the main workflow):
   Chef creates "Monday Produce" list → picks items from confirmed matches
   Monday morning → opens "Monday Produce"
                 → adjusts quantities
                 → sees best prices across all suppliers
                 → submits order
+
+OPTIONAL ORG-WIDE PROMOTION (rare):
+  Owner views a location's matched list
+  → Promotes it as the org-wide standard
+  → Other locations can reference it, but products from unavailable
+     suppliers are flagged "not available at [location]"
 ```
 
 ---
@@ -101,23 +125,24 @@ DAILY ORDERING (the new part):
 
 ## 6. Feature Requirements
 
-### Phase 1: Master Match List (Foundation)
+### Phase 1: Matched Lists (Foundation)
 
-> **Goal**: Every location has a single master match list where products are matched once (with human confirmation) and stay matched. New suppliers only require reviewing new items.
+> **Goal**: Chefs can create matched lists for their location, selecting which supplier order guides to include. Matching happens once with human confirmation. New suppliers only require reviewing new items. Owners can optionally promote a location's list to org-wide.
 
-#### 6.1 Automatic Master List Creation
+#### 6.1 Chef-Created Matched Lists
 
 | Requirement | Details |
 |-------------|---------|
-| One per location | Each location gets a Master Match List created automatically when the first supplier list syncs |
-| Auto-includes all supplier order guides | Every synced supplier order guide for the location is automatically attached — including multiple lists from the same supplier (e.g., US Foods "Proteins" + "Produce" + "Favorites") |
+| Chef-initiated | Chefs create matched lists by choosing a name and selecting which supplier order guides to include. This is an intentional action, not automatic. |
+| Location-scoped by default | Each matched list belongs to the location where it was created. Other locations create their own. |
+| Multiple lists per location | A location can have more than one matched list (e.g., "All Suppliers" vs. "Produce Only"), though most locations will just have one. |
+| Supplier guide selection | During creation, the chef picks which synced supplier order guides to include — including multiple lists from the same supplier (e.g., US Foods "Proteins" + "Produce" + "Favorites"). Guides can be added later. |
 | Order guides only, not full catalog | Matching applies only to items from the chef's curated order guides (typically 50-200 items per supplier), NOT the full supplier catalog (which can be tens of thousands of items). The full catalog is only searched on-demand to fill gaps (existing `CatalogSearchService` behavior). |
-| No manual setup | Chefs don't need to "create" a comparison list — it exists by default |
-| Named automatically | Default name: "[Location Name] — All Products" |
+| Named by chef | Chef provides a descriptive name (e.g., "All Products," "Produce Comparison," "Weekend Menu Items") |
 
 #### 6.1.1 Deduplication
 
-When a supplier has multiple order guides, the same product can appear in more than one list (e.g., "Chicken Breast" is in both the "Proteins" guide and the "Favorites" list). The master list must deduplicate so chefs aren't asked to match the same product twice.
+When a matched list includes multiple order guides from the same supplier, the same product can appear in more than one (e.g., "Chicken Breast" is in both the "Proteins" guide and the "Favorites" list). The matched list must deduplicate so chefs aren't asked to match the same product twice.
 
 | Requirement | Details |
 |-------------|---------|
@@ -126,16 +151,16 @@ When a supplier has multiple order guides, the same product can appear in more t
 | Dedup strategy | Use the existing `SupplierListItem → SupplierProduct` link as the dedup key. Multiple SupplierListItems pointing to the same SupplierProduct are treated as one item for matching purposes. |
 | Price source | When deduped, use the most recently updated price across the duplicate items. |
 
-#### 6.2 Incremental Matching (New Supplier Added)
+#### 6.2 Incremental Matching (New Supplier Guide Added)
 
-Incremental matching only runs when a **new supplier** is connected or a new supplier order guide is synced. It does NOT re-match existing products on daily syncs — daily syncs only update prices.
+Incremental matching runs when a chef **adds a new supplier order guide** to an existing matched list. It does NOT re-match existing products on daily syncs — daily syncs only update prices.
 
 | Requirement | Details |
 |-------------|---------|
 | Additive only | New supplier products are proposed as matches against existing confirmed matches — never deletes or modifies confirmed matches |
 | Human review required | All proposed matches start as "auto-matched" and require chef confirmation before being treated as confirmed. **No match is finalized without human approval.** |
 | Review notification | Chef is notified: "5 new products need review" when incremental matching proposes new matches |
-| Triggered on new supplier data | Runs when a new supplier list is attached to the master list (not on every daily price sync) |
+| Triggered on guide addition | Runs when a chef adds a new supplier order guide to the matched list (not on every daily price sync) |
 | Same matching quality | Uses the existing 4-pass strategy: shared product link → exact name → similarity score → AI matching |
 | Matches against canonical names | New items are compared to existing `ProductMatch` canonical names, not re-compared across all items |
 | Unmatched items preserved | Products that can't be matched get their own row with "unmatched" status for manual review |
@@ -145,36 +170,38 @@ Incremental matching only runs when a **new supplier** is connected or a new sup
 
 | Event | Matching Runs? | Human Review Needed? | Existing Matches Affected? |
 |-------|---------------|---------------------|--------------------------|
-| Initial setup (first time) | Yes — full AI matching | Yes — chef confirms all matches | N/A — no prior matches |
-| New supplier connected | Yes — incremental, new items only | Yes — chef confirms new matches only | No — untouched |
-| Chef adds items to an order guide | Yes — incremental, new items only | Yes — chef confirms new matches only | No — untouched |
-| Chef creates a new order guide | Yes — incremental, new items only (deduped against existing) | Yes — chef confirms new matches only | No — untouched |
+| Chef creates matched list with guides | Yes — full AI matching | Yes — chef confirms all matches | N/A — no prior matches |
+| Chef adds a new guide to existing list | Yes — incremental, new items only | Yes — chef confirms new matches only | No — untouched |
+| Chef adds items to a supplier order guide | Yes — incremental, new items only | Yes — chef confirms new matches only | No — untouched |
 | Chef removes items from an order guide | **No** — existing matches stay valid | No | No — match and product data preserved |
 | Daily supplier price sync | **No** — prices update on existing matches | No | No — prices update automatically |
 | Product discontinued by supplier | **No** — handled by existing discontinuation logic | No | Match preserved; product flagged as unavailable |
 | Chef clicks "Re-match All" | Yes — full reset | Yes — all matches need re-confirmation | Yes — intentional full reset |
 
-#### 6.3 Organization Sharing Toggle
+#### 6.3 Organization Promotion (Owner-Only)
+
+Owners can promote any location's matched list to be the org-wide standard. This is optional and rare — most organizations won't use it, especially when locations have different suppliers or pricing.
 
 | Requirement | Details |
 |-------------|---------|
-| Default: location-scoped | Master Match List visible only to users at that location. Other locations create their own. |
-| "Use for entire organization" toggle | When enabled, this master list becomes the shared source of truth for all locations. Other locations don't need to create their own — they use this one. |
-| Owner-only permission | Only organization owners can toggle between "this location only" and "use for entire organization." Chefs and managers cannot change this setting to prevent accidental disruption to other locations. |
-| Show all products, flag availability | When shared across locations, the master list includes the union of ALL suppliers across ALL locations. Products from suppliers not available at a given location are shown but flagged as "not available at [location]" — visible for reference but not orderable. This supports national organizations where a supplier may service the East Coast but not the West Coast. |
-| Additive when shared | Sharing across org attaches supplier lists from other locations and triggers incremental matching for newly-included items (requires human review). |
-| Easy to change | Toggle can be flipped at any time without losing match data. |
+| Default: location-scoped | Matched lists are visible only to users at the location that created them. Each location manages its own. |
+| Owner promotes a list | An owner can select any location's matched list and promote it as the org-wide standard. This is a deliberate action, not a toggle — the owner is saying "this list represents our organization's product catalog." |
+| Owner-only permission | Only organization owners can promote or demote an org-wide list. Chefs and managers cannot change this setting to prevent accidental disruption to other locations. |
+| Org-wide list overrides | When an org-wide list exists, it becomes the source of truth for all locations. Location-level lists still exist but the org list takes precedence for creating ordering lists. |
+| Flag unavailable suppliers | Products from suppliers not available at a given location are shown but flagged as "not available at [location]" — visible for reference but not orderable. This supports national organizations where a supplier may service the East Coast but not the West Coast. |
+| Demotable | The owner can demote the org-wide list back to location-only at any time without losing match data. Locations revert to using their own lists. |
 
-#### 6.4 Master Match List UI
+#### 6.4 Matched List UI
 
 | Requirement | Details |
 |-------------|---------|
-| Prominent placement | Master list appears at the top of the Order Guides / Comparison Lists page |
+| Located under "Supplier Data" | Matched lists appear in the Supplier Data dropdown alongside Supplier Credentials |
 | Same comparison table | Reuses the existing product comparison UI (sticky product name column, supplier price columns, per-unit pricing) |
 | Match status badges | Confirmed, Auto-Matched, Unmatched, Rejected — same as current |
 | Confirm/reject/rename actions | Same workflow as current comparison list review |
 | Category grouping | Products grouped by category for easier scanning |
-| "Create Ordering List" button | Primary call-to-action on the master list page |
+| "Create Ordering List" button | Primary call-to-action on the matched list page |
+| Org-wide badge | If the list has been promoted to org-wide, show a prominent badge so all users know |
 
 ---
 
@@ -221,35 +248,43 @@ Three visibility levels for ordering lists:
 
 #### 6.8 Ordering from a List
 
+An ordering list is a **prioritized subset** of the matched list, not a filter. When placing an order, the chef sees their selected items prominently at the top, with the full matched list available below for one-off additions.
+
 | Requirement | Details |
 |-------------|---------|
-| Order builder UI | Same supplier price comparison columns, quantity inputs, and KPI bar as the current order builder |
-| Pre-filled quantities | List's saved quantities pre-populate the order form |
+| Two-section layout | **"Your List" section** (top): the items the chef selected when creating the ordering list — these are the items they order regularly. **"All Other Products" section** (below): every other confirmed product from the matched list, available for one-off additions without needing to edit the list. |
+| Visual separation | Clear divider or heading between the two sections (e.g., "── Monday Produce (12 items) ──" then "── All Other Products (184 items) ──") |
+| Order builder UI | Same supplier price comparison columns, quantity inputs, and KPI bar as the current order builder — applies to both sections |
+| Pre-filled quantities | List items have saved default quantities pre-populated. "All Other Products" default to 0 (or blank). |
+| One-off additions | Chef can set a quantity on any item in "All Other Products" to include it in this order — without permanently adding it to the ordering list |
+| "Add to List" option | Optional: if a chef repeatedly orders a one-off item, they can click "Add to List" to permanently include it in the ordering list for next time |
 | Supplier selection | Click a supplier's price cell to override the default (cheapest) selection |
 | Delivery date | Required before submission |
-| Submit → pending orders | Same flow: creates pending orders grouped by supplier → review → submit batch |
+| Submit → pending orders | Same flow: creates pending orders grouped by supplier → review → submit batch. Items from both sections are included if they have a quantity > 0. |
 
 ---
 
 ### Phase 3: Migration & Cleanup
 
-> **Goal**: Existing data is preserved and the old manual comparison workflow is retired or de-emphasized.
+> **Goal**: Existing data is preserved, navigation is consolidated under "Supplier Data," and the old manual comparison workflow is retired or de-emphasized.
 
 #### 6.9 Data Migration
 
 | Requirement | Details |
 |-------------|---------|
-| Preserve AggregatedList #8 | The existing production comparison list with confirmed matches becomes the master list for its location |
+| Preserve AggregatedList #8 | The existing production comparison list with confirmed matches is converted to a matched list (`list_type: 'matched'`) for its location |
 | No data loss | All confirmed/auto-matched ProductMatch records are preserved |
 | Old lists deprecated | Other comparison lists that haven't been used are cleaned up or archived |
 
-#### 6.10 UI Transition
+#### 6.10 UI & Navigation Transition
 
 | Requirement | Details |
 |-------------|---------|
-| Master list is primary | The Master Match List replaces "New Comparison List" as the primary action |
+| "Supplier Data" dropdown | New navigation dropdown containing: Supplier Credentials + Matched Lists |
+| "Order Lists" top-level | Ordering lists get their own top-level nav item (the daily workflow) |
+| Matched lists are primary | Under Supplier Data, matched lists replace "New Comparison List" as the primary action |
 | Custom comparisons available | Keep the ability to create custom comparison lists for ad-hoc analysis (secondary/advanced) |
-| Navigation update | "Order Guides" page leads with the master list, then ordering lists, then custom comparisons |
+| Remove old nav items | Remove separate "Supplier Credentials" and "Comparison Lists" nav items — both are now under "Supplier Data" |
 
 ---
 
@@ -259,12 +294,11 @@ Three visibility levels for ordering lists:
 
 ```
 aggregated_lists (existing)
-  + list_type:          string    ("master" or "custom", default: "custom")
-  + auto_sync:          boolean   (default: false)
-  + shared_across_org:  boolean   (default: false)
+  + list_type:          string    ("matched" or "custom", default: "custom")
+  + promoted_org_wide:  boolean   (default: false)
 
-  Unique index: [organization_id, list_type, location_id]
-                WHERE list_type = 'master'
+  Note: "matched" type = chef-created matched lists (this feature)
+        "custom"  type = ad-hoc comparison lists (existing behavior)
 
 order_list_items (existing)
   + product_match_id:   bigint    (nullable FK → product_matches, on_delete: nullify)
@@ -286,37 +320,59 @@ The refactor reuses existing models (`AggregatedList`, `ProductMatch`, `OrderLis
 ```
 Organization
 └── Location
-    └── Master AggregatedList (list_type: 'master', auto_sync: true)
-        ├── AggregatedListMappings → all SupplierLists for this location
-        └── ProductMatches (the single source of truth)
+    └── AggregatedList (list_type: 'matched', created by chef)
+        ├── AggregatedListMappings → selected SupplierLists
+        └── ProductMatches (source of truth for this list)
             └── ProductMatchItems (one per supplier per match)
 
+Organization (optional — owner promotes a location's matched list)
+└── AggregatedList (list_type: 'matched', promoted_org_wide: true)
+    └── Same structure, but visible to all locations
+        └── Products from unavailable suppliers flagged per-location
+
 Organization
-└── OrderLists (is_private: false = shared, true = private)
+└── OrderLists (visibility: private | location | organization)
     └── OrderListItems
-        └── product_match_id → ProductMatch (from the master list)
+        └── product_match_id → ProductMatch (from a matched list)
 ```
 
 ---
 
 ## 8. User Flows
 
-### 8.1 Automatic Setup (No User Action Required)
+### 8.1 Create a Matched List (Chef-Initiated)
 
 ```
-Chef connects a supplier credential
-  → Supplier list sync runs (daily cron or manual)
-  → System auto-creates Master Match List for the location (if not exists)
-  → System auto-attaches the synced SupplierList
-  → Incremental matching runs in background
-  → Chef sees "Your products are being matched..." notification
+Chef navigates to Supplier Data → Matched Lists
+  │
+  ▼
+  Clicks "New Matched List"
+  │
+  ▼
+  ┌─────────────────────────────────────────────────┐
+  │  Name: [All Suppliers - Main St Kitchen        ] │
+  │                                                  │
+  │  Select supplier order guides to include:        │
+  │  ☑ US Foods — Proteins (45 items)               │
+  │  ☑ US Foods — Produce (32 items)                │
+  │  ☑ US Foods — Favorites (18 items)              │
+  │  ☑ Chef's Warehouse — Order Guide (22 items)    │
+  │  ☑ PPO — Order Guide (28 items)                 │
+  │  ☑ What Chefs Want — Full List (51 items)       │
+  │                                                  │
+  │  [Create & Start Matching]                       │
+  └─────────────────────────────────────────────────┘
+  │
+  ▼
+  AI matching runs in background
+  → Chef sees "Matching 196 products across 4 suppliers..."
   → Matching completes → products ready for review
 ```
 
 ### 8.2 Review Matches (Same as Current)
 
 ```
-Navigate to Master Match List (prominent card on Order Guides page)
+Navigate to Supplier Data → Matched Lists → "All Suppliers - Main St Kitchen"
   │
   ▼
   Product comparison table
@@ -341,7 +397,7 @@ Navigate to Master Match List (prominent card on Order Guides page)
 ### 8.3 Create an Ordering List
 
 ```
-Click "Create Ordering List" on Master Match List
+Click "Create Ordering List" on a matched list
   │
   ▼
   ☑ Select products to include (checkboxes on each row)
@@ -349,7 +405,7 @@ Click "Create Ordering List" on Master Match List
   │
   ▼
   Name your list: [Monday Produce Order          ]
-  Sharing:        [● Shared with organization  ○ Private]
+  Sharing:        [● This Location  ○ Private  ○ Whole Organization]
   │
   ▼
   "Create List" → redirects to the new ordering list
@@ -358,7 +414,7 @@ Click "Create Ordering List" on Master Match List
 ### 8.4 Place an Order from an Ordering List
 
 ```
-Navigate to "My Ordering Lists"
+Navigate to Order Lists (top-level nav)
   │
   ▼
   ┌────────────────────────────────────────────┐
@@ -369,26 +425,40 @@ Navigate to "My Ordering Lists"
   │
   │ Click "Monday Produce"
   ▼
-  Order builder UI (same as current)
-  - Pre-filled quantities from saved defaults
-  - Supplier price comparison columns
-  - Edit quantities, select suppliers
-  - Set delivery date
+  ┌─────────────────────────────────────────────────────────────┐
+  │  ── Monday Produce (12 items) ──────────────────────────── │
+  │                                                             │
+  │  Product        │ Qty │ US Foods │ Chef's WH │ PPO         │
+  │  Carrots 50lb   │ [2] │ $28.50  │ $31.00    │ $26.99 ✓   │
+  │  Roma Tomatoes  │ [3] │ $32.50  │ $34.00    │ $29.99 ✓   │
+  │  Yellow Onions  │ [1] │ $18.00 ✓│ —         │ $19.50      │
+  │  ...8 more items                                            │
+  │                                                             │
+  │  ── All Other Products (184 items) ────────────────────── │
+  │                                                             │
+  │  Product        │ Qty │ US Foods │ Chef's WH │ PPO         │
+  │  Wagyu Strips   │ [ ] │ —       │ $89.00    │ —           │
+  │  Olive Oil EVOO │ [ ] │ $18.00  │ —         │ $19.50      │
+  │  ...                                                        │
+  └─────────────────────────────────────────────────────────────┘
   │
+  │ Chef adjusts quantities in "Your List" section
+  │ Optionally adds qty to a one-off item from "All Other Products"
+  │ Sets delivery date
   ▼
   "Submit Order" → pending orders created → review → batch submit
+  (includes items from both sections where qty > 0)
 ```
 
-### 8.5 New Supplier Added (Additive, Requires Review)
+### 8.5 Add New Supplier Guide to Matched List (Additive, Requires Review)
 
 ```
 Chef connects a new supplier (e.g., What Chefs Want)
+  → Supplier list syncs → new SupplierList created
   │
   ▼
-  Supplier list syncs → new SupplierList created
-  │
-  ▼
-  System auto-attaches to Master Match List
+  Chef opens their matched list → clicks "Add Supplier Guide"
+  → Selects "What Chefs Want — Full List"
   │
   ▼
   Incremental matching PROPOSES matches:
@@ -401,7 +471,7 @@ Chef connects a new supplier (e.g., What Chefs Want)
   Chef is notified: "4 new products need review"
   │
   ▼
-  Chef opens Master Match List → reviews only the new items:
+  Chef reviews only the new items:
   - Confirms "Chicken Breast" match → now 3 suppliers for this product ✓
   - Manually matches "Specialty Sauce XYZ" or leaves unmatched
   │
@@ -409,20 +479,49 @@ Chef connects a new supplier (e.g., What Chefs Want)
   Time spent: ~2 minutes (vs. re-matching everything from scratch)
 ```
 
+### 8.6 Owner Promotes a Matched List to Org-Wide (Optional)
+
+```
+Owner navigates to Supplier Data → Matched Lists
+  │
+  ▼
+  Sees matched lists across all locations:
+  ┌──────────────────────────────────────────────────────┐
+  │  All Suppliers - Main St    │ 196 products │ 4 suppliers │
+  │  Produce Only - Downtown    │  45 products │ 2 suppliers │
+  │  All Suppliers - Brooklyn   │ 112 products │ 3 suppliers │
+  └──────────────────────────────────────────────────────┘
+  │
+  │ Clicks "Promote to Org-Wide" on "All Suppliers - Main St"
+  ▼
+  Confirmation: "This will make Main St's matched list the standard
+  for all locations. Products from suppliers not available at other
+  locations will be flagged. Continue?"
+  │
+  ▼
+  List now shows 🌐 org-wide badge
+  Other locations see it and can create ordering lists from it
+  Products from unavailable suppliers flagged per-location
+```
+
 ---
 
 ## 9. Sharing Model
 
-### Master Match List
+### Matched Lists
 
-| Setting | Behavior |
-|---------|----------|
-| **"This location only"** (default) | Only users at this location see and use the master list. Other locations create their own master list. |
-| **"Use for entire organization"** (owner-only toggle) | This master list becomes the org-wide source of truth. All locations see it and can create ordering lists from it. Products from all locations' suppliers are included, with availability flagged per location. |
+| State | Behavior |
+|-------|----------|
+| **Location-scoped** (default) | The matched list belongs to the location where it was created. Only users at that location see and use it. Each location creates its own matched lists. |
+| **Promoted to org-wide** (owner action) | An owner selects a location's matched list and promotes it as the org-wide standard. All locations can see it and create ordering lists from it. Products from suppliers not available at a given location are flagged as "not available at [location]." |
 
-**Who can toggle**: Only organization owners. This prevents a chef at one location from accidentally making their list the org master and disrupting other locations.
+**Who can promote**: Only organization owners. Chefs and managers cannot promote a list — this prevents accidental disruption to other locations.
 
-**Multi-supplier, multi-location behavior**: When shared org-wide, the master list is the union of all suppliers across all locations. A product from a supplier that only services the East Coast will show up for West Coast locations too — but flagged as "not available at [location]" so chefs know they can't order it there. This gives full visibility into what's available nationally while keeping ordering accurate per-location.
+**When promotion makes sense**: Organizations with standardized menus across locations, or where one location has done thorough matching work that other locations can benefit from.
+
+**When it doesn't**: Organizations where locations have completely different suppliers (e.g., California vs. New York), different menus, or different price structures. In these cases, each location just uses its own matched lists — which is the common and expected case.
+
+**Multi-location behavior**: When a list is promoted to org-wide, products from suppliers that only service certain regions are shown but flagged as "not available at [location]." This gives visibility into what's available nationally while keeping ordering accurate per-location.
 
 ### Ordering Lists
 
@@ -439,10 +538,10 @@ Chef connects a new supplier (e.g., What Chefs Want)
 | Requirement | Specification |
 |-------------|---------------|
 | Incremental matching speed | < 30 seconds for 50 new items against 200 existing matches |
-| Master list page load | < 2 seconds for 300 matched products |
+| Matched list page load | < 2 seconds for 300 matched products |
 | Ordering list creation | Instant — no background job, no matching needed |
 | Backward compatibility | Existing comparison lists continue to work; no data loss during migration |
-| Concurrency safety | Only one matching job per master list at a time (job-level lock) |
+| Concurrency safety | Only one matching job per matched list at a time (job-level lock) |
 
 ---
 
@@ -450,16 +549,16 @@ Chef connects a new supplier (e.g., What Chefs Want)
 
 | Phase | Scope | Goal |
 |-------|-------|------|
-| **Phase 1 — Foundation** | Schema migration, master list model, incremental matching service, auto-attach on sync | Matching happens automatically; master list exists per location |
-| **Phase 2 — Ordering Lists** | Create from matches, shared/private toggle, order builder from ordering lists | Chefs can create and order from lightweight lists |
-| **Phase 3 — Migration & Polish** | Promote AggregatedList #8, UI prominence, deprecate manual comparison creation | Clean transition; master list is the primary workflow |
+| **Phase 1 — Foundation** | Schema migration, matched list model, incremental matching service, "Supplier Data" nav dropdown | Chefs can create matched lists for their location; navigation is consolidated |
+| **Phase 2 — Ordering Lists** | Create from matches, visibility toggle (private/location/org), order builder from ordering lists | Chefs can create and order from lightweight lists |
+| **Phase 3 — Migration & Polish** | Convert AggregatedList #8, org-wide promotion, deprecate manual comparison creation | Clean transition; matched lists + ordering lists are the primary workflow |
 
 ### Dependencies
 
 | Phase | Depends On |
 |-------|-----------|
-| Phase 1 | None — additive schema changes and new service |
-| Phase 2 | Phase 1 — ordering lists reference ProductMatches from master list |
+| Phase 1 | None — additive schema changes, new service, and nav restructure |
+| Phase 2 | Phase 1 — ordering lists reference ProductMatches from matched lists |
 | Phase 3 | Phase 2 — full workflow must be functional before retiring old flow |
 
 ---
@@ -469,10 +568,11 @@ Chef connects a new supplier (e.g., What Chefs Want)
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | Incremental matching produces lower quality than full re-match | Medium | Medium | Keep "Re-match All" as a recovery option; track match quality metrics |
-| Master list grows very large (500+ products) | Medium | Low | Category grouping, pagination, status filters (confirmed / needs review) |
+| Matched list grows very large (500+ products) | Medium | Low | Category grouping, pagination, status filters (confirmed / needs review) |
 | Ordering lists become stale if products are discontinued | Low | Medium | Show "unavailable" badge on discontinued items; prompt to remove |
-| Migration breaks existing AggregatedList #8 data | Low | High | Migration is additive (sets `list_type = 'master'`); no data deleted |
+| Migration breaks existing AggregatedList #8 data | Low | High | Migration is additive (sets `list_type = 'matched'`); no data deleted |
 | Team members accidentally edit shared ordering lists | Medium | Low | Show "last edited by [name]" on lists; consider edit history later |
+| Navigation consolidation confuses existing users | Low | Medium | "Supplier Data" label is intuitive; credentials and matching are closely related setup tasks |
 
 ---
 
@@ -490,8 +590,8 @@ Chef connects a new supplier (e.g., What Chefs Want)
 
 | Metric | Phase 1 Target | Phase 2 Target |
 |--------|---------------|----------------|
-| Master list auto-creation | 100% of locations with synced suppliers have a master list | — |
-| Match preservation rate | 100% of existing confirmed matches survive new supplier additions | — |
+| Matched list creation | 100% of locations with synced suppliers create a matched list within first week | — |
+| Match preservation rate | 100% of existing confirmed matches survive when new supplier guides are added | — |
 | Incremental match accuracy | 85%+ of auto-matched items confirmed by user | — |
 | Ordering lists created | — | 3+ per organization within first month |
 | Order time reduction | — | < 3 minutes from opening a saved list to order submission |
@@ -507,6 +607,6 @@ Chef connects a new supplier (e.g., What Chefs Want)
 
 3. **Notification preferences** — When incremental matching runs and finds new matches or unmatched products, how should the chef be notified? In-app badge? Email?
 
-4. **Multi-location ordering** — If a master list is shared across the org, can a chef at Location A create an order that gets placed through Location B's supplier account?
+4. **Multi-location ordering** — If a matched list is promoted org-wide, can a chef at Location A create an order that gets placed through Location B's supplier account?
 
 5. **Ordering list versioning** — Should we track changes to ordering lists over time (items added/removed) or keep it simple with current state only?
