@@ -55,10 +55,14 @@ class SupplierListsController < ApplicationController
     @syncing_credential_ids = Set.new(pending_job_credential_ids)
     @syncing_credential_ids += @supplier_lists.where(sync_status: 'syncing').pluck(:supplier_credential_id)
 
-    # Comparison lists (AggregatedLists)
+    # Comparison lists (AggregatedLists) — chefs only see their own location's lists
     @aggregated_lists = current_organization_aggregated_lists
                           .includes(supplier_lists: :supplier)
                           .order(updated_at: :desc)
+    if chef? && current_location
+      @aggregated_lists = @aggregated_lists.where(location_id: current_location.id)
+    end
+    @location_has_matched_list = current_location && @aggregated_lists.matched_lists.where(location_id: current_location.id).exists?
     @lists_by_supplier_for_form = @supplier_lists.group_by(&:supplier)
   end
 

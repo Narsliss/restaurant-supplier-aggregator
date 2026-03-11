@@ -24,6 +24,9 @@ class SupplierList < ApplicationRecord
   # Auto-set location from credential
   before_validation :set_location_from_credential, on: :create
 
+  # Auto-add to the location's master matched list when created
+  after_create_commit :auto_add_to_matched_list
+
   # Delegations
   delegate :user, to: :supplier_credential
 
@@ -82,5 +85,27 @@ class SupplierList < ApplicationRecord
 
   def set_location_from_credential
     self.location_id ||= supplier_credential&.location_id
+  end
+
+  # Automatically link this supplier list to the location's master matched list.
+  # The matched list is the "all suppliers" view — every supplier list at the
+  # location should be in it. Order lists handle curation/subsetting.
+  def auto_add_to_matched_list
+    return unless location_id && organization_id
+
+    matched_list = AggregatedList.find_by(
+      location_id: location_id,
+      organization_id: organization_id,
+      list_type: %w[master matched]
+    )
+    return unless matched_list
+
+    unless matched_list.supplier_list_ids.include?(id)
+      matched_list.aggregated_list_mappings.create!(supplier_list_id: id)
+      Rails.logger.info "[AutoAdd] Added supplier list #{id} (#{name}) to matched list #{matched_list.id} (#{matched_list.name})"
+
+      # Kick off incremental matching so new items appear in product matches
+      SyncNewProductsJob.perform_later(matched_list.id)
+    end
   end
 end

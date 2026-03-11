@@ -64,6 +64,8 @@
                       / $<%= min_info[:minimum].to_i %>
                     </span>
                   </div>
+                <% else %>
+                  <span class="text-[10px] text-gray-400 mt-1">No minimum</span>
                 <% end %>
               </div>
             <% end %>
@@ -111,6 +113,8 @@
                   / $<%= min_info[:minimum].to_i %>
                 </span>
               </div>
+            <% else %>
+              <span class="text-[10px] text-gray-400 mt-0.5">No minimum</span>
             <% end %>
           </div>
         <% end %>

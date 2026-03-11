@@ -5,33 +5,28 @@
   </div>
 
   <% if @order_lists.any? %>
-    <div class="grid gap-4">
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <% @order_lists.each do |list| %>
-        <div class="bg-white shadow rounded-lg p-4 sm:p-5">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div class="min-w-0 flex-1">
-              <h3 class="text-lg font-medium text-gray-900">
-                <%= link_to list.name, order_list_path(list), class: "hover:text-brand-orange" %>
-                <% if list.is_favorite %>
-                  <span class="ml-1 text-yellow-500">&#9733;</span>
-                <% end %>
-              </h3>
-              <p class="text-sm text-gray-500">
-                <%= pluralize(list.order_list_items.size, "item") %>
-                <% if list.last_used_at %>
-                  &middot; Last used <%= time_ago_in_words(list.last_used_at) %> ago
-                <% end %>
-              </p>
-              <% if list.description.present? %>
-                <p class="text-sm text-gray-400 mt-1 truncate"><%= truncate(list.description, length: 100) %></p>
-              <% end %>
-            </div>
-            <div class="flex flex-wrap gap-2 sm:gap-3 flex-shrink-0">
-              <%= link_to "Compare", price_comparison_order_list_path(list), class: "text-sm text-green-600 hover:text-green-900 font-medium" %>
-              <%= button_to "Duplicate", duplicate_order_list_path(list), method: :post, class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
-              <%= link_to "Edit", edit_order_list_path(list), class: "text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
-              <%= button_to "Delete", order_list_path(list), method: :delete, data: { turbo_confirm: "Are you sure?" }, class: "text-sm text-red-600 hover:text-red-900 font-medium" %>
-            </div>
+        <div class="bg-white shadow rounded-lg p-5">
+          <h3 class="font-semibold text-gray-900"><%= list.name %></h3>
+          <p class="mt-1 text-sm text-gray-500">
+            <%= pluralize(list.order_list_items.size, "item") %>
+            <% if list.description.present? %>
+              &middot; <%= truncate(list.description, length: 60) %>
+            <% end %>
+          </p>
+          <div class="mt-4 space-y-2">
+            <% can_edit = owner? || list.user_id == current_user.id %>
+            <% if can_edit %>
+              <div class="flex gap-2">
+                <%= link_to "Edit Details", edit_order_list_path(list),
+                    class: "flex-1 text-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors" %>
+                <%= link_to "Edit Items", order_list_path(list),
+                    class: "flex-1 text-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors" %>
+              </div>
+            <% end %>
+            <%= link_to "Order", order_builder_order_list_path(list),
+                class: "block w-full text-center rounded-md bg-brand-green px-3 py-2 text-sm font-semibold text-white hover:bg-brand-green-dark transition-colors" %>
           </div>
         </div>
       <% end %>

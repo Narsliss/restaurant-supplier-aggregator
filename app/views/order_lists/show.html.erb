@@ -1,217 +1,108 @@
 <div class="max-w-4xl mx-auto">
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
-      <h1 class="text-2xl font-bold text-gray-900">
-        <%= @order_list.name %>
-        <% if @order_list.is_favorite %>
-          <span class="ml-1 text-yellow-500">&#9733;</span>
-        <% end %>
-      </h1>
+      <h1 class="text-2xl font-bold text-gray-900"><%= @order_list.name %></h1>
       <% if @order_list.description.present? %>
         <p class="text-sm text-gray-500 mt-1"><%= @order_list.description %></p>
       <% end %>
     </div>
     <div class="flex flex-wrap gap-2">
-      <%= link_to "Compare Prices", price_comparison_order_list_path(@order_list), class: "bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 text-sm" %>
-      <%= link_to "Edit", edit_order_list_path(@order_list), class: "bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-300 text-sm" %>
-      <%= link_to "Back", order_lists_path, class: "text-gray-600 hover:text-gray-900 text-sm font-medium px-1 py-1.5" %>
+      <%= link_to "Back to Lists", order_lists_path, class: "rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors" %>
     </div>
   </div>
 
-  <!-- Items List (Order List) -->
-  <div id="order-list-items" class="bg-white shadow rounded-lg mb-6">
-    <div class="px-4 py-3 border-b border-gray-200">
-      <h3 class="text-sm font-medium text-gray-700">Order List Items (<%= @items.size %>)</h3>
+  <%# ===== CURRENT LIST ITEMS ===== %>
+  <div class="bg-white shadow rounded-lg mb-6">
+    <div class="px-4 py-3 bg-brand-green-50 border-b border-gray-200">
+      <h3 class="text-sm font-bold text-brand-green-dark uppercase tracking-wide">List Items (<%= @items.size %>)</h3>
     </div>
     <% if @items.any? %>
-      <!-- Mobile card layout -->
-      <div class="sm:hidden divide-y divide-gray-200">
+      <div class="divide-y divide-gray-200">
         <% @items.each do |item| %>
-          <% best_price = @best_prices[item.id] %>
-          <div class="p-4">
-            <div class="flex justify-between items-start gap-2">
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-medium text-gray-900"><%= item.product.name %></p>
-                <p class="text-xs text-gray-500 mt-0.5"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></p>
-              </div>
-              <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-xs font-medium flex-shrink-0" %>
+          <div class="px-4 py-3 flex items-center justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-gray-900"><%= item.display_name %></p>
+              <% if item.display_unit_info.present? %>
+                <p class="text-xs text-gray-500"><%= item.display_unit_info %></p>
+              <% end %>
             </div>
-            <div class="mt-2 flex justify-between items-center">
-              <div>
-                <%= form_with(model: [item.order_list, item], url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
-                  <label class="text-xs text-gray-500">Qty:</label>
-                  <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-16 rounded-md border-gray-300 text-sm ml-1", onchange: "this.form.requestSubmit()" %>
-                <% end %>
-              </div>
-              <div class="text-right">
-                <% if best_price %>
-                  <p class="text-sm font-medium text-gray-900"><%= number_to_currency(best_price.current_price) %></p>
-                  <p class="text-xs text-gray-500"><%= best_price.supplier.name %></p>
-                  <% if best_price.pack_size.present? %>
-                    <p class="text-xs text-gray-400"><%= best_price.pack_size %></p>
-                  <% end %>
-                  <% if best_price.formatted_per_unit_price %>
-                    <p class="text-xs text-green-600"><%= best_price.formatted_per_unit_price %></p>
-                  <% end %>
-                <% else %>
-                  <p class="text-sm text-gray-400">No price</p>
-                <% end %>
-              </div>
-            </div>
+            <% can_edit = owner? || @order_list.user_id == current_user.id %>
+            <% if can_edit %>
+              <%= button_to "Remove", remove_match_order_list_path(@order_list, product_match_id: item.product_match_id),
+                  method: :post,
+                  class: "rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors" %>
+            <% end %>
           </div>
         <% end %>
-      </div>
-      <!-- Desktop table -->
-      <div class="hidden sm:block overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-              <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Quantity</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Best Price</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Line Total</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200">
-            <% total = 0 %>
-            <% @items.each do |item| %>
-              <% best_price = @best_prices[item.id] %>
-              <% line_total = best_price ? best_price.current_price * item.quantity : 0 %>
-              <% total += line_total %>
-              <tr>
-                <td class="px-4 py-3">
-                  <p class="text-sm text-gray-900"><%= item.product.name %></p>
-                  <p class="text-xs text-gray-500"><%= [item.product.unit_size, item.product.unit_type].compact.join(" ") %></p>
-                </td>
-                <td class="px-4 py-3 text-center">
-                  <%= form_with(model: [item.order_list, item], url: order_list_order_list_item_path(@order_list, item), method: :patch, class: "inline") do |form| %>
-                    <%= form.number_field :quantity, value: item.quantity, min: 1, class: "w-20 rounded-md border-gray-300 text-sm text-center", onchange: "this.form.requestSubmit()" %>
-                  <% end %>
-                </td>
-                <td class="px-4 py-3 text-right">
-                  <% if best_price %>
-                    <p class="text-sm text-gray-900"><%= number_to_currency(best_price.current_price) %></p>
-                    <p class="text-xs text-gray-500"><%= best_price.supplier.name %></p>
-                    <% if best_price.pack_size.present? %>
-                      <p class="text-xs text-gray-400"><%= best_price.pack_size %></p>
-                    <% end %>
-                    <% if best_price.formatted_per_unit_price %>
-                      <p class="text-xs text-green-600"><%= best_price.formatted_per_unit_price %></p>
-                    <% end %>
-                  <% else %>
-                    <span class="text-sm text-gray-400">—</span>
-                  <% end %>
-                </td>
-                <td class="px-4 py-3 text-right text-sm font-medium text-gray-900">
-                  <% if best_price %>
-                    <%= number_to_currency(line_total) %>
-                  <% else %>
-                    <span class="text-gray-400">—</span>
-                  <% end %>
-                </td>
-                <td class="px-4 py-3 text-right">
-                  <%= button_to "Remove", order_list_order_list_item_path(@order_list, item), method: :delete, class: "text-red-600 hover:text-red-900 text-sm font-medium" %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-          <tfoot class="bg-gray-50">
-            <tr>
-              <td class="px-4 py-3 text-sm font-medium text-gray-900" colspan="3">Estimated Total (Best Prices)</td>
-              <td class="px-4 py-3 text-right text-sm font-bold text-gray-900"><%= number_to_currency(total) %></td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
       </div>
     <% else %>
       <div class="text-center py-8">
-        <p class="text-gray-500">No items yet. Search for products below to add to this list.</p>
+        <p class="text-gray-500">No items yet. Add products from your matched list below.</p>
       </div>
     <% end %>
   </div>
 
-  <!-- Search Products to Add -->
-  <div class="bg-white shadow rounded-lg p-4 mb-6" data-controller="category-filter"
-       data-category-filter-categories-value="<%= @categories.to_json %>">
-    <h3 class="text-sm font-medium text-gray-700 mb-3">Search Products to Add</h3>
-    <%= form_with(url: order_list_path(@order_list), method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end") do |form| %>
-      <%= form.hidden_field :mode, value: "search" %>
-      <div class="flex-1 min-w-[200px]">
-        <%= form.text_field :search, value: params[:search], placeholder: "Search products...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+  <%# ===== AVAILABLE MATCHED PRODUCTS ===== %>
+  <% can_edit = owner? || @order_list.user_id == current_user.id %>
+  <% if can_edit %>
+    <div class="bg-white shadow rounded-lg" data-controller="list-filter">
+      <div class="px-4 py-3 bg-gray-100 border-b border-gray-200">
+        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">
+          Available Products
+          <% if @available_matches.any? %>
+            <span class="text-gray-500 font-normal">(<%= @available_matches.size %> remaining)</span>
+          <% end %>
+        </h3>
       </div>
-      <div class="sm:w-44">
-        <%= form.select :category,
-            [["All Categories", ""]] + @categories.keys.sort.map { |c| [c, c] },
-            { selected: params[:category] || "" },
-            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
-            data: { action: "change->category-filter#categoryChanged", category_filter_target: "category" } %>
-      </div>
-      <div class="sm:w-40 <%= 'hidden' if @subcategories.empty? %>" data-category-filter-target="subcategoryWrapper">
-        <%= form.select :subcategory,
-            [["All Subcategories", ""]] + @subcategories.map { |s| [s, s] },
-            { selected: params[:subcategory] || "" },
-            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
-            data: { category_filter_target: "subcategory" } %>
-      </div>
-      <%= form.submit "Search", class: "bg-brand-orange text-white px-4 py-2 rounded-md hover:bg-brand-orange-dark text-sm cursor-pointer" %>
-      <% if params[:search].present? || params[:category].present? || params[:subcategory].present? %>
-        <%= link_to "Clear", order_list_path(@order_list), class: "text-sm text-gray-500 hover:text-gray-700 px-2 py-2" %>
-      <% end %>
-    <% end %>
-  </div>
-
-  <!-- Search Results Grid (Products to Add) -->
-  <% if @search_results && @search_results.any? %>
-    <div class="bg-white shadow rounded-lg mb-6">
-      <div class="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-        <h3 class="text-sm font-medium text-gray-700">Search Results (<%= @search_results.total_count %> products)</h3>
-      </div>
-      <div class="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-        <% @search_results.each do |product| %>
-          <% best_price = product.supplier_products.select { |sp| sp.current_price.present? }.min_by(&:current_price) %>
-          <% already_in_list = @existing_product_ids.include?(product.id) %>
-          <div class="p-3 flex items-center justify-between gap-3 hover:bg-gray-50">
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium text-gray-900"><%= product.name %></p>
-              <p class="text-xs text-gray-500">
-                <%= [product.category, product.subcategory].compact.join(" > ") %>
-                <% if product.unit_size.present? %>
-                  &middot; <%= [product.unit_size, product.unit_type].compact.join(" ") %>
-                <% end %>
-              </p>
-              <% if best_price %>
-                <p class="text-xs text-green-600 mt-0.5"><%= number_to_currency(best_price.current_price) %> (<%= best_price.supplier.name %>)</p>
-              <% end %>
+      <% if @available_matches.any? %>
+        <div class="px-5 py-4 border-b border-gray-200 bg-white">
+          <div class="relative">
+            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+              <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              </svg>
             </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <% if already_in_list %>
-                <span class="text-xs text-gray-400">Already added</span>
-              <% else %>
-                <%= form_with(url: order_list_order_list_items_path(@order_list), method: :post, class: "flex items-center gap-2", data: { turbo: false }) do %>
-                  <input type="hidden" name="order_list_item[product_id]" value="<%= product.id %>" />
-                  <input type="hidden" name="redirect_back" value="true" />
-                  <input type="hidden" name="search" value="<%= params[:search] %>" />
-                  <input type="hidden" name="category" value="<%= params[:category] %>" />
-                  <input type="hidden" name="subcategory" value="<%= params[:subcategory] %>" />
-                  <input type="number" name="order_list_item[quantity]" value="1" min="1" class="w-16 rounded-md border-gray-300 text-sm text-center" />
-                  <button type="submit" class="bg-brand-orange text-white px-3 py-1.5 rounded-md hover:bg-brand-orange-dark text-xs font-medium">Add</button>
-                <% end %>
-              <% end %>
-            </div>
+            <input type="text" placeholder="Search products to add..."
+                   data-list-filter-target="input"
+                   data-action="input->list-filter#filter"
+                   class="block w-full rounded-lg border-gray-300 pl-10 py-2.5 text-sm shadow-sm focus:border-brand-green focus:ring-brand-green" />
           </div>
-        <% end %>
-      </div>
-      <% if @search_results.total_pages > 1 %>
-        <div class="px-4 py-3 border-t border-gray-200 text-center">
-          <p class="text-xs text-gray-500">Showing <%= @search_results.size %> of <%= @search_results.total_count %> results. Refine your search to see more specific results.</p>
         </div>
       <% end %>
-    </div>
-  <% elsif params[:search].present? || params[:category].present? || params[:subcategory].present? %>
-    <div class="bg-white shadow rounded-lg mb-6 p-6 text-center">
-      <p class="text-gray-500">No products found matching your search.</p>
+      <% if @available_matches.any? %>
+        <div class="divide-y divide-gray-200 max-h-[500px] overflow-y-auto">
+          <% @available_matches.each do |pm| %>
+            <div class="px-4 py-3 flex items-center justify-between gap-3 hover:bg-gray-50"
+                 data-list-filter-target="item"
+                 data-filter-text="<%= pm.canonical_name.downcase %>">
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium text-gray-900"><%= pm.canonical_name %></p>
+                <p class="text-xs text-gray-500">
+                  <% pm.product_match_items.each_with_index do |pmi, i| %>
+                    <% sp = pmi.supplier_list_item&.supplier_product %>
+                    <% supplier = pmi.supplier_list_item&.supplier_list&.supplier %>
+                    <% if supplier %>
+                      <%= ", " if i > 0 %>
+                      <span class="text-gray-400"><%= supplier.name %></span>
+                    <% end %>
+                  <% end %>
+                </p>
+              </div>
+              <%= button_to "Add", add_match_order_list_path(@order_list, product_match_id: pm.id),
+                  method: :post,
+                  class: "rounded-md bg-brand-green px-3 py-1 text-xs font-medium text-white hover:bg-brand-green-dark transition-colors flex-shrink-0" %>
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="text-center py-8">
+          <% if @product_matches.blank? %>
+            <p class="text-gray-500">No matched list found. Set up product matching first.</p>
+          <% else %>
+            <p class="text-gray-500">All matched products have been added to this list.</p>
+          <% end %>
+        </div>
+      <% end %>
     </div>
   <% end %>
 </div>

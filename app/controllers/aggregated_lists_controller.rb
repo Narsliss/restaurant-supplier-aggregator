@@ -18,9 +18,26 @@ class AggregatedListsController < ApplicationController
     if @promoted_list
       @location_lists = @matched_lists.reject(&:promoted?)
     end
+
+    # Chefs only see their own location's list (not all org lists)
+    if chef? && current_location && !@promoted_list
+      @matched_lists = @matched_lists.where(location_id: current_location.id)
+    end
   end
 
   def show
+    # Auto-add any supplier lists at this location that aren't yet linked (safety net)
+    if @aggregated_list.matched_list? && @aggregated_list.location_id
+      existing_ids = @aggregated_list.supplier_list_ids
+      missing = SupplierList.where(location_id: @aggregated_list.location_id, organization_id: @aggregated_list.organization_id)
+                            .where.not(id: existing_ids)
+      missing.find_each do |sl|
+        @aggregated_list.aggregated_list_mappings.create!(supplier_list_id: sl.id)
+        Rails.logger.info "[AutoAdd] Show safety-net: added supplier list #{sl.id} (#{sl.name}) to matched list #{@aggregated_list.id}"
+      end
+      @aggregated_list.reload if missing.any?
+    end
+
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
     @product_matches = @aggregated_list.product_matches
                                        .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
@@ -278,15 +295,15 @@ class AggregatedListsController < ApplicationController
 
   def promote
     if @aggregated_list.update(promoted_org_wide: true)
-      redirect_to @aggregated_list, notice: "\"#{@aggregated_list.name}\" is now the organization-wide list."
+      redirect_to aggregated_lists_path, notice: "\"#{@aggregated_list.name}\" is now the organization-wide list."
     else
-      redirect_to @aggregated_list, alert: @aggregated_list.errors.full_messages.to_sentence
+      redirect_to aggregated_lists_path, alert: @aggregated_list.errors.full_messages.to_sentence
     end
   end
 
   def demote
     @aggregated_list.update!(promoted_org_wide: false)
-    redirect_to @aggregated_list, notice: "\"#{@aggregated_list.name}\" is no longer the organization-wide list."
+    redirect_to aggregated_lists_path, notice: "\"#{@aggregated_list.name}\" is no longer the organization-wide list."
   end
 
   def supplier_items_search
@@ -347,7 +364,9 @@ class AggregatedListsController < ApplicationController
                                        .where.not(match_status: 'rejected')
                                        .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
-    @suppliers = @aggregated_list.suppliers
+    # Only show suppliers the user has active credentials for at this location
+    available_supplier_ids = scoped_credentials.active.pluck(:supplier_id).to_set
+    @suppliers = @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) }
 
     # --- Per-supplier minimums for command bar progress indicators (single query) ---
     supplier_ids = @suppliers.map(&:id)

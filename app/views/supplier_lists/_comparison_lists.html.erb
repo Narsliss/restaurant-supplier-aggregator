@@ -1,6 +1,6 @@
 <div data-controller="inline-form" data-inline-form-show-text-value="+ New Comparison List" data-inline-form-hide-text-value="Cancel">
   <div class="flex justify-end mb-4">
-    <% if @lists_by_supplier_for_form.any? %>
+    <% if @lists_by_supplier_for_form.any? && !@location_has_matched_list %>
       <button type="button"
               data-action="inline-form#toggle"
               data-inline-form-target="button"

@@ -46,8 +46,10 @@
       <% elsif @aggregated_list.promoted? %>
         <%# No edit/rematch controls when promoted — read-only %>
       <% else %>
-        <%= link_to "&larr; Modify List Settings".html_safe, edit_aggregated_list_path(@aggregated_list),
-            class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+        <% unless @aggregated_list.matched_list? %>
+          <%= link_to "&larr; Modify List Settings".html_safe, edit_aggregated_list_path(@aggregated_list),
+              class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+        <% end %>
         <%= button_to "Sync New Products", sync_new_products_aggregated_list_path(@aggregated_list),
             method: :post,
             class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-green text-brand-green hover:bg-brand-green hover:text-white transition-colors" %>
@@ -56,7 +58,7 @@
             form: { data: { turbo_confirm: "⚠️ This will DELETE all existing matches — including ones you manually confirmed — and re-run AI matching from scratch.\n\nThis cannot be undone. Are you sure?" } },
             class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition-colors" %>
         <% if @aggregated_list.matched? %>
-          <%= link_to supplier_lists_path(notice: "#{@aggregated_list.name} matching approved."),
+          <%= link_to aggregated_lists_path(notice: "#{@aggregated_list.name} matching approved."),
               class: "inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-md bg-brand-green text-white hover:bg-brand-green-dark transition-colors shadow-sm" do %>
             ✓ Approve Matching
           <% end %>
@@ -81,8 +83,8 @@
     </div>
   </div>
 
-  <%# Add Supplier Guide section (matched lists only, when not currently processing) %>
-  <% if @available_guides&.any? && !@aggregated_list.promoted? %>
+  <%# Add Supplier Guide section — only for non-matched (comparison) lists %>
+  <% if !@aggregated_list.matched_list? && @available_guides&.any? && !@aggregated_list.promoted? %>
     <div class="bg-white shadow rounded-lg p-4 mb-6 border border-dashed border-gray-300">
       <details class="group">
         <summary class="flex items-center justify-between cursor-pointer list-none">

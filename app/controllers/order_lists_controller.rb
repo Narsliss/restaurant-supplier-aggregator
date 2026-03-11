@@ -1,7 +1,8 @@
 class OrderListsController < ApplicationController
   before_action :require_organization!
-  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison order_builder]
-  before_action :require_operator!, only: %i[new create edit update destroy duplicate]
+  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison order_builder add_match remove_match]
+  before_action :require_operator!, only: %i[new create edit update destroy duplicate add_match remove_match]
+  before_action :require_list_owner!, only: %i[edit update destroy duplicate add_match remove_match]
   before_action :require_location_context!
 
   def index
@@ -12,38 +13,17 @@ class OrderListsController < ApplicationController
 
   def show
     @items = @order_list.order_list_items
-                        .includes(product: { supplier_products: :supplier })
+                        .includes(:product_match)
                         .by_position
 
-    # Get categories for filter dropdown
-    @categories = AiProductCategorizer::CATEGORIES
-    @subcategories = params[:category].present? ? @categories.dig(params[:category], :subcategories) || [] : []
+    # Track which product_match_ids are already in the list
+    @existing_match_ids = @order_list.order_list_items.where.not(product_match_id: nil).pluck(:product_match_id).to_set
 
-    # Pre-compute product IDs already in the list for O(1) lookup in the view
-    # (replaces O(n×m) any? scan per search result)
-    @existing_product_ids = @order_list.order_list_items.pluck(:product_id).to_set
+    # Load matched products from the matched list (same as new action)
+    load_matched_products
 
-    # Pre-compute best price per item (using already-eager-loaded supplier_products)
-    # to avoid recomputing in both mobile and desktop sections of the view
-    @best_prices = {}
-    @items.each do |item|
-      @best_prices[item.id] = item.product.supplier_products
-                                   .select { |sp| sp.current_price.present? && !sp.discontinued? }
-                                   .min_by(&:current_price)
-    end
-
-    # Search products to add (when search/filter is active)
-    return unless params[:search].present? || params[:category].present? || params[:subcategory].present?
-
-    @search_results = Product.includes(supplier_products: :supplier)
-
-    @search_results = @search_results.search(params[:search]) if params[:search].present?
-
-    @search_results = @search_results.where(category: params[:category]) if params[:category].present?
-
-    @search_results = @search_results.where(subcategory: params[:subcategory]) if params[:subcategory].present?
-
-    @search_results = @search_results.order(:name).page(1).per(50)
+    # Filter out matches already in this order list
+    @available_matches = (@product_matches || []).reject { |pm| @existing_match_ids.include?(pm.id) }
   end
 
   def new
@@ -118,10 +98,27 @@ class OrderListsController < ApplicationController
     end
   end
 
+  def add_match
+    pm = ProductMatch.find(params[:product_match_id])
+    unless @order_list.order_list_items.exists?(product_match_id: pm.id)
+      @order_list.order_list_items.create!(product_match_id: pm.id, quantity: 1)
+    end
+    redirect_to @order_list, notice: "#{pm.canonical_name} added to list."
+  end
+
+  def remove_match
+    item = @order_list.order_list_items.find_by(product_match_id: params[:product_match_id])
+    item&.destroy
+    redirect_to @order_list, notice: "Item removed from list."
+  end
+
   def order_builder
     @items = @order_list.order_list_items
       .includes(product_match: { product_match_items: { supplier_list_item: [:supplier_product, { supplier_list: :supplier }] } })
       .by_position
+
+    # Only show suppliers the user has active credentials for at this location
+    available_supplier_ids = scoped_credentials.active.pluck(:supplier_id).to_set
 
     # Build supplier + price data from matched products
     @suppliers = []
@@ -133,6 +130,8 @@ class OrderListsController < ApplicationController
       item.product_match.product_match_items.each do |pmi|
         supplier = pmi.supplier_list_item&.supplier_list&.supplier
         next unless supplier
+        next unless available_supplier_ids.include?(supplier.id)
+
         @suppliers << supplier
         @price_data[item.id] ||= {}
         @price_data[item.id][supplier.id] = {
@@ -145,12 +144,58 @@ class OrderListsController < ApplicationController
     end
 
     @suppliers = @suppliers.uniq
+
+    # Per-supplier minimums for command bar progress indicators
+    supplier_ids = @suppliers.map(&:id)
+    minimums_by_supplier = SupplierRequirement
+      .where(supplier_id: supplier_ids, requirement_type: 'order_minimum', active: true)
+      .index_by(&:supplier_id)
+
+    @supplier_minimums = {}
+    @suppliers.each do |supplier|
+      req = minimums_by_supplier[supplier.id]
+      @supplier_minimums[supplier.id] = {
+        name: supplier.name,
+        minimum: req&.numeric_value&.to_f,
+        is_blocking: req&.is_blocking || false
+      }
+    end
+
+    # Load full matched list for "add more" section
+    load_matched_products
+    order_list_match_ids = @order_list.order_list_items.where.not(product_match_id: nil).pluck(:product_match_id).to_set
+    @extra_matches = (@product_matches || []).reject { |pm| order_list_match_ids.include?(pm.id) }
+
+    # Build price data for extra matches too
+    @extra_price_data = {}
+    @extra_matches.each do |pm|
+      pm.product_match_items.each do |pmi|
+        supplier = pmi.supplier_list_item&.supplier_list&.supplier
+        next unless supplier && available_supplier_ids.include?(supplier.id)
+        @suppliers << supplier unless @suppliers.include?(supplier)
+        @extra_price_data[pm.id] ||= {}
+        @extra_price_data[pm.id][supplier.id] = {
+          price: pmi.supplier_list_item.price,
+          pack_size: pmi.supplier_list_item.pack_size,
+          per_unit_price: pmi.supplier_list_item.per_unit_price,
+          supplier_product: pmi.supplier_list_item.supplier_product
+        }
+      end
+    end
   end
 
   private
 
   def set_order_list
     @order_list = scoped_order_lists.find(params[:id])
+  end
+
+  # Owners can edit any list; chefs/managers can only edit their own
+  def require_list_owner!
+    return if owner?
+    return if @order_list.user_id == current_user.id
+
+    redirect_to order_lists_path, alert: "You can only edit your own order lists."
   end
 
   def order_list_params

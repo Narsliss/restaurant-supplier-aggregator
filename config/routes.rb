@@ -153,6 +153,8 @@ Rails.application.routes.draw do
       post :duplicate
       get :price_comparison
       get :order_builder
+      post :add_match
+      post :remove_match
     end
     resources :order_list_items, only: %i[create update destroy]
   end

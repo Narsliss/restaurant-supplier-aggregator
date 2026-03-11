@@ -7,11 +7,12 @@ class OrdersController < ApplicationController
     org = current_user.current_organization
     return @aggregated_lists = AggregatedList.none, @order_lists = [], @empty = true unless org
 
-    # Promoted org-wide matched list (shown prominently, not auto-redirect)
-    @promoted_list = AggregatedList.for_organization(org).promoted.matched.first
+    # Promoted org-wide matched list (shown prominently)
+    @promoted_list = AggregatedList.for_organization(org).promoted.matched_lists.first
 
     # Location-scoped matched lists (fallback when no promoted list)
-    base = AggregatedList.for_organization(org).where(match_status: 'matched')
+    base = AggregatedList.for_organization(org).matched_lists
+    base = base.where.not(id: @promoted_list.id) if @promoted_list
     if chef? && current_location
       base = base.where(location_id: current_location.id)
     end

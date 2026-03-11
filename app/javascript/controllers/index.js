@@ -24,6 +24,8 @@ import LocationSelectorController from "./location_selector_controller"
 import InlineEditController from "./inline_edit_controller"
 import ChatController from "./chat_controller"
 import DateRangeController from "./date_range_controller"
+import ListFilterController from "./list_filter_controller"
+import SelectAllController from "./select_all_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -49,3 +51,5 @@ application.register("location-selector", LocationSelectorController)
 application.register("inline-edit", InlineEditController)
 application.register("chat", ChatController)
 application.register("date-range", DateRangeController)
+application.register("list-filter", ListFilterController)
+application.register("select-all", SelectAllController)
