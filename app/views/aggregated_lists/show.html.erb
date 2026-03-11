@@ -1,6 +1,6 @@
 <div class="py-6">
   <div class="mb-6">
-    <%= link_to "&larr; #{@aggregated_list.matched_list? ? 'Matched Lists' : 'Compare Lists'}".html_safe, aggregated_lists_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
+    <%= link_to "&larr; #{@aggregated_list.matched_list? ? 'Product Matching' : 'Compare Lists'}".html_safe, aggregated_lists_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
   </div>
 
   <div class="flex justify-between items-center mb-6">
@@ -48,9 +48,13 @@
       <% else %>
         <%= link_to "&larr; Modify List Settings".html_safe, edit_aggregated_list_path(@aggregated_list),
             class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
-        <%= button_to "Re-match", run_matching_aggregated_list_path(@aggregated_list),
+        <%= button_to "Sync New Products", sync_new_products_aggregated_list_path(@aggregated_list),
             method: :post,
-            class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" %>
+            class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-brand-green text-brand-green hover:bg-brand-green hover:text-white transition-colors" %>
+        <%= button_to "Re-match All", run_matching_aggregated_list_path(@aggregated_list),
+            method: :post,
+            form: { data: { turbo_confirm: "⚠️ This will DELETE all existing matches — including ones you manually confirmed — and re-run AI matching from scratch.\n\nThis cannot be undone. Are you sure?" } },
+            class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-red-300 text-red-600 hover:bg-red-50 transition-colors" %>
         <% if @aggregated_list.matched? %>
           <%= link_to supplier_lists_path(notice: "#{@aggregated_list.name} matching approved."),
               class: "inline-flex items-center px-4 py-1.5 text-sm font-semibold rounded-md bg-brand-green text-white hover:bg-brand-green-dark transition-colors shadow-sm" do %>

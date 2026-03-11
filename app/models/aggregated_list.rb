@@ -105,6 +105,29 @@ class AggregatedList < ApplicationRecord
     auto_matched_count > 0 || unmatched_count > 0
   end
 
+  # Find supplier list items from connected suppliers that don't yet have a
+  # ProductMatchItem in this aggregated list. These are "new" items from syncs.
+  def unmatched_supplier_items
+    matched_item_ids = product_matches
+      .joins(:product_match_items)
+      .pluck('product_match_items.supplier_list_item_id')
+
+    SupplierListItem.where(supplier_list_id: supplier_list_ids)
+                    .where.not(id: matched_item_ids)
+                    .includes(:supplier_list, :supplier_product)
+                    .to_a
+  end
+
+  def unmatched_supplier_items_count
+    matched_item_ids = product_matches
+      .joins(:product_match_items)
+      .select('product_match_items.supplier_list_item_id')
+
+    SupplierListItem.where(supplier_list_id: supplier_list_ids)
+                    .where.not(id: matched_item_ids)
+                    .count
+  end
+
   private
 
   def only_one_promoted_per_org

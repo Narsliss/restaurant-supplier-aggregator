@@ -24,9 +24,10 @@ class IncrementalProductMatcherService
 
   attr_reader :aggregated_list, :new_supplier_list_ids, :results
 
-  def initialize(aggregated_list, new_supplier_list_ids)
+  def initialize(aggregated_list, new_supplier_list_ids = [], items: nil)
     @aggregated_list = aggregated_list
     @new_supplier_list_ids = Array(new_supplier_list_ids).map(&:to_i)
+    @explicit_items = items # pre-filtered items bypass collect_new_items
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
     @results = { new_matched: 0, new_unmatched: 0, total_new: 0, errors: [] }
     @ai_disabled = false
@@ -37,8 +38,8 @@ class IncrementalProductMatcherService
 
     # Load existing matches — these are READ-ONLY (we never modify them)
     existing_matches = load_existing_matches
-    # Collect new items from the newly added supplier lists
-    new_items = collect_new_items
+    # Collect new items — use explicit items if provided, otherwise load from supplier lists
+    new_items = @explicit_items || collect_new_items
 
     if new_items.empty?
       aggregated_list.mark_matched!

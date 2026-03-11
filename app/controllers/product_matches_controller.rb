@@ -1,6 +1,8 @@
 class ProductMatchesController < ApplicationController
+  before_action :require_location_context!
   before_action :set_aggregated_list
   before_action :set_product_match, only: %i[confirm reject rename]
+  before_action :require_list_write_access!, only: %i[confirm reject rename confirm_all]
 
   def index
     @product_matches = @aggregated_list.product_matches
@@ -47,10 +49,32 @@ class ProductMatchesController < ApplicationController
   private
 
   def set_aggregated_list
-    @aggregated_list = AggregatedList.find(params[:aggregated_list_id])
+    @aggregated_list = current_organization_aggregated_lists.find(params[:aggregated_list_id])
   end
 
   def set_product_match
     @product_match = @aggregated_list.product_matches.find(params[:id])
+  end
+
+  def current_organization_aggregated_lists
+    if current_user.current_organization
+      base = AggregatedList.for_organization(current_user.current_organization)
+      if chef? && current_location
+        base = base.where(location_id: current_location.id).or(base.where(promoted_org_wide: true))
+      end
+      base
+    else
+      AggregatedList.none
+    end
+  end
+
+  # Chefs can only modify lists at their own location
+  def require_list_write_access!
+    return if current_user.super_admin? || owner?
+    return unless @aggregated_list
+
+    if @aggregated_list.location_id != current_location&.id
+      redirect_to root_path, alert: "You don't have permission to modify this list."
+    end
   end
 end

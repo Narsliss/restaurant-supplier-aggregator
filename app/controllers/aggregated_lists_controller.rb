@@ -1,8 +1,9 @@
 class AggregatedListsController < ApplicationController
   before_action :require_location_context!
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching search_catalog order_builder add_supplier_guide promote demote supplier_items_search]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search]
   before_action :require_owner!, only: %i[promote demote]
-  before_action :require_not_promoted!, only: %i[edit update destroy run_matching add_supplier_guide]
+  before_action :require_not_promoted!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide]
+  before_action :require_list_location_access!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide]
 
   def index
     @aggregated_lists = current_organization_aggregated_lists
@@ -11,6 +12,12 @@ class AggregatedListsController < ApplicationController
     @matched_lists = @aggregated_lists.matched_lists
     @custom_lists = @aggregated_lists.custom_lists
     @location_has_matched_list = current_location && @matched_lists.where(location_id: current_location.id).exists?
+
+    # Promoted org-wide list takes precedence — chefs see it as the primary list
+    @promoted_list = @matched_lists.find(&:promoted?)
+    if @promoted_list
+      @location_lists = @matched_lists.reject(&:promoted?)
+    end
   end
 
   def show
@@ -231,6 +238,18 @@ class AggregatedListsController < ApplicationController
       AiProductMatchJob.perform_later(@aggregated_list.id)
     end
     redirect_to @aggregated_list
+  end
+
+  def sync_new_products
+    new_count = @aggregated_list.unmatched_supplier_items_count
+    if new_count == 0
+      redirect_to @aggregated_list, notice: "All products are already matched. Nothing new to sync."
+      return
+    end
+
+    @aggregated_list.mark_matching!
+    SyncNewProductsJob.perform_later(@aggregated_list.id)
+    redirect_to @aggregated_list, notice: "Syncing #{new_count} new product(s)..."
   end
 
   def add_supplier_guide
@@ -468,9 +487,24 @@ class AggregatedListsController < ApplicationController
     redirect_to @aggregated_list, alert: "This list is promoted to organization-wide and cannot be edited. Demote it first to make changes."
   end
 
+  # Chefs can only modify lists at their own location
+  def require_list_location_access!
+    return if current_user.super_admin? || owner?
+    return unless @aggregated_list
+
+    if @aggregated_list.location_id != current_location&.id
+      redirect_to aggregated_lists_path, alert: "You don't have permission to edit this list."
+    end
+  end
+
   def current_organization_aggregated_lists
     if current_user.current_organization
-      AggregatedList.for_organization(current_user.current_organization)
+      base = AggregatedList.for_organization(current_user.current_organization)
+      # Chefs can only see their own location's lists + any org-wide promoted lists (read-only)
+      if chef? && current_location
+        base = base.where(location_id: current_location.id).or(base.where(promoted_org_wide: true))
+      end
+      base
     else
       current_user.created_aggregated_lists
     end

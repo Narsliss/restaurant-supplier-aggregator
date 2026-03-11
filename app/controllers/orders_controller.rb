@@ -5,14 +5,21 @@ class OrdersController < ApplicationController
 
   def select_list
     org = current_user.current_organization
-    @aggregated_lists = if org
-      AggregatedList.for_organization(org)
-        .where(match_status: 'matched')
-        .includes(supplier_lists: :supplier)
-        .order(updated_at: :desc)
-    else
-      AggregatedList.none
+    return @aggregated_lists = AggregatedList.none, @empty = true unless org
+
+    # If an org-wide promoted list exists, everyone orders from it — skip selection
+    promoted = AggregatedList.for_organization(org).promoted.matched.first
+    if promoted
+      redirect_to order_builder_aggregated_list_path(promoted)
+      return
     end
+
+    # No promoted list — show location-scoped matched lists for selection
+    base = AggregatedList.for_organization(org).where(match_status: 'matched')
+    if chef? && current_location
+      base = base.where(location_id: current_location.id)
+    end
+    @aggregated_lists = base.includes(supplier_lists: :supplier).order(updated_at: :desc)
     @empty = @aggregated_lists.empty?
   end
 

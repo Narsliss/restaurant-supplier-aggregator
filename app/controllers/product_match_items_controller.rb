@@ -1,7 +1,9 @@
 class ProductMatchItemsController < ApplicationController
+  before_action :require_location_context!
+  before_action :set_aggregated_list_from_match
+  before_action :require_list_write_access!
+
   def create
-    @product_match = ProductMatch.find(params[:product_match_item][:product_match_id])
-    @aggregated_list = @product_match.aggregated_list
     supplier_id = params[:product_match_item][:supplier_id]
     item_id = params[:product_match_item][:supplier_list_item_id]
 
@@ -33,10 +35,6 @@ class ProductMatchItemsController < ApplicationController
   end
 
   def update
-    @product_match_item = ProductMatchItem.find(params[:id])
-    @product_match = @product_match_item.product_match
-    @aggregated_list = @product_match.aggregated_list
-
     new_item_id = params.dig(:product_match_item, :supplier_list_item_id)
 
     # "No Match" — user wants to remove this supplier's item from the match group
@@ -99,6 +97,36 @@ class ProductMatchItemsController < ApplicationController
   end
 
   private
+
+  # Locate the aggregated list (with org scoping) from the match or item being acted on.
+  # For create: the product_match_id comes from params.
+  # For update: the product_match_item ID comes from params[:id].
+  def set_aggregated_list_from_match
+    org = current_user.current_organization
+    base = org ? AggregatedList.for_organization(org) : AggregatedList.none
+    if chef? && current_location
+      base = base.where(location_id: current_location.id).or(base.where(promoted_org_wide: true))
+    end
+
+    if action_name == 'create'
+      @product_match = ProductMatch.find(params[:product_match_item][:product_match_id])
+      @aggregated_list = base.find(@product_match.aggregated_list_id)
+    else
+      @product_match_item = ProductMatchItem.find(params[:id])
+      @product_match = @product_match_item.product_match
+      @aggregated_list = base.find(@product_match.aggregated_list_id)
+    end
+  end
+
+  # Chefs can only modify lists at their own location
+  def require_list_write_access!
+    return if current_user.super_admin? || owner?
+    return unless @aggregated_list
+
+    if @aggregated_list.location_id != current_location&.id
+      redirect_to root_path, alert: "You don't have permission to modify this list."
+    end
+  end
 
   # Resolve an item ID to a SupplierListItem. If the ID is prefixed with "sp_",
   # it's a catalog product (SupplierProduct) — find or create a SupplierListItem

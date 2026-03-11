@@ -2,13 +2,13 @@
 
 <div class="py-6">
   <div class="mb-6">
-    <%= link_to "&larr; #{matched ? 'Matched Lists' : 'Compare Lists'}".html_safe,
+    <%= link_to "&larr; #{matched ? 'Product Matching' : 'Compare Lists'}".html_safe,
         aggregated_lists_path,
         class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
   </div>
 
   <h1 class="text-2xl font-heading font-bold text-gray-900 mb-6">
-    <%= matched ? 'New Matched List' : 'New Comparison' %>
+    <%= matched ? 'Set Up Matched List' : 'New Comparison' %>
   </h1>
 
   <%= render "form", aggregated_list: @aggregated_list, available_lists: @available_lists, list_type: params[:list_type] %>

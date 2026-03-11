@@ -109,6 +109,7 @@ Rails.application.routes.draw do
   resources :aggregated_lists do
     member do
       post :run_matching
+      post :sync_new_products
       post :search_catalog
       get :order_builder
       post :add_supplier_guide
