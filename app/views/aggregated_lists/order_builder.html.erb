@@ -6,7 +6,13 @@
 
   <div class="mb-6">
     <h1 class="text-2xl font-heading font-bold text-gray-900">Build Order</h1>
-    <p class="mt-1 text-sm text-gray-500"><%= @aggregated_list.name %></p>
+    <p class="mt-1 text-sm text-gray-500">
+      <% if @order_list %>
+        <%= @order_list.name %> &middot; <%= @aggregated_list.name %>
+      <% else %>
+        <%= @aggregated_list.name %>
+      <% end %>
+    </p>
     <div class="mt-2 flex flex-wrap gap-1.5">
       <% @suppliers.each do |supplier| %>
         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
@@ -18,6 +24,9 @@
 
   <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "order-form") do |form| %>
     <%= hidden_field_tag :aggregated_list_id, @aggregated_list.id %>
+    <% if @order_list %>
+      <%= hidden_field_tag :order_list_id, @order_list.id %>
+    <% end %>
     <%# Supplier overrides are populated by JS when user clicks a non-default supplier %>
     <div id="supplier-overrides"></div>
 
@@ -167,12 +176,24 @@
             <tbody class="divide-y divide-gray-200 bg-white">
               <% @sorted_categories.each do |category| %>
                 <% matches = @grouped_matches[category] %>
+                <% is_order_list_section = @order_list_category && category == @order_list_category %>
                 <%# Category header row %>
-                <tr data-order-builder-target="categorySection" data-category="<%= category %>">
-                  <td colspan="<%= @suppliers.size + 3 %>" class="px-4 py-2 bg-gray-50 border-t-2 border-gray-200">
-                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-500"><%= category %></span>
-                    <span class="ml-1.5 text-xs text-gray-400">(<%= matches.size %>)</span>
-                  </td>
+                <% display_category = is_order_list_section ? @order_list.name : category %>
+                <tr data-order-builder-target="categorySection" data-category="<%= display_category %>">
+                  <% if is_order_list_section %>
+                    <td colspan="<%= @suppliers.size + 3 %>" class="px-4 py-3 border-t-4 border-brand-green bg-brand-green/15">
+                      <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded bg-brand-green text-white text-[10px] font-bold uppercase tracking-wider">Order List</span>
+                        <span class="text-sm font-bold uppercase tracking-wider text-brand-green-dark"><%= display_category %></span>
+                        <span class="text-xs text-brand-green-dark/60">(<%= matches.size %> items)</span>
+                      </div>
+                    </td>
+                  <% else %>
+                    <td colspan="<%= @suppliers.size + 3 %>" class="px-4 py-2 border-t-2 bg-gray-50 border-gray-200">
+                      <span class="text-xs font-semibold uppercase tracking-wider text-gray-500"><%= display_category %></span>
+                      <span class="ml-1.5 text-xs text-gray-400">(<%= matches.size %>)</span>
+                    </td>
+                  <% end %>
                 </tr>
                 <% matches.each_with_index do |match, idx| %>
                   <%= render "aggregated_lists/order_builder_desktop_row",
@@ -181,7 +202,11 @@
                              frequently_ordered: @frequently_ordered[match.id],
                              user_favorited: @user_favorited[match.id],
                              match_sp_id: @match_sp_ids[match.id],
-                             category: category %>
+                             category: category,
+                             order_list_item: is_order_list_section %>
+                <% end %>
+                <% if is_order_list_section %>
+                  <tr><td colspan="<%= @suppliers.size + 3 %>" class="h-8 bg-transparent border-none"></td></tr>
                 <% end %>
               <% end %>
             </tbody>
@@ -192,11 +217,23 @@
         <div class="sm:hidden p-2 space-y-2">
           <% @sorted_categories.each_with_index do |category, cat_idx| %>
             <% matches = @grouped_matches[category] %>
-            <div data-order-builder-target="categorySection" data-category="<%= category %>">
-              <div class="<%= cat_idx > 0 ? 'border-t border-gray-200 mt-3 pt-3' : '' %> px-1 pb-2 sticky top-16 bg-white z-10">
-                <span class="text-xs font-semibold uppercase tracking-wider text-gray-500"><%= category %></span>
-                <span class="ml-1 text-xs text-gray-400">(<%= matches.size %>)</span>
-              </div>
+            <% is_order_list_section = @order_list_category && category == @order_list_category %>
+            <% mobile_display_category = is_order_list_section ? @order_list.name : category %>
+            <div data-order-builder-target="categorySection" data-category="<%= mobile_display_category %>">
+              <% if is_order_list_section %>
+                <div class="<%= cat_idx > 0 ? 'mt-3' : '' %> px-1 pb-2 sticky top-16 z-10 bg-brand-green/15 border-t-4 border-brand-green rounded-t-lg pt-2">
+                  <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-brand-green text-white text-[10px] font-bold uppercase tracking-wider">Order List</span>
+                    <span class="text-sm font-bold uppercase tracking-wider text-brand-green-dark"><%= mobile_display_category %></span>
+                    <span class="text-xs text-brand-green-dark/60">(<%= matches.size %>)</span>
+                  </div>
+                </div>
+              <% else %>
+                <div class="<%= cat_idx > 0 ? 'border-t border-gray-200 mt-3 pt-3' : '' %> px-1 pb-2 sticky top-16 z-10 bg-white">
+                  <span class="text-xs font-semibold uppercase tracking-wider text-gray-500"><%= mobile_display_category %></span>
+                  <span class="ml-1 text-xs text-gray-400">(<%= matches.size %>)</span>
+                </div>
+              <% end %>
               <div class="space-y-3">
                 <% matches.each_with_index do |match, idx| %>
                   <%= render "aggregated_lists/order_builder_mobile_card",
@@ -207,6 +244,9 @@
                              match_sp_id: @match_sp_ids[match.id] %>
                 <% end %>
               </div>
+              <% if is_order_list_section %>
+                <div class="h-8"></div>
+              <% end %>
             </div>
           <% end %>
         </div>

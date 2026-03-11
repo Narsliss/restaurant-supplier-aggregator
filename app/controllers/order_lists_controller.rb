@@ -1,6 +1,6 @@
 class OrderListsController < ApplicationController
   before_action :require_organization!
-  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison order_builder add_match remove_match]
+  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison add_match remove_match]
   before_action :require_operator!, only: %i[new create edit update destroy duplicate add_match remove_match]
   before_action :require_list_owner!, only: %i[edit update destroy duplicate add_match remove_match]
   before_action :require_location_context!
@@ -9,6 +9,14 @@ class OrderListsController < ApplicationController
     @order_lists = scoped_order_lists
                                .includes(:order_list_items)
                                .recent
+
+    org = current_user.current_organization
+    if org
+      @promoted_list = AggregatedList.for_organization(org).promoted.matched_lists.first
+      @aggregated_lists = AggregatedList.for_organization(org).matched_lists
+        .then { |base| @promoted_list ? base.where.not(id: @promoted_list.id) : base }
+        .then { |base| chef? && current_location ? base.where(location_id: current_location.id) : base }
+    end
   end
 
   def show
@@ -110,78 +118,6 @@ class OrderListsController < ApplicationController
     item = @order_list.order_list_items.find_by(product_match_id: params[:product_match_id])
     item&.destroy
     redirect_to @order_list, notice: "Item removed from list."
-  end
-
-  def order_builder
-    @items = @order_list.order_list_items
-      .includes(product_match: { product_match_items: { supplier_list_item: [:supplier_product, { supplier_list: :supplier }] } })
-      .by_position
-
-    # Only show suppliers the user has active credentials for at this location
-    available_supplier_ids = scoped_credentials.active.pluck(:supplier_id).to_set
-
-    # Build supplier + price data from matched products
-    @suppliers = []
-    @price_data = {}
-
-    @items.each do |item|
-      next unless item.product_match
-
-      item.product_match.product_match_items.each do |pmi|
-        supplier = pmi.supplier_list_item&.supplier_list&.supplier
-        next unless supplier
-        next unless available_supplier_ids.include?(supplier.id)
-
-        @suppliers << supplier
-        @price_data[item.id] ||= {}
-        @price_data[item.id][supplier.id] = {
-          price: pmi.supplier_list_item.price,
-          pack_size: pmi.supplier_list_item.pack_size,
-          per_unit_price: pmi.supplier_list_item.per_unit_price,
-          supplier_product: pmi.supplier_list_item.supplier_product
-        }
-      end
-    end
-
-    @suppliers = @suppliers.uniq
-
-    # Per-supplier minimums for command bar progress indicators
-    supplier_ids = @suppliers.map(&:id)
-    minimums_by_supplier = SupplierRequirement
-      .where(supplier_id: supplier_ids, requirement_type: 'order_minimum', active: true)
-      .index_by(&:supplier_id)
-
-    @supplier_minimums = {}
-    @suppliers.each do |supplier|
-      req = minimums_by_supplier[supplier.id]
-      @supplier_minimums[supplier.id] = {
-        name: supplier.name,
-        minimum: req&.numeric_value&.to_f,
-        is_blocking: req&.is_blocking || false
-      }
-    end
-
-    # Load full matched list for "add more" section
-    load_matched_products
-    order_list_match_ids = @order_list.order_list_items.where.not(product_match_id: nil).pluck(:product_match_id).to_set
-    @extra_matches = (@product_matches || []).reject { |pm| order_list_match_ids.include?(pm.id) }
-
-    # Build price data for extra matches too
-    @extra_price_data = {}
-    @extra_matches.each do |pm|
-      pm.product_match_items.each do |pmi|
-        supplier = pmi.supplier_list_item&.supplier_list&.supplier
-        next unless supplier && available_supplier_ids.include?(supplier.id)
-        @suppliers << supplier unless @suppliers.include?(supplier)
-        @extra_price_data[pm.id] ||= {}
-        @extra_price_data[pm.id][supplier.id] = {
-          price: pmi.supplier_list_item.price,
-          pack_size: pmi.supplier_list_item.pack_size,
-          per_unit_price: pmi.supplier_list_item.per_unit_price,
-          supplier_product: pmi.supplier_list_item.supplier_product
-        }
-      end
-    end
   end
 
   private

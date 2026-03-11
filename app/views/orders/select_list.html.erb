@@ -52,9 +52,15 @@
                     </p>
                   </div>
                   <div class="flex-shrink-0">
-                    <%= link_to order_builder_order_list_path(list),
-                        class: "inline-flex items-center rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" do %>
-                      Build Order &rarr;
+                    <% matched_list = @promoted_list || @aggregated_lists.first %>
+                    <% if matched_list %>
+                      <%= link_to order_builder_aggregated_list_path(matched_list, order_list_id: list.id),
+                          data: { turbo: false },
+                          class: "inline-flex items-center rounded-md bg-brand-green px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" do %>
+                        Build Order &rarr;
+                      <% end %>
+                    <% else %>
+                      <span class="text-sm text-gray-400">No matched list available</span>
                     <% end %>
                   </div>
                 </div>

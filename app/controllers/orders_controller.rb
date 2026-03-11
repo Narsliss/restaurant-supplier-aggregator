@@ -294,56 +294,34 @@ class OrdersController < ApplicationController
     aggregated_list = find_aggregated_list(params[:aggregated_list_id])
     quantities = params[:quantities] || {}
 
+    # Optional order list context (unified builder)
+    order_list = params[:order_list_id].present? ? scoped_order_lists.find_by(id: params[:order_list_id]) : nil
+
     service = Orders::AggregatedListOrderService.new(
       user: current_user,
       aggregated_list: aggregated_list,
       quantities: quantities,
       supplier_overrides: params[:supplier_overrides] || {},
       location: current_location,
-      delivery_date: params[:delivery_date]
+      delivery_date: params[:delivery_date],
+      order_list: order_list
     )
 
     orders, batch_id = service.create_pending_orders!
+
+    builder_path = order_list ?
+      order_builder_aggregated_list_path(aggregated_list, order_list_id: order_list.id) :
+      order_builder_aggregated_list_path(aggregated_list)
 
     if orders.any?
       redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: aggregated_list.id),
         notice: "#{orders.size} order(s) ready for review across #{orders.map { |o| o.supplier.name }.join(', ')}."
     else
-      redirect_to order_builder_aggregated_list_path(aggregated_list),
+      redirect_to builder_path,
         alert: "No items selected. Set quantities for the items you want to order."
     end
   rescue => e
     redirect_to order_builder_aggregated_list_path(aggregated_list),
-      alert: "Failed to create orders: #{e.message}"
-  end
-
-  # Create pending orders from an order list's product matches
-  # SAFETY: Only creates status: "pending" orders. Never submits.
-  def create_from_order_list
-    ol = scoped_order_lists.find(params[:order_list_id])
-    quantities = params[:quantities] || {}
-
-    service = Orders::OrderListOrderService.new(
-      user: current_user,
-      order_list: ol,
-      quantities: quantities,
-      supplier_overrides: params[:supplier_overrides] || {},
-      location: current_location,
-      delivery_date: params[:delivery_date]
-    )
-
-    orders, batch_id = service.create_pending_orders!
-    ol.touch(:last_used_at)
-
-    if orders.any?
-      redirect_to review_orders_path(batch_id: batch_id),
-        notice: "#{orders.size} order(s) ready for review across #{orders.map { |o| o.supplier.name }.join(', ')}."
-    else
-      redirect_to order_builder_order_list_path(ol),
-        alert: "No items selected. Set quantities for the items you want to order."
-    end
-  rescue => e
-    redirect_to order_builder_order_list_path(ol),
       alert: "Failed to create orders: #{e.message}"
   end
 

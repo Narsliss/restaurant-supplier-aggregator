@@ -368,6 +368,19 @@ class AggregatedListsController < ApplicationController
     available_supplier_ids = scoped_credentials.active.pluck(:supplier_id).to_set
     @suppliers = @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) }
 
+    # --- Optional order list context (unified builder) ---
+    @order_list = nil
+    @order_list_match_ids = Set.new
+    if params[:order_list_id].present?
+      @order_list = scoped_order_lists.find_by(id: params[:order_list_id])
+      if @order_list
+        @order_list_match_ids = @order_list.order_list_items
+          .where.not(product_match_id: nil)
+          .pluck(:product_match_id)
+          .to_set
+      end
+    end
+
     # --- Per-supplier minimums for command bar progress indicators (single query) ---
     supplier_ids = @suppliers.map(&:id)
     minimums_by_supplier = SupplierRequirement
@@ -480,17 +493,34 @@ class AggregatedListsController < ApplicationController
       @match_sp_ids[pm.id]       = first_sp_id
     end
 
-    # Split frequently ordered / favorited into their own section
-    frequent_matches = @product_matches.select { |pm| @frequently_ordered[pm.id] }
-    remaining_matches = @product_matches.reject { |pm| @frequently_ordered[pm.id] }
+    # --- Build grouped sections ---
+    # When an order list is present, its items become the first section
+    if @order_list && @order_list_match_ids.any?
+      order_list_matches = @product_matches.select { |pm| @order_list_match_ids.include?(pm.id) }
+      remaining_all = @product_matches.reject { |pm| @order_list_match_ids.include?(pm.id) }
+    else
+      order_list_matches = []
+      remaining_all = @product_matches.to_a
+    end
+
+    # Split frequently ordered / favorited from the remaining matches
+    frequent_matches = remaining_all.select { |pm| @frequently_ordered[pm.id] }
+    remaining_matches = remaining_all.reject { |pm| @frequently_ordered[pm.id] }
 
     @grouped_matches = remaining_matches.group_by { |pm| @match_category[pm.id] || "Other" }
     @sorted_categories = @grouped_matches.keys.sort_by { |c| c == "Other" ? "zzz" : c.downcase }
 
-    # Prepend "Frequently Ordered" section if any exist
+    # Prepend order list section, then frequently ordered
+    if order_list_matches.any?
+      @order_list_category = "__order_list__"
+      @grouped_matches = { @order_list_category => order_list_matches }.merge(@grouped_matches)
+      @sorted_categories.unshift(@order_list_category)
+    end
+
     if frequent_matches.any?
-      @grouped_matches = { "Frequently Ordered" => frequent_matches }.merge(@grouped_matches)
-      @sorted_categories.unshift("Frequently Ordered")
+      insert_pos = @order_list_category ? 1 : 0
+      @grouped_matches["Frequently Ordered"] = frequent_matches
+      @sorted_categories.insert(insert_pos, "Frequently Ordered")
     end
   end
 

@@ -152,7 +152,6 @@ Rails.application.routes.draw do
     member do
       post :duplicate
       get :price_comparison
-      get :order_builder
       post :add_match
       post :remove_match
     end
@@ -180,7 +179,6 @@ Rails.application.routes.draw do
       get :split_preview
       post :split_create
       post :create_from_aggregated_list
-      post :create_from_order_list
       get :review
       post :submit_batch
       get :verification_status

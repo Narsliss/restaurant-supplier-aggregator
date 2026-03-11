@@ -4,7 +4,8 @@
 <% cheapest_price = cheapest&.dig(:price) || 0 %>
 <% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
 
-<tr data-order-builder-row data-product-name="<%= match.display_name.downcase %>" data-category="<%= category %>" class="<%= idx.even? ? 'bg-white' : 'bg-gray-50' %> hover:bg-gray-100" style="border-bottom: 1px solid #e5e7eb;">
+<% is_ol = local_assigns.fetch(:order_list_item, false) %>
+<tr data-order-builder-row data-product-name="<%= match.display_name.downcase %>" data-category="<%= category %>" class="<%= is_ol ? 'bg-brand-green/5' : (idx.even? ? 'bg-white' : 'bg-gray-50') %> hover:bg-gray-100" style="border-bottom: 1px solid #e5e7eb;<%= 'border-left: 3px solid var(--color-brand-green);' if is_ol %>">
   <%# Product name %>
   <td class="px-4 py-3">
     <div class="text-sm font-medium text-gray-900 flex items-center gap-1">

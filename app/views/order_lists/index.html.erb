@@ -25,8 +25,14 @@
                     class: "flex-1 text-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors" %>
               </div>
             <% end %>
-            <%= link_to "Order", order_builder_order_list_path(list),
-                class: "block w-full text-center rounded-md bg-brand-green px-3 py-2 text-sm font-semibold text-white hover:bg-brand-green-dark transition-colors" %>
+            <% matched_list = @promoted_list || @aggregated_lists&.first %>
+            <% if matched_list %>
+              <%= link_to "Order", order_builder_aggregated_list_path(matched_list, order_list_id: list.id),
+                  data: { turbo: false },
+                  class: "block w-full text-center rounded-md bg-brand-green px-3 py-2 text-sm font-semibold text-white hover:bg-brand-green-dark transition-colors" %>
+            <% else %>
+              <span class="block w-full text-center text-sm text-gray-400 py-2">No matched list available</span>
+            <% end %>
           </div>
         </div>
       <% end %>

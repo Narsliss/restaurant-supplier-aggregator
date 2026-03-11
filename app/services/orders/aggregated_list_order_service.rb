@@ -1,14 +1,15 @@
 module Orders
   class AggregatedListOrderService
-    attr_reader :user, :aggregated_list, :quantities, :supplier_overrides, :location, :delivery_date
+    attr_reader :user, :aggregated_list, :quantities, :supplier_overrides, :location, :delivery_date, :order_list
 
-    def initialize(user:, aggregated_list:, quantities:, supplier_overrides: {}, location: nil, delivery_date: nil)
+    def initialize(user:, aggregated_list:, quantities:, supplier_overrides: {}, location: nil, delivery_date: nil, order_list: nil)
       @user = user
       @aggregated_list = aggregated_list
       @quantities = quantities.transform_keys(&:to_s).transform_values(&:to_i)
       @supplier_overrides = supplier_overrides.transform_keys(&:to_s).transform_values(&:to_i)
       @location = location
       @delivery_date = delivery_date
+      @order_list = order_list
     end
 
     # Creates pending Order records grouped by cheapest supplier.
@@ -27,14 +28,16 @@ module Orders
         by_supplier.each do |supplier_id, items|
           supplier = Supplier.find(supplier_id)
 
+          source_name = order_list ? order_list.name : aggregated_list.name
           order = user.orders.create!(
             supplier: supplier,
             location: location,
             status: "pending",
             delivery_date: delivery_date,
-            notes: "Created from #{aggregated_list.name}",
+            notes: "Created from #{source_name}",
             organization_id: user.current_organization&.id,
-            batch_id: batch_id
+            batch_id: batch_id,
+            order_list_id: order_list&.id
           )
 
           # Bulk-insert order items (single INSERT instead of N individual queries)
@@ -67,6 +70,8 @@ module Orders
           orders << order
         end
       end
+
+      order_list&.touch(:last_used_at) if orders.any?
 
       [orders, batch_id]
     end

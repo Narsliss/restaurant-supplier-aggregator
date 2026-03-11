@@ -62,8 +62,13 @@ module OrganizationAuthorization
         org.orders.where(location_id: accessible_locations.select(:id))
       end
     else
-      # Chef: own orders only (always at their single location)
-      current_user.orders.where(organization: org)
+      # Chef: orders at their assigned location (chefs are pinned to a single location)
+      # This lets chefs review/submit orders created by any user at their location
+      if current_location
+        org.orders.where(location: current_location)
+      else
+        current_user.orders.where(organization: org)
+      end
     end
 
     base

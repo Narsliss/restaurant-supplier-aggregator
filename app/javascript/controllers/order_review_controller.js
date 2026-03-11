@@ -1180,16 +1180,18 @@ export default class extends Controller {
       }
 
       // Per-supplier submit button
-      this.supplierSubmitBtnTargets.forEach(btn => {
-        if (btn.dataset.orderId === orderId) {
+      // button_to puts data- on the <form>, so target the <button> inside
+      this.supplierSubmitBtnTargets.forEach(form => {
+        if (form.dataset.orderId === orderId) {
+          const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
           if (canSubmit) {
             btn.disabled = false
-            btn.classList.remove("bg-gray-300", "cursor-not-allowed")
-            btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+            btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+            btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
           } else {
             btn.disabled = true
-            btn.classList.add("bg-gray-300", "cursor-not-allowed")
-            btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+            btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+            btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
           }
         }
       })
@@ -1201,15 +1203,17 @@ export default class extends Controller {
     if (this.hasSummaryTotalTarget) this.summaryTotalTarget.textContent = this._formatCurrency(totalAmount)
 
     // Submit All button
-    this.submitAllBtnTargets.forEach(btn => {
+    // button_to puts data- on the <form>, so target the <button> inside
+    this.submitAllBtnTargets.forEach(form => {
+      const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
       if (allCanSubmit && cardData.length > 0) {
         btn.disabled = false
-        btn.classList.remove("bg-gray-300", "cursor-not-allowed")
-        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+        btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
       } else {
         btn.disabled = true
-        btn.classList.add("bg-gray-300", "cursor-not-allowed")
-        btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "cursor-pointer")
+        btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
+        btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
       }
     })
   }
@@ -1439,8 +1443,10 @@ export default class extends Controller {
       if (canSubmit) submittableCount++
 
       // Update per-supplier submit button
-      this.supplierSubmitBtnTargets.forEach(btn => {
-        if (btn.dataset.orderId === orderId) {
+      // button_to puts data- on the <form>, so target the <button> inside
+      this.supplierSubmitBtnTargets.forEach(form => {
+        if (form.dataset.orderId === orderId) {
+          const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
           if (canSubmit) {
             btn.disabled = false
             btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
@@ -1455,13 +1461,14 @@ export default class extends Controller {
     })
 
     // Update "Submit All" button text and state
-    this.submitAllBtnTargets.forEach(btn => {
+    // button_to puts data- on the <form>, so target the <button> inside
+    this.submitAllBtnTargets.forEach(form => {
+      const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
       const label = submittableCount === totalCount
         ? "Submit All Orders"
         : `Submit ${submittableCount} of ${totalCount} Orders`
-      const textEl = btn.querySelector("input[type='submit']") || btn
-      if (textEl.value !== undefined && textEl.type === "submit") {
-        textEl.value = label
+      if (btn.value !== undefined && btn.type === "submit") {
+        btn.value = label
       } else {
         btn.textContent = label
       }
