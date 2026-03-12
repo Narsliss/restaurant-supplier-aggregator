@@ -46,6 +46,11 @@ gem "jbuilder"
 # AI
 gem "ruby-openai", "~> 7.0"
 
+# PDF Generation & Reading
+gem "prawn", "~> 2.5"
+gem "prawn-table", "~> 0.2"
+gem "pdf-reader", "~> 2.12"
+
 # Timezone data for Windows
 gem "tzinfo-data", platforms: %i[windows jruby]
 

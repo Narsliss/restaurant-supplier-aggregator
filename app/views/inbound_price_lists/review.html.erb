@@ -1,0 +1,119 @@
+<div class="max-w-7xl mx-auto">
+  <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Review Price List</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        <span class="font-medium"><%= @email_supplier.name %></span>
+        <span class="text-gray-300 mx-1">·</span>
+        <svg class="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+        <%= @price_list.pdf_file_name %>
+        <% if @price_list.list_date %>
+          <span class="text-gray-300 mx-1">·</span>
+          <%= @price_list.list_date.strftime('%b %d, %Y') %>
+        <% end %>
+        <span class="text-gray-300 mx-1">·</span>
+        <%= @products.size %> products
+      </p>
+    </div>
+  </div>
+
+  <%= form_with url: import_email_supplier_price_list_path(@email_supplier, @price_list), method: :post, data: { controller: "price-list-review" } do |form| %>
+    <div class="mb-4 flex items-center justify-between">
+      <label class="inline-flex items-center gap-2 text-sm text-gray-600">
+        <input type="checkbox" data-action="change->price-list-review#toggleAll" data-price-list-review-target="selectAll" checked class="rounded border-gray-300 text-brand-orange focus:ring-brand-orange">
+        Select All
+      </label>
+      <button type="submit" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark" data-price-list-review-target="importButton">
+        Import Selected (<span data-price-list-review-target="selectedCount"><%= @products.size %></span> of <%= @products.size %>)
+      </button>
+    </div>
+
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+      <% product_index = 0 %>
+      <% @categories.each do |category, items| %>
+        <div class="border-b border-gray-200">
+          <div class="bg-gray-50 px-4 py-2 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-700"><%= category %> (<%= items.size %> items)</h3>
+          </div>
+
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead>
+              <tr>
+                <th class="px-3 py-2 w-10"></th>
+                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">SKU</th>
+                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-24">Price</th>
+                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-28">Pack Size</th>
+                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-28">Notes</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase w-24">Change</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <% items.each do |product| %>
+                <% sku = product['sku'].to_s %>
+                <% existing = @existing_items_by_sku[sku] %>
+                <% existing ||= @existing_items_by_name[product['name'].to_s.downcase.strip] if existing.nil? && sku.blank? %>
+                <% price_diff = nil %>
+                <% if existing && existing.price && product['price'] %>
+                  <% price_diff = product['price'].to_f - existing.price.to_f %>
+                <% end %>
+                <tr class="hover:bg-gray-50">
+                  <td class="px-3 py-2">
+                    <input type="checkbox" name="products[<%= product_index %>][included]" value="1" checked
+                           data-price-list-review-target="productCheckbox"
+                           data-action="change->price-list-review#updateCount"
+                           class="rounded border-gray-300 text-brand-orange focus:ring-brand-orange">
+                  </td>
+                  <td class="px-3 py-2 text-xs text-gray-500 font-mono">
+                    <%= sku.presence || "—" %>
+                    <input type="hidden" name="products[<%= product_index %>][sku]" value="<%= product['sku'] %>">
+                  </td>
+                  <td class="px-3 py-2 text-sm text-gray-900">
+                    <input type="text" name="products[<%= product_index %>][name]" value="<%= product['name'] %>"
+                           class="w-full border-0 bg-transparent text-sm text-gray-900 focus:ring-1 focus:ring-brand-orange rounded px-1 -mx-1">
+                  </td>
+                  <td class="px-3 py-2 text-right">
+                    <% if product['price'] %>
+                      <input type="number" name="products[<%= product_index %>][price]" value="<%= product['price'] %>" step="0.01" min="0"
+                             class="w-20 border-0 bg-transparent text-sm text-gray-900 text-right focus:ring-1 focus:ring-brand-orange rounded px-1">
+                    <% else %>
+                      <span class="text-xs text-amber-600 italic">Market Price</span>
+                      <input type="hidden" name="products[<%= product_index %>][price]" value="">
+                    <% end %>
+                  </td>
+                  <td class="px-3 py-2">
+                    <input type="text" name="products[<%= product_index %>][pack_size]" value="<%= product['pack_size'] %>"
+                           class="w-full border-0 bg-transparent text-xs text-gray-500 focus:ring-1 focus:ring-brand-orange rounded px-1 -mx-1">
+                  </td>
+                  <td class="px-3 py-2 text-xs text-gray-400">
+                    <%= product['notes'] %>
+                  </td>
+                  <td class="px-3 py-2 text-right text-xs">
+                    <input type="hidden" name="products[<%= product_index %>][category]" value="<%= product['category'] %>">
+                    <% if existing.nil? && @existing_items_by_sku.any? %>
+                      <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">NEW</span>
+                    <% elsif price_diff && price_diff != 0 %>
+                      <% if price_diff > 0 %>
+                        <span class="text-red-600">▲ +$<%= '%.2f' % price_diff %></span>
+                      <% else %>
+                        <span class="text-green-600">▼ -$<%= '%.2f' % price_diff.abs %></span>
+                      <% end %>
+                    <% end %>
+                  </td>
+                </tr>
+                <% product_index += 1 %>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="mt-6 flex items-center justify-between">
+      <%= link_to "← Back", supplier_credentials_path, class: "text-sm text-gray-500 hover:text-gray-700" %>
+      <button type="submit" class="inline-flex items-center px-6 py-2.5 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark">
+        Import Selected Products
+      </button>
+    </div>
+  <% end %>
+</div>

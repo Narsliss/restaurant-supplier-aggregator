@@ -7,6 +7,11 @@ module Orders
     end
 
     def place_order(accept_price_changes: false, skip_warnings: false, skip_pre_validation: false)
+      # Email suppliers: route to email-based order placement (no scraper needed)
+      if order.supplier.email_supplier?
+        return Orders::EmailOrderPlacementService.new(order).place_order
+      end
+
       # Step 1: Run pre-submission validations
       # (validate_item_availability may auto-remove out-of-stock items via destroy_all)
       validate_order!(skip_warnings: skip_warnings)

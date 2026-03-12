@@ -1,9 +1,10 @@
 class SupplierList < ApplicationRecord
   # Associations
-  belongs_to :supplier_credential
+  belongs_to :supplier_credential, optional: true
   belongs_to :supplier
   belongs_to :organization, optional: true
   belongs_to :location, optional: true
+  belongs_to :inbound_price_list, optional: true
   has_many :supplier_list_items, dependent: :destroy
   has_many :aggregated_list_mappings, dependent: :destroy
   has_many :aggregated_lists, through: :aggregated_list_mappings
@@ -28,7 +29,7 @@ class SupplierList < ApplicationRecord
   after_create_commit :auto_add_to_matched_list
 
   # Delegations
-  delegate :user, to: :supplier_credential
+  delegate :user, to: :supplier_credential, allow_nil: true
 
   # Status methods
   def synced?

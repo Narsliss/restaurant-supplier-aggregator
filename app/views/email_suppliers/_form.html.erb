@@ -1,0 +1,35 @@
+<%= form_with(model: supplier, url: supplier.persisted? ? email_supplier_path(supplier) : email_suppliers_path, class: "space-y-6") do |form| %>
+  <% if supplier.errors.any? %>
+    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+      <h3 class="text-red-800 font-medium">Please fix the following errors:</h3>
+      <ul class="mt-2 list-disc list-inside text-sm text-red-700">
+        <% supplier.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div>
+    <%= form.label :name, "Supplier Name", class: "block text-sm font-medium text-gray-700" %>
+    <%= form.text_field :name, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", placeholder: "Blue Ribbon Meats & Seafood", required: true %>
+    <p class="mt-1 text-xs text-gray-400">The name you use for this supplier (can be anything).</p>
+  </div>
+
+  <div>
+    <%= form.label :contact_email, "Supplier Email Address", class: "block text-sm font-medium text-gray-700" %>
+    <%= form.email_field :contact_email, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", placeholder: "orders@supplier.com", required: true %>
+    <p class="mt-1 text-xs text-gray-400">The email address this supplier sends from AND where orders will be emailed to.</p>
+  </div>
+
+  <div>
+    <%= form.label :ordering_instructions, "Ordering Instructions (optional)", class: "block text-sm font-medium text-gray-700" %>
+    <%= form.text_area :ordering_instructions, rows: 3, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green", placeholder: "Order Monday by 10 AM for Wednesday delivery..." %>
+    <p class="mt-1 text-xs text-gray-400">Any ordering schedule or requirements to remember.</p>
+  </div>
+
+  <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+    <%= link_to "Cancel", supplier_credentials_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
+    <%= form.submit supplier.persisted? ? "Update Supplier" : "Add Supplier", class: "px-4 py-2 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark cursor-pointer" %>
+  </div>
+<% end %>

@@ -1,0 +1,22 @@
+Order from <%= @organization.name %>
+<%= @location&.name %>
+
+Order Date: <%= Date.current.strftime('%B %d, %Y') %>
+Requested Delivery: <%= @order.delivery_date&.strftime('%B %d, %Y') || 'Next available' %>
+
+Items:
+<% @order.order_items.includes(:supplier_product).each do |item| %>
+  - <%= item.quantity %>x <%= item.supplier_product&.supplier_name || "Item" %><%= " (#{item.supplier_product&.supplier_sku})" if item.supplier_product&.supplier_sku.present? %>
+<% end %>
+
+Estimated Total: $<%= '%.2f' % @order.calculated_subtotal %>
+<% if @order.notes.present? %>
+
+Notes: <%= @order.notes %>
+<% end %>
+
+Please see attached PDF for the complete order.
+
+Thank you,
+<%= @order.user.name %>
+<%= @order.user.email %>

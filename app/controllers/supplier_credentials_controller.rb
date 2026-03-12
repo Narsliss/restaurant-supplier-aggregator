@@ -22,6 +22,21 @@ class SupplierCredentialsController < ApplicationController
                                              .group(:supplier_id)
                                              .count
 
+    # Load email suppliers for the new section
+    @email_suppliers = Supplier.email_suppliers
+                               .where(organization_id: current_user.current_organization_id)
+                               .order(:name)
+
+    if @email_suppliers.any?
+      @email_supplier_stats = InboundPriceList.parsed
+        .where(contact_email: @email_suppliers.pluck(:contact_email))
+        .select("contact_email, MAX(received_at) as last_received, MAX(product_count) as last_product_count, MAX(list_date) as last_list_date")
+        .group(:contact_email)
+        .index_by(&:contact_email)
+    else
+      @email_supplier_stats = {}
+    end
+
     # Load any active 2FA requests so we can show inline code entry.
     # Include "pending" (waiting for code) and "submitted" (code entered, verifying).
     @pending_2fa = Supplier2faRequest

@@ -11,22 +11,28 @@ class Supplier < ApplicationRecord
   has_many :product_match_items, dependent: :destroy
   has_many :supplier_users, dependent: :destroy
   has_many :supplier_portal_invitations, dependent: :destroy
+  belongs_to :organization, optional: true
+  belongs_to :creator, class_name: 'User', foreign_key: :created_by_id, optional: true
 
   # Validations
   validates :name, presence: true
   validates :code, presence: true, uniqueness: true
-  validates :base_url, presence: true
-  validates :login_url, presence: true
-  validates :scraper_class, presence: true
+  validates :base_url, presence: true, unless: :email_supplier?
+  validates :login_url, presence: true, unless: :email_supplier?
+  validates :scraper_class, presence: true, unless: :email_supplier?
+  validates :contact_email, presence: true, if: :email_supplier?
 
   # Scopes
   scope :active, -> { where(active: true) }
   scope :by_name, -> { order(:name) }
   scope :password_required, -> { where(password_required: true) }
   scope :two_fa_only, -> { where(password_required: false) }
+  scope :email_suppliers, -> { where(auth_type: 'email') }
+  scope :web_suppliers, -> { where.not(auth_type: 'email') }
+  scope :for_organization, ->(org) { where(organization_id: [nil, org.id]) }
 
   # Authentication type constants
-  AUTH_TYPES = %w[password two_fa welcome_url].freeze
+  AUTH_TYPES = %w[password two_fa welcome_url email].freeze
 
   validates :auth_type, inclusion: { in: AUTH_TYPES }
 
@@ -43,10 +49,27 @@ class Supplier < ApplicationRecord
     auth_type == 'password'
   end
 
+  def email_supplier?
+    auth_type == 'email'
+  end
+
   # Returns true if this supplier does NOT need a password
-  # (2FA-only or welcome URL auth)
+  # (2FA-only, welcome URL, or email auth)
   def no_password_required?
     !password_auth?
+  end
+
+  # Email supplier helpers
+  def latest_price_list
+    return nil unless email_supplier? && contact_email.present?
+    InboundPriceList.latest_for(contact_email)
+  end
+
+  def price_list_stale?
+    return false unless email_supplier?
+    latest = latest_price_list
+    return true unless latest&.parsed?
+    latest.received_at < 3.weeks.ago
   end
 
   # Methods

@@ -83,6 +83,18 @@ Rails.application.routes.draw do
   post 'locations/switch', to: 'locations#switch', as: :switch_location
   resources :locations
 
+  # Email Suppliers (PDF-based, no website)
+  resources :email_suppliers, only: [:new, :create, :edit, :update, :destroy] do
+    resources :price_lists, controller: 'inbound_price_lists', only: [:show] do
+      collection { post :upload }
+      member do
+        get :status
+        get :review
+        post :import
+      end
+    end
+  end
+
   # Supplier Credentials
   resources :supplier_credentials do
     member do

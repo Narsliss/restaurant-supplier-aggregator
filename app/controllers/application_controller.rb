@@ -133,6 +133,8 @@ class ApplicationController < ActionController::Base
       controller_name == "organizations" ||
       controller_name == "locations" ||
       controller_name == "supplier_credentials" ||
+      controller_name == "email_suppliers" ||
+      controller_name == "inbound_price_lists" ||
       controller_name == "subscriptions" ||
       controller_name == "invitations" ||
       controller_path.start_with?("webhooks") ||

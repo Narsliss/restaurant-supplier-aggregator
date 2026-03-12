@@ -10,9 +10,37 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_12_194945) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
+
+  create_table "active_storage_attachments", force: :cascade do |t|
+    t.string "name", null: false
+    t.string "record_type", null: false
+    t.bigint "record_id", null: false
+    t.bigint "blob_id", null: false
+    t.datetime "created_at", null: false
+    t.index ["blob_id"], name: "index_active_storage_attachments_on_blob_id"
+    t.index ["record_type", "record_id", "name", "blob_id"], name: "index_active_storage_attachments_uniqueness", unique: true
+  end
+
+  create_table "active_storage_blobs", force: :cascade do |t|
+    t.string "key", null: false
+    t.string "filename", null: false
+    t.string "content_type"
+    t.text "metadata"
+    t.string "service_name", null: false
+    t.bigint "byte_size", null: false
+    t.string "checksum"
+    t.datetime "created_at", null: false
+    t.index ["key"], name: "index_active_storage_blobs_on_key", unique: true
+  end
+
+  create_table "active_storage_variant_records", force: :cascade do |t|
+    t.bigint "blob_id", null: false
+    t.string "variation_digest", null: false
+    t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
 
   create_table "aggregated_list_mappings", force: :cascade do |t|
     t.bigint "aggregated_list_id", null: false
@@ -98,6 +126,27 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
     t.index ["supplier_product_id"], name: "index_favorite_products_on_supplier_product_id"
     t.index ["user_id", "supplier_product_id"], name: "index_favorite_products_on_user_id_and_supplier_product_id", unique: true
     t.index ["user_id"], name: "index_favorite_products_on_user_id"
+  end
+
+  create_table "inbound_price_lists", force: :cascade do |t|
+    t.string "contact_email", null: false
+    t.string "message_id"
+    t.string "pdf_content_hash"
+    t.string "from_email"
+    t.string "subject"
+    t.datetime "received_at", null: false
+    t.string "status", default: "pending", null: false
+    t.text "error_message"
+    t.jsonb "raw_products_json"
+    t.string "pdf_file_name"
+    t.date "list_date"
+    t.integer "product_count"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["contact_email", "pdf_content_hash"], name: "idx_inbound_price_lists_dedup", unique: true, where: "(pdf_content_hash IS NOT NULL)"
+    t.index ["contact_email", "received_at"], name: "index_inbound_price_lists_on_contact_email_and_received_at"
+    t.index ["contact_email"], name: "index_inbound_price_lists_on_contact_email"
+    t.index ["message_id"], name: "index_inbound_price_lists_on_message_id", unique: true, where: "(message_id IS NOT NULL)"
   end
 
   create_table "invoices", force: :cascade do |t|
@@ -657,7 +706,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
   end
 
   create_table "supplier_lists", force: :cascade do |t|
-    t.bigint "supplier_credential_id", null: false
+    t.bigint "supplier_credential_id"
     t.bigint "supplier_id", null: false
     t.bigint "organization_id"
     t.string "remote_list_id"
@@ -671,6 +720,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.bigint "location_id"
+    t.bigint "inbound_price_list_id"
+    t.index ["inbound_price_list_id"], name: "index_supplier_lists_on_inbound_price_list_id"
     t.index ["location_id"], name: "index_supplier_lists_on_location_id"
     t.index ["organization_id", "location_id"], name: "idx_supplier_lists_org_location"
     t.index ["organization_id"], name: "index_supplier_lists_on_organization_id"
@@ -779,9 +830,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
   create_table "suppliers", force: :cascade do |t|
     t.string "name", null: false
     t.string "code", null: false
-    t.string "base_url", null: false
-    t.string "login_url", null: false
-    t.string "scraper_class", null: false
+    t.string "base_url"
+    t.string "login_url"
+    t.string "scraper_class"
     t.boolean "active", default: true
     t.text "notes"
     t.datetime "created_at", null: false
@@ -789,8 +840,14 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
     t.boolean "password_required", default: true, null: false
     t.string "auth_type", default: "password", null: false
     t.boolean "checkout_enabled", default: false, null: false
+    t.string "contact_email"
+    t.text "ordering_instructions"
+    t.bigint "organization_id"
+    t.bigint "created_by_id"
     t.index ["active"], name: "index_suppliers_on_active"
     t.index ["code"], name: "index_suppliers_on_code", unique: true
+    t.index ["contact_email"], name: "index_suppliers_on_contact_email"
+    t.index ["organization_id"], name: "index_suppliers_on_organization_id"
   end
 
   create_table "users", force: :cascade do |t|
@@ -824,6 +881,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
     t.index ["unlock_token"], name: "index_users_on_unlock_token", unique: true
   end
 
+  add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "aggregated_list_mappings", "aggregated_lists", on_delete: :cascade
   add_foreign_key "aggregated_list_mappings", "supplier_lists", on_delete: :cascade
   add_foreign_key "aggregated_lists", "locations", on_delete: :nullify
@@ -887,6 +946,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
   add_foreign_key "supplier_delivery_schedules", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_list_items", "supplier_lists", on_delete: :cascade
   add_foreign_key "supplier_list_items", "supplier_products", on_delete: :nullify
+  add_foreign_key "supplier_lists", "inbound_price_lists"
   add_foreign_key "supplier_lists", "locations"
   add_foreign_key "supplier_lists", "organizations"
   add_foreign_key "supplier_lists", "supplier_credentials", on_delete: :cascade
@@ -897,5 +957,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_003822) do
   add_foreign_key "supplier_requirements", "locations", on_delete: :cascade
   add_foreign_key "supplier_requirements", "suppliers", on_delete: :cascade
   add_foreign_key "supplier_users", "suppliers"
+  add_foreign_key "suppliers", "organizations", on_delete: :cascade
+  add_foreign_key "suppliers", "users", column: "created_by_id", on_delete: :nullify
   add_foreign_key "users", "organizations", column: "current_organization_id"
 end
