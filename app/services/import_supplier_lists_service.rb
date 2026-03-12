@@ -180,14 +180,30 @@ class ImportSupplierListsService
   #
   # If the stored price ÷ pack weight gives an unrealistically low per-lb
   # price (< $0.30), the price is almost certainly already per-lb.
-  # Very few wholesale foods cost < $0.30/lb — this threshold safely catches
-  # meat, seafood, and poultry without flagging cheap bulk produce or staples.
+  # Detects when a scraped price is per-lb (not a case total) and sets
+  # price_unit so estimated_total_price can compute the real case cost.
   #
-  # Only applies to lb-based packs ≥ 5 lbs with prices ≥ $2.
+  # Two strategies:
+  # 1. US Foods "LBA" / "OZA" suffixes — these ALWAYS indicate per-piece
+  #    average weights on items priced per-lb (meats, seafood, poultry).
+  # 2. Fallback heuristic: for lb-based packs ≥ 5 lbs, if implied $/lb < $0.30
+  #    the price is almost certainly per-lb, not per-case.
   def infer_per_unit_pricing!(item)
     return unless item.price && item.price >= 2.0
 
-    parsed = UnitParser.parse(item.pack_size)
+    pack = item.pack_size.to_s
+
+    # Strategy 1: "LBA" (Lb Average) and "OZA" (Oz Average) are US Foods
+    # conventions for per-piece weight on protein priced per-lb.
+    if pack.match?(/\b(?:LBA|OZA)\b/i)
+      item.update_column(:price_unit, "lb")
+      Rails.logger.info "[ImportLists] Inferred price_unit=lb (LBA/OZA suffix) for '#{item.name}' " \
+                        "($#{item.price}/#{item.pack_size})"
+      return
+    end
+
+    # Strategy 2: heuristic for lb-based packs
+    parsed = UnitParser.parse(pack)
     return unless parsed[:parseable] && parsed[:unit] == "lb" && parsed[:quantity] >= 5
 
     implied_per_lb = item.price / parsed[:quantity]
