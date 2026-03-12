@@ -11,6 +11,7 @@
 %>
 <% is_cheapest = local_assigns.fetch(:is_cheapest, false) %>
 <% is_most_expensive = local_assigns.fetch(:is_most_expensive, false) %>
+<% readonly = local_assigns.fetch(:readonly, false) %>
 
 <% if item %>
   <div class="text-sm text-gray-900"><%= item.name.truncate(60) %></div>
@@ -36,7 +37,7 @@
       <span class="ml-1 text-xs text-red-500">Out of stock</span>
     <% end %>
   </div>
-  <% if pmi %>
+  <% if pmi && !readonly %>
     <details class="mt-1">
       <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Change</summary>
       <div class="mt-1">
@@ -53,33 +54,35 @@
   <% end %>
 <% else %>
   <span class="text-sm text-gray-400 italic">No match</span>
-  <% if pmi %>
-    <details class="mt-1">
-      <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
-      <div class="mt-1">
-        <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
-          <%= render "aggregated_lists/searchable_select",
-                     field_name: "product_match_item[supplier_list_item_id]",
-                     search_url: search_url,
-                     supplier_id: supplier_id,
-                     selected_id: nil %>
-        <% end %>
-      </div>
-    </details>
-  <% else %>
-    <details class="mt-1">
-      <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
-      <div class="mt-1">
-        <%= form_with url: product_match_items_path, method: :post do |f| %>
-          <%= hidden_field_tag "product_match_item[product_match_id]", product_match.id %>
-          <%= hidden_field_tag "product_match_item[supplier_id]", supplier.id %>
-          <%= render "aggregated_lists/searchable_select",
-                     field_name: "product_match_item[supplier_list_item_id]",
-                     search_url: search_url,
-                     supplier_id: supplier_id,
-                     selected_id: nil %>
-        <% end %>
-      </div>
-    </details>
+  <% unless readonly %>
+    <% if pmi %>
+      <details class="mt-1">
+        <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
+        <div class="mt-1">
+          <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
+            <%= render "aggregated_lists/searchable_select",
+                       field_name: "product_match_item[supplier_list_item_id]",
+                       search_url: search_url,
+                       supplier_id: supplier_id,
+                       selected_id: nil %>
+          <% end %>
+        </div>
+      </details>
+    <% else %>
+      <details class="mt-1">
+        <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
+        <div class="mt-1">
+          <%= form_with url: product_match_items_path, method: :post do |f| %>
+            <%= hidden_field_tag "product_match_item[product_match_id]", product_match.id %>
+            <%= hidden_field_tag "product_match_item[supplier_id]", supplier.id %>
+            <%= render "aggregated_lists/searchable_select",
+                       field_name: "product_match_item[supplier_list_item_id]",
+                       search_url: search_url,
+                       supplier_id: supplier_id,
+                       selected_id: nil %>
+          <% end %>
+        </div>
+      </details>
+    <% end %>
   <% end %>
 <% end %>

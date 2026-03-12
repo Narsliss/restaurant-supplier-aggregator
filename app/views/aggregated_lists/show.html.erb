@@ -260,7 +260,8 @@
                              search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
                              supplier_id: supplier.id,
                              is_cheapest: is_cheapest,
-                             is_most_expensive: is_most_expensive %>
+                             is_most_expensive: is_most_expensive,
+                             readonly: @aggregated_list.promoted? %>
                 </td>
               <% end %>
 

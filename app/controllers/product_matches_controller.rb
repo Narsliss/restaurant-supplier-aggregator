@@ -68,10 +68,16 @@ class ProductMatchesController < ApplicationController
     end
   end
 
-  # Chefs can only modify lists at their own location
+  # Chefs can only modify lists at their own location; nobody can modify promoted lists
   def require_list_write_access!
-    return if current_user.super_admin? || owner?
     return unless @aggregated_list
+
+    if @aggregated_list.promoted?
+      redirect_to aggregated_list_path(@aggregated_list), alert: "This list is read-only (promoted org-wide)."
+      return
+    end
+
+    return if current_user.super_admin? || owner?
 
     if @aggregated_list.location_id != current_location&.id
       redirect_to root_path, alert: "You don't have permission to modify this list."
