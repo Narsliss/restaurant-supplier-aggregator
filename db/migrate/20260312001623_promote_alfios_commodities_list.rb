@@ -12,9 +12,9 @@ class PromoteAlfiosCommoditiesList < ActiveRecord::Migration[7.1]
       return
     end
 
-    list = AggregatedList.find_by(organization: org, name: "commodities2")
+    list = AggregatedList.where(organization: org, list_type: %w[matched master]).first
     unless list
-      say "List 'commodities2' not found in org #{org.name} — skipping"
+      say "No matched list found in org #{org.name} — skipping"
       return
     end
 
@@ -44,7 +44,7 @@ class PromoteAlfiosCommoditiesList < ActiveRecord::Migration[7.1]
     org = user.organizations.first
     return unless org
 
-    list = AggregatedList.find_by(organization: org, name: "commodities2")
+    list = AggregatedList.where(organization: org, list_type: %w[matched master]).first
     list&.update_columns(promoted_org_wide: false)
   end
 end
