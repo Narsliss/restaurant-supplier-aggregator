@@ -34,7 +34,7 @@ module Scrapers
         navigate_to(BASE_URL)
 
         if restore_session
-          browser.refresh
+          # restore_session already navigates + refreshes
           sleep 2
           if logged_in?
             save_session
@@ -959,7 +959,13 @@ module Scrapers
           JS
         end
 
-        logger.info "[Sysco] Session restored (cookies: #{cookies.size}, localStorage: #{local_storage.size}, sessionStorage: #{session_storage.size})"
+        # Refresh so the SPA re-initializes with the restored auth tokens.
+        # Without this, the page loaded before storage was injected and
+        # the app thinks we're unauthenticated.
+        logger.info "[Sysco] Session injected (cookies: #{cookies.size}, localStorage: #{local_storage.size}, sessionStorage: #{session_storage.size}) — refreshing..."
+        browser.refresh
+        sleep 3
+        logger.info "[Sysco] Session restored, current URL: #{browser.current_url rescue 'unknown'}"
         true
       rescue JSON::ParserError => e
         logger.warn "[Sysco] Failed to parse session data: #{e.message}"
