@@ -439,8 +439,8 @@ class SupplierCredentialsController < ApplicationController
       current_user.supplier_credentials.pluck(:supplier_id)
     end
 
-    @available_suppliers = Supplier.active.where.not(id: existing_supplier_ids).order(:name)
-    @all_suppliers = Supplier.active.order(:name)
+    @available_suppliers = Supplier.active.web_suppliers.where.not(id: existing_supplier_ids).order(:name)
+    @all_suppliers = Supplier.active.web_suppliers.order(:name)
     @locations = current_user.current_organization&.locations || []
   end
 
