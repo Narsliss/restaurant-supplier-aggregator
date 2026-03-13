@@ -187,7 +187,7 @@
       <tbody class="divide-y divide-gray-200">
         <% @recent_orders.each do |order| %>
           <tr class="hover:bg-brand-green-50 transition-colors cursor-pointer" onclick="window.location='<%= order_path(order) %>'">
-            <td class="px-4 py-3 text-sm font-medium text-gray-900"><%= order.supplier.name %></td>
+            <td class="px-4 py-3 text-sm font-medium text-gray-900"><%= order.display_supplier_name %></td>
             <td class="px-4 py-3 text-sm text-gray-500"><%= order.location&.name %></td>
             <td class="px-4 py-3 text-sm text-gray-500"><%= order.user&.full_name %></td>
             <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right"><%= number_to_currency(order.total_amount) %></td>

@@ -1,7 +1,7 @@
 class OrderItem < ApplicationRecord
   # Associations
   belongs_to :order
-  belongs_to :supplier_product
+  belongs_to :supplier_product, optional: true
 
   # Validations
   validates :quantity, presence: true, numericality: { greater_than: 0 }
@@ -17,10 +17,24 @@ class OrderItem < ApplicationRecord
 
   # Callbacks
   before_validation :calculate_line_total
+  before_validation :snapshot_product_info, on: :create
 
-  # Delegations
-  delegate :supplier_sku, :supplier_name, :supplier, to: :supplier_product
-  delegate :product, to: :supplier_product
+  # Safe accessors that fall back to snapshot columns when supplier_product is deleted
+  def supplier_name
+    supplier_product&.supplier_name || product_name
+  end
+
+  def supplier_sku
+    supplier_product&.supplier_sku || product_sku
+  end
+
+  def supplier
+    supplier_product&.supplier
+  end
+
+  def product
+    supplier_product&.product
+  end
 
   # Methods
   def pending?
@@ -91,5 +105,10 @@ class OrderItem < ApplicationRecord
     if quantity.present? && unit_price.present?
       self.line_total = quantity * unit_price
     end
+  end
+
+  def snapshot_product_info
+    self.product_name ||= supplier_product&.supplier_name
+    self.product_sku ||= supplier_product&.supplier_sku
   end
 end

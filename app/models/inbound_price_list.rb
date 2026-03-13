@@ -6,7 +6,7 @@ class InboundPriceList < ApplicationRecord
   has_many :supplier_lists
 
   # Status constants
-  STATUSES = %w[pending parsing parsed failed].freeze
+  STATUSES = %w[pending parsing parsed imported needs_review failed].freeze
 
   # Validations
   validates :contact_email, presence: true
@@ -39,6 +39,14 @@ class InboundPriceList < ApplicationRecord
 
   def failed?
     status == 'failed'
+  end
+
+  def imported?
+    status == 'imported'
+  end
+
+  def needs_review?
+    status == 'needs_review'
   end
 
   # Find all email suppliers that match this price list's contact_email

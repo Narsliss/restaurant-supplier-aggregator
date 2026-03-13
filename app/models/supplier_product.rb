@@ -2,7 +2,8 @@ class SupplierProduct < ApplicationRecord
   # Associations
   belongs_to :product, optional: true
   belongs_to :supplier
-  has_many :order_items, dependent: :restrict_with_error
+  has_many :order_items, dependent: :nullify
+  has_many :favorite_products, dependent: :destroy
   has_many :supplier_list_items, dependent: :nullify
 
   # Validations

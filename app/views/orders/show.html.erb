@@ -10,7 +10,7 @@
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Order #<%= @order.id %></h1>
-      <p class="text-sm text-gray-500"><%= @order.supplier.name %> &middot; <%= @order.created_at.strftime("%b %d, %Y") %></p>
+      <p class="text-sm text-gray-500"><%= @order.display_supplier_name %> &middot; <%= @order.created_at.strftime("%b %d, %Y") %></p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
       <% case @order.status %>
@@ -55,7 +55,7 @@
     <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6" data-order-edit-target="minimumWarning">
       <p class="text-yellow-800 text-sm">
         <span class="font-medium">Warning:</span>
-        <%= @order.supplier.name %> order minimum not met.
+        <%= @order.display_supplier_name %> order minimum not met.
         <span class="text-yellow-600" data-order-edit-target="minimumShortfall">
           Current: <%= number_to_currency(@order.calculated_subtotal) %>,
           Need: <%= number_to_currency(@minimum - (@order.calculated_subtotal || 0)) %> more
@@ -73,7 +73,7 @@
         </svg>
         <p class="text-amber-800 text-sm">
           <span class="font-medium">Note:</span>
-          <%= @order.supplier.name %> requires a minimum of
+          <%= @order.display_supplier_name %> requires a minimum of
           <strong><%= @case_minimum %> cases</strong> per order.
           <span class="text-amber-600" data-order-edit-target="caseMinimumShortfall">
             You currently have <%= @case_count.to_i %> case<%= @case_count.to_i == 1 ? '' : 's' %>.
@@ -92,7 +92,7 @@
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
         <div>
-          <h3 class="text-sm font-semibold text-blue-800">Submitting to <%= @order.supplier.name %></h3>
+          <h3 class="text-sm font-semibold text-blue-800">Submitting to <%= @order.display_supplier_name %></h3>
           <p class="text-sm text-blue-700 mt-0.5">Running through the checkout process. This page will update automatically.</p>
         </div>
       </div>
@@ -107,7 +107,7 @@
         </svg>
         <div>
           <h3 class="text-sm font-semibold text-purple-800">Test Run — No Order Placed</h3>
-          <p class="text-sm text-purple-700 mt-1">This was a dry run. The checkout flow was tested but no real order was submitted to <%= @order.supplier.name %>. No charges were made. To place a real order, checkout must be enabled for this supplier.</p>
+          <p class="text-sm text-purple-700 mt-1">This was a dry run. The checkout flow was tested but no real order was submitted to <%= @order.display_supplier_name %>. No charges were made. To place a real order, checkout must be enabled for this supplier.</p>
         </div>
       </div>
     </div>
@@ -151,7 +151,7 @@
     <dl class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-4">
       <div>
         <dt class="text-sm font-medium text-gray-500">Supplier</dt>
-        <dd class="mt-1 text-gray-900"><%= @order.supplier.name %></dd>
+        <dd class="mt-1 text-gray-900"><%= @order.display_supplier_name %></dd>
       </div>
       <div>
         <dt class="text-sm font-medium text-gray-500">Delivery Date</dt>

@@ -197,4 +197,91 @@
       <p class="text-gray-500">No supplier credentials configured. Add your first supplier login.</p>
     </div>
   <% end %>
+
+  <%# ── Email Suppliers Section ── %>
+  <div class="border-t border-gray-200 mt-8 pt-6">
+    <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-4">
+      <div>
+        <h2 class="text-lg font-bold text-gray-900">Email Suppliers</h2>
+        <p class="text-sm text-gray-500">Suppliers that send PDF price lists via email. Upload their PDFs to compare prices.</p>
+      </div>
+      <% if operator? %>
+        <%= link_to new_email_supplier_path, class: "inline-flex items-center justify-center border border-brand-orange text-brand-orange px-4 py-2 rounded-lg hover:bg-brand-orange hover:text-white text-sm transition-colors" do %>
+          <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+          Add Email Supplier
+        <% end %>
+      <% end %>
+    </div>
+
+    <% if @email_suppliers.any? %>
+      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <% @email_suppliers.each do |supplier| %>
+          <% stats = @email_supplier_stats[supplier.contact_email] %>
+          <div class="bg-white shadow rounded-lg p-4 flex flex-col">
+            <h3 class="text-base font-semibold text-gray-900 truncate"><%= supplier.name %></h3>
+            <p class="text-xs text-gray-500 mt-0.5 truncate" title="<%= supplier.contact_email %>">
+              <svg class="w-3 h-3 inline mr-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+              <%= supplier.contact_email %>
+            </p>
+
+            <% if supplier.ordering_instructions.present? %>
+              <p class="text-xs text-gray-400 mt-1 italic truncate" title="<%= supplier.ordering_instructions %>"><%= supplier.ordering_instructions %></p>
+            <% end %>
+
+            <div class="mt-2 space-y-0.5">
+              <% if stats %>
+                <p class="text-xs text-gray-400">
+                  Last PDF: <%= stats.try(:last_list_date) ? stats.last_list_date.strftime('%b %d, %Y') : time_ago_in_words(stats.last_received) + ' ago' %>
+                </p>
+                <p class="text-xs text-gray-400"><%= stats.last_product_count || 0 %> products</p>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Updated</span>
+              <% else %>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">No lists yet</span>
+              <% end %>
+            </div>
+
+            <div class="flex-1"></div>
+
+            <div class="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
+              <%# Upload PDF button — always visible %>
+              <%= form_with url: upload_email_supplier_price_lists_path(supplier), method: :post, multipart: true, class: "inline-flex", data: { controller: "pdf-upload" } do %>
+                <label class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white transition-colors cursor-pointer">
+                  <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+                  Upload PDF
+                  <input type="file" name="pdf" accept=".pdf" class="hidden" data-action="change->pdf-upload#submit">
+                </label>
+              <% end %>
+
+              <% if stats %>
+                <% latest = InboundPriceList.latest_for(supplier.contact_email) %>
+                <% if latest&.parsed? %>
+                  <%= link_to review_email_supplier_price_list_path(supplier, latest),
+                      class: "inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-blue-300 text-blue-600 hover:bg-blue-50 transition-colors" do %>
+                    <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" /></svg>
+                    View List
+                  <% end %>
+                <% end %>
+              <% end %>
+
+              <div class="flex-1"></div>
+              <% if operator? %>
+                <%= link_to edit_email_supplier_path(supplier), class: "inline-flex items-center px-2 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors" do %>
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+                <% end %>
+                <%= button_to email_supplier_path(supplier), method: :delete, data: { turbo_confirm: "Remove #{supplier.name}? Imported lists will also be removed." }, class: "inline-flex items-center px-2 py-1 text-xs font-medium rounded-md border border-red-200 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors" do %>
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                <% end %>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="text-center py-8 bg-white rounded-lg shadow">
+        <svg class="w-10 h-10 mx-auto text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+        <p class="text-gray-500 text-sm">No email suppliers added yet.</p>
+        <p class="text-gray-400 text-xs mt-1">Add suppliers that send you PDF price lists via email.</p>
+      </div>
+    <% end %>
+  </div>
 </div>

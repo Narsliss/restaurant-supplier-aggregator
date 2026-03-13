@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_12_194945) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_12_202913) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -120,7 +120,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_194945) do
 
   create_table "favorite_products", force: :cascade do |t|
     t.bigint "user_id", null: false
-    t.bigint "supplier_product_id", null: false
+    t.bigint "supplier_product_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["supplier_product_id"], name: "index_favorite_products_on_supplier_product_id"
@@ -222,7 +222,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_194945) do
 
   create_table "order_items", force: :cascade do |t|
     t.bigint "order_id", null: false
-    t.bigint "supplier_product_id", null: false
+    t.bigint "supplier_product_id"
     t.decimal "quantity", precision: 10, scale: 2, null: false
     t.decimal "unit_price", precision: 10, scale: 2, null: false
     t.decimal "line_total", precision: 10, scale: 2, null: false
@@ -231,6 +231,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_194945) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.decimal "verified_price", precision: 10, scale: 2
+    t.string "product_name"
+    t.string "product_sku"
     t.index ["order_id"], name: "index_order_items_on_order_id"
     t.index ["status"], name: "index_order_items_on_status"
     t.index ["supplier_product_id"], name: "index_order_items_on_supplier_product_id"
@@ -289,7 +291,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_194945) do
   create_table "orders", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.bigint "location_id"
-    t.bigint "supplier_id", null: false
+    t.bigint "supplier_id"
     t.bigint "order_list_id"
     t.string "status", default: "pending", null: false
     t.string "confirmation_number"
@@ -312,6 +314,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_12_194945) do
     t.decimal "price_change_amount", precision: 10, scale: 2
     t.text "verification_error"
     t.text "supplier_delivery_address"
+    t.string "supplier_name"
     t.index ["batch_id"], name: "index_orders_on_batch_id"
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"

@@ -11,11 +11,31 @@ class InboundPriceListsController < ApplicationController
 
   # GET /email_suppliers/:email_supplier_id/price_lists/:id/status.json
   def status
+    redirect_url = case @price_list.status
+                   when 'imported'
+                     # Find the matched list to redirect to product matching
+                     matched_list = AggregatedList.find_by(
+                       location_id: current_location&.id,
+                       organization_id: current_user.current_organization&.id,
+                       list_type: %w[master matched]
+                     )
+                     if matched_list
+                       aggregated_list_product_matches_path(matched_list)
+                     else
+                       supplier_credentials_path
+                     end
+                   when 'needs_review'
+                     review_email_supplier_price_list_path(@email_supplier, @price_list)
+                   when 'parsed'
+                     # Legacy fallback — shouldn't happen with auto-import
+                     review_email_supplier_price_list_path(@email_supplier, @price_list)
+                   end
+
     render json: {
       status: @price_list.status,
       product_count: @price_list.product_count,
       error_message: @price_list.error_message,
-      redirect_to: @price_list.parsed? ? review_email_supplier_price_list_path(@email_supplier, @price_list) : nil
+      redirect_to: redirect_url
     }
   end
 
@@ -49,7 +69,13 @@ class InboundPriceListsController < ApplicationController
       pdf_content_hash: content_hash
     )
 
-    if existing&.parsed?
+    if existing&.imported?
+      redirect_to supplier_credentials_path,
+                  notice: "This PDF has already been imported."
+      return
+    end
+
+    if existing&.parsed? || existing&.needs_review?
       redirect_to review_email_supplier_price_list_path(@email_supplier, existing),
                   notice: "This PDF has already been parsed. Review the results below."
       return
@@ -71,7 +97,7 @@ class InboundPriceListsController < ApplicationController
     )
     price_list.pdf.attach(file)
 
-    ParsePriceListJob.perform_later(price_list.id)
+    ParsePriceListJob.perform_later(price_list.id, email_supplier_id: @email_supplier.id, location_id: current_location&.id)
 
     redirect_to email_supplier_price_list_path(@email_supplier, price_list),
                 notice: "PDF uploaded. Parsing now — this usually takes 15-30 seconds."
@@ -79,7 +105,7 @@ class InboundPriceListsController < ApplicationController
 
   # GET /email_suppliers/:email_supplier_id/price_lists/:id/review
   def review
-    unless @price_list.parsed?
+    unless @price_list.status.in?(%w[parsed needs_review])
       redirect_to email_supplier_price_list_path(@email_supplier, @price_list)
       return
     end
@@ -104,7 +130,13 @@ class InboundPriceListsController < ApplicationController
 
   # POST /email_suppliers/:email_supplier_id/price_lists/:id/import
   def import
-    products = (params[:products] || []).select { |p| p[:included] == '1' }
+    # params[:products] comes as a hash {"0" => {...}, "1" => {...}} from indexed form fields
+    raw_products = params[:products]
+    products = if raw_products.is_a?(ActionController::Parameters)
+                 raw_products.values.select { |p| p[:included] == '1' }
+               else
+                 Array(raw_products).select { |p| p[:included] == '1' }
+               end
 
     if products.empty?
       redirect_to review_email_supplier_price_list_path(@email_supplier, @price_list),
@@ -118,6 +150,8 @@ class InboundPriceListsController < ApplicationController
       products.map { |p| p.permit(:sku, :name, :price, :pack_size, :category, :included).to_h },
       current_location
     ).call
+
+    @price_list.update!(status: 'imported')
 
     if result[:errors].any?
       flash[:warning] = "Imported with #{result[:errors].size} errors. #{result[:items_imported]} new, #{result[:items_updated]} updated."

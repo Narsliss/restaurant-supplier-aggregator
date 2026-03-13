@@ -18,5 +18,5 @@ Notes: <%= @order.notes %>
 Please see attached PDF for the complete order.
 
 Thank you,
-<%= @order.user.name %>
+<%= [@order.user.first_name, @order.user.last_name].compact.join(' ').presence || @order.user.email %>
 <%= @order.user.email %>

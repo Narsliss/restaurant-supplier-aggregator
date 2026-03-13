@@ -6,7 +6,7 @@ class Supplier < ApplicationRecord
   has_many :products, through: :supplier_products
   has_many :supplier_requirements, dependent: :destroy
   has_many :supplier_delivery_schedules, dependent: :destroy
-  has_many :orders, dependent: :restrict_with_error
+  has_many :orders, dependent: :nullify
   has_many :supplier_lists, dependent: :destroy
   has_many :product_match_items, dependent: :destroy
   has_many :supplier_users, dependent: :destroy

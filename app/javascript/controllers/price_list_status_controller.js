@@ -17,7 +17,7 @@ export default class extends Controller {
       const response = await fetch(this.urlValue)
       const data = await response.json()
 
-      if (data.status === "parsed" && data.redirect_to) {
+      if (["parsed", "imported", "needs_review"].includes(data.status) && data.redirect_to) {
         window.location.href = data.redirect_to
         return
       }

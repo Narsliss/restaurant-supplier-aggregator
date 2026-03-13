@@ -2,7 +2,7 @@ class Order < ApplicationRecord
   # Associations
   belongs_to :user
   belongs_to :location, optional: true
-  belongs_to :supplier
+  belongs_to :supplier, optional: true
   belongs_to :order_list, optional: true
   has_many :order_items, dependent: :destroy
   has_many :order_validations, dependent: :destroy
@@ -21,6 +21,7 @@ class Order < ApplicationRecord
   belongs_to :organization, optional: true
 
   before_validation :set_organization_from_user, on: :create
+  before_validation :snapshot_supplier_name, on: :create
 
   # Scopes
   scope :for_location, ->(loc) { where(location: loc) }
@@ -230,6 +231,10 @@ class Order < ApplicationRecord
     save!
   end
 
+  def display_supplier_name
+    supplier&.name || supplier_name || "Deleted supplier"
+  end
+
   def item_count
     order_items.sum(:quantity)
   end
@@ -292,5 +297,9 @@ class Order < ApplicationRecord
 
   def set_organization_from_user
     self.organization_id ||= user&.current_organization_id
+  end
+
+  def snapshot_supplier_name
+    self.supplier_name ||= supplier&.name
   end
 end
