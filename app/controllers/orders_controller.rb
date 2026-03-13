@@ -23,7 +23,7 @@ class OrdersController < ApplicationController
       .includes(:order_list_items)
       .recent
 
-    @empty = @aggregated_lists.empty? && @order_lists.empty?
+    @empty = @promoted_list.nil? && @aggregated_lists.empty? && @order_lists.empty?
   end
 
   def index
