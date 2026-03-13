@@ -234,25 +234,42 @@ module Scrapers
 
       return false unless field
 
-      # Use native setter for SPA compatibility (React/Angular/Vue)
+      # Simulate real typing character-by-character to satisfy bot detection.
+      # Many enterprise login forms (Sysco included) keep the Next button
+      # disabled until they see keydown/keypress/keyup events per character.
+      # Setting value + dispatching input/change alone is not enough.
       browser.evaluate(<<~JS)
         (function() {
           var selectors = #{email_selectors.to_json};
           var el = null;
           for (var i = 0; i < selectors.length; i++) {
             el = document.querySelector(selectors[i]);
-            if (el) break;
+            if (el && el.offsetHeight > 0) break;
+            el = null;
           }
           if (!el) return false;
 
           el.focus();
-          var nativeSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value'
-          ).set;
-          nativeSetter.call(el, #{credential.username.to_json});
-          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.click();
+          el.value = '';
+          el.dispatchEvent(new Event('focus', { bubbles: true }));
+
+          var chars = #{credential.username.to_json}.split('');
+          chars.forEach(function(char) {
+            el.dispatchEvent(new KeyboardEvent('keydown',  { key: char, code: 'Key' + char.toUpperCase(), bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keypress', { key: char, code: 'Key' + char.toUpperCase(), bubbles: true }));
+
+            // Build value character by character using native setter
+            var nativeSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLInputElement.prototype, 'value'
+            ).set;
+            nativeSetter.call(el, el.value + char);
+
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: char, code: 'Key' + char.toUpperCase(), bubbles: true }));
+          });
+
           el.dispatchEvent(new Event('change', { bubbles: true }));
-          el.dispatchEvent(new Event('blur', { bubbles: true }));
           return true;
         })()
       JS
@@ -315,34 +332,42 @@ module Scrapers
       JS
     end
 
-    # Click the "Next" button after entering email (advances to password step)
+    # Click the "Next" button after entering email (advances to password step).
+    # Waits for the button to become enabled — enterprise login forms often
+    # keep it disabled until their JS validates the email field.
     def click_next_button
-      clicked = browser.evaluate(<<~JS)
-        (function() {
-          // Try common "Next" button patterns
-          var selectors = [
-            "button#next",
-            "button[type='submit']",
-            "input[type='submit']",
-            "button#idSIButton9"
-          ];
-          for (var i = 0; i < selectors.length; i++) {
-            var btn = document.querySelector(selectors[i]);
-            if (btn && btn.offsetHeight > 0) { btn.click(); return true; }
-          }
-
-          // Fallback: find button by text content
-          var buttons = document.querySelectorAll('button, input[type="submit"], a[role="button"]');
-          for (var i = 0; i < buttons.length; i++) {
-            var text = (buttons[i].innerText || buttons[i].value || '').trim().toLowerCase();
-            if (['next', 'continue', 'sign in', 'log in'].includes(text)) {
-              buttons[i].click();
-              return true;
+      clicked = false
+      8.times do |attempt|
+        clicked = browser.evaluate(<<~JS)
+          (function() {
+            // Try common "Next" button patterns
+            var selectors = [
+              "button#next",
+              "button[type='submit']",
+              "input[type='submit']",
+              "button#idSIButton9"
+            ];
+            for (var i = 0; i < selectors.length; i++) {
+              var btn = document.querySelector(selectors[i]);
+              if (btn && btn.offsetHeight > 0 && !btn.disabled) { btn.click(); return true; }
             }
-          }
-          return false;
-        })()
-      JS
+
+            // Fallback: find button by text content
+            var buttons = document.querySelectorAll('button, input[type="submit"], a[role="button"]');
+            for (var i = 0; i < buttons.length; i++) {
+              var text = (buttons[i].innerText || buttons[i].value || '').trim().toLowerCase();
+              if (['next', 'continue', 'sign in', 'log in'].includes(text) && !buttons[i].disabled) {
+                buttons[i].click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        break if clicked
+        logger.info "[Sysco] Next button not yet enabled, waiting... (attempt #{attempt + 1}/8)"
+        sleep 1
+      end
 
       unless clicked
         logger.warn '[Sysco] Could not find Next button — trying Enter key on email field'
