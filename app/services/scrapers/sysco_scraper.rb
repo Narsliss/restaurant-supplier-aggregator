@@ -151,7 +151,12 @@ module Scrapers
         diagnose_login_failure
         raise AuthenticationError, 'Could not find or fill email field on secure.sysco.com'
       end
-      logger.info '[Sysco] Email entered, waiting for password field...'
+      logger.info '[Sysco] Email entered, clicking Next...'
+      sleep 1
+
+      # Step 2b: Click "Next" to advance past the email step
+      click_next_button
+      logger.info '[Sysco] Next clicked, waiting for password field...'
       sleep 3
 
       # Step 3: Fill password field (appears via JavaScript after email)
@@ -310,7 +315,55 @@ module Scrapers
       JS
     end
 
-    # Click the login/submit button
+    # Click the "Next" button after entering email (advances to password step)
+    def click_next_button
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Try common "Next" button patterns
+          var selectors = [
+            "button#next",
+            "button[type='submit']",
+            "input[type='submit']",
+            "button#idSIButton9"
+          ];
+          for (var i = 0; i < selectors.length; i++) {
+            var btn = document.querySelector(selectors[i]);
+            if (btn && btn.offsetHeight > 0) { btn.click(); return true; }
+          }
+
+          // Fallback: find button by text content
+          var buttons = document.querySelectorAll('button, input[type="submit"], a[role="button"]');
+          for (var i = 0; i < buttons.length; i++) {
+            var text = (buttons[i].innerText || buttons[i].value || '').trim().toLowerCase();
+            if (['next', 'continue', 'sign in', 'log in'].includes(text)) {
+              buttons[i].click();
+              return true;
+            }
+          }
+          return false;
+        })()
+      JS
+
+      unless clicked
+        logger.warn '[Sysco] Could not find Next button — trying Enter key on email field'
+        browser.evaluate(<<~JS)
+          (function() {
+            var inputs = document.querySelectorAll('input[type="email"], input[type="text"]');
+            for (var i = 0; i < inputs.length; i++) {
+              if (inputs[i].offsetHeight > 0) {
+                inputs[i].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+                inputs[i].dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', bubbles: true }));
+                inputs[i].dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+      end
+    end
+
+    # Click the login/submit button (after password is filled)
     def click_login_submit
       browser.evaluate(<<~JS)
         (function() {
