@@ -9,6 +9,7 @@ class SupplierCredential < ApplicationRecord
   belongs_to :supplier
   belongs_to :organization, optional: true
   belongs_to :location, optional: true
+  has_many :scraping_logs, dependent: :destroy
   has_many :supplier_2fa_requests, dependent: :destroy
   has_many :supplier_lists, dependent: :destroy
 
