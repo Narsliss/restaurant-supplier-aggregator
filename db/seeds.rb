@@ -57,6 +57,15 @@ suppliers_data = [
       { type: 'order_minimum', numeric_value: 100.00,
         error_message: 'Premiere Produce One requires a minimum order of $100.00. Your current total is ${{current_total}}.' }
     ]
+  },
+  {
+    name: 'Sysco',
+    code: 'sysco',
+    base_url: 'https://shop.sysco.com',
+    login_url: 'https://secure.sysco.com/',
+    scraper_class: 'Scrapers::SyscoScraper',
+    password_required: true,
+    requirements: []
   }
 ]
 

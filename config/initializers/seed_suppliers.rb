@@ -50,6 +50,14 @@ Rails.application.config.after_initialize do
       login_url: 'https://premierproduceone.pepr.app/',
       scraper_class: 'Scrapers::PremiereProduceOneScraper',
       auth_type: 'two_fa'
+    },
+    {
+      code: 'sysco',
+      name: 'Sysco',
+      base_url: 'https://shop.sysco.com',
+      login_url: 'https://secure.sysco.com/',
+      scraper_class: 'Scrapers::SyscoScraper',
+      auth_type: 'password'
     }
   ]
 
