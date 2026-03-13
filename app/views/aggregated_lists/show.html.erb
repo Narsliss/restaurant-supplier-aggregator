@@ -181,63 +181,11 @@
 
   <!-- Product match cards -->
   <% if @product_matches.any? %>
-    <div class="space-y-3">
+    <div id="match-cards-container" class="space-y-3">
       <% @product_matches.each do |match| %>
         <div id="<%= dom_id(match) %>" class="bg-white shadow rounded-lg <%= match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
           <div class="flex flex-col sm:flex-row">
-            <%# Left: Product name + confidence + status %>
-            <div class="sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100 flex flex-col justify-between">
-              <div>
-                <% if @aggregated_list.promoted? %>
-                  <h3 class="text-sm font-semibold text-gray-900 leading-tight"><%= match.display_name %></h3>
-                <% else %>
-                  <div data-controller="inline-edit"
-                       data-inline-edit-url-value="<%= rename_aggregated_list_product_match_path(@aggregated_list, match) %>"
-                       data-inline-edit-field-value="canonical_name"
-                       class="group">
-                    <h3 class="text-sm font-semibold text-gray-900 leading-tight cursor-pointer hover:text-brand-orange transition-colors underline decoration-dashed decoration-gray-300 decoration-1 underline-offset-2"
-                        data-inline-edit-target="display"
-                        data-action="click->inline-edit#edit"
-                        title="Click to rename"><%= match.display_name %></h3>
-                    <input type="text"
-                           data-inline-edit-target="input"
-                           data-action="blur->inline-edit#save keydown->inline-edit#keydown"
-                           class="hidden text-sm font-semibold text-gray-900 bg-white border border-brand-green rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-green w-full mt-1">
-                  </div>
-                <% end %>
-
-                <% if match.confidence_score && match.confidence_score > 0 %>
-                  <span class="text-xs <%= match.confidence_score >= 0.8 ? 'text-green-600' : 'text-amber-600' %> mt-1 block">
-                    <%= (match.confidence_score * 100).round %>% confidence
-                  </span>
-                <% end %>
-              </div>
-
-              <div class="mt-3 flex items-center gap-2">
-                <% if match.unmatched? %>
-                  <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">Unmatched</span>
-                <% else %>
-                  <span class="text-green-600">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </span>
-                <% end %>
-                <% unless @aggregated_list.promoted? %>
-                  <button type="button"
-                          class="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          title="Remove from list"
-                          data-dismiss-url="<%= reject_aggregated_list_product_match_path(@aggregated_list, match) %>"
-                          data-match-row="<%= dom_id(match) %>"
-                          data-match-name="<%= match.display_name %>"
-                          onclick="dismissMatch(this)">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                  </button>
-                <% end %>
-              </div>
-            </div>
+            <%= render "aggregated_lists/match_row_left", match: match, aggregated_list: @aggregated_list %>
 
             <%# Right: Grid of supplier cells %>
             <div class="flex-1 p-3">

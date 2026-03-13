@@ -24,6 +24,7 @@ class ProductMatchItemsController < ApplicationController
     @removed_match_ids = remove_duplicate_rows(new_item.id, @product_match.id)
 
     @supplier = Supplier.find(supplier_id)
+    prepare_turbo_row_data(@product_match)
 
     respond_to do |format|
       format.html do
@@ -86,6 +87,7 @@ class ProductMatchItemsController < ApplicationController
     @removed_match_ids = remove_duplicate_rows(new_item.id, @product_match.id)
 
     @supplier = @product_match_item.supplier
+    prepare_turbo_row_data(@product_match)
 
     respond_to do |format|
       format.html do
@@ -187,5 +189,65 @@ class ProductMatchItemsController < ApplicationController
     end
 
     removed_ids
+  end
+
+  # Compute price comparison + supplier map for a single match row.
+  # Only loads items already on the match — no extra queries per supplier.
+  def prepare_turbo_row_data(match)
+    @suppliers = @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq
+
+    # Build supplier map for this one match
+    supplier_map = {}
+    match.product_match_items.reload.includes(:supplier, :supplier_list_item).each do |pmi|
+      supplier_map[pmi.supplier_id] = { pmi: pmi, item: pmi.supplier_list_item }
+    end
+    @match_supplier_map = { match.id => supplier_map }
+
+    # Compute price comparison for this one match
+    prices = match.product_match_items.map do |pmi|
+      item = pmi.supplier_list_item
+      sp = item.supplier_product
+      {
+        supplier: pmi.supplier,
+        price: item.price || sp&.current_price,
+        per_unit_price: item.per_unit_price,
+        normalized_unit: item.normalized_unit,
+        in_stock: sp ? sp.in_stock : item.read_attribute(:in_stock)
+      }
+    end
+
+    in_stock_prices = prices.select { |p| p[:price].present? && p[:in_stock] }
+    with_per_unit = in_stock_prices.select { |p| p[:per_unit_price].present? && p[:normalized_unit].present? }
+    unit_groups = with_per_unit.group_by { |p| p[:normalized_unit] }
+    largest_group = unit_groups.max_by { |_unit, items| items.size }&.last || []
+
+    cheapest = most_expensive = nil
+    if largest_group.size >= 2
+      cheapest = largest_group.min_by { |p| p[:per_unit_price] }
+      most_expensive = largest_group.max_by { |p| p[:per_unit_price] }
+    elsif in_stock_prices.any?
+      cheapest = in_stock_prices.min_by { |p| p[:price] }
+      most_expensive = in_stock_prices.max_by { |p| p[:price] }
+    end
+
+    with_price = prices.select { |p| p[:price].present? }
+    spread = nil
+    if with_price.size >= 2
+      per_unit_with_price = with_price.select { |p| p[:per_unit_price].present? && p[:normalized_unit].present? }
+      price_unit_groups = per_unit_with_price.group_by { |p| p[:normalized_unit] }
+      largest_price_group = price_unit_groups.max_by { |_unit, items| items.size }&.last || []
+
+      if largest_price_group.size >= 2
+        spread = largest_price_group.map { |p| p[:per_unit_price] }.max - largest_price_group.map { |p| p[:per_unit_price] }.min
+      else
+        spread = with_price.map { |p| p[:price] }.max - with_price.map { |p| p[:price] }.min
+      end
+    end
+
+    @price_info = {
+      cheapest_supplier: cheapest&.dig(:supplier),
+      most_expensive_supplier: most_expensive&.dig(:supplier),
+      spread: spread
+    }
   end
 end

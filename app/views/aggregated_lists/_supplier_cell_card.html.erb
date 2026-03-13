@@ -15,11 +15,12 @@
 <% is_most_expensive = local_assigns.fetch(:is_most_expensive, false) %>
 <% readonly = local_assigns.fetch(:readonly, false) %>
 
-<div class="rounded-lg border p-3
-            <%= is_cheapest ? 'border-green-300 bg-green-50/50' : is_most_expensive ? 'border-red-200 bg-red-50/30' : 'border-gray-200 bg-white' %>">
+<div id="match_<%= product_match.id %>_supplier_<%= supplier.id %>"
+     class="rounded-lg border p-3
+            <%= is_cheapest ? 'border-green-300 bg-green-50/50' : 'border-gray-200 bg-white' %>">
   <%# Supplier name header %>
   <div class="flex items-center justify-between mb-1.5">
-    <span class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-500' %>">
+    <span class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : 'text-gray-500' %>">
       <%= supplier.name %>
     </span>
     <% if is_cheapest %>
@@ -39,7 +40,7 @@
 
     <%# Price %>
     <div class="mt-1.5 flex items-baseline gap-2 flex-wrap">
-      <span class="text-base font-bold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
+      <span class="text-base font-bold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>">
         <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
       </span>
       <% if item.price_unit.present? && item.estimated_total_price != item.price %>

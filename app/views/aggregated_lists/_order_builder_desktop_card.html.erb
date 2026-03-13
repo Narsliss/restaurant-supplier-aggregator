@@ -1,5 +1,4 @@
 <% cheapest = match.cheapest_supplier %>
-<% most_expensive = match.most_expensive_supplier %>
 <% comparable = match.per_unit_comparable? %>
 <% cheapest_price = cheapest&.dig(:price) || 0 %>
 <% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
@@ -84,10 +83,8 @@
             <% effective_pack_size = item.pack_size || sp&.pack_size %>
             <% if effective_price %>
               <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-              <% is_most_expensive = most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
               <% is_default = cheapest && cheapest[:supplier] == supplier %>
-              <div class="rounded-lg border p-3 cursor-pointer transition-all
-                          <%= is_most_expensive ? 'border-red-200 bg-red-50/30' : 'border-gray-200 bg-white' %>
+              <div class="rounded-lg border p-3 cursor-pointer transition-all border-gray-200 bg-white
                           <%= is_default ? 'ring-2 ring-brand-orange' : 'hover:bg-gray-50' %>"
                    data-action="click->order-builder#selectSupplier"
                    data-supplier-price="<%= item.price_unit.present? ? item.estimated_total_price : effective_price %>"
@@ -98,7 +95,7 @@
                    data-cheapest="<%= is_cheapest %>">
                 <%# Supplier name header %>
                 <div class="flex items-center justify-between mb-1.5">
-                  <span class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-500' %>">
+                  <span class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : 'text-gray-500' %>">
                     <%= supplier.name %>
                   </span>
                   <% if is_cheapest %>
@@ -106,7 +103,7 @@
                   <% end %>
                 </div>
                 <%# Price %>
-                <span class="text-base font-bold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
+                <span class="text-base font-bold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>">
                   <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                 </span>
                 <% if item.price_unit.present? && item.estimated_total_price != item.price %>

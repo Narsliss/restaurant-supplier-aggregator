@@ -1,13 +1,33 @@
-<%= turbo_stream.replace "match_#{@product_match.id}_supplier_#{@product_match_item.supplier_id}" do %>
-  <td class="px-4 py-3" id="match_<%= @product_match.id %>_supplier_<%= @product_match_item.supplier_id %>">
-    <%= render "aggregated_lists/supplier_cell",
-               product_match: @product_match,
-               supplier: @supplier,
-               item: @product_match_item.supplier_list_item,
-               pmi: @product_match_item,
-               search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
-               supplier_id: @supplier.id %>
-  </td>
+<%# Replace the entire match card row so price comparison recalculates %>
+<%= turbo_stream.replace dom_id(@product_match) do %>
+  <div id="<%= dom_id(@product_match) %>" class="bg-white shadow rounded-lg <%= @product_match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
+    <div class="flex flex-col sm:flex-row">
+      <%= render "aggregated_lists/match_row_left", match: @product_match, aggregated_list: @aggregated_list %>
+
+      <%# Right: Grid of supplier cells with recalculated prices %>
+      <div class="flex-1 p-3">
+        <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
+          <% @suppliers.each do |supplier| %>
+            <% lookup = @match_supplier_map.dig(@product_match.id, supplier.id) %>
+            <% item = lookup&.dig(:item) %>
+            <% pmi = lookup&.dig(:pmi) %>
+            <% is_cheapest = item && @price_info[:cheapest_supplier] == supplier && @price_info[:spread] && @price_info[:spread] > 0 %>
+            <% is_most_expensive = item && @price_info[:most_expensive_supplier] == supplier && @price_info[:spread] && @price_info[:spread] > 0 %>
+            <%= render "aggregated_lists/supplier_cell_card",
+                       product_match: @product_match,
+                       supplier: supplier,
+                       item: item,
+                       pmi: pmi,
+                       search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                       supplier_id: supplier.id,
+                       is_cheapest: is_cheapest,
+                       is_most_expensive: is_most_expensive,
+                       readonly: false %>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
 <% end %>
 
 <%# Remove any duplicate rows that were cleaned up %>

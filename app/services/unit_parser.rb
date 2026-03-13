@@ -190,13 +190,26 @@ class UnitParser
     # Also: "Case 12/2 LB", "CS 6-5 LB", "12/2 LB"
     def parse_case_pack(text)
       # Pattern: case/cs prefix (optional) + count - or / quantity unit
-      if text =~ /(?:case|cs)?\s*[\-\s]*(\d+)\s*[\-\/x]\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
-        count = $1.to_f
-        per_unit = $2.to_f
-        unit = normalize_unit_str($3)
-        total = count * per_unit
+      if text =~ /(?:case|cs)?\s*[\-\s]*(\d+)\s*([\-\/x])\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
+        num1 = $1.to_f
+        separator = $2
+        num2 = $3.to_f
+        unit = normalize_unit_str($4)
 
-        build_result(total, unit)
+        # For count units (ct, ea, etc.), "80/88 CT" or "120-135 CT" is a size range
+        # (apple/pear sizing), not a multiplier. Detect ranges by checking if both
+        # numbers are close in magnitude (within 2x) and neither is 1.
+        # "1-72 CT" is a multiplier (1 case × 72 ct), "80/88 CT" is a range.
+        is_count_unit = COUNT_TO_EACH.key?(unit)
+        is_range = is_count_unit && num1 > 1 && num2 > 1 &&
+                   [num1 / num2, num2 / num1].max <= 2.0
+        if is_range
+          total = ((num1 + num2) / 2.0).round
+          build_result(total.to_f, unit)
+        else
+          total = num1 * num2
+          build_result(total, unit)
+        end
       end
     end
 

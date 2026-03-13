@@ -102,8 +102,9 @@ class SupplierListItem < ApplicationRecord
   def per_unit_price
     return nil unless price
 
-    if price_unit.present?
-      per_unit_price_from_unit_pricing
+    effective_price_unit = price_unit.presence || inferred_price_unit
+    if effective_price_unit.present?
+      per_unit_price_from_unit_pricing(effective_price_unit)
     else
       per_unit_price_from_case_pricing
     end
@@ -127,7 +128,7 @@ class SupplierListItem < ApplicationRecord
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.
   def estimated_total_price
-    UnitParser.estimated_total(price, price_unit, pack_size)
+    UnitParser.estimated_total(price, price_unit.presence || inferred_price_unit, pack_size)
   end
 
   # Price change detection (mirrors SupplierProduct pattern)
@@ -168,8 +169,9 @@ class SupplierListItem < ApplicationRecord
     return 'N/A' unless price
 
     base = "$#{'%.2f' % price}"
-    if price_unit.present?
-      unit_display = price_unit.upcase
+    effective_unit = price_unit.presence || inferred_price_unit
+    if effective_unit.present?
+      unit_display = effective_unit.upcase
       "#{base}/#{unit_display}"
     else
       base
@@ -184,10 +186,37 @@ class SupplierListItem < ApplicationRecord
 
   private
 
+  # Detect per-unit pricing from pack_size patterns.
+  # Variable-weight indicators (common for meat/seafood):
+  #   "15 LB+"          → + suffix means approximate weight, priced per lb
+  #   "12LB AVG"        → AVG means average weight, priced per lb
+  #   "4/15 LB CS"      → multi-piece case with LB weight, priced per lb
+  def inferred_price_unit
+    return nil unless pack_size.present?
+
+    # "15 LB+" or "5 OZ+" — plus sign means variable weight
+    if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s*\+/i
+      return $1.downcase
+    end
+
+    # "12LB AVG" — average weight means per-unit pricing
+    if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s+AVG/i
+      return $1.downcase
+    end
+
+    # "4/15 LB CS" — multi-piece LB case pattern (N/N LB CS|Case)
+    # The N/N with LB + case suffix indicates per-lb pricing for portioned meat
+    if pack_size =~ /\d+\s*\/\s*\d+\s*(LB)\s*(CS|Case)/i
+      return $1.downcase
+    end
+
+    nil
+  end
+
   # Price is already per the stored price_unit (e.g., $12.50/lb).
   # Convert to the pack's normalized base unit.
-  def per_unit_price_from_unit_pricing
-    unit_key = UnitParser.normalize_unit_key(price_unit)
+  def per_unit_price_from_unit_pricing(unit = price_unit)
+    unit_key = UnitParser.normalize_unit_key(unit)
 
     # Find how many base units (oz, fl oz, each) one price_unit represents
     conversion = UnitParser::WEIGHT_TO_OZ[unit_key] ||

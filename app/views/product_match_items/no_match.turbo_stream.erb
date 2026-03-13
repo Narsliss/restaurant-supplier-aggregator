@@ -1,59 +1,64 @@
 <%# "No Match" — item removed from a match group %>
 
 <% if @product_match_destroyed %>
-  <%# The entire product match row was emptied — remove it from the table %>
+  <%# The entire product match card was emptied — remove it %>
   <%= turbo_stream.remove dom_id(@product_match) %>
 <% else %>
   <%# Replace the cell with an empty "No match" state + Assign dropdown %>
   <%= turbo_stream.replace "match_#{@product_match.id}_supplier_#{@old_supplier.id}" do %>
-    <td class="px-4 py-3" id="match_<%= @product_match.id %>_supplier_<%= @old_supplier.id %>">
-      <%= render "aggregated_lists/supplier_cell",
-                 product_match: @product_match,
-                 supplier: @old_supplier,
-                 item: nil,
-                 pmi: nil,
-                 search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
-                 supplier_id: @old_supplier.id %>
-    </td>
+    <%= render "aggregated_lists/supplier_cell_card",
+               product_match: @product_match,
+               supplier: @old_supplier,
+               item: nil,
+               pmi: nil,
+               search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+               supplier_id: @old_supplier.id,
+               is_cheapest: false,
+               is_most_expensive: false,
+               readonly: @aggregated_list.promoted? %>
   <% end %>
 <% end %>
 
-<%# Append the new orphan row to the table body so it's visible immediately %>
+<%# Append the new orphan card so it's visible immediately %>
 <% if @new_orphan_match %>
   <% orphan_pmi = @new_orphan_match.product_match_items.first %>
   <% orphan_item = orphan_pmi&.supplier_list_item %>
-  <%= turbo_stream.append "match-table-body" do %>
-    <tr id="<%= dom_id(@new_orphan_match) %>" class="bg-amber-50/50 hover:bg-gray-50">
-      <td class="px-4 py-3 sticky left-0 bg-inherit z-10">
-        <div class="text-sm font-medium text-gray-900"><%= @new_orphan_match.display_name %></div>
-        <div class="text-xs text-gray-500">
-          <span class="text-amber-600">Unmatched</span>
+  <%= turbo_stream.append "match-cards-container" do %>
+    <div id="<%= dom_id(@new_orphan_match) %>" class="bg-white shadow rounded-lg ring-1 ring-amber-200">
+      <div class="flex flex-col sm:flex-row">
+        <%= render "aggregated_lists/match_row_left", match: @new_orphan_match, aggregated_list: @aggregated_list %>
+
+        <%# Right: Grid of supplier cells %>
+        <div class="flex-1 p-3">
+          <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
+            <% @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq.each do |supplier| %>
+              <% if supplier.id == @old_supplier.id && orphan_item %>
+                <%= render "aggregated_lists/supplier_cell_card",
+                           product_match: @new_orphan_match,
+                           supplier: supplier,
+                           item: orphan_item,
+                           pmi: orphan_pmi,
+                           search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                           supplier_id: supplier.id,
+                           is_cheapest: false,
+                           is_most_expensive: false,
+                           readonly: false %>
+              <% else %>
+                <%= render "aggregated_lists/supplier_cell_card",
+                           product_match: @new_orphan_match,
+                           supplier: supplier,
+                           item: nil,
+                           pmi: nil,
+                           search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                           supplier_id: supplier.id,
+                           is_cheapest: false,
+                           is_most_expensive: false,
+                           readonly: false %>
+              <% end %>
+            <% end %>
+          </div>
         </div>
-      </td>
-      <% @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq.each do |supplier| %>
-        <td class="px-4 py-3" id="match_<%= @new_orphan_match.id %>_supplier_<%= supplier.id %>">
-          <% if supplier.id == @old_supplier.id && orphan_item %>
-            <%= render "aggregated_lists/supplier_cell",
-                       product_match: @new_orphan_match,
-                       supplier: supplier,
-                       item: orphan_item,
-                       pmi: orphan_pmi,
-                       search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
-                       supplier_id: supplier.id %>
-          <% else %>
-            <%= render "aggregated_lists/supplier_cell",
-                       product_match: @new_orphan_match,
-                       supplier: supplier,
-                       item: nil,
-                       pmi: nil,
-                       search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
-                       supplier_id: supplier.id %>
-          <% end %>
-        </td>
-      <% end %>
-      <td class="px-4 py-3 text-center whitespace-nowrap">
-        <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unmatched</span>
-      </td>
-    </tr>
+      </div>
+    </div>
   <% end %>
 <% end %>
