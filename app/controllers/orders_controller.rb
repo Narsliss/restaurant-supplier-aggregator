@@ -90,12 +90,12 @@ class OrdersController < ApplicationController
     @items = @order.order_items.includes(supplier_product: [:supplier, :product])
     @validations = @order.order_validations.order(validated_at: :desc)
 
-    # Order minimum (blocking)
-    @minimum = @order.supplier.order_minimum(@order.location)
+    # Order minimum (blocking) — skip if supplier was deleted
+    @minimum = @order.supplier&.order_minimum(@order.location)
     @meets_minimum = @minimum.nil? || (@order.subtotal || 0) >= (@minimum || 0)
 
     # Case minimum (warning only)
-    @case_minimum = @order.supplier.case_minimum(@order.location)
+    @case_minimum = @order.supplier&.case_minimum(@order.location)
     @case_count = @order.item_count
     @meets_case_minimum = @case_minimum.nil? || @case_count >= @case_minimum
   end
@@ -355,8 +355,13 @@ class OrdersController < ApplicationController
     orders_needing_verification = @orders.select { |o| o.pending? && o.verification_status.nil? }
     if orders_needing_verification.any?
       orders_needing_verification.each do |order|
-        order.start_verification!
-        PriceVerificationJob.perform_later(order.id)
+        if order.supplier.email_supplier?
+          # Email suppliers use saved prices — skip verification, mark as ready
+          order.update!(verification_status: 'skipped')
+        else
+          order.start_verification!
+          PriceVerificationJob.perform_later(order.id)
+        end
       end
     end
 
@@ -383,8 +388,9 @@ class OrdersController < ApplicationController
       end
 
       # Check if the current user has credentials for this supplier
+      # Email suppliers don't need credentials — they're ordered via email/export
       # Uses scoped_credentials which respects org/role/location visibility
-      has_credentials = scoped_credentials.where(
+      has_credentials = order.supplier.email_supplier? || scoped_credentials.where(
         supplier: order.supplier
       ).where.not(status: %w[expired failed]).exists?
 
@@ -449,8 +455,9 @@ class OrdersController < ApplicationController
     end
 
     # Server-side credential check — filter out orders the user can't place
+    # Email suppliers don't need credentials (ordered via email/export)
     user_supplier_ids = scoped_credentials.where.not(status: %w[expired failed]).pluck(:supplier_id)
-    submittable, skipped = orders.partition { |o| user_supplier_ids.include?(o.supplier_id) }
+    submittable, skipped = orders.partition { |o| o.supplier.email_supplier? || user_supplier_ids.include?(o.supplier_id) }
 
     if submittable.empty?
       supplier_names = skipped.map { |o| o.supplier.name }.uniq.join(", ")

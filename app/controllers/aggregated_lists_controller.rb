@@ -166,6 +166,7 @@ class AggregatedListsController < ApplicationController
     end
   end
 
+
   def new
     # Redirect to existing matched list if one already exists for this location
     if params[:list_type] == 'matched' && current_location
@@ -302,7 +303,12 @@ class AggregatedListsController < ApplicationController
   end
 
   def demote
-    @aggregated_list.update!(promoted_org_wide: false)
+    # Restore the location-based name when demoting back to a location list
+    attrs = { promoted_org_wide: false }
+    if @aggregated_list.location.present?
+      attrs[:name] = "#{@aggregated_list.location.name} Matched List"
+    end
+    @aggregated_list.update!(attrs)
     redirect_to aggregated_lists_path, notice: "\"#{@aggregated_list.name}\" is no longer the organization-wide list."
   end
 
@@ -344,7 +350,7 @@ class AggregatedListsController < ApplicationController
   end
 
   def search_catalog
-    unless @aggregated_list.matched?
+    unless @aggregated_list.matched? || @aggregated_list.match_status == 'failed'
       redirect_to @aggregated_list
       return
     end
@@ -366,9 +372,9 @@ class AggregatedListsController < ApplicationController
                                        .where.not(match_status: 'rejected')
                                        .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
-    # Only show suppliers the user has active credentials for at this location
+    # Show suppliers the user has active credentials for, plus email suppliers (no credentials needed)
     available_supplier_ids = scoped_credentials.active.pluck(:supplier_id).to_set
-    @suppliers = @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) }
+    @suppliers = @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) || s.email_supplier? }
 
     # --- Optional order list context (unified builder) ---
     @order_list = nil

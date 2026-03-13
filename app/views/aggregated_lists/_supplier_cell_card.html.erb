@@ -1,0 +1,113 @@
+<%# Self-labeled supplier cell for flex-wrap card layout.
+    Each cell contains the supplier name header + product details.
+    Locals:
+      product_match    — the ProductMatch row
+      supplier         — the Supplier for this cell
+      item             — the SupplierListItem (or nil if unmatched)
+      pmi              — the ProductMatchItem (or nil)
+      search_url       — AJAX search endpoint URL
+      supplier_id      — supplier ID for search scoping
+      is_cheapest      — boolean
+      is_most_expensive — boolean
+      readonly         — boolean
+%>
+<% is_cheapest = local_assigns.fetch(:is_cheapest, false) %>
+<% is_most_expensive = local_assigns.fetch(:is_most_expensive, false) %>
+<% readonly = local_assigns.fetch(:readonly, false) %>
+
+<div class="rounded-lg border p-3
+            <%= is_cheapest ? 'border-green-300 bg-green-50/50' : is_most_expensive ? 'border-red-200 bg-red-50/30' : 'border-gray-200 bg-white' %>">
+  <%# Supplier name header %>
+  <div class="flex items-center justify-between mb-1.5">
+    <span class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-500' %>">
+      <%= supplier.name %>
+    </span>
+    <% if is_cheapest %>
+      <span class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700 uppercase">Best</span>
+    <% end %>
+  </div>
+
+  <% if item %>
+    <%# Product name from this supplier %>
+    <div class="text-sm text-gray-800 leading-tight"><%= item.name.truncate(50) %></div>
+    <div class="text-xs text-gray-400 mt-0.5">
+      <%= item.pack_size %>
+      <% if item.catalog_search? %>
+        <span class="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium bg-indigo-100 text-indigo-700">catalog</span>
+      <% end %>
+    </div>
+
+    <%# Price %>
+    <div class="mt-1.5 flex items-baseline gap-2 flex-wrap">
+      <span class="text-base font-bold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
+        <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
+      </span>
+      <% if item.price_unit.present? && item.estimated_total_price != item.price %>
+        <span class="text-xs text-gray-500">~$<%= '%.2f' % item.estimated_total_price %></span>
+      <% end %>
+    </div>
+
+    <%# Per-unit + stock %>
+    <div class="flex items-center gap-2 mt-0.5">
+      <% if item.formatted_per_unit_price %>
+        <span class="text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
+          <%= item.formatted_per_unit_price %>
+        </span>
+      <% end %>
+      <% unless item.in_stock %>
+        <span class="text-xs text-red-500 font-medium">Out of stock</span>
+      <% end %>
+    </div>
+
+    <%# Change/Assign controls %>
+    <% if pmi && !readonly %>
+      <details class="mt-2">
+        <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Change</summary>
+        <div class="mt-1">
+          <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
+            <%= render "aggregated_lists/searchable_select",
+                       field_name: "product_match_item[supplier_list_item_id]",
+                       search_url: search_url,
+                       supplier_id: supplier_id,
+                       selected_id: item.id,
+                       show_no_match: true %>
+          <% end %>
+        </div>
+      </details>
+    <% end %>
+  <% else %>
+    <%# No match %>
+    <div class="text-sm text-gray-300 italic mt-1">No match</div>
+    <% unless readonly %>
+      <% if pmi %>
+        <details class="mt-2">
+          <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
+          <div class="mt-1">
+            <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
+              <%= render "aggregated_lists/searchable_select",
+                         field_name: "product_match_item[supplier_list_item_id]",
+                         search_url: search_url,
+                         supplier_id: supplier_id,
+                         selected_id: nil %>
+            <% end %>
+          </div>
+        </details>
+      <% else %>
+        <details class="mt-2">
+          <summary class="text-xs text-brand-orange cursor-pointer hover:text-brand-orange-light">Assign</summary>
+          <div class="mt-1">
+            <%= form_with url: product_match_items_path, method: :post do |f| %>
+              <%= hidden_field_tag "product_match_item[product_match_id]", product_match.id %>
+              <%= hidden_field_tag "product_match_item[supplier_id]", supplier.id %>
+              <%= render "aggregated_lists/searchable_select",
+                         field_name: "product_match_item[supplier_list_item_id]",
+                         search_url: search_url,
+                         supplier_id: supplier_id,
+                         selected_id: nil %>
+            <% end %>
+          </div>
+        </details>
+      <% end %>
+    <% end %>
+  <% end %>
+</div>

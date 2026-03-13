@@ -439,18 +439,20 @@ export default class extends Controller {
       input.dataset.supplierId = newSupplierId
     })
 
-    // Update visual state: remove ring from all cells for this match, add to selected
+    // Update visual state: remove selection ring from all cells for this match, add to selected
     this.supplierCellTargets.forEach(c => {
       if (c.dataset.matchId === matchId) {
-        c.classList.remove("ring-2", "ring-1", "ring-brand-green", "bg-green-50")
-        c.classList.add("hover:bg-gray-100")
+        c.classList.remove("ring-2", "ring-brand-orange")
+        if (!c.dataset.cheapest || c.dataset.cheapest !== "true") {
+          c.classList.add("hover:bg-gray-50")
+        }
       }
     })
-    // Highlight clicked cell (and its counterpart on mobile/desktop)
+    // Highlight clicked cell with orange selection ring (and its counterpart on mobile/desktop)
     this.supplierCellTargets.forEach(c => {
       if (c.dataset.matchId === matchId && c.dataset.supplierIdValue === newSupplierId) {
-        c.classList.add("ring-2", "ring-brand-green", "bg-green-50")
-        c.classList.remove("hover:bg-gray-100")
+        c.classList.add("ring-2", "ring-brand-orange")
+        c.classList.remove("hover:bg-gray-50")
       }
     })
 

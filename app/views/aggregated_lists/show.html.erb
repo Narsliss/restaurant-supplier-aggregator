@@ -179,80 +179,77 @@
     </div>
   <% end %>
 
-  <!-- Match comparison table -->
+  <!-- Product match cards -->
   <% if @product_matches.any? %>
-    <div id="match-table-scroll" class="bg-white shadow rounded-lg overflow-x-auto">
-      <table id="match-comparison-table" class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-          <tr>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-30">Product</th>
-            <% @suppliers.each do |supplier| %>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px] bg-gray-50"><%= supplier.name %></th>
-            <% end %>
-            <% @unconnected_suppliers.each do |supplier| %>
-              <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider min-w-[200px] bg-gray-100/80 text-gray-400">
-                <div class="flex items-center gap-1.5">
-                  <svg class="h-3.5 w-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                  </svg>
-                  <%= supplier.name %>
-                </div>
-              </th>
-            <% end %>
-            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">Status</th>
-          </tr>
-        </thead>
-        <tbody id="match-table-body" class="bg-white divide-y divide-gray-200">
-          <% @product_matches.each do |match| %>
-            <tr id="<%= dom_id(match) %>" class="<%= match.unmatched? ? 'bg-amber-50/50' : '' %> hover:bg-gray-50">
-              <!-- Canonical name column (click pencil to rename) -->
-              <td class="px-4 py-3 sticky left-0 bg-inherit z-10">
+    <div class="space-y-3">
+      <% @product_matches.each do |match| %>
+        <div id="<%= dom_id(match) %>" class="bg-white shadow rounded-lg <%= match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
+          <div class="flex flex-col sm:flex-row">
+            <%# Left: Product name + confidence + status %>
+            <div class="sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100 flex flex-col justify-between">
+              <div>
                 <% if @aggregated_list.promoted? %>
-                  <div class="flex items-start gap-1">
-                    <span class="text-sm font-medium text-gray-900"><%= match.display_name %></span>
-                  </div>
+                  <h3 class="text-sm font-semibold text-gray-900 leading-tight"><%= match.display_name %></h3>
                 <% else %>
                   <div data-controller="inline-edit"
                        data-inline-edit-url-value="<%= rename_aggregated_list_product_match_path(@aggregated_list, match) %>"
                        data-inline-edit-field-value="canonical_name"
-                       class="group flex items-start gap-1">
-                    <span class="text-sm font-medium text-gray-900 cursor-pointer hover:text-brand-orange transition-colors underline decoration-dashed decoration-gray-300 decoration-1 underline-offset-2 hover:decoration-brand-orange"
-                          data-inline-edit-target="display"
-                          data-action="click->inline-edit#edit"
-                          title="Click to rename"><%= match.display_name %></span>
-                    <button data-inline-edit-target="icon"
-                            data-action="click->inline-edit#edit"
-                            class="opacity-40 group-hover:opacity-100 transition-opacity mt-0.5 text-gray-400 hover:text-brand-orange flex-shrink-0"
-                            title="Rename product">
-                      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
-                      </svg>
-                    </button>
+                       class="group">
+                    <h3 class="text-sm font-semibold text-gray-900 leading-tight cursor-pointer hover:text-brand-orange transition-colors underline decoration-dashed decoration-gray-300 decoration-1 underline-offset-2"
+                        data-inline-edit-target="display"
+                        data-action="click->inline-edit#edit"
+                        title="Click to rename"><%= match.display_name %></h3>
                     <input type="text"
                            data-inline-edit-target="input"
                            data-action="blur->inline-edit#save keydown->inline-edit#keydown"
-                           class="hidden text-sm font-medium text-gray-900 bg-white border border-brand-green rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-green w-full">
+                           class="hidden text-sm font-semibold text-gray-900 bg-white border border-brand-green rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-green w-full mt-1">
                   </div>
                 <% end %>
-                <div class="text-xs text-gray-500">
-                  <% if match.confidence_score && match.confidence_score > 0 %>
-                    <span class="<%= match.confidence_score >= 0.8 ? 'text-green-600' : 'text-amber-600' %>">
-                      <%= (match.confidence_score * 100).round %>% confidence
-                    </span>
-                  <% end %>
-                </div>
-              </td>
 
-              <!-- Supplier columns -->
-              <% price_info = @price_data[match.id] %>
-              <% @suppliers.each do |supplier| %>
-                <td class="px-4 py-3" id="match_<%= match.id %>_supplier_<%= supplier.id %>">
+                <% if match.confidence_score && match.confidence_score > 0 %>
+                  <span class="text-xs <%= match.confidence_score >= 0.8 ? 'text-green-600' : 'text-amber-600' %> mt-1 block">
+                    <%= (match.confidence_score * 100).round %>% confidence
+                  </span>
+                <% end %>
+              </div>
+
+              <div class="mt-3 flex items-center gap-2">
+                <% if match.unmatched? %>
+                  <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">Unmatched</span>
+                <% else %>
+                  <span class="text-green-600">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </span>
+                <% end %>
+                <% unless @aggregated_list.promoted? %>
+                  <button type="button"
+                          class="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Remove from list"
+                          data-dismiss-url="<%= reject_aggregated_list_product_match_path(@aggregated_list, match) %>"
+                          data-match-row="<%= dom_id(match) %>"
+                          data-match-name="<%= match.display_name %>"
+                          onclick="dismissMatch(this)">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  </button>
+                <% end %>
+              </div>
+            </div>
+
+            <%# Right: Grid of supplier cells %>
+            <div class="flex-1 p-3">
+              <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
+                <% price_info = @price_data[match.id] %>
+                <% @suppliers.each do |supplier| %>
                   <% lookup = @match_supplier_map.dig(match.id, supplier.id) %>
                   <% item = lookup&.dig(:item) %>
                   <% pmi = lookup&.dig(:pmi) %>
                   <% is_cheapest = item && price_info[:cheapest_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
                   <% is_most_expensive = item && price_info[:most_expensive_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
-                  <%= render "aggregated_lists/supplier_cell",
+                  <%= render "aggregated_lists/supplier_cell_card",
                              product_match: match,
                              supplier: supplier,
                              item: item,
@@ -262,50 +259,32 @@
                              is_cheapest: is_cheapest,
                              is_most_expensive: is_most_expensive,
                              readonly: @aggregated_list.promoted? %>
-                </td>
-              <% end %>
+                <% end %>
 
-              <%# Teaser columns for unconnected suppliers %>
-              <% @unconnected_suppliers.each do |supplier| %>
-                <td class="px-4 py-3 bg-gray-50/60">
+                <%# Teaser cells for unconnected suppliers %>
+                <% @unconnected_suppliers.each do |supplier| %>
                   <% teaser_product = @teaser_map.dig(match.id, supplier.id) %>
-                  <%= render "aggregated_lists/teaser_supplier_cell",
-                             supplier: supplier,
-                             teaser_product: teaser_product %>
-                </td>
-              <% end %>
-
-              <!-- Status column -->
-              <td class="px-4 py-3 text-center whitespace-nowrap">
-                <div class="group/status flex items-center justify-center gap-1.5">
-                  <% if match.unmatched? %>
-                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Unmatched</span>
-                  <% else %>
-                    <span class="text-green-600">
-                      <svg class="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </span>
+                  <% if teaser_product %>
+                    <div class="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-3">
+                      <div class="flex items-center gap-1.5 mb-1.5">
+                        <svg class="h-3 w-3 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                        </svg>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400"><%= supplier.name %></span>
+                      </div>
+                      <div class="text-sm text-gray-400"><%= teaser_product.supplier_name.to_s.truncate(50) %></div>
+                      <div class="text-xs text-gray-300 mt-0.5"><%= teaser_product.pack_size %></div>
+                      <% if teaser_product.current_price %>
+                        <div class="text-base font-bold text-gray-400 mt-1"><%= number_to_currency(teaser_product.current_price) %></div>
+                      <% end %>
+                    </div>
                   <% end %>
-                  <% unless @aggregated_list.promoted? %>
-                    <button type="button"
-                            class="p-1 rounded text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
-                            title="Remove from list"
-                            data-dismiss-url="<%= reject_aggregated_list_product_match_path(@aggregated_list, match) %>"
-                            data-match-row="<%= dom_id(match) %>"
-                            data-match-name="<%= match.display_name %>"
-                            onclick="dismissMatch(this)">
-                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                      </svg>
-                    </button>
-                  <% end %>
-                </div>
-              </td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
+                <% end %>
+              </div>
+            </div>
+          </div>
+        </div>
+      <% end %>
     </div>
   <% else %>
     <div class="bg-white shadow rounded-lg p-8 text-center">
@@ -324,7 +303,7 @@
           </p>
         </div>
         <div class="flex gap-3 w-full sm:w-auto">
-          <% if @aggregated_list.matched? %>
+          <% if @aggregated_list.matched? || @aggregated_list.match_status == 'failed' %>
             <%= link_to order_builder_aggregated_list_path(@aggregated_list),
                 data: { turbo: false },
                 class: "flex-1 sm:flex-initial text-center rounded-md bg-brand-green px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" do %>
@@ -435,78 +414,4 @@
     document.addEventListener("keydown", escHandler)
   }
 
-  // Floating sticky header — pins the thead to the top of the viewport
-  // when the user scrolls past it, and syncs horizontal scroll.
-  (function() {
-    const table = document.getElementById("match-comparison-table")
-    const scrollContainer = document.getElementById("match-table-scroll")
-    if (!table || !scrollContainer) return
-
-    const thead = table.querySelector("thead")
-    if (!thead) return
-
-    let floating = null
-
-    function create() {
-      if (floating) return
-
-      floating = document.createElement("div")
-      floating.id = "floating-match-thead"
-      floating.style.cssText = "position:fixed;top:0;z-index:40;overflow:hidden;pointer-events:auto;"
-
-      const inner = document.createElement("div")
-      inner.style.cssText = "overflow:hidden;"
-
-      const clonedTable = document.createElement("table")
-      clonedTable.className = table.className
-
-      const clonedHead = thead.cloneNode(true)
-      clonedHead.classList.add("shadow-[0_2px_4px_rgba(0,0,0,0.1)]")
-      clonedTable.appendChild(clonedHead)
-
-      // Match column widths from the real header
-      const origCells = thead.querySelectorAll("th")
-      const clonedCells = clonedHead.querySelectorAll("th")
-      origCells.forEach(function(cell, i) {
-        const w = cell.getBoundingClientRect().width + "px"
-        clonedCells[i].style.width = w
-        clonedCells[i].style.minWidth = w
-      })
-
-      inner.appendChild(clonedTable)
-      floating.appendChild(inner)
-      document.body.appendChild(floating)
-      sync()
-    }
-
-    function destroy() {
-      if (floating) { floating.remove(); floating = null }
-    }
-
-    function sync() {
-      if (!floating) return
-      var rect = scrollContainer.getBoundingClientRect()
-      floating.style.left = rect.left + "px"
-      floating.style.width = rect.width + "px"
-      floating.firstElementChild.scrollLeft = scrollContainer.scrollLeft
-    }
-
-    function onScroll() {
-      var tRect = table.getBoundingClientRect()
-      var hHeight = thead.getBoundingClientRect().height
-      if (tRect.top < 0 && tRect.bottom > hHeight + 20) {
-        create()
-        sync()
-      } else {
-        destroy()
-      }
-    }
-
-    window.addEventListener("scroll", onScroll, { passive: true })
-    scrollContainer.addEventListener("scroll", sync, { passive: true })
-    window.addEventListener("resize", function() { destroy(); onScroll() })
-
-    // Clean up on Turbo navigation
-    document.addEventListener("turbo:before-render", destroy)
-  })()
 </script>

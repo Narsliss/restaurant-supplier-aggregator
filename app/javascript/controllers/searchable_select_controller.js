@@ -47,7 +47,10 @@ export default class extends Controller {
           this.performSearch("")
         }
         if (details.open) {
-          setTimeout(() => this.inputTarget.focus(), 50)
+          setTimeout(() => {
+            this.inputTarget.focus()
+            this.positionDropdown()
+          }, 50)
         }
       })
     }
@@ -136,6 +139,23 @@ export default class extends Controller {
     li.className = "px-3 py-2 text-red-500 text-center"
     li.textContent = "Search error. Try again."
     this.listTarget.appendChild(li)
+  }
+
+  // Position the dropdown above if it would overflow the viewport
+  positionDropdown() {
+    const list = this.listTarget
+    const rect = list.getBoundingClientRect()
+    const spaceBelow = window.innerHeight - rect.top
+    const dropdownHeight = Math.min(list.scrollHeight, 240) // max-h-60 = 240px
+
+    if (spaceBelow < dropdownHeight + 20) {
+      // Not enough room below — flip above the input
+      list.classList.remove("mt-1")
+      list.classList.add("bottom-full", "mb-1")
+    } else {
+      list.classList.remove("bottom-full", "mb-1")
+      list.classList.add("mt-1")
+    }
   }
 
   select(event) {
