@@ -2,7 +2,11 @@ module Scrapers
   class SyscoScraper < BaseScraper
     BASE_URL = 'https://shop.sysco.com'.freeze
     LOGIN_URL = 'https://secure.sysco.com/'.freeze
+    CATALOG_URL = 'https://shop.sysco.com/app/catalog'.freeze
+    LISTS_URL = 'https://shop.sysco.com/app/lists'.freeze
     ORDER_MINIMUM = 0.00 # Unknown — will be determined during testing
+    PRODUCTS_PER_PAGE = 24
+    MAX_PAGES_PER_TERM = 5
 
     LOGGED_IN_SELECTORS = [
       "a[href*='account']", "a[href*='logout']", "a[href*='sign-out']",
@@ -31,10 +35,11 @@ module Scrapers
 
     def login
       with_browser do
-        # Skip session restore for now — scraping isn't implemented yet,
-        # so there's no benefit to restoring sessions. Session restore
-        # was causing navigation loops (stale tokens → redirect → refresh).
-        # TODO: Re-enable restore_session once catalog/list scraping is live.
+        if restore_session && logged_in?
+          logger.info '[Sysco] Session restored successfully'
+          save_session
+          return true
+        end
 
         perform_login_steps
         sleep 3
@@ -69,42 +74,170 @@ module Scrapers
     end
 
     def soft_refresh
-      # Skip session refresh while scraping is unimplemented.
-      # Opening a browser just to check if a session is alive is wasteful
-      # when we can't do anything with it yet.
-      logger.info '[Sysco] Soft refresh skipped — scraping not yet implemented'
+      with_browser do
+        if restore_session && logged_in?
+          save_session
+          return true
+        end
+      end
+      false
+    rescue StandardError => e
+      logger.warn "[Sysco] Soft refresh failed: #{e.message}"
       false
     end
 
     # ----------------------------------------------------------------
-    # Public API — Catalog & Lists (stubs — need DOM inspection)
+    # Public API — Catalog Search
     # ----------------------------------------------------------------
 
     def scrape_catalog(search_terms, max_per_term: 20, &on_batch)
-      logger.warn '[Sysco] Catalog scraping not yet implemented — returning empty results'
-      # TODO: Implement after inspecting shop.sysco.com DOM structure
-      # Likely pattern: search bar → results grid → extract product cards
-      []
+      results = []
+      seen_skus = Set.new
+
+      with_browser do
+        # Restore session or do fresh login
+        unless restore_session && logged_in?
+          perform_login_steps
+          sleep 2
+          raise AuthenticationError, 'Could not log in for catalog import' unless logged_in?
+          save_session
+        end
+        dismiss_promo_modals
+
+        search_terms.each do |term|
+          begin
+            logger.info "[Sysco] Searching catalog for: #{term}"
+            products = search_supplier_catalog(term, max: max_per_term)
+
+            new_products = products.reject { |p| seen_skus.include?(p[:supplier_sku]) }
+            new_products.each { |p| seen_skus.add(p[:supplier_sku]) }
+
+            if new_products.any?
+              logger.info "[Sysco] Found #{new_products.size} new products for '#{term}' (#{products.size - new_products.size} dupes)"
+              if block_given?
+                yield(new_products)
+              else
+                results.concat(new_products)
+              end
+            else
+              logger.info "[Sysco] No new products for '#{term}'"
+            end
+          rescue Ferrum::TimeoutError, Ferrum::PendingConnectionsError => e
+            logger.warn "[Sysco] Timeout searching '#{term}': #{e.message}"
+          rescue StandardError => e
+            logger.error "[Sysco] Error searching '#{term}': #{e.class}: #{e.message}"
+          end
+        end
+      end
+
+      logger.info "[Sysco] Catalog scrape complete: #{seen_skus.size} total unique products"
+      results
     end
 
     def search_supplier_catalog(term, max: 20)
-      logger.warn "[Sysco] Catalog search not yet implemented for term: #{term}"
-      []
+      products = []
+      pages_to_scrape = [(max.to_f / PRODUCTS_PER_PAGE).ceil, MAX_PAGES_PER_TERM].min
+
+      pages_to_scrape.times do |page_idx|
+        page_num = page_idx + 1
+        url = "#{CATALOG_URL}?q=#{CGI.escape(term)}&page=#{page_num}"
+        logger.info "[Sysco] Fetching search page #{page_num}: #{url}"
+
+        navigate_to(url)
+        sleep 3
+
+        # Wait for product grid to render
+        grid_loaded = wait_for_selector('[class*="product"]', timeout: 10)
+        unless grid_loaded
+          logger.warn "[Sysco] No product grid found on page #{page_num}"
+          break
+        end
+
+        page_products = extract_search_products
+        logger.info "[Sysco] Extracted #{page_products.size} products from page #{page_num}"
+
+        products.concat(page_products)
+        break if products.size >= max
+
+        # Check if there's a next page
+        has_next = browser.evaluate(<<~JS)
+          (function() {
+            // Look for the > next arrow in pagination
+            var arrows = document.querySelectorAll('button, a, li');
+            for (var i = 0; i < arrows.length; i++) {
+              var text = (arrows[i].innerText || '').trim();
+              if (text === '>' || text === '›') return true;
+            }
+            // Or check if current page < last page
+            var pages = document.querySelectorAll('[class*="pagination"] a, [class*="pagination"] button, [class*="pagination"] li');
+            return pages.length > 0;
+          })()
+        JS
+        break unless has_next
+      end
+
+      products.first(max)
     end
 
-    # Override scrape_lists (not just scrape_supplier_lists) to skip the
-    # browser entirely while scraping is unimplemented. BaseScraper#scrape_lists
-    # opens a browser and tries to login/restore session, which triggers
-    # unnecessary login attempts when we're just going to return [].
+    # ----------------------------------------------------------------
+    # Public API — List / Order Guide Scraping
+    # ----------------------------------------------------------------
+
     def scrape_lists
-      logger.warn '[Sysco] Order guide scraping not yet implemented — skipping browser'
-      []
+      with_browser do
+        unless restore_session && logged_in?
+          perform_login_steps
+          sleep 2
+          raise AuthenticationError, 'Could not log in for list import' unless logged_in?
+          save_session
+        end
+        dismiss_promo_modals
+
+        scrape_supplier_lists
+      end
     end
 
     def scrape_supplier_lists
-      logger.warn '[Sysco] Order guide scraping not yet implemented'
-      # TODO: Implement after inspecting shop.sysco.com order guide pages
-      []
+      logger.info '[Sysco] Navigating to Lists page...'
+      navigate_to(LISTS_URL)
+      sleep 3
+
+      # Wait for sidebar to render
+      wait_for_selector('[class*="sidebar"], [class*="list-nav"], [class*="menu"]', timeout: 10)
+
+      # Extract list metadata from sidebar
+      list_names = extract_list_sidebar
+      logger.info "[Sysco] Found #{list_names.size} user lists: #{list_names.map { |l| l[:name] }.join(', ')}"
+
+      lists = []
+      list_names.each_with_index do |list_meta, idx|
+        begin
+          logger.info "[Sysco] Scraping list: #{list_meta[:name]}"
+
+          # Click the list in the sidebar
+          click_sidebar_list(list_meta[:name])
+          sleep 2
+
+          # Wait for items table to load
+          wait_for_list_items
+
+          # Extract items from the table
+          items = extract_list_items
+          logger.info "[Sysco] Extracted #{items.size} items from '#{list_meta[:name]}'"
+
+          lists << {
+            name: list_meta[:name],
+            remote_id: list_meta[:remote_id] || list_meta[:name].parameterize,
+            url: LISTS_URL,
+            list_type: 'custom',
+            items: items
+          }
+        rescue StandardError => e
+          logger.error "[Sysco] Error scraping list '#{list_meta[:name]}': #{e.class}: #{e.message}"
+        end
+      end
+
+      lists
     end
 
     # ----------------------------------------------------------------
@@ -173,6 +306,7 @@ module Scrapers
       # Check if we're already logged in (no MFA, no second login)
       if logged_in?
         logger.info '[Sysco] Login successful (no MFA)'
+        dismiss_promo_modals
         return
       end
 
@@ -221,6 +355,7 @@ module Scrapers
       sleep 3 unless logged_in?
       if logged_in?
         logger.info '[Sysco] Login successful'
+        dismiss_promo_modals
         return
       end
 
@@ -228,6 +363,438 @@ module Scrapers
       diagnose_login_failure
       raise AuthenticationError, 'Login failed — not authenticated after both login stages'
     end
+
+    # ----------------------------------------------------------------
+    # Promo modal dismissal
+    # ----------------------------------------------------------------
+
+    def dismiss_promo_modals
+      dismissed = browser.evaluate(<<~JS)
+        (function() {
+          // Try common close button patterns for the "Save a bunch!" modal
+          var selectors = [
+            'button[aria-label="Close"]',
+            'button[aria-label="close"]',
+            'button.close',
+            '.modal-close',
+            '[class*="modal"] button[class*="close"]',
+            '[class*="dialog"] button[class*="close"]',
+            '[class*="overlay"] button[class*="close"]'
+          ];
+          for (var i = 0; i < selectors.length; i++) {
+            var btn = document.querySelector(selectors[i]);
+            if (btn && btn.offsetHeight > 0) { btn.click(); return 'selector:' + selectors[i]; }
+          }
+
+          // Fallback: find any visible × or X button in a modal/overlay
+          var buttons = document.querySelectorAll('button, [role="button"]');
+          for (var i = 0; i < buttons.length; i++) {
+            var text = (buttons[i].innerText || '').trim();
+            if ((text === '×' || text === 'X' || text === '✕' || text === '✖') && buttons[i].offsetHeight > 0) {
+              buttons[i].click();
+              return 'x_button';
+            }
+          }
+
+          // Try clicking outside the modal to dismiss
+          var overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"]');
+          for (var i = 0; i < overlays.length; i++) {
+            if (overlays[i].offsetHeight > 0) { overlays[i].click(); return 'overlay'; }
+          }
+
+          return false;
+        })()
+      JS
+
+      if dismissed
+        logger.info "[Sysco] Dismissed promo modal via: #{dismissed}"
+        sleep 1
+      end
+    rescue StandardError => e
+      logger.debug "[Sysco] No promo modal to dismiss: #{e.message}"
+    end
+
+    # ----------------------------------------------------------------
+    # Catalog search helpers
+    # ----------------------------------------------------------------
+
+    # Wait for a CSS selector to appear on the page
+    def wait_for_selector(selector, timeout: 10)
+      timeout.times do
+        found = browser.evaluate("!!document.querySelector('#{selector}')")
+        return true if found
+        sleep 1
+      end
+      false
+    end
+
+    # Extract product data from the search results grid
+    def extract_search_products
+      browser.evaluate(<<~JS)
+        (function() {
+          var products = [];
+          // Product cards — each card contains: SKU, brand, name+pack, price
+          // Try multiple container selectors since we don't know exact classes
+          var cards = document.querySelectorAll('[class*="product-card"], [class*="productCard"], [class*="product-tile"], [class*="productTile"]');
+          if (cards.length === 0) {
+            // Fallback: look for grid items that contain Add to Cart buttons
+            cards = document.querySelectorAll('[class*="grid"] > div, [class*="catalog"] [class*="item"]');
+          }
+          if (cards.length === 0) {
+            // Last resort: find elements containing price patterns
+            var allDivs = document.querySelectorAll('div');
+            var cardSet = [];
+            for (var d = 0; d < allDivs.length; d++) {
+              var text = allDivs[d].innerText || '';
+              if (text.match(/\\$\\d+\\.\\d{2}\\s*(CS|EA|LB)/i) && text.match(/\\d{5,}/) && allDivs[d].childElementCount > 2) {
+                // Check it's a leaf-ish card, not a giant container
+                if (text.length < 500) cardSet.push(allDivs[d]);
+              }
+            }
+            cards = cardSet;
+          }
+
+          for (var i = 0; i < cards.length; i++) {
+            try {
+              var card = cards[i];
+              var text = card.innerText || '';
+              var lines = text.split('\\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+
+              // Extract SKU (7-digit number)
+              var sku = null;
+              for (var j = 0; j < lines.length; j++) {
+                var skuMatch = lines[j].match(/^(\\d{6,8})$/);
+                if (skuMatch) { sku = skuMatch[1]; break; }
+              }
+              if (!sku) {
+                // Try finding SKU anywhere in text
+                var anySkuMatch = text.match(/\\b(\\d{7})\\b/);
+                if (anySkuMatch) sku = anySkuMatch[1];
+              }
+              if (!sku) continue;
+
+              // Extract price: "$XX.XX CS" or "$XX.XXX LB"
+              var priceMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2,3})\\s*(CS|EA|LB|CW)/i);
+              var price = priceMatch ? parseFloat(priceMatch[1].replace(',', '')) : null;
+              var priceUnit = priceMatch ? priceMatch[2].toUpperCase() : null;
+
+              // Extract brand + name + pack size
+              // Brand line is usually "Sysco Classic" or "Tyson Red Label"
+              // Name line follows with pack size appended: "Chicken Breast... 4/10 LB"
+              var brand = '';
+              var nameWithPack = '';
+              var packSize = null;
+
+              for (var j = 0; j < lines.length; j++) {
+                // Brand is usually right before or after SKU
+                if (lines[j].match(/^(Sysco|Tyson|Imperial|Buckhead|Arrezzio|Block|Jade Mountain)/i)) {
+                  brand = lines[j];
+                }
+                // Name+pack is a line with pack size pattern at end
+                var packMatch = lines[j].match(/(.+?)\\s+(\\d+\\/\\d+[#\\s]?\\w*|\\d+x\\d+\\s*\\w*|\\d+\\s*(LB|OZ|EA|CS|CT|GAL|#|lb|oz)\\b.*)$/i);
+                if (packMatch && !lines[j].match(/^\\$/)) {
+                  nameWithPack = packMatch[1];
+                  packSize = packMatch[2];
+                }
+              }
+
+              // Build supplier_name: brand + name
+              var supplierName = brand;
+              if (nameWithPack) {
+                supplierName = (supplierName ? supplierName + ' ' : '') + nameWithPack;
+              }
+              if (!supplierName || supplierName.length < 3) {
+                // Fallback: use all text lines except price/sku/button
+                supplierName = lines.filter(function(l) {
+                  return !l.match(/^\\$/) && !l.match(/^\\d{6,}$/) && !l.match(/Add to Cart/i) && !l.match(/DEAL FOR YOU/i);
+                }).join(' ');
+              }
+
+              // If pack size not found, try extracting from name
+              if (!packSize) {
+                var anyPack = supplierName.match(/(\\d+\\/\\d+[#\\s]?\\w*|\\d+\\s*(LB|OZ|EA|CS|CT|#)\\b)/i);
+                if (anyPack) packSize = anyPack[1];
+              }
+
+              products.push({
+                supplier_sku: sku,
+                supplier_name: supplierName.substring(0, 255),
+                current_price: price,
+                pack_size: packSize || null,
+                price_unit: priceUnit || null,
+                in_stock: !text.match(/out of stock|unavailable/i),
+                supplier_url: 'https://shop.sysco.com/app/product/' + sku
+              });
+            } catch(e) {
+              // Skip cards that fail to parse
+            }
+          }
+          return products;
+        })()
+      JS
+    rescue StandardError => e
+      logger.error "[Sysco] Error extracting search products: #{e.message}"
+      []
+    end
+
+    # ----------------------------------------------------------------
+    # List scraping helpers
+    # ----------------------------------------------------------------
+
+    # Extract list names from the sidebar under "My Lists"
+    def extract_list_sidebar
+      browser.evaluate(<<~JS)
+        (function() {
+          var lists = [];
+          var sidebar = document.body;
+
+          // Find all clickable list items in the sidebar
+          // "My Lists (N)" section contains user-created lists
+          // "Sysco Lists (N)" section contains system lists (skip these)
+          var allLinks = sidebar.querySelectorAll('a, [role="button"], [class*="list-item"], [class*="listItem"]');
+          var inMyLists = false;
+          var inSyscoLists = false;
+
+          // First, try to find the section headers
+          var allText = sidebar.querySelectorAll('*');
+          for (var i = 0; i < allText.length; i++) {
+            var el = allText[i];
+            var text = (el.innerText || '').trim();
+
+            // Detect "My Lists" section header
+            if (text.match(/^My Lists/i) && el.childElementCount <= 2) {
+              inMyLists = true;
+              inSyscoLists = false;
+              continue;
+            }
+            // Detect "Sysco Lists" section header — stop collecting
+            if (text.match(/^Sysco Lists/i) && el.childElementCount <= 2) {
+              inMyLists = false;
+              inSyscoLists = true;
+              continue;
+            }
+
+            // Skip "Create a New List" and section headers
+            if (text.match(/Create.*List/i) || text.match(/^My Lists/i) || text.match(/^Sysco Lists/i)) continue;
+
+            // Collect list names when we're in the "My Lists" section
+            if (inMyLists && el.offsetHeight > 0 && text.length > 0 && text.length < 100) {
+              // Make sure it's a leaf element (not a container)
+              if (el.childElementCount === 0 || (el.childElementCount <= 2 && el.tagName !== 'DIV')) {
+                // Check it's not already collected
+                var alreadyHave = false;
+                for (var j = 0; j < lists.length; j++) {
+                  if (lists[j].name === text) { alreadyHave = true; break; }
+                }
+                if (!alreadyHave && !text.match(/^\\d+$/) && !text.match(/^My Lists/)) {
+                  lists.push({ name: text, remote_id: text.toLowerCase().replace(/[^a-z0-9]+/g, '-') });
+                }
+              }
+            }
+          }
+
+          return lists;
+        })()
+      JS
+    rescue StandardError => e
+      logger.error "[Sysco] Error extracting sidebar lists: #{e.message}"
+      []
+    end
+
+    # Click a list name in the sidebar
+    def click_sidebar_list(list_name)
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          var els = document.querySelectorAll('a, span, div, [role="button"], [class*="list"]');
+          for (var i = 0; i < els.length; i++) {
+            var text = (els[i].innerText || '').trim();
+            if (text === #{list_name.to_json} && els[i].offsetHeight > 0) {
+              els[i].click();
+              return true;
+            }
+          }
+          return false;
+        })()
+      JS
+
+      unless clicked
+        logger.warn "[Sysco] Could not click list '#{list_name}' in sidebar"
+      end
+    end
+
+    # Wait for the list items table to populate
+    def wait_for_list_items(timeout: 10)
+      timeout.times do
+        has_items = browser.evaluate(<<~JS)
+          (function() {
+            // Check for table rows or item containers
+            var rows = document.querySelectorAll('tr, [class*="list-item"], [class*="listItem"], [class*="item-row"]');
+            // At least 1 data row (not just header)
+            return rows.length > 1;
+          })()
+        JS
+        return true if has_items
+
+        # Check for "no items" message
+        no_items = browser.evaluate(<<~JS)
+          (function() {
+            var text = document.body.innerText || '';
+            return text.match(/no items|there are no items/i) ? true : false;
+          })()
+        JS
+        return false if no_items
+
+        sleep 1
+      end
+      false
+    end
+
+    # Extract items from the list detail table
+    def extract_list_items
+      items = browser.evaluate(<<~JS)
+        (function() {
+          var items = [];
+
+          // The list table has columns: #, Item Details, Last Ordered, Order Qty, Price ($), Total ($)
+          // Each item row shows:
+          //   Name on first line
+          //   "SKU | Pack Size | Brand" on second line
+          //   Price like "$21.31 CS"
+
+          // Try finding rows in a table
+          var rows = document.querySelectorAll('tr');
+          // Skip header row(s)
+          var dataRows = [];
+          for (var i = 0; i < rows.length; i++) {
+            var text = (rows[i].innerText || '').trim();
+            // Data rows contain a SKU (6-8 digit number) and usually a price
+            if (text.match(/\\d{6,8}/) && !text.match(/^#.*Item Details/i)) {
+              dataRows.push(rows[i]);
+            }
+          }
+
+          // If no table rows, try card/div-based layout
+          if (dataRows.length === 0) {
+            var divs = document.querySelectorAll('[class*="item-row"], [class*="listItem"], [class*="list-row"]');
+            for (var i = 0; i < divs.length; i++) {
+              var text = (divs[i].innerText || '').trim();
+              if (text.match(/\\d{6,8}/)) dataRows.push(divs[i]);
+            }
+          }
+
+          for (var i = 0; i < dataRows.length; i++) {
+            try {
+              var row = dataRows[i];
+              var text = row.innerText || '';
+              var lines = text.split('\\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+
+              // Find the detail line: "8877383 | 1/50 LB | IMPERIAL FRESH"
+              var sku = null;
+              var packSize = null;
+              var brand = null;
+
+              for (var j = 0; j < lines.length; j++) {
+                var detailMatch = lines[j].match(/(\\d{6,8})\\s*\\|\\s*([^|]+?)\\s*\\|\\s*(.+)/);
+                if (detailMatch) {
+                  sku = detailMatch[1];
+                  packSize = detailMatch[2].trim();
+                  brand = detailMatch[3].trim();
+                  break;
+                }
+                // Sometimes just SKU without pipes
+                var skuOnly = lines[j].match(/^(\\d{6,8})$/);
+                if (skuOnly) sku = skuOnly[1];
+              }
+
+              if (!sku) continue;
+
+              // Product name is usually the first meaningful line
+              var name = '';
+              for (var j = 0; j < lines.length; j++) {
+                // Skip position number, checkbox text, SKU lines
+                if (lines[j].match(/^\\d{1,3}$/) || lines[j].match(/^\\d{6,8}/) || lines[j].match(/^\\$/)) continue;
+                if (lines[j].length > 5 && !lines[j].match(/^(CS|EA|LB|N\\/A|Sold and)/i)) {
+                  name = lines[j];
+                  break;
+                }
+              }
+
+              // Extract price: "$21.31 CS" or "$14.050 LB"
+              var priceMatch = text.match(/\\$(\\d+[,\\d]*\\.\\d{2,3})\\s*(CS|EA|LB|CW)/i);
+              var price = priceMatch ? parseFloat(priceMatch[1].replace(',', '')) : null;
+              var priceUnit = priceMatch ? priceMatch[2].toUpperCase() : null;
+
+              // If there's a sale price (strikethrough original), take the lower one
+              var allPrices = text.match(/\\$(\\d+[,\\d]*\\.\\d{2,3})/g);
+              if (allPrices && allPrices.length > 1) {
+                var prices = allPrices.map(function(p) { return parseFloat(p.replace('$', '').replace(',', '')); });
+                price = Math.min.apply(null, prices);
+              }
+
+              // Extract order quantity from input
+              var qtyInputs = row.querySelectorAll('input[type="number"], input[type="text"]');
+              var qty = 0;
+              for (var q = 0; q < qtyInputs.length; q++) {
+                var val = parseFloat(qtyInputs[q].value);
+                if (!isNaN(val)) { qty = val; break; }
+              }
+
+              items.push({
+                sku: sku,
+                name: name.substring(0, 255),
+                price: price,
+                pack_size: packSize || null,
+                price_unit: priceUnit || null,
+                quantity: qty,
+                in_stock: !text.match(/out of stock|unavailable/i),
+                position: i + 1
+              });
+            } catch(e) {
+              // Skip rows that fail to parse
+            }
+          }
+          return items;
+        })()
+      JS
+
+      # Scroll down to check for more items not yet in viewport
+      if items.is_a?(Array) && items.size > 0
+        more_items = scroll_and_extract_remaining_items(items.size)
+        items.concat(more_items) if more_items.any?
+      end
+
+      items || []
+    rescue StandardError => e
+      logger.error "[Sysco] Error extracting list items: #{e.message}"
+      []
+    end
+
+    # Scroll down to load any additional list items
+    def scroll_and_extract_remaining_items(already_have)
+      all_new = []
+      3.times do |scroll_attempt|
+        browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        sleep 2
+
+        current_count = browser.evaluate(<<~JS)
+          (function() {
+            var rows = document.querySelectorAll('tr');
+            var count = 0;
+            for (var i = 0; i < rows.length; i++) {
+              if ((rows[i].innerText || '').match(/\\d{6,8}/)) count++;
+            }
+            return count;
+          })()
+        JS
+
+        break if current_count <= already_have + all_new.size
+      end
+      all_new
+    end
+
+    # ----------------------------------------------------------------
+    # Login helpers
+    # ----------------------------------------------------------------
 
     # Type text into a field using Ferrum's native CDP keyboard events.
     # This sends real browser-level keystrokes with small random delays
