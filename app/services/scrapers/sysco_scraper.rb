@@ -1,7 +1,7 @@
 module Scrapers
   class SyscoScraper < BaseScraper
     BASE_URL = 'https://shop.sysco.com'.freeze
-    LOGIN_URL = 'https://secure.sysco.com/'.freeze
+    LOGIN_URL = 'https://shop.sysco.com/auth/login'.freeze
     ORDER_MINIMUM = 0.00 # Unknown — will be determined during testing
 
     LOGGED_IN_SELECTORS = [
@@ -137,33 +137,29 @@ module Scrapers
     def perform_login_steps
       logger.info "[Sysco] Starting login for #{credential.username}"
 
-      # Step 1: Navigate to Sysco's authentication portal
+      # Step 1: Navigate to shop.sysco.com/auth/login
+      # This is the direct login page with email + password on one form.
+      # (secure.sysco.com redirects here anyway, so skip the redirect.)
       navigate_to(LOGIN_URL)
       sleep 3
       apply_stealth
 
       log_page_state('After navigating to login page')
 
-      # Step 2: Find and fill the email/username field
-      # secure.sysco.com loads email first, then password via JS
+      # Step 2: Fill the email/username field
       email_filled = fill_login_email
       unless email_filled
         diagnose_login_failure
-        raise AuthenticationError, 'Could not find or fill email field on secure.sysco.com'
+        raise AuthenticationError, 'Could not find or fill email field on shop.sysco.com/auth/login'
       end
-      logger.info '[Sysco] Email entered, clicking Next...'
+      logger.info '[Sysco] Email entered'
       sleep 1
 
-      # Step 2b: Click "Next" to advance past the email step
-      click_next_button
-      logger.info '[Sysco] Next clicked, waiting for password field...'
-      sleep 3
-
-      # Step 3: Fill password field (appears via JavaScript after email)
+      # Step 3: Fill password field (both fields visible on same page)
       password_filled = fill_login_password
       unless password_filled
         diagnose_login_failure
-        raise AuthenticationError, 'Password field did not appear after entering email'
+        raise AuthenticationError, 'Could not find or fill password field'
       end
       logger.info '[Sysco] Password entered'
 
@@ -275,24 +271,24 @@ module Scrapers
       JS
     end
 
-    # Fill the password field (may appear dynamically after email entry)
+    # Fill the password field (on the same page as email for shop.sysco.com/auth/login)
     def fill_login_password
       password_selectors = [
         'input[type="password"]',
         'input[name="password"]',
-        'input[name="passwd"]',           # Microsoft login
-        'input#passwordInput',            # Azure AD B2C
-        'input#i0118',                    # Microsoft login
+        'input[name="passwd"]',
+        'input#passwordInput',
+        'input#i0118',
         'input[autocomplete="current-password"]'
       ]
 
-      # Wait for password field to appear (loaded via JS after email)
+      # Brief wait — both fields should be on the page already,
+      # but give the SPA a moment to finish rendering
       field = nil
-      15.times do |attempt|
+      5.times do |attempt|
         password_selectors.each do |sel|
           candidate = browser.at_css(sel) rescue nil
           if candidate
-            # Verify it's visible
             visible = browser.evaluate("(function() { var el = document.querySelector('#{sel}'); return el && el.offsetHeight > 0; })()")
             if visible
               field = candidate
