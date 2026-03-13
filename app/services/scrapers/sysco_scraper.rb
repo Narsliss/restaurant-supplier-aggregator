@@ -76,18 +76,11 @@ module Scrapers
     end
 
     def soft_refresh
-      with_browser do
-        if restore_session
-          navigate_to(BASE_URL)
-          sleep 3
-          apply_stealth
-          if logged_in?
-            save_session
-            return true
-          end
-        end
-        false
-      end
+      # Skip session refresh while scraping is unimplemented.
+      # Opening a browser just to check if a session is alive is wasteful
+      # when we can't do anything with it yet.
+      logger.info '[Sysco] Soft refresh skipped — scraping not yet implemented'
+      false
     end
 
     # ----------------------------------------------------------------
@@ -103,6 +96,15 @@ module Scrapers
 
     def search_supplier_catalog(term, max: 20)
       logger.warn "[Sysco] Catalog search not yet implemented for term: #{term}"
+      []
+    end
+
+    # Override scrape_lists (not just scrape_supplier_lists) to skip the
+    # browser entirely while scraping is unimplemented. BaseScraper#scrape_lists
+    # opens a browser and tries to login/restore session, which triggers
+    # unnecessary login attempts when we're just going to return [].
+    def scrape_lists
+      logger.warn '[Sysco] Order guide scraping not yet implemented — skipping browser'
       []
     end
 
