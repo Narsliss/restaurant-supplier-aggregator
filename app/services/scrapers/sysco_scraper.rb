@@ -307,7 +307,8 @@ module Scrapers
 
       return false unless field
 
-      # Use native setter for SPA compatibility
+      # Simulate real typing character-by-character (same as email field).
+      # The login form keeps the submit button disabled without keystroke events.
       browser.evaluate(<<~JS)
         (function() {
           var selectors = #{password_selectors.to_json};
@@ -320,13 +321,25 @@ module Scrapers
           if (!el) return false;
 
           el.focus();
-          var nativeSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value'
-          ).set;
-          nativeSetter.call(el, #{credential.password.to_json});
-          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.click();
+          el.value = '';
+          el.dispatchEvent(new Event('focus', { bubbles: true }));
+
+          var chars = #{credential.password.to_json}.split('');
+          chars.forEach(function(char) {
+            el.dispatchEvent(new KeyboardEvent('keydown',  { key: char, bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
+
+            var nativeSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLInputElement.prototype, 'value'
+            ).set;
+            nativeSetter.call(el, el.value + char);
+
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+          });
+
           el.dispatchEvent(new Event('change', { bubbles: true }));
-          el.dispatchEvent(new Event('blur', { bubbles: true }));
           return true;
         })()
       JS
@@ -388,36 +401,57 @@ module Scrapers
       end
     end
 
-    # Click the login/submit button (after password is filled)
+    # Click the login/submit button (after password is filled).
+    # Waits for the button to become enabled, same as click_next_button.
     def click_login_submit
-      browser.evaluate(<<~JS)
-        (function() {
-          // Try common submit button patterns
-          var selectors = [
-            "button[type='submit']",
-            "input[type='submit']",
-            "button#next",
-            "button#idSIButton9",
-            "button.btn-primary",
-            "button[data-testid='submit']"
-          ];
-          for (var i = 0; i < selectors.length; i++) {
-            var btn = document.querySelector(selectors[i]);
-            if (btn && btn.offsetHeight > 0) { btn.click(); return true; }
-          }
-
-          // Fallback: find button by text
-          var buttons = document.querySelectorAll('button, input[type="submit"], a[role="button"]');
-          for (var i = 0; i < buttons.length; i++) {
-            var text = (buttons[i].innerText || buttons[i].value || '').trim().toLowerCase();
-            if (['sign in', 'log in', 'login', 'submit', 'next', 'continue'].includes(text)) {
-              buttons[i].click();
-              return true;
+      clicked = false
+      8.times do |attempt|
+        clicked = browser.evaluate(<<~JS)
+          (function() {
+            // Try common submit button patterns
+            var selectors = [
+              "button[type='submit']",
+              "input[type='submit']",
+              "button#next",
+              "button#idSIButton9",
+              "button.btn-primary",
+              "button[data-testid='submit']"
+            ];
+            for (var i = 0; i < selectors.length; i++) {
+              var btn = document.querySelector(selectors[i]);
+              if (btn && btn.offsetHeight > 0 && !btn.disabled) { btn.click(); return true; }
             }
-          }
-          return false;
-        })()
-      JS
+
+            // Fallback: find button by text
+            var buttons = document.querySelectorAll('button, input[type="submit"], a[role="button"]');
+            for (var i = 0; i < buttons.length; i++) {
+              var text = (buttons[i].innerText || buttons[i].value || '').trim().toLowerCase();
+              if (['sign in', 'log in', 'login', 'submit', 'next', 'continue'].includes(text) && !buttons[i].disabled) {
+                buttons[i].click();
+                return true;
+              }
+            }
+            return false;
+          })()
+        JS
+        break if clicked
+        logger.info "[Sysco] Submit button not yet enabled, waiting... (attempt #{attempt + 1}/8)"
+        sleep 1
+      end
+
+      unless clicked
+        logger.warn '[Sysco] Could not find enabled submit button — trying Enter key on password field'
+        browser.evaluate(<<~JS)
+          (function() {
+            var el = document.querySelector('input[type="password"]');
+            if (el) {
+              el.dispatchEvent(new KeyboardEvent('keydown',  { key: 'Enter', code: 'Enter', bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', bubbles: true }));
+              el.dispatchEvent(new KeyboardEvent('keyup',    { key: 'Enter', code: 'Enter', bubbles: true }));
+            }
+          })()
+        JS
+      end
     end
 
     # ----------------------------------------------------------------
