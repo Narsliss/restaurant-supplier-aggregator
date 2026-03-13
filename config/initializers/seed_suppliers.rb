@@ -55,7 +55,7 @@ Rails.application.config.after_initialize do
       code: 'sysco',
       name: 'Sysco',
       base_url: 'https://shop.sysco.com',
-      login_url: 'https://shop.sysco.com/auth/login',
+      login_url: 'https://secure.sysco.com/',
       scraper_class: 'Scrapers::SyscoScraper',
       auth_type: 'password'
     }

@@ -62,7 +62,7 @@ suppliers_data = [
     name: 'Sysco',
     code: 'sysco',
     base_url: 'https://shop.sysco.com',
-    login_url: 'https://shop.sysco.com/auth/login',
+    login_url: 'https://secure.sysco.com/',
     scraper_class: 'Scrapers::SyscoScraper',
     password_required: true,
     requirements: []

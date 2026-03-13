@@ -1,7 +1,7 @@
 module Scrapers
   class SyscoScraper < BaseScraper
     BASE_URL = 'https://shop.sysco.com'.freeze
-    LOGIN_URL = 'https://shop.sysco.com/auth/login'.freeze
+    LOGIN_URL = 'https://secure.sysco.com/'.freeze
     ORDER_MINIMUM = 0.00 # Unknown — will be determined during testing
 
     LOGGED_IN_SELECTORS = [
@@ -137,29 +137,32 @@ module Scrapers
     def perform_login_steps
       logger.info "[Sysco] Starting login for #{credential.username}"
 
-      # Step 1: Navigate to shop.sysco.com/auth/login
-      # This is the direct login page with email + password on one form.
-      # (secure.sysco.com redirects here anyway, so skip the redirect.)
+      # Step 1: Navigate to Sysco's authentication portal
       navigate_to(LOGIN_URL)
       sleep 3
       apply_stealth
 
       log_page_state('After navigating to login page')
 
-      # Step 2: Fill the email/username field
+      # Step 2: Find and fill the email/username field
       email_filled = fill_login_email
       unless email_filled
         diagnose_login_failure
-        raise AuthenticationError, 'Could not find or fill email field on shop.sysco.com/auth/login'
+        raise AuthenticationError, 'Could not find or fill email field on secure.sysco.com'
       end
-      logger.info '[Sysco] Email entered'
+      logger.info '[Sysco] Email entered, clicking Next...'
       sleep 1
 
-      # Step 3: Fill password field (both fields visible on same page)
+      # Step 2b: Click "Next" to advance past the email step
+      click_next_button
+      logger.info '[Sysco] Next clicked, waiting for password field...'
+      sleep 3
+
+      # Step 3: Fill password field (appears via JavaScript after email)
       password_filled = fill_login_password
       unless password_filled
         diagnose_login_failure
-        raise AuthenticationError, 'Could not find or fill password field'
+        raise AuthenticationError, 'Password field did not appear after entering email'
       end
       logger.info '[Sysco] Password entered'
 
@@ -169,38 +172,101 @@ module Scrapers
       logger.info '[Sysco] Login form submitted, waiting for response...'
       sleep 5
 
-      # Step 5: Check what happened — success, MFA, or error
-      log_page_state('After login submit')
+      # Step 5: Check what happened — success, MFA, second login, or error
+      log_page_state('After first login submit')
 
-      # Check if we're already logged in (no MFA)
+      # Check if we're already logged in (no MFA, no second login)
       if logged_in?
         logger.info '[Sysco] Login successful (no MFA)'
         return
       end
 
-      # Check for login errors before checking MFA
+      # Check for login errors before proceeding
       detect_login_errors
 
       # Check for MFA prompt (optional — some Sysco accounts have it, some don't)
       if handle_mfa_if_prompted
         logger.info '[Sysco] MFA completed successfully'
         sleep 3
-
-        # Wait for redirect to shop.sysco.com after MFA
         wait_for_post_login_redirect
         return
       end
 
-      # Neither logged in nor MFA — wait a bit more and check again
-      sleep 5
+      # Step 6: Handle second login page (shop.sysco.com/auth/login)
+      # secure.sysco.com often redirects to shop.sysco.com/auth/login
+      # which presents its own email + password form.
+      current_url = browser.current_url rescue ''
+      if current_url.include?('shop.sysco.com/auth/login') || current_url.include?('/auth/')
+        logger.info "[Sysco] Redirected to second login page: #{current_url}"
+        sleep 2
+        log_page_state('Second login page')
+
+        email_filled = fill_login_email
+        if email_filled
+          logger.info '[Sysco] Second login — email entered'
+          sleep 1
+
+          password_filled = fill_login_password
+          if password_filled
+            logger.info '[Sysco] Second login — password entered'
+            check_remember_me
+            click_login_submit
+            logger.info '[Sysco] Second login submitted, waiting...'
+            sleep 5
+            log_page_state('After second login submit')
+          end
+        end
+      end
+
+      # Final check — should be logged in now
+      sleep 3 unless logged_in?
       if logged_in?
-        logger.info '[Sysco] Login successful (delayed redirect)'
+        logger.info '[Sysco] Login successful'
         return
       end
 
       # Still not logged in — something went wrong
       diagnose_login_failure
-      raise AuthenticationError, 'Login failed — not authenticated after password submission and MFA check'
+      raise AuthenticationError, 'Login failed — not authenticated after both login stages'
+    end
+
+    # Type text into a field using Ferrum's native CDP keyboard events.
+    # This sends real browser-level keystrokes with small random delays
+    # between characters, which satisfies bot detection that checks for
+    # human-like typing patterns. JavaScript-dispatched events all fire
+    # in a single frame and get flagged.
+    def type_into_field(selectors, text)
+      # Find the first visible field matching any selector
+      sel = browser.evaluate(<<~JS)
+        (function() {
+          var selectors = #{selectors.to_json};
+          for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el && el.offsetHeight > 0) return selectors[i];
+          }
+          return null;
+        })()
+      JS
+      return false unless sel
+
+      # Click to focus the field
+      node = browser.at_css(sel)
+      node.click
+      sleep 0.2
+
+      # Clear any existing value
+      browser.evaluate("document.querySelector('#{sel}').value = ''")
+      browser.evaluate("document.querySelector('#{sel}').dispatchEvent(new Event('input', { bubbles: true }))")
+
+      # Type each character with real CDP key events and human-like delays
+      text.each_char do |char|
+        browser.keyboard.type(char)
+        sleep(rand(0.05..0.15)) # 50-150ms between keystrokes
+      end
+
+      # Final change event
+      browser.evaluate("document.querySelector('#{sel}').dispatchEvent(new Event('change', { bubbles: true }))")
+      true
     end
 
     # Fill the email/username field on the login page
@@ -230,62 +296,26 @@ module Scrapers
 
       return false unless field
 
-      # Simulate real typing character-by-character to satisfy bot detection.
-      # Many enterprise login forms (Sysco included) keep the Next button
-      # disabled until they see keydown/keypress/keyup events per character.
-      # Setting value + dispatching input/change alone is not enough.
-      browser.evaluate(<<~JS)
-        (function() {
-          var selectors = #{email_selectors.to_json};
-          var el = null;
-          for (var i = 0; i < selectors.length; i++) {
-            el = document.querySelector(selectors[i]);
-            if (el && el.offsetHeight > 0) break;
-            el = null;
-          }
-          if (!el) return false;
-
-          el.focus();
-          el.click();
-          el.value = '';
-          el.dispatchEvent(new Event('focus', { bubbles: true }));
-
-          var chars = #{credential.username.to_json}.split('');
-          chars.forEach(function(char) {
-            el.dispatchEvent(new KeyboardEvent('keydown',  { key: char, code: 'Key' + char.toUpperCase(), bubbles: true }));
-            el.dispatchEvent(new KeyboardEvent('keypress', { key: char, code: 'Key' + char.toUpperCase(), bubbles: true }));
-
-            // Build value character by character using native setter
-            var nativeSetter = Object.getOwnPropertyDescriptor(
-              window.HTMLInputElement.prototype, 'value'
-            ).set;
-            nativeSetter.call(el, el.value + char);
-
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new KeyboardEvent('keyup', { key: char, code: 'Key' + char.toUpperCase(), bubbles: true }));
-          });
-
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
-        })()
-      JS
+      # Use Ferrum's native keyboard typing — sends real Chrome DevTools
+      # Protocol key events with natural timing. JavaScript-dispatched events
+      # all fire in one frame which bot detection catches.
+      type_into_field(email_selectors, credential.username)
     end
 
-    # Fill the password field (on the same page as email for shop.sysco.com/auth/login)
+    # Fill the password field (appears dynamically after clicking Next)
     def fill_login_password
       password_selectors = [
         'input[type="password"]',
         'input[name="password"]',
-        'input[name="passwd"]',
-        'input#passwordInput',
-        'input#i0118',
+        'input[name="passwd"]',           # Microsoft login
+        'input#passwordInput',            # Azure AD B2C
+        'input#i0118',                    # Microsoft login
         'input[autocomplete="current-password"]'
       ]
 
-      # Brief wait — both fields should be on the page already,
-      # but give the SPA a moment to finish rendering
+      # Wait for password field to appear (loaded via JS after email + Next)
       field = nil
-      5.times do |attempt|
+      15.times do |attempt|
         password_selectors.each do |sel|
           candidate = browser.at_css(sel) rescue nil
           if candidate
@@ -303,42 +333,8 @@ module Scrapers
 
       return false unless field
 
-      # Simulate real typing character-by-character (same as email field).
-      # The login form keeps the submit button disabled without keystroke events.
-      browser.evaluate(<<~JS)
-        (function() {
-          var selectors = #{password_selectors.to_json};
-          var el = null;
-          for (var i = 0; i < selectors.length; i++) {
-            el = document.querySelector(selectors[i]);
-            if (el && el.offsetHeight > 0) break;
-            el = null;
-          }
-          if (!el) return false;
-
-          el.focus();
-          el.click();
-          el.value = '';
-          el.dispatchEvent(new Event('focus', { bubbles: true }));
-
-          var chars = #{credential.password.to_json}.split('');
-          chars.forEach(function(char) {
-            el.dispatchEvent(new KeyboardEvent('keydown',  { key: char, bubbles: true }));
-            el.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
-
-            var nativeSetter = Object.getOwnPropertyDescriptor(
-              window.HTMLInputElement.prototype, 'value'
-            ).set;
-            nativeSetter.call(el, el.value + char);
-
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
-          });
-
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
-        })()
-      JS
+      # Use Ferrum's native keyboard typing (same as email field)
+      type_into_field(password_selectors, credential.password)
     end
 
     # Click the "Next" button after entering email (advances to password step).
