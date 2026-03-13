@@ -140,7 +140,14 @@ class AiProductMatcherService
     results
   rescue StandardError => e
     Rails.logger.error "[AiMatcher] Failed: #{e.class}: #{e.message}"
-    aggregated_list.mark_failed!
+    # Only mark failed if there are no existing matches — don't clobber
+    # a working list just because a re-match job errored
+    if aggregated_list.product_matches.any?
+      Rails.logger.warn "[AiMatcher] Keeping status '#{aggregated_list.match_status}' — list has existing matches"
+      aggregated_list.mark_matched! unless aggregated_list.matched?
+    else
+      aggregated_list.mark_failed!
+    end
     results[:errors] << "#{e.class}: #{e.message}"
     results
   end

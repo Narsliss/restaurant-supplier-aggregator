@@ -355,7 +355,9 @@ class AggregatedListsController < ApplicationController
   end
 
   def order_builder
-    unless @aggregated_list.matched?
+    # Allow matched and failed — failed means a matching job errored,
+    # but existing matches are still valid and usable for ordering
+    unless @aggregated_list.matched? || @aggregated_list.match_status == 'failed'
       redirect_to @aggregated_list
       return
     end
