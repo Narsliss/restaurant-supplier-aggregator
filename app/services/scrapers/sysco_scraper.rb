@@ -203,8 +203,12 @@ module Scrapers
 
         email_filled = fill_login_email
         if email_filled
-          logger.info '[Sysco] Second login — email entered'
+          logger.info '[Sysco] Second login — email entered, clicking Next...'
           sleep 1
+
+          click_next_button
+          logger.info '[Sysco] Second login — Next clicked, waiting for password...'
+          sleep 3
 
           password_filled = fill_login_password
           if password_filled
