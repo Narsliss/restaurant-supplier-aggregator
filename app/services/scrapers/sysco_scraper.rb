@@ -31,17 +31,10 @@ module Scrapers
 
     def login
       with_browser do
-        navigate_to(BASE_URL)
-
-        if restore_session
-          # restore_session already navigates + refreshes
-          sleep 2
-          if logged_in?
-            save_session
-            return true
-          end
-          logger.info '[Sysco] Session restore failed, doing fresh login'
-        end
+        # Skip session restore for now — scraping isn't implemented yet,
+        # so there's no benefit to restoring sessions. Session restore
+        # was causing navigation loops (stale tokens → redirect → refresh).
+        # TODO: Re-enable restore_session once catalog/list scraping is live.
 
         perform_login_steps
         sleep 3
