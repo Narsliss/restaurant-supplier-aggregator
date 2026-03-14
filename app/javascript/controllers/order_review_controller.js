@@ -8,7 +8,8 @@ export default class extends Controller {
     "minimumBadge", "minimumWarning", "minimumShortfall",
     "caseMinimumWarning", "caseMinimumShortfall", "caseMinimumBadge",
     "warningsArea", "submitAllBtn", "supplierSubmitBtn", "summaryBar",
-    "deliveryDate", "deliveryAddress",
+    "deliveryDate", "deliveryAddress", "deliveryRow", "deliveryDateLabel",
+    "deliveryDateWarning", "deliveryDateRequired",
     // Verification targets
     "verificationBanner", "verificationProgress",
     "priceChangeBanner", "verificationFailedBanner", "verificationFailedMessage",
@@ -157,6 +158,7 @@ export default class extends Controller {
     const input = event.currentTarget
     const orderId = input.dataset.orderId
     this._patchOrder(orderId, { delivery_date: input.value })
+    this._clearDeliveryDateWarning(orderId, input)
     this._updateSubmitStates()
   }
 
@@ -1403,6 +1405,36 @@ export default class extends Controller {
     })
 
     this._updateSubmitStates()
+  }
+
+  _clearDeliveryDateWarning(orderId, input) {
+    if (!input.value) return
+
+    // Remove warning text
+    const warning = this.deliveryDateWarningTargets.find(el => el.dataset.orderId === orderId)
+    if (warning) warning.remove()
+
+    // Remove required asterisk
+    const required = this.deliveryDateRequiredTargets.find(el => el.dataset.orderId === orderId)
+    if (required) required.remove()
+
+    // Fix label color: amber → gray
+    const label = this.deliveryDateLabelTargets.find(el => el.dataset.orderId === orderId)
+    if (label) {
+      label.classList.remove("text-amber-700")
+      label.classList.add("text-gray-500")
+    }
+
+    // Fix row background: amber → gray
+    const row = this.deliveryRowTargets.find(el => el.dataset.orderId === orderId)
+    if (row) {
+      row.classList.remove("bg-amber-50", "border-amber-200")
+      row.classList.add("bg-gray-50")
+    }
+
+    // Fix input border: amber → gray
+    input.classList.remove("border-amber-400", "ring-1", "ring-amber-300")
+    input.classList.add("border-gray-300")
   }
 
   _hasValidDeliveryDate(orderId) {

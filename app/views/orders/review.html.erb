@@ -251,7 +251,8 @@
         <%# Delivery address & date %>
         <% supplier_address = order.supplier_delivery_address %>
         <% needs_delivery_date = order.delivery_date.blank? %>
-        <div class="px-4 py-3 border-b flex flex-col sm:flex-row gap-3 <%= needs_delivery_date ? 'bg-amber-50 border-amber-200' : 'bg-gray-50' %>">
+        <div class="px-4 py-3 border-b flex flex-col sm:flex-row gap-3 <%= needs_delivery_date ? 'bg-amber-50 border-amber-200' : 'bg-gray-50' %>"
+             data-order-review-target="deliveryRow" data-order-id="<%= order.id %>">
           <div class="flex-1">
             <label class="block text-xs font-medium text-gray-500 mb-1">Delivers to</label>
             <p class="text-sm" data-order-review-target="deliveryAddress" data-order-id="<%= order.id %>">
@@ -265,14 +266,15 @@
             </p>
           </div>
           <div class="flex-1">
-            <label class="block text-xs font-medium <%= needs_delivery_date ? 'text-amber-700' : 'text-gray-500' %> mb-1">
+            <label class="block text-xs font-medium <%= needs_delivery_date ? 'text-amber-700' : 'text-gray-500' %> mb-1"
+                   data-order-review-target="deliveryDateLabel" data-order-id="<%= order.id %>">
               Delivery Date
               <% if needs_delivery_date %>
-                <span class="text-red-500">*</span>
+                <span class="text-red-500" data-order-review-target="deliveryDateRequired" data-order-id="<%= order.id %>">*</span>
               <% end %>
             </label>
             <% if needs_delivery_date %>
-              <p class="text-xs text-amber-600 mb-1">Select a delivery date to enable submission</p>
+              <p class="text-xs text-amber-600 mb-1" data-order-review-target="deliveryDateWarning" data-order-id="<%= order.id %>">Select a delivery date to enable submission</p>
             <% end %>
             <input type="date"
                    value="<%= order.delivery_date %>"
