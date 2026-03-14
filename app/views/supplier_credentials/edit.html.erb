@@ -1,4 +1,9 @@
-<div class="max-w-2xl mx-auto">
-  <h1 class="text-2xl font-bold text-gray-900 mb-6">Edit Supplier Credential</h1>
-  <%= render "form", credential: @credential %>
+<div class="max-w-lg mx-auto py-8 px-4">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Edit Supplier Credential</h1>
+    <p class="text-sm text-gray-500 mt-1">Update your login details for <strong><%= @credential.supplier&.name %></strong>.</p>
+  </div>
+  <div class="bg-white shadow rounded-lg p-6">
+    <%= render "form", credential: @credential %>
+  </div>
 </div>

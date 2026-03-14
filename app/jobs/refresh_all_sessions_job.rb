@@ -6,6 +6,9 @@ class RefreshAllSessionsJob < ApplicationJob
   def perform
     Rails.logger.info '[RefreshAllSessionsJob] Queuing session refreshes for stale credentials'
 
+    # Sysco session restore saves cookies + localStorage + sessionStorage.
+    # It may or may not survive browser restarts — we try it and log the result.
+    # If it fails, no harm done: the daily SyscoCombinedImportJob will do a fresh login.
     credentials = SupplierCredential.where(status: %w[active expired]).needs_refresh
     count = credentials.count
 

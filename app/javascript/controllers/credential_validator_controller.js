@@ -124,8 +124,10 @@ export default class extends Controller {
     if (!this.polling) return
 
     // Stop polling after 10 minutes to avoid infinite loops on stuck credentials
+    // But don't timeout if the server has confirmed an import is in progress —
+    // imports can take much longer than 10 minutes for large catalogs
     const elapsed = Date.now() - this.pollingStartedAt
-    if (elapsed > 10 * 60 * 1000) {
+    if (elapsed > 10 * 60 * 1000 && !this._serverConfirmedImporting) {
       this.stopPolling()
       this.showState("failed", "Validation timed out. Please try again.")
       return
@@ -175,10 +177,13 @@ export default class extends Controller {
       // Server says import is in progress — track that we've seen it
       this._serverConfirmedImporting = true
 
-      // Show progress if available (e.g. "Importing 42%" or "Searching catalog...")
+      // Show progress if available (e.g. "Importing 42%" or "Imported 150 products so far...")
       if (cred.import_total > 0 && cred.import_progress > 0) {
         const pct = Math.round((cred.import_progress / cred.import_total) * 100)
         this.showState("importing", `Importing ${pct}%`)
+      } else if (cred.import_progress > 0 && cred.import_status_text) {
+        // Total unknown (streaming import) — show the status text with count
+        this.showState("importing", cred.import_status_text)
       } else if (cred.import_status_text) {
         this.showState("importing", cred.import_status_text)
       } else {

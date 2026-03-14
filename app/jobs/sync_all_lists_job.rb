@@ -24,7 +24,13 @@ class SyncAllListsJob < ApplicationJob
 
     syncable.each_with_index do |credential, index|
       # Stagger jobs 30 seconds apart to avoid hitting suppliers simultaneously
-      ImportSupplierListsJob.set(wait: (index * 30).seconds).perform_later(credential.id)
+      # Sysco: use combined job (catalog + lists in one browser session) since
+      # session restore doesn't work between browser instances.
+      if credential.supplier.code == 'sysco'
+        SyscoCombinedImportJob.set(wait: (index * 30).seconds).perform_later(credential.id)
+      else
+        ImportSupplierListsJob.set(wait: (index * 30).seconds).perform_later(credential.id)
+      end
     end
   end
 

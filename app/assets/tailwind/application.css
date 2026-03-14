@@ -378,6 +378,10 @@
     border-color: #4b5563 !important;
     color: #f9fafb !important;
   }
+  .dark main select option {
+    background-color: #374151;
+    color: #f9fafb;
+  }
 
   /* --- Flash message background tints --- */
   .dark .border-l-4.border-brand-green {

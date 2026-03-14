@@ -14,10 +14,12 @@ class ImportSupplierListsService
     @results = { lists_synced: 0, items_imported: 0, items_updated: 0, errors: [] }
   end
 
-  def call
+  # Import lists from the supplier. Accepts an optional +scraper:+ parameter to reuse
+  # an existing scraper instance (with its browser already open and logged in).
+  def call(scraper: nil)
     Rails.logger.info "[ImportLists] Starting list import for #{credential.supplier.name} (credential #{credential.id})"
 
-    scraper = credential.supplier.scraper_klass.new(credential)
+    scraper ||= credential.supplier.scraper_klass.new(credential)
     scraped_lists = scraper.scrape_lists
 
     Rails.logger.info "[ImportLists] Scraped #{scraped_lists.size} lists from #{credential.supplier.name}"

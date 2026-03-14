@@ -13,6 +13,18 @@ class ValidateCredentialsJob < ApplicationJob
 
     Rails.logger.info "[ValidateCredentialsJob] Validating credentials for #{credential.supplier.name} (user: #{credential.user_id})"
 
+    # Sysco: skip the separate validation browser session entirely.
+    # SyscoCombinedImportJob opens ONE browser that validates login AND
+    # imports catalog + lists in a single session. Sysco's double-login
+    # flow makes session restore unreliable between browser instances,
+    # so we can't afford to waste a login on validation alone.
+    if credential.supplier.code == 'sysco'
+      Rails.logger.info "[ValidateCredentialsJob] Sysco — delegating to SyscoCombinedImportJob (single browser session)"
+      credential.update_columns(importing: true, import_status_text: 'Validating credentials...')
+      SyscoCombinedImportJob.perform_later(credential.id)
+      return
+    end
+
     manager = Authentication::SessionManager.new(credential)
     result = manager.validate_credentials
 

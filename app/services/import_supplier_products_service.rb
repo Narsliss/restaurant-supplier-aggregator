@@ -26,7 +26,10 @@ class ImportSupplierProductsService
   #   - Users see products appearing in real-time in the UI
   #   - If the scraper crashes halfway, everything scraped so far is kept
   #   - Memory stays flat (no giant array accumulating thousands of products)
-  def import_catalog(search_terms: nil)
+  # Import products from the supplier's catalog by searching for common food categories.
+  # Accepts an optional +scraper:+ parameter to reuse an existing scraper instance
+  # (with its browser already open and logged in). When omitted, a new scraper is created.
+  def import_catalog(search_terms: nil, scraper: nil)
     search_terms ||= default_search_terms
 
     Rails.logger.info "[ImportProducts] Starting catalog import for #{supplier.name} with #{search_terms.size} search terms"
@@ -43,7 +46,7 @@ class ImportSupplierProductsService
     credential.update_columns(import_status_text: "Searching #{supplier.name} catalog...")
 
     begin
-      scraper = supplier.scraper_klass.new(credential)
+      scraper ||= supplier.scraper_klass.new(credential)
 
       # Pass a block for incremental DB writes — the scraper yields batches
       # as each page/search is scraped instead of accumulating everything.
@@ -92,12 +95,12 @@ class ImportSupplierProductsService
       import_item(item, @existing_by_sku, @product_index)
       @items_processed += 1
 
-      # Update progress every 100 items (reduced from 25 to cut DB writes)
-      next unless (@items_processed % 100).zero?
+      # Update progress every 25 items
+      next unless (@items_processed % 25).zero?
 
       credential.update_columns(
         import_progress: @items_processed,
-        import_total: @items_processed, # Best estimate — total unknown during streaming
+        import_total: 0, # 0 signals "total unknown" — UI should show count, not percentage
         import_status_text: "Imported #{@items_processed} products so far..."
       )
       Rails.logger.info "[ImportProducts] #{supplier.name}: #{@items_processed} products processed (#{results[:imported]} new, #{results[:updated]} updated)"

@@ -114,7 +114,7 @@
                 <p class="mt-1 text-sm text-gray-500"><%= pluralize(lists.size, "list") %></p>
               </div>
               <% credential = lists.first.supplier_credential %>
-              <% if @syncing || @syncing_credential_ids.include?(credential.id) %>
+              <% if @syncing || (credential && @syncing_credential_ids.include?(credential.id)) %>
                 <span class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700">
                   <svg class="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

@@ -7,6 +7,7 @@ module Scrapers
     ORDER_MINIMUM = 0.00 # Unknown — will be determined during testing
     PRODUCTS_PER_PAGE = 24
     MAX_PAGES_PER_TERM = 5
+    GRAPHQL_URL = 'https://gateway-api.shop.sysco.com/graphql'.freeze
 
     LOGGED_IN_SELECTORS = [
       "a[href*='account']", "a[href*='logout']", "a[href*='sign-out']",
@@ -20,13 +21,21 @@ module Scrapers
     # ----------------------------------------------------------------
 
     def with_browser
-      @browser = Ferrum::Browser.new(**build_stealth_browser_opts)
-      setup_network_interception(@browser)
-      inject_stealth_scripts(@browser)
+      if @browser
+        # Browser already open (nested call) — reuse without closing
+        yield(@browser)
+      else
+        @browser = Ferrum::Browser.new(**build_stealth_browser_opts)
+        setup_network_interception(@browser)
+        inject_stealth_scripts(@browser)
 
-      yield(browser)
-    ensure
-      browser&.quit
+        begin
+          yield(@browser)
+        ensure
+          @browser&.quit
+          @browser = nil
+        end
+      end
     end
 
     # ----------------------------------------------------------------
@@ -62,71 +71,148 @@ module Scrapers
         ''
       end
 
-      # shop.sysco.com/app/ is the authenticated SPA
-      return true if current_url.include?('shop.sysco.com/app')
+      # Must be on the shop.sysco.com/app SPA (not the auth/login page)
+      return false unless current_url.include?('shop.sysco.com/app')
+      return false if current_url.include?('auth/')
 
-      # Check for user account UI elements
-      LOGGED_IN_SELECTORS.any? do |sel|
+      # Check multiple signals — the MSS_STATEFUL cookie takes time to be set
+      # by the SPA after a redirect, so also check for authenticated UI elements.
+      role = extract_mss_role
+      if role && role != 'GUEST' && role != 'none' && role != 'error'
+        logger.info "[Sysco] Authenticated with role=#{role}"
+        return true
+      end
+
+      # Fallback: check for authenticated-only UI elements that guests don't see.
+      # "View Cart and Checkout" and account menu only appear for logged-in users.
+      auth_selectors = [
+        "button[aria-label*='account']", "button[aria-label*='Account']",
+        "[data-testid='user-menu']", "[data-testid='account']",
+        "a[href*='account']", '.account-menu', '.user-nav',
+        "button:has-text('Cart')"
+      ]
+      has_auth_ui = auth_selectors.any? do |sel|
         browser.at_css(sel)
       rescue StandardError
         false
       end
+
+      # Also check page content for authenticated indicators
+      has_auth_ui ||= begin
+        body = browser.evaluate("document.body?.innerText?.substring(0, 1000)") rescue ''
+        body.include?('View Cart') || body.include?('My Orders') || body.include?('Sign Out')
+      end
+
+      if has_auth_ui
+        logger.info "[Sysco] Authenticated (UI elements present, role=#{role || 'pending'})"
+        return true
+      end
+
+      logger.info "[Sysco] URL looks authenticated but role=#{role} and no auth UI — NOT logged in"
+      false
+    end
+
+    def extract_mss_role
+      browser.evaluate(<<~JS)
+        (function() {
+          var c = document.cookie;
+          var m = c.match(/MSS_STATEFUL=([^;]+)/);
+          if (!m) return 'none';
+          try {
+            var decoded = decodeURIComponent(m[1]);
+            var obj = JSON.parse(decoded);
+            var parts = obj.token.split('.');
+            var payload = JSON.parse(atob(parts[1]));
+            return payload.role || 'unknown';
+          } catch(e) { return 'error'; }
+        })()
+      JS
+    rescue StandardError
+      'error'
     end
 
     def soft_refresh
-      with_browser do
-        if restore_session && logged_in?
-          save_session
-          return true
-        end
+      # API-based: check if stored JWT is still valid by making a lightweight call
+      return false unless api_session_valid?
+
+      # Verify the token actually works with a real API call
+      tokens = load_api_tokens
+      test_data = graphql_request('GetLists', get_lists_query, {
+        listTypes: %w[MY_LIST],
+        includeItemsCount: false
+      })
+
+      if test_data.dig('data', 'getLists')
+        credential.touch(:last_login_at)
+        logger.info '[Sysco] Soft refresh successful — API token is valid'
+        true
+      else
+        logger.info '[Sysco] Soft refresh failed — API token rejected'
+        false
       end
-      false
     rescue StandardError => e
-      logger.warn "[Sysco] Soft refresh failed: #{e.message}"
+      logger.warn "[Sysco] Soft refresh error: #{e.class}: #{e.message}"
       false
     end
 
+    # Ensures the browser is logged in. Tries profile-based session restore
+    # first, falls back to full login. Assumes @browser is already set.
+    # Used by SyscoCombinedImportJob to login once and reuse the session.
+    def ensure_logged_in
+      # With incognito: false + persistent profile, Chrome loads cookies from
+      # disk automatically. Just navigate and check if the session is valid.
+      if restore_session
+        logger.info '[Sysco] Already logged in (persistent profile cookies valid)'
+      else
+        logger.info '[Sysco] Profile session expired, performing fresh login...'
+        perform_login_steps
+        sleep 3
+        unless logged_in?
+          begin
+            browser.goto("#{BASE_URL}/app")
+          rescue Ferrum::PendingConnectionsError
+            nil
+          end
+          sleep 3
+          raise AuthenticationError, 'Could not log in' unless logged_in?
+        end
+        credential.mark_active!
+      end
+      dismiss_promo_modals
+    end
+
     # ----------------------------------------------------------------
-    # Public API — Catalog Search
+    # Public API — Catalog Search (via GraphQL API — no browser needed)
     # ----------------------------------------------------------------
 
-    def scrape_catalog(search_terms, max_per_term: 20, &on_batch)
+    TERMS_PER_BROWSER_SESSION = 20 # Legacy — kept for compatibility
+
+    def scrape_catalog(search_terms, max_per_term: 100, &on_batch)
+      ensure_api_session!
+
       results = []
       seen_skus = Set.new
 
-      with_browser do
-        # Restore session or do fresh login
-        unless restore_session && logged_in?
-          perform_login_steps
-          sleep 2
-          raise AuthenticationError, 'Could not log in for catalog import' unless logged_in?
-          save_session
-        end
-        dismiss_promo_modals
+      search_terms.each_with_index do |term, idx|
+        begin
+          logger.info "[Sysco] Searching catalog via API for: #{term} (#{idx + 1}/#{search_terms.size})"
+          products = search_supplier_catalog(term, max: max_per_term)
 
-        search_terms.each do |term|
-          begin
-            logger.info "[Sysco] Searching catalog for: #{term}"
-            products = search_supplier_catalog(term, max: max_per_term)
+          new_products = products.reject { |p| seen_skus.include?(p[:supplier_sku]) }
+          new_products.each { |p| seen_skus.add(p[:supplier_sku]) }
 
-            new_products = products.reject { |p| seen_skus.include?(p[:supplier_sku]) }
-            new_products.each { |p| seen_skus.add(p[:supplier_sku]) }
-
-            if new_products.any?
-              logger.info "[Sysco] Found #{new_products.size} new products for '#{term}' (#{products.size - new_products.size} dupes)"
-              if block_given?
-                yield(new_products)
-              else
-                results.concat(new_products)
-              end
+          if new_products.any?
+            logger.info "[Sysco] Found #{new_products.size} new products for '#{term}' (#{products.size - new_products.size} dupes)"
+            if block_given?
+              yield(new_products)
             else
-              logger.info "[Sysco] No new products for '#{term}'"
+              results.concat(new_products)
             end
-          rescue Ferrum::TimeoutError, Ferrum::PendingConnectionsError => e
-            logger.warn "[Sysco] Timeout searching '#{term}': #{e.message}"
-          rescue StandardError => e
-            logger.error "[Sysco] Error searching '#{term}': #{e.class}: #{e.message}"
+          else
+            logger.info "[Sysco] No new products for '#{term}'"
           end
+        rescue StandardError => e
+          logger.error "[Sysco] Error searching '#{term}': #{e.class}: #{e.message}"
         end
       end
 
@@ -134,106 +220,145 @@ module Scrapers
       results
     end
 
-    def search_supplier_catalog(term, max: 20)
+    def search_supplier_catalog(term, max: 100)
       products = []
-      pages_to_scrape = [(max.to_f / PRODUCTS_PER_PAGE).ceil, MAX_PAGES_PER_TERM].min
+      start = 0
+      num = PRODUCTS_PER_PAGE
 
-      pages_to_scrape.times do |page_idx|
-        page_num = page_idx + 1
-        url = "#{CATALOG_URL}?q=#{CGI.escape(term)}&page=#{page_num}"
-        logger.info "[Sysco] Fetching search page #{page_num}: #{url}"
-
-        navigate_to(url)
-        sleep 3
-
-        # Wait for product grid to render
-        grid_loaded = wait_for_selector('[class*="product"]', timeout: 10)
-        unless grid_loaded
-          logger.warn "[Sysco] No product grid found on page #{page_num}"
-          break
-        end
-
-        page_products = extract_search_products
-        logger.info "[Sysco] Extracted #{page_products.size} products from page #{page_num}"
-
-        products.concat(page_products)
+      loop do
         break if products.size >= max
 
-        # Check if there's a next page
-        has_next = browser.evaluate(<<~JS)
-          (function() {
-            // Look for the > next arrow in pagination
-            var arrows = document.querySelectorAll('button, a, li');
-            for (var i = 0; i < arrows.length; i++) {
-              var text = (arrows[i].innerText || '').trim();
-              if (text === '>' || text === '›') return true;
-            }
-            // Or check if current page < last page
-            var pages = document.querySelectorAll('[class*="pagination"] a, [class*="pagination"] button, [class*="pagination"] li');
-            return pages.length > 0;
-          })()
-        JS
-        break unless has_next
+        # Search products via GraphQL API
+        search_data = graphql_search_products(term, start: start, num: num)
+        break unless search_data
+
+        total_results = search_data.dig('metaInfo', 'totalResults') || 0
+        results = search_data['results'] || []
+        break if results.empty?
+
+        # Get pricing for these products
+        price_map = graphql_get_prices(results)
+
+        # Convert to BaseScraper product hash format
+        results.each do |result|
+          product = parse_search_result(result, price_map)
+          products << product if product
+        end
+
+        logger.info "[Sysco] API search '#{term}': got #{results.size} products (#{products.size}/#{total_results} total)"
+
+        # Log first product for debugging
+        if products.size == results.size && products.any?
+          sample = products.first
+          logger.info "[Sysco] Sample: SKU=#{sample[:supplier_sku]}, name=#{sample[:supplier_name]&.first(60)}, price=#{sample[:current_price]} #{sample[:price_unit]}, pack=#{sample[:pack_size]}"
+        end
+
+        start += num
+        break if start >= total_results
+        break if start >= max
+        break if (start / num) >= MAX_PAGES_PER_TERM
       end
 
       products.first(max)
     end
 
+    # Legacy browser-based SPA search — kept for login token capture flow
+    def perform_spa_search(term)
+      searched = browser.evaluate(<<~JS)
+        (function() {
+          var selectors = [
+            'input[type="search"]', 'input[placeholder*="Search"]',
+            'input[placeholder*="search"]', 'input[aria-label*="Search"]',
+            'input[aria-label*="search"]', 'input[data-testid*="search"]',
+            'input[name="q"]', 'input[name="search"]',
+            'input[class*="search"]', '[class*="search"] input',
+            '[class*="Search"] input'
+          ];
+          var input = null;
+          for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el && el.offsetHeight > 0) { input = el; break; }
+          }
+          if (!input) return 'no_input';
+          input.focus();
+          var nativeSetter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype, 'value'
+          ).set;
+          nativeSetter.call(input, '');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          nativeSetter.call(input, #{term.to_json});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          return 'filled';
+        })()
+      JS
+      return false if searched == 'no_input'
+
+      sleep 0.5
+      browser.keyboard.type(:Enter)
+      sleep 3
+      logger.info "[Sysco] After SPA search for '#{term}': URL = #{browser.current_url rescue ''}"
+      sleep 2
+      true
+    rescue StandardError => e
+      logger.warn "[Sysco] SPA search error: #{e.class}: #{e.message}"
+      false
+    end
+
     # ----------------------------------------------------------------
-    # Public API — List / Order Guide Scraping
+    # Public API — List / Order Guide Scraping (via GraphQL API)
     # ----------------------------------------------------------------
 
     def scrape_lists
-      with_browser do
-        unless restore_session && logged_in?
-          perform_login_steps
-          sleep 2
-          raise AuthenticationError, 'Could not log in for list import' unless logged_in?
-          save_session
-        end
-        dismiss_promo_modals
-
-        scrape_supplier_lists
-      end
+      ensure_api_session!
+      scrape_supplier_lists
     end
 
     def scrape_supplier_lists
-      logger.info '[Sysco] Navigating to Lists page...'
-      navigate_to(LISTS_URL)
-      sleep 3
+      logger.info '[Sysco] Fetching lists via GraphQL API...'
 
-      # Wait for sidebar to render
-      wait_for_selector('[class*="sidebar"], [class*="list-nav"], [class*="menu"]', timeout: 10)
+      tokens = load_api_tokens
+      seller_id = tokens[:seller_id]
+      site_id = tokens[:site_id]
 
-      # Extract list metadata from sidebar
-      list_names = extract_list_sidebar
-      logger.info "[Sysco] Found #{list_names.size} user lists: #{list_names.map { |l| l[:name] }.join(', ')}"
+      # Fetch list metadata
+      lists_data = graphql_request('GetLists', get_lists_query, {
+        listTypes: %w[MY_LIST SHARED_LIST FAVORITE_LIST],
+        includeItemsCount: false
+      })
+
+      raw_lists = lists_data.dig('data', 'getLists') || []
+      logger.info "[Sysco] Found #{raw_lists.size} lists via API"
 
       lists = []
-      list_names.each_with_index do |list_meta, idx|
+      raw_lists.each do |list_meta|
         begin
-          logger.info "[Sysco] Scraping list: #{list_meta[:name]}"
+          list_name = list_meta['name'].to_s.strip
+          next if list_name.blank?
 
-          # Click the list in the sidebar
-          click_sidebar_list(list_meta[:name])
-          sleep 2
+          list_id = list_meta['listId']
+          list_type = list_meta['listType']
+          logger.info "[Sysco] Fetching items for list: #{list_name} (#{list_id}, type=#{list_type})"
 
-          # Wait for items table to load
-          wait_for_list_items
+          # Fetch items for this list
+          items = graphql_get_list_items(
+            list_id: list_id,
+            list_type: list_type,
+            seller_id: list_meta['sellerId'] || seller_id,
+            site_id: list_meta['siteId'] || site_id
+          )
 
-          # Extract items from the table
-          items = extract_list_items
-          logger.info "[Sysco] Extracted #{items.size} items from '#{list_meta[:name]}'"
+          logger.info "[Sysco] Got #{items.size} items from '#{list_name}'"
 
           lists << {
-            name: list_meta[:name],
-            remote_id: list_meta[:remote_id] || list_meta[:name].parameterize,
+            name: list_name,
+            remote_id: list_id,
             url: LISTS_URL,
             list_type: 'custom',
             items: items
           }
         rescue StandardError => e
-          logger.error "[Sysco] Error scraping list '#{list_meta[:name]}': #{e.class}: #{e.message}"
+          logger.error "[Sysco] Error fetching list '#{list_meta['name']}': #{e.class}: #{e.message}"
         end
       end
 
@@ -270,11 +395,24 @@ module Scrapers
       sleep 3
       apply_stealth
 
+      # Check if cookies auto-redirected us past the login form (session was already valid)
+      current = browser.current_url rescue ''
+      if current.include?('shop.sysco.com/app') && !current.include?('auth/')
+        logger.info "[Sysco] Login successful — cookies auto-authenticated (redirected to #{current})"
+        return
+      end
+
       log_page_state('After navigating to login page')
 
       # Step 2: Find and fill the email/username field
       email_filled = fill_login_email
       unless email_filled
+        # Double-check: maybe the page redirected while we were looking for the field
+        current = browser.current_url rescue ''
+        if current.include?('shop.sysco.com/app') && !current.include?('auth/')
+          logger.info "[Sysco] Login successful — auto-redirected during email step (#{current})"
+          return
+        end
         diagnose_login_failure
         raise AuthenticationError, 'Could not find or fill email field on secure.sysco.com'
       end
@@ -289,6 +427,12 @@ module Scrapers
       # Step 3: Fill password field (appears via JavaScript after email)
       password_filled = fill_login_password
       unless password_filled
+        # Check if clicking Next auto-completed login (e.g., SSO or cookie-based)
+        current = browser.current_url rescue ''
+        if current.include?('shop.sysco.com/app') && !current.include?('auth/')
+          logger.info "[Sysco] Login successful — auto-completed after email step (#{current})"
+          return
+        end
         diagnose_login_failure
         raise AuthenticationError, 'Password field did not appear after entering email'
       end
@@ -375,29 +519,62 @@ module Scrapers
           var selectors = [
             'button[aria-label="Close"]',
             'button[aria-label="close"]',
+            'button[aria-label="Close dialog"]',
             'button.close',
             '.modal-close',
             '[class*="modal"] button[class*="close"]',
+            '[class*="modal"] button[class*="Close"]',
             '[class*="dialog"] button[class*="close"]',
-            '[class*="overlay"] button[class*="close"]'
+            '[class*="overlay"] button[class*="close"]',
+            '[class*="popup"] button[class*="close"]',
+            '[class*="promo"] button[class*="close"]',
+            '[class*="banner"] button[class*="close"]',
+            '[role="dialog"] button[aria-label="Close"]',
+            '[role="dialog"] button',
+            'button[class*="dismiss"]',
+            'button[class*="Dismiss"]'
           ];
           for (var i = 0; i < selectors.length; i++) {
             var btn = document.querySelector(selectors[i]);
             if (btn && btn.offsetHeight > 0) { btn.click(); return 'selector:' + selectors[i]; }
           }
 
-          // Fallback: find any visible × or X button in a modal/overlay
-          var buttons = document.querySelectorAll('button, [role="button"]');
-          for (var i = 0; i < buttons.length; i++) {
-            var text = (buttons[i].innerText || '').trim();
-            if ((text === '×' || text === 'X' || text === '✕' || text === '✖') && buttons[i].offsetHeight > 0) {
-              buttons[i].click();
+          // Look for close icons (SVG or icon fonts) inside buttons near modals/overlays
+          var allButtons = document.querySelectorAll('button, [role="button"]');
+          for (var i = 0; i < allButtons.length; i++) {
+            var btn = allButtons[i];
+            if (!btn.offsetHeight) continue;
+            var text = (btn.innerText || '').trim();
+
+            // Match × X ✕ ✖ or empty buttons with SVG close icons
+            if (text === '×' || text === 'X' || text === '✕' || text === '✖') {
+              btn.click();
               return 'x_button';
+            }
+
+            // Empty button with SVG (likely a close icon) inside a modal/overlay
+            if (text === '' && btn.querySelector('svg') && btn.closest('[class*="modal"], [class*="dialog"], [class*="overlay"], [class*="popup"], [role="dialog"]')) {
+              btn.click();
+              return 'svg_close_icon';
             }
           }
 
-          // Try clicking outside the modal to dismiss
-          var overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"]');
+          // Try "No thanks", "Not now", "Close", "Got it" text buttons in modals
+          var dismissTexts = ['no thanks', 'not now', 'close', 'got it', 'dismiss', 'maybe later', 'skip'];
+          for (var i = 0; i < allButtons.length; i++) {
+            var btn = allButtons[i];
+            if (!btn.offsetHeight) continue;
+            var text = (btn.innerText || '').trim().toLowerCase();
+            for (var j = 0; j < dismissTexts.length; j++) {
+              if (text === dismissTexts[j] || text.indexOf(dismissTexts[j]) !== -1) {
+                btn.click();
+                return 'dismiss_text:' + text;
+              }
+            }
+          }
+
+          // Try clicking the backdrop/overlay behind the modal
+          var overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"], [class*="Overlay"], [class*="Backdrop"]');
           for (var i = 0; i < overlays.length; i++) {
             if (overlays[i].offsetHeight > 0) { overlays[i].click(); return 'overlay'; }
           }
@@ -409,6 +586,11 @@ module Scrapers
       if dismissed
         logger.info "[Sysco] Dismissed promo modal via: #{dismissed}"
         sleep 1
+      else
+        # Last resort: try pressing Escape key to dismiss any modal
+        browser.keyboard.type(:Escape)
+        sleep 0.5
+        logger.debug '[Sysco] Sent Escape key as modal dismiss fallback'
       end
     rescue StandardError => e
       logger.debug "[Sysco] No promo modal to dismiss: #{e.message}"
@@ -417,6 +599,50 @@ module Scrapers
     # ----------------------------------------------------------------
     # Catalog search helpers
     # ----------------------------------------------------------------
+
+    # Kill the current browser and open a fresh one. This is the only reliable
+    # way to reclaim memory from Sysco's SPA which accumulates hundreds of MB
+    # of DOM nodes per search. Session restore after restart takes ~3s.
+    def restart_browser!
+      logger.info '[Sysco] Restarting browser to free memory...'
+      @browser&.quit rescue nil
+      @browser = Ferrum::Browser.new(**build_stealth_browser_opts)
+      setup_network_interception(@browser)
+      inject_stealth_scripts(@browser)
+    rescue StandardError => e
+      logger.error "[Sysco] Browser restart failed: #{e.class}: #{e.message}"
+      @browser = nil
+      raise
+    end
+
+    # Clear accumulated DOM nodes and detached elements to free memory.
+    # SPAs like Sysco's shop accumulate product cards, images, and event
+    # listeners across page navigations — this strips them out after we've
+    # already extracted the data we need.
+    def cleanup_browser_memory
+      browser.evaluate(<<~JS)
+        (function() {
+          // Remove all images (biggest memory consumers) — we already extracted text data
+          document.querySelectorAll('img, picture, source, video, svg[class*="product"]').forEach(function(el) {
+            el.remove();
+          });
+
+          // Clear any detached iframes
+          document.querySelectorAll('iframe').forEach(function(el) { el.remove(); });
+
+          // Nullify large data attributes
+          document.querySelectorAll('[data-src], [data-srcset]').forEach(function(el) {
+            el.removeAttribute('data-src');
+            el.removeAttribute('data-srcset');
+          });
+
+          // Trigger garbage collection if exposed
+          if (window.gc) window.gc();
+        })()
+      JS
+    rescue StandardError => e
+      logger.debug "[Sysco] DOM cleanup skipped: #{e.message}"
+    end
 
     # Wait for a CSS selector to appear on the page
     def wait_for_selector(selector, timeout: 10)
@@ -428,18 +654,157 @@ module Scrapers
       false
     end
 
+    # Navigate to the next page of search results
+    # Tries clicking the pagination "next" button first, falls back to URL manipulation
+    def navigate_to_next_page(page_num)
+      # Strategy 1: Click the Next/right-arrow pagination button via JS
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Look for pagination next buttons
+          var selectors = [
+            'button[aria-label="Next"]',
+            'button[aria-label="next"]',
+            'button[aria-label="Next page"]',
+            'a[aria-label="Next"]',
+            'a[aria-label="Next page"]',
+            '[class*="pagination"] button:last-child',
+            '[class*="pagination"] a:last-child',
+            '[class*="pager"] [class*="next"]',
+            '[class*="Pagination"] [class*="next"]',
+            '[class*="Pagination"] [class*="Next"]',
+            'button[class*="next"]',
+            'a[class*="next"]'
+          ];
+          for (var i = 0; i < selectors.length; i++) {
+            var btn = document.querySelector(selectors[i]);
+            if (btn && btn.offsetHeight > 0 && !btn.disabled) {
+              btn.click();
+              return 'clicked:' + selectors[i];
+            }
+          }
+
+          // Look for a ">" or "›" or "»" button in pagination
+          var pageButtons = document.querySelectorAll('[class*="pagination"] button, [class*="pagination"] a, [class*="pager"] button, [class*="pager"] a');
+          for (var i = 0; i < pageButtons.length; i++) {
+            var text = (pageButtons[i].innerText || '').trim();
+            if ((text === '>' || text === '›' || text === '»' || text === '→') && pageButtons[i].offsetHeight > 0) {
+              pageButtons[i].click();
+              return 'arrow:' + text;
+            }
+          }
+
+          // Look for a page number button matching the target page
+          for (var i = 0; i < pageButtons.length; i++) {
+            var text = (pageButtons[i].innerText || '').trim();
+            if (text === '#{page_num}' && pageButtons[i].offsetHeight > 0) {
+              pageButtons[i].click();
+              return 'page_num:' + text;
+            }
+          }
+
+          return false;
+        })()
+      JS
+
+      if clicked
+        logger.info "[Sysco] Navigated to page #{page_num} via #{clicked}"
+        sleep 2
+        return true
+      end
+
+      # Strategy 2: URL-based pagination — append/change page param
+      current_url = browser.current_url rescue ''
+      if current_url.include?('shop.sysco.com')
+        if current_url.include?('page=')
+          next_url = current_url.gsub(/page=\d+/, "page=#{page_num}")
+        elsif current_url.include?('?')
+          next_url = "#{current_url}&page=#{page_num}"
+        else
+          next_url = "#{current_url}?page=#{page_num}"
+        end
+
+        logger.info "[Sysco] Navigating to page #{page_num} via URL: #{next_url}"
+        navigate_to(next_url)
+        sleep 2
+
+        # Check if the page actually changed by verifying new product cards loaded
+        new_url = browser.current_url rescue ''
+        return new_url.include?("page=#{page_num}") || new_url != current_url
+      end
+
+      logger.info "[Sysco] Could not navigate to page #{page_num}"
+      false
+    rescue StandardError => e
+      logger.warn "[Sysco] Error navigating to page #{page_num}: #{e.message}"
+      false
+    end
+
     # Extract product data from the search results grid
     def extract_search_products
-      browser.evaluate(<<~JS)
+      # First, run a diagnostic to understand the page structure
+      diagnostics = browser.evaluate(<<~JS)
+        (function() {
+          var d = {};
+          d.url = location.href;
+          d.title = document.title;
+
+          // Check which product card selectors match
+          var selectorTests = {
+            'product-card': '[class*="product-card"]',
+            'productCard': '[class*="productCard"]',
+            'product-tile': '[class*="product-tile"]',
+            'productTile': '[class*="productTile"]',
+            'grid>div': '[class*="grid"] > div',
+            'catalog item': '[class*="catalog"] [class*="item"]',
+            'card': '[class*="card"]',
+            'result': '[class*="result"]',
+            'product': '[class*="product"]'
+          };
+          d.selectorCounts = {};
+          for (var name in selectorTests) {
+            d.selectorCounts[name] = document.querySelectorAll(selectorTests[name]).length;
+          }
+
+          // Sample the first product-ish element
+          var sample = document.querySelector('[class*="product-card"], [class*="productCard"], [class*="product-tile"], [class*="card"][class*="product"]');
+          if (sample) {
+            d.sampleClass = sample.className;
+            d.sampleText = (sample.innerText || '').substring(0, 300);
+            d.sampleChildCount = sample.childElementCount;
+          }
+
+          // Check for "no results" message
+          var bodyText = (document.body.innerText || '').substring(0, 2000);
+          d.hasNoResults = !!bodyText.match(/no results|0 results|nothing found/i);
+          d.resultCountText = (bodyText.match(/\\d+\\s*results?/i) || [''])[0];
+
+          return d;
+        })()
+      JS
+      logger.info "[Sysco] Page diagnostics: #{diagnostics.to_json}" if diagnostics
+
+      result = browser.evaluate(<<~JS)
         (function() {
           var products = [];
+          var matchMethod = 'none';
+
           // Product cards — each card contains: SKU, brand, name+pack, price
           // Try multiple container selectors since we don't know exact classes
           var cards = document.querySelectorAll('[class*="product-card"], [class*="productCard"], [class*="product-tile"], [class*="productTile"]');
+          if (cards.length > 0) matchMethod = 'product-card';
+
+          if (cards.length === 0) {
+            // Try card elements that contain product-specific data
+            cards = document.querySelectorAll('[class*="card"][class*="product"], [class*="item"][class*="product"]');
+            if (cards.length > 0) matchMethod = 'card-product';
+          }
+
           if (cards.length === 0) {
             // Fallback: look for grid items that contain Add to Cart buttons
             cards = document.querySelectorAll('[class*="grid"] > div, [class*="catalog"] [class*="item"]');
+            if (cards.length > 0) matchMethod = 'grid-div';
           }
+
           if (cards.length === 0) {
             // Last resort: find elements containing price patterns
             var allDivs = document.querySelectorAll('div');
@@ -452,6 +817,7 @@ module Scrapers
               }
             }
             cards = cardSet;
+            if (cards.length > 0) matchMethod = 'price-pattern';
           }
 
           for (var i = 0; i < cards.length; i++) {
@@ -504,9 +870,11 @@ module Scrapers
                 supplierName = (supplierName ? supplierName + ' ' : '') + nameWithPack;
               }
               if (!supplierName || supplierName.length < 3) {
-                // Fallback: use all text lines except price/sku/button
+                // Fallback: use all text lines except price/sku/button/UI text
                 supplierName = lines.filter(function(l) {
-                  return !l.match(/^\\$/) && !l.match(/^\\d{6,}$/) && !l.match(/Add to Cart/i) && !l.match(/DEAL FOR YOU/i);
+                  return !l.match(/^\\$/) && !l.match(/^\\d{6,}$/) && !l.match(/Add to Cart/i) &&
+                    !l.match(/DEAL FOR YOU/i) && !l.match(/Add item to/i) && !l.match(/Create List/i) &&
+                    !l.match(/^(CS|EA|LB|CW|CT|OZ|GAL)$/i);
                 }).join(' ');
               }
 
@@ -529,9 +897,22 @@ module Scrapers
               // Skip cards that fail to parse
             }
           }
-          return products;
+
+          // Return both products and metadata for debugging
+          return { products: products, matchMethod: matchMethod, cardCount: cards.length };
         })()
       JS
+
+      # Unwrap the result — may be the new format {products:, matchMethod:} or legacy array
+      raw_products = if result.is_a?(Hash)
+        logger.info "[Sysco] Extraction method: #{result['matchMethod']}, cards found: #{result['cardCount']}, products parsed: #{result['products']&.size || 0}"
+        result['products'] || []
+      else
+        result || []
+      end
+
+      # browser.evaluate returns JS objects as string-keyed Ruby hashes — symbolize for consistency
+      raw_products.map { |p| p.is_a?(Hash) ? p.symbolize_keys : p }
     rescue StandardError => e
       logger.error "[Sysco] Error extracting search products: #{e.message}"
       []
@@ -543,7 +924,7 @@ module Scrapers
 
     # Extract list names from the sidebar under "My Lists"
     def extract_list_sidebar
-      browser.evaluate(<<~JS)
+      result = browser.evaluate(<<~JS)
         (function() {
           var lists = [];
           var sidebar = document.body;
@@ -586,7 +967,7 @@ module Scrapers
                 for (var j = 0; j < lists.length; j++) {
                   if (lists[j].name === text) { alreadyHave = true; break; }
                 }
-                if (!alreadyHave && !text.match(/^\\d+$/) && !text.match(/^My Lists/)) {
+                if (!alreadyHave && text.length > 1 && !text.match(/^\\d+$/) && !text.match(/^My Lists/) && !text.match(/^\\s*$/)) {
                   lists.push({ name: text, remote_id: text.toLowerCase().replace(/[^a-z0-9]+/g, '-') });
                 }
               }
@@ -596,6 +977,9 @@ module Scrapers
           return lists;
         })()
       JS
+
+      # browser.evaluate returns JS objects as string-keyed Ruby hashes — symbolize for consistency
+      (result || []).map { |l| l.is_a?(Hash) ? l.symbolize_keys : l }
     rescue StandardError => e
       logger.error "[Sysco] Error extracting sidebar lists: #{e.message}"
       []
@@ -757,13 +1141,16 @@ module Scrapers
         })()
       JS
 
+      # browser.evaluate returns JS objects as string-keyed Ruby hashes — symbolize for consistency
+      items = (items || []).map { |i| i.is_a?(Hash) ? i.symbolize_keys : i }
+
       # Scroll down to check for more items not yet in viewport
       if items.is_a?(Array) && items.size > 0
         more_items = scroll_and_extract_remaining_items(items.size)
         items.concat(more_items) if more_items.any?
       end
 
-      items || []
+      items
     rescue StandardError => e
       logger.error "[Sysco] Error extracting list items: #{e.message}"
       []
@@ -1325,6 +1712,14 @@ module Scrapers
 
       opts = {
         headless: headless_mode ? 'new' : false,
+        # CRITICAL: incognito must be false so Ferrum uses Chrome's default
+        # browser context (which reads/writes cookies from the persistent profile
+        # on disk). When incognito is true (Ferrum's default), Ferrum creates an
+        # isolated CDP BrowserContext via Target.createBrowserContext — that
+        # context has its own empty cookie jar and does NOT persist to disk.
+        # Setting this to false is what makes "close browser → reopen → still
+        # logged in" actually work.
+        incognito: false,
         timeout: 60,
         process_timeout: 60,
         window_size: [1280, 720],
@@ -1347,32 +1742,72 @@ module Scrapers
           "disable-background-timer-throttling": true,
           "disable-renderer-backgrounding": true,
           "disable-backgrounding-occluded-windows": true,
-          "js-flags": '--max-old-space-size=256 --lite-mode',
+          "js-flags": '--max-old-space-size=512',
           "renderer-process-limit": 1,
           "disable-software-rasterizer": true,
-          "disable-image-loading": false
+          "blink-settings": "imagesEnabled=false",
+          "user-data-dir": chrome_profile_dir
         }
       }
+      # Tell our Ferrum patch to use the user-data-dir we specified and not
+      # delete it on quit. This lets sessions survive browser restarts.
+      opts[:persistent_user_data_dir] = true
       opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
       opts
     end
 
+    # Persistent Chrome profile directory per credential.
+    # Survives browser restarts — just like closing and reopening your browser.
+    def chrome_profile_dir
+      @chrome_profile_dir ||= begin
+        dir = Rails.root.join('tmp', 'chrome_profiles', "sysco_#{credential.id}")
+        FileUtils.mkdir_p(dir)
+        dir.to_s
+      end
+    end
+
     def setup_network_interception(browser_instance)
-      browser_instance.network.intercept
-      browser_instance.on(:request) do |request|
-        url = request.url
-        if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
-           url.include?('adobedtm.com') ||
-           url.include?('analytics') ||
-           url.include?('google-analytics') ||
-           url.include?('googletagmanager')
-          request.abort
-        else
-          request.continue
+      # Block images, fonts, and trackers to save memory.
+      # Try multiple approaches since Ferrum versions vary.
+
+      # Approach 1: CDP Network.setBlockedURLs (most reliable)
+      blocked = false
+      begin
+        browser_instance.page.command('Network.enable')
+        browser_instance.page.command('Network.setBlockedURLs', urls: [
+          '*.jpg', '*.jpeg', '*.png', '*.gif', '*.webp', '*.ico',
+          '*.woff', '*.woff2', '*.ttf', '*.eot',
+          '*adobedtm.com*', '*analytics*', '*google-analytics*',
+          '*googletagmanager*', '*doubleclick*', '*facebook.com/tr*', '*hotjar*'
+        ])
+        blocked = true
+        logger.info '[Sysco] CDP Network.setBlockedURLs enabled'
+      rescue StandardError => e
+        logger.debug "[Sysco] CDP page.command failed: #{e.message}"
+      end
+
+      # Approach 2: Ferrum network intercept (fallback)
+      unless blocked
+        begin
+          browser_instance.network.intercept
+          browser_instance.on(:request) do |request|
+            url = request.url
+            if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
+               url.include?('adobedtm.com') || url.include?('analytics') ||
+               url.include?('googletagmanager')
+              request.abort
+            else
+              request.continue
+            end
+          end
+          blocked = true
+          logger.info '[Sysco] Ferrum network intercept enabled'
+        rescue StandardError => e
+          logger.warn "[Sysco] Ferrum intercept failed: #{e.message}"
         end
       end
-    rescue StandardError => e
-      logger.warn "[Sysco] Network interception setup failed: #{e.message}"
+
+      logger.warn '[Sysco] No network blocking active — images will load' unless blocked
     end
 
     def inject_stealth_scripts(browser_instance)
@@ -1443,10 +1878,14 @@ module Scrapers
         {}
       end
 
+      # Extract API tokens for direct HTTP access (no browser needed after login)
+      api_tokens = extract_api_tokens_from_browser
+
       session_blob = {
         cookies: cookies,
         local_storage: local_storage,
-        session_storage: session_storage
+        session_storage: session_storage,
+        api_tokens: api_tokens
       }.to_json
 
       credential.update!(
@@ -1454,85 +1893,47 @@ module Scrapers
         last_login_at: Time.current,
         status: 'active'
       )
-      logger.info "[Sysco] Session saved (cookies: #{cookies.size}, localStorage: #{local_storage.size}, sessionStorage: #{session_storage.size})"
+
+      if api_tokens[:jwt]
+        jwt_exp = decode_jwt_exp(api_tokens[:jwt])
+        hours_left = jwt_exp ? ((jwt_exp - Time.now.to_i) / 3600.0).round(1) : '?'
+        logger.info "[Sysco] API tokens saved — JWT expires in #{hours_left}h, shopAccountId=#{api_tokens[:shop_account_id]}"
+      end
+      logger.info "[Sysco] Session saved (cookies: #{cookies.size}, localStorage: #{local_storage.size})"
     end
 
     def restore_session
-      return false unless credential.session_data.present?
-      return false unless credential.session_valid?
+      # With incognito: false and a persistent Chrome profile (user-data-dir),
+      # Chrome automatically loads cookies from the profile on startup — just
+      # like a real browser. We don't need to inject cookies via CDP.
+      #
+      # Navigate to /app/discover and then verify via logged_in? which checks
+      # the MSS_STATEFUL JWT role (not just the URL, since /app/discover loads
+      # for guests too).
 
       begin
-        data = JSON.parse(credential.session_data)
+        browser.goto("#{BASE_URL}/app/discover")
+      rescue Ferrum::PendingConnectionsError
+        nil
+      end
+      sleep 3
+      apply_stealth
 
-        cookies = data['cookies'] || data
-        local_storage = data['local_storage'] || {}
-        session_storage = data['session_storage'] || {}
+      current_url = browser.current_url rescue ''
+      logger.info "[Sysco] After profile-based session restore: #{current_url}"
 
-        # Restore cookies
-        cookies.each do |_name, cookie|
-          next unless cookie.is_a?(Hash) && cookie['name'].present? && cookie['value'].present?
-
-          params = {
-            name: cookie['name'].to_s,
-            value: cookie['value'].to_s,
-            domain: cookie['domain'].to_s,
-            path: cookie['path'].present? ? cookie['path'].to_s : '/'
-          }
-          params[:secure] = !!cookie['secure'] unless cookie['secure'].nil?
-          params[:httponly] = !!cookie['httponly'] unless cookie['httponly'].nil?
-          params[:expires] = cookie['expires'].to_i if cookie['expires'].is_a?(Numeric) && cookie['expires'] > 0
-          begin
-            browser.cookies.set(**params)
-          rescue StandardError
-            nil
-          end
-        end
-
-        # Navigate to the site so we have a JS context for storage injection
-        begin
-          browser.goto(BASE_URL)
-        rescue Ferrum::PendingConnectionsError
-          # Expected for SPA sites
-        end
-        sleep 2
-        apply_stealth
-
-        # Restore localStorage
-        if local_storage.any?
-          browser.evaluate(<<~JS)
-            (function() {
-              var data = #{local_storage.to_json};
-              Object.keys(data).forEach(function(key) {
-                try { localStorage.setItem(key, data[key]); } catch(e) {}
-              });
-            })()
-          JS
-        end
-
-        # Restore sessionStorage
-        if session_storage.any?
-          browser.evaluate(<<~JS)
-            (function() {
-              var data = #{session_storage.to_json};
-              Object.keys(data).forEach(function(key) {
-                try { sessionStorage.setItem(key, data[key]); } catch(e) {}
-              });
-            })()
-          JS
-        end
-
-        # Refresh so the SPA re-initializes with the restored auth tokens.
-        # Without this, the page loaded before storage was injected and
-        # the app thinks we're unauthenticated.
-        logger.info "[Sysco] Session injected (cookies: #{cookies.size}, localStorage: #{local_storage.size}, sessionStorage: #{session_storage.size}) — refreshing..."
-        browser.refresh
-        sleep 3
-        logger.info "[Sysco] Session restored, current URL: #{browser.current_url rescue 'unknown'}"
+      # Use logged_in? which checks the JWT role — URL alone is unreliable
+      # because /app/discover loads for unauthenticated guests too.
+      if logged_in?
+        logger.info '[Sysco] Profile cookies valid — authenticated (non-GUEST role)'
         true
-      rescue JSON::ParserError => e
-        logger.warn "[Sysco] Failed to parse session data: #{e.message}"
+      else
+        logger.info "[Sysco] Profile session expired or guest — need fresh login (URL: #{current_url})"
         false
       end
+    rescue StandardError => e
+      logger.warn "[Sysco] Session restore error: #{e.message}"
+      false
     end
 
     # ----------------------------------------------------------------
@@ -1594,6 +1995,600 @@ module Scrapers
         'could not read'
       end
       logger.error "[Sysco] Visible inputs: #{inputs}"
+    end
+
+    # ----------------------------------------------------------------
+    # GraphQL API Methods — Direct HTTP, no browser needed
+    # ----------------------------------------------------------------
+
+    def ensure_api_session!
+      return if api_session_valid?
+
+      logger.info '[Sysco] API tokens expired or missing — logging in via browser...'
+      clear_api_token_cache!
+      login
+      clear_api_token_cache! # Force reload from DB after login saved new tokens
+    end
+
+    def api_session_valid?
+      tokens = load_api_tokens
+      return false unless tokens[:jwt] && tokens[:syy_authorization]
+
+      exp = decode_jwt_exp(tokens[:jwt])
+      return false unless exp
+
+      # Valid if JWT doesn't expire for at least 30 minutes
+      if exp > Time.now.to_i + 1800
+        true
+      else
+        logger.info "[Sysco] JWT expires in #{((exp - Time.now.to_i) / 60.0).round}min — needs refresh"
+        false
+      end
+    end
+
+    def load_api_tokens
+      return @api_tokens if @api_tokens
+
+      raw = credential.session_data
+      return {} unless raw
+
+      parsed = JSON.parse(raw) rescue {}
+      api = parsed['api_tokens'] || {}
+
+      @api_tokens = {
+        jwt: api['jwt'],
+        syy_authorization: api['syy_authorization'],
+        shop_account_id: api['shop_account_id'],
+        seller_id: api['seller_id'] || 'USBL',
+        site_id: api['site_id'] || '019'
+      }
+    end
+
+    def clear_api_token_cache!
+      @api_tokens = nil
+    end
+
+    def api_headers
+      tokens = load_api_tokens
+      {
+        'Content-Type' => 'application/json',
+        'Accept' => '*/*',
+        'authorization' => "Bearer #{tokens[:jwt]}",
+        'syy-authorization' => tokens[:syy_authorization],
+        'Origin' => 'https://shop.sysco.com',
+        'Referer' => 'https://shop.sysco.com/',
+        'apollographql-client-name' => 'SYSCO_SHOP_WEB',
+        'apollographql-client-version' => '1',
+        'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      }
+    end
+
+    def graphql_request(operation_name, query, variables = {})
+      require 'net/http'
+      require 'uri'
+
+      uri = URI.parse(GRAPHQL_URL)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 15
+      http.read_timeout = 30
+
+      req = Net::HTTP::Post.new(uri.request_uri)
+      api_headers.each { |k, v| req[k] = v }
+
+      req.body = {
+        operationName: operation_name,
+        variables: variables,
+        query: query
+      }.to_json
+
+      response = http.request(req)
+
+      if response.code == '200'
+        JSON.parse(response.body)
+      elsif response.code == '401' || response.code == '403'
+        error_msg = begin
+          JSON.parse(response.body).dig('errors', 0, 'message')
+        rescue StandardError
+          response.body[0..200]
+        end
+        logger.error "[Sysco] GraphQL auth error (#{response.code}): #{error_msg}"
+        clear_api_token_cache!
+        raise AuthenticationError, "Sysco API auth failed: #{error_msg}"
+      else
+        logger.error "[Sysco] GraphQL error (#{response.code}): #{response.body[0..200]}"
+        raise ScrapingError, "Sysco API error #{response.code}"
+      end
+    end
+
+    def graphql_search_products(term, start: 0, num: PRODUCTS_PER_PAGE)
+      data = graphql_request('SearchProducts', search_products_query, {
+        isUseGraphStockStatusEnabled: true,
+        isGuest: false,
+        params: {
+          facets: [],
+          isShowRestrictedItems: false,
+          start: start,
+          num: num,
+          sort: { type: 'BEST_MATCH', order: 'DESC' },
+          pageName: 'CATALOG',
+          q: term
+        }
+      })
+
+      data.dig('data', 'searchProducts')
+    end
+
+    def graphql_get_prices(search_results)
+      tokens = load_api_tokens
+      product_params = search_results.map do |r|
+        {
+          productId: r['productId'].to_s,
+          sellerId: r['sellerId'] || tokens[:seller_id],
+          siteId: r['siteId'] || tokens[:site_id],
+          quantity: { case: 0, each: 0 },
+          splitCode: 'CASE'
+        }
+      end
+
+      data = graphql_request('Prices', prices_query, {
+        isIncludePriceInfoV2: true,
+        products: { params: product_params },
+        priceOptions: {}
+      })
+
+      # Build a map of productId -> price data
+      price_products = data.dig('data', 'getProducts') || []
+      price_products.each_with_object({}) do |pp, map|
+        map[pp['productId'].to_s] = pp
+      end
+    rescue StandardError => e
+      logger.warn "[Sysco] Pricing API error: #{e.message} — returning empty prices"
+      {}
+    end
+
+    def parse_search_result(result, price_map)
+      product_id = result['productId'].to_s
+      return nil if product_id.blank?
+
+      info = result['productInfo'] || {}
+      brand_name = info.dig('brand', 'name') || ''
+      product_name = info['name'] || info['description'] || ''
+      pack_size_info = info['packSize'] || {}
+      pack_size = [pack_size_info['pack'], pack_size_info['size']].compact.join(' ').strip
+      pack_size = nil if pack_size.blank?
+
+      stock_indicator = result.dig('availableStockInfo', 'stockIndicator') || 'S'
+      is_orderable = info['isOrderable'] != false && info['isShopOrderable'] != false
+      in_stock = stock_indicator != 'O' && !info['isPhasedOut'] && is_orderable
+
+      # Determine split/unit info
+      sold_as = info['isSoldAs'] || {}
+      split_code = if sold_as['split']
+                     'EA'
+                   else
+                     'CS'
+                   end
+
+      # Get pricing from the price map
+      price_data = price_map[product_id] || {}
+      case_price_info = price_data.dig('priceInfoV2', 'case') || {}
+      each_price_info = price_data.dig('priceInfoV2', 'each') || {}
+
+      # Prefer case price, fall back to each
+      current_price = case_price_info['netPrice'] || case_price_info['price'] ||
+                      each_price_info['netPrice'] || each_price_info['price']
+
+      # If we have a case price, unit is CS; if only each, unit is EA
+      if case_price_info['netPrice'] || case_price_info['price']
+        price_unit = 'CS'
+      elsif each_price_info['netPrice'] || each_price_info['price']
+        price_unit = 'EA'
+      else
+        price_unit = split_code
+      end
+
+      unit_price = case_price_info['unitPrice'] || each_price_info['unitPrice']
+
+      # Build category from category info
+      category = info.dig('category', 'displayName') || info.dig('category', 'mainName')
+
+      supplier_name = [brand_name, product_name].reject(&:blank?).join(' ')
+
+      {
+        supplier_sku: product_id,
+        supplier_name: supplier_name,
+        current_price: current_price&.to_f,
+        pack_size: pack_size,
+        price_unit: price_unit,
+        in_stock: in_stock,
+        supplier_url: "#{BASE_URL}/app/product/#{product_id}",
+        category: category,
+        scraped_at: Time.current
+      }
+    end
+
+    def graphql_get_list_items(list_id:, list_type:, seller_id:, site_id:)
+      tokens = load_api_tokens
+      all_items = []
+      page = 1
+
+      loop do
+        data = graphql_request('GetListItemsV2', get_list_items_v2_query, {
+          sellerId: seller_id || tokens[:seller_id],
+          siteId: site_id || tokens[:site_id],
+          pageNumber: page,
+          pageSize: 60,
+          listId: list_id,
+          listType: list_type,
+          itemStatus: 'ACTIVE',
+          filters: {},
+          sortBy: 'NAME',
+          sortOrder: 'ASC',
+          groupBy: nil,
+          searchTerm: nil
+        })
+
+        items_data = data.dig('data', 'getListItemsV2') || {}
+        raw_items = items_data['items'] || []
+        meta = items_data['meta'] || {}
+
+        raw_items.each_with_index do |item, idx|
+          parsed = parse_list_item(item, position: all_items.size + idx + 1)
+          all_items << parsed if parsed
+        end
+
+        total_pages = meta['totalPages'] || 1
+        break if page >= total_pages
+        page += 1
+      end
+
+      # Get prices for list items
+      if all_items.any?
+        product_params = all_items.map do |item|
+          {
+            productId: item[:sku],
+            sellerId: tokens[:seller_id],
+            siteId: tokens[:site_id],
+            quantity: { case: 0, each: 0 },
+            splitCode: 'CASE'
+          }
+        end
+
+        begin
+          price_data = graphql_request('Prices', prices_query, {
+            isIncludePriceInfoV2: true,
+            products: { params: product_params },
+            priceOptions: {}
+          })
+
+          price_products = price_data.dig('data', 'getProducts') || []
+          price_map = price_products.each_with_object({}) { |pp, map| map[pp['productId'].to_s] = pp }
+
+          all_items.each do |item|
+            pp = price_map[item[:sku]]
+            next unless pp
+
+            case_info = pp.dig('priceInfoV2', 'case') || {}
+            each_info = pp.dig('priceInfoV2', 'each') || {}
+            item[:price] = case_info['netPrice'] || case_info['price'] ||
+                           each_info['netPrice'] || each_info['price'] || item[:price]
+            item[:price] = item[:price]&.to_f
+            item[:price_unit] = case_info['price'] ? 'CS' : 'EA' if case_info['price'] || each_info['price']
+          end
+        rescue StandardError => e
+          logger.warn "[Sysco] List pricing error: #{e.message}"
+        end
+      end
+
+      all_items
+    end
+
+    def parse_list_item(item, position: 1)
+      product = item['product'] || {}
+      product_id = product['productId']&.to_s
+      return nil if product_id.blank?
+
+      info = product['productInfo'] || {}
+      brand_name = info.dig('brand', 'name') || ''
+      product_name = info['name'] || info['description'] || ''
+      pack_info = info['packSize'] || {}
+      pack_size = [pack_info['pack'], pack_info['size']].compact.join(' ').strip
+      pack_size = nil if pack_size.blank?
+
+      in_stock = info['isOrderable'] != false && info['isShopOrderable'] != false &&
+                 !info['isPhasedOut'] && info['isAvailable'] != false
+
+      name = [brand_name, product_name].reject(&:blank?).join(' ')
+
+      {
+        sku: product_id,
+        name: name,
+        price: nil, # Will be filled by pricing call
+        pack_size: pack_size,
+        price_unit: 'CS',
+        quantity: 0,
+        in_stock: in_stock,
+        position: item['lineNumber'] || position
+      }
+    end
+
+    def extract_api_tokens_from_browser
+      # Extract the JWT from localStorage
+      jwt = browser.evaluate(<<~JS)
+        (function() {
+          var raw = localStorage.getItem('gatewayCredentials');
+          if (!raw) return null;
+          try { var p = JSON.parse(raw); return p.access_token || p; } catch(e) { return raw; }
+        })()
+      JS
+
+      # Extract syy-authorization by capturing it from a real GraphQL request
+      syy_auth = nil
+      begin
+        browser.page.command('Network.enable')
+        captured = nil
+        browser.on('Network.requestWillBeSent') do |params|
+          next if captured
+          next unless params['request']['url'].include?('gateway-api.shop.sysco.com/graphql')
+          captured = params['request']['headers']
+        end
+
+        # Trigger a lightweight request to capture headers
+        perform_spa_search('test')
+        sleep 4
+
+        syy_auth = captured&.[]('syy-authorization')
+      rescue StandardError => e
+        logger.warn "[Sysco] Could not capture syy-authorization header: #{e.message}"
+      end
+
+      # If we couldn't capture via network, try to build it from localStorage
+      unless syy_auth
+        syy_auth = build_syy_authorization_from_storage
+      end
+
+      # Extract account info from the syy-auth blob
+      shop_account_id = nil
+      seller_id = nil
+      site_id = nil
+      if syy_auth
+        begin
+          decoded = JSON.parse(Base64.decode64(syy_auth))
+          shop_account_id = decoded.dig('data', 'shopAccountId')
+          first_seller = decoded.dig('data', 'sellers')&.values&.first
+          if first_seller
+            seller_id = decoded.dig('data', 'sellers')&.keys&.first
+            site_id = first_seller['siteId']
+          end
+        rescue StandardError
+          nil
+        end
+      end
+
+      {
+        jwt: jwt,
+        syy_authorization: syy_auth,
+        shop_account_id: shop_account_id,
+        seller_id: seller_id || 'USBL',
+        site_id: site_id || '019'
+      }
+    end
+
+    def build_syy_authorization_from_storage
+      # Try to build syy-authorization from persist:account in localStorage
+      account_data = browser.evaluate("localStorage.getItem('persist:account')") rescue nil
+      return nil unless account_data
+
+      begin
+        parsed = JSON.parse(account_data)
+        # The persist:account key contains stringified JSON for each sub-key
+        active_account = JSON.parse(parsed['activeAccount'] || '{}') rescue {}
+        shop_account_id = active_account['shopAccountId']
+        return nil unless shop_account_id
+
+        # Extract seller info
+        seller_accounts = active_account['sellerAccounts'] || []
+        sellers = {}
+        seller_accounts.each do |sa|
+          seller_id = sa['sellerId']
+          sellers[seller_id] = {
+            sellerAccountId: sa['sellerAccountId'],
+            siteId: sa['siteId']
+          }
+        end
+
+        blob = {
+          data: {
+            shopAccountId: shop_account_id,
+            sellers: sellers,
+            shopUserType: active_account['shopUserType'] || 'multi_buyer',
+            country: 'US'
+          },
+          _hash: active_account['hash'] || ''
+        }
+
+        Base64.strict_encode64(blob.to_json)
+      rescue StandardError => e
+        logger.warn "[Sysco] Could not build syy-authorization from localStorage: #{e.message}"
+        nil
+      end
+    end
+
+    def decode_jwt_exp(jwt)
+      return nil unless jwt.is_a?(String) && jwt.include?('.')
+      payload = jwt.split('.')[1]
+      return nil unless payload
+      decoded = JSON.parse(Base64.decode64(payload))
+      decoded['exp']&.to_i
+    rescue StandardError
+      nil
+    end
+
+    # ----------------------------------------------------------------
+    # GraphQL Query Constants — captured from Sysco SPA
+    # ----------------------------------------------------------------
+
+    def search_products_query
+      <<~GQL
+        query SearchProducts($params: ProductSearchQuery!, $isUseGraphStockStatusEnabled: Boolean = false, $isGuest: Boolean = false) {
+          searchProducts(params: $params) {
+            metaInfo {
+              originalQuery { q start num }
+              totalResults
+              correlationId
+            }
+            results {
+              sellerId
+              siteId
+              productId
+              availableStockInfo {
+                inventory {
+                  stockStatus @include(if: $isUseGraphStockStatusEnabled)
+                }
+                stockIndicator
+                unitsPerCase
+              }
+              productInfo {
+                name
+                description
+                brand { id name }
+                category { mainName displayName }
+                packSize { pack size uom }
+                isSoldAs { split case }
+                split { min max }
+                averageWeightPerCase
+                stockType
+                stockTypeCode
+                isCatchWeight
+                isSyscoBrand
+                isPhasedOut
+                isExpandedAssortment
+                images
+                isOrderable
+                isLeavingSoon
+                weightUom
+                isShopOrderable
+                storageFlag
+                constraints {
+                  quantity { incrementalOrderQuantity minimumOrderQuantity soldAs }
+                }
+              }
+              productListInfo @skip(if: $isGuest) {
+                isFavorite
+              }
+            }
+          }
+        }
+      GQL
+    end
+
+    def prices_query
+      <<~GQL
+        query Prices($products: ProductQuery!, $priceOptions: PriceOptions, $isIncludePriceInfoV2: Boolean = false) {
+          getProducts(products: $products, priceOptions: $priceOptions) {
+            productId
+            sellerId
+            priceInfoV2 @include(if: $isIncludePriceInfoV2) {
+              case(products: $products, newAttributeGroupDiscounts: true) {
+                netPrice
+                price
+                unitPrice
+                grossPrice
+              }
+              each(products: $products, newAttributeGroupDiscounts: true) {
+                netPrice
+                price
+                unitPrice
+                grossPrice
+              }
+            }
+            productInfo {
+              averageWeightPerCase
+              isCatchWeight
+            }
+            availableStockInfo {
+              splitIndicator
+              unitsPerCase
+            }
+          }
+        }
+      GQL
+    end
+
+    def get_lists_query
+      <<~GQL
+        query GetLists($listTypes: [ListType]!) {
+          getLists(listTypes: $listTypes) {
+            shopAccountId
+            listId
+            sellerId
+            siteId
+            listType
+            name
+            modifiedAt
+            createdAt
+            createdBy
+            version
+            isShared
+          }
+        }
+      GQL
+    end
+
+    def get_list_items_v2_query
+      <<~GQL
+        query GetListItemsV2($sellerId: String, $siteId: String, $listType: ListType!, $listId: String!, $itemStatus: ItemStatus, $filters: ListItemFiltersInputV2, $pageNumber: Int, $pageSize: Int, $sortBy: String, $sortOrder: String, $groupBy: String, $searchTerm: String) {
+          getListItemsV2(
+            sellerId: $sellerId
+            siteId: $siteId
+            listType: $listType
+            listId: $listId
+            filters: $filters
+            pageNumber: $pageNumber
+            pageSize: $pageSize
+            sortBy: $sortBy
+            sortOrder: $sortOrder
+            groupBy: $groupBy
+            searchTerm: $searchTerm
+            itemStatus: $itemStatus
+          ) {
+            items {
+              lineNumber
+              product {
+                siteId
+                sellerId
+                productId
+                productInfo {
+                  name
+                  description
+                  brand { id name }
+                  category { mainName displayName }
+                  packSize { pack size uom }
+                  isSoldAs { split case }
+                  averageWeightPerCase
+                  storageFlag
+                  stockType
+                  isCatchWeight
+                  isSyscoBrand
+                  isPhasedOut
+                  isAvailable
+                  images
+                  isOrderable
+                  isShopOrderable
+                  weightUom
+                }
+              }
+            }
+            meta {
+              filteredProductCount
+              pageNumber
+              totalPages
+              totalProductCount
+            }
+          }
+        }
+      GQL
     end
   end
 end

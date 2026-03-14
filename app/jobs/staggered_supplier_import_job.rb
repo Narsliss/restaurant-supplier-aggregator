@@ -34,8 +34,13 @@ class StaggeredSupplierImportJob < ApplicationJob
 
       log = create_scraping_log(supplier)
 
-      # Stagger 5 minutes apart to avoid overwhelming suppliers
-      ImportSupplierProductsJob.set(wait: (queued * 5).minutes).perform_later(supplier.id, credential.id, log.id)
+      # Sysco: use combined job (catalog + lists in one browser session) since
+      # session restore doesn't work and we don't want 2 separate logins.
+      if supplier.code == 'sysco'
+        SyscoCombinedImportJob.set(wait: (queued * 5).minutes).perform_later(credential.id)
+      else
+        ImportSupplierProductsJob.set(wait: (queued * 5).minutes).perform_later(supplier.id, credential.id, log.id)
+      end
       Rails.logger.info "[StaggeredSupplierImportJob] Queued import for #{supplier.name} using credential #{credential.id} (#{credential.user.email}) in #{queued * 5}m"
       queued += 1
     end
