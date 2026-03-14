@@ -2470,11 +2470,17 @@ module Scrapers
     # ----------------------------------------------------------------
 
     def graphql_create_order(name:, delivery_date: nil)
+      # Sysco expects deliveryDate as epoch milliseconds (not ISO date strings).
+      # Pass nil to let Sysco pick the next available delivery date.
+      delivery_ms = if delivery_date
+                      delivery_date.to_time.to_f * 1000
+                    end&.to_i
+
       data = graphql_request('createOrderMutation', create_order_mutation, {
         order: {
           deliveryInstructions: '',
           poNumber: '',
-          deliveryDate: delivery_date,
+          deliveryDate: delivery_ms,
           name: name,
           orderSource: 'WEB',
           shippingCondition: 'GROUND',
@@ -2486,7 +2492,12 @@ module Scrapers
       })
 
       order = data.dig('data', 'createOrderV2')
-      raise ScrapingError, 'createOrderV2 returned nil' unless order
+      unless order
+        errors = data.dig('errors')&.map { |e| e['message'] }&.join(', ') || 'unknown error'
+        logger.error "[Sysco] createOrderV2 failed: #{errors}"
+        logger.error "[Sysco] Full response: #{data.to_json[0..500]}"
+        raise ScrapingError, "createOrderV2 failed: #{errors}"
+      end
       order
     end
 
