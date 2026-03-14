@@ -369,16 +369,168 @@ module Scrapers
     # Public API — Ordering (out of scope)
     # ----------------------------------------------------------------
 
+    # Fetch live prices for a list of Sysco product SKUs via GraphQL API.
+    # Returns: [{ supplier_sku:, current_price:, in_stock:, supplier_name: }, ...]
     def scrape_prices(product_skus)
-      raise NotImplementedError, 'Sysco price scraping not yet implemented'
+      ensure_api_session!
+      tokens = load_api_tokens
+
+      logger.info "[Sysco] Fetching live prices for #{product_skus.size} SKUs via API"
+
+      # Build product params for the Prices query
+      product_params = product_skus.map do |sku|
+        {
+          productId: sku.to_s,
+          sellerId: tokens[:seller_id],
+          siteId: tokens[:site_id],
+          quantity: { case: 0, each: 0 },
+          splitCode: 'CASE'
+        }
+      end
+
+      # Batch in groups of 50 (API may have limits)
+      results = []
+      product_params.each_slice(50) do |batch|
+        data = graphql_request('Prices', prices_query, {
+          isIncludePriceInfoV2: true,
+          products: { params: batch },
+          priceOptions: {}
+        })
+
+        price_products = data.dig('data', 'getProducts') || []
+        price_products.each do |pp|
+          product_id = pp['productId'].to_s
+          case_price_info = pp.dig('priceInfoV2', 'case') || {}
+          each_price_info = pp.dig('priceInfoV2', 'each') || {}
+
+          current_price = case_price_info['netPrice'] || case_price_info['price'] ||
+                          each_price_info['netPrice'] || each_price_info['price']
+
+          next unless current_price
+
+          results << {
+            supplier_sku: product_id,
+            current_price: current_price.to_f,
+            in_stock: true, # If the API returns a price, it's available
+            supplier_name: pp.dig('productInfo', 'name') || product_id
+          }
+        end
+      end
+
+      logger.info "[Sysco] Got live prices for #{results.size}/#{product_skus.size} SKUs"
+      results
     end
 
+    # Add items to a Sysco draft order via GraphQL API.
+    # Items format: [{ sku: "7203474", name: "Chicken Breast", quantity: 2, expected_price: 63.10 }]
+    # Returns: { added: count, failed: [{ sku:, name:, error: }], order_id: uuid }
     def add_to_cart(items, delivery_date: nil)
-      raise NotImplementedError, 'Sysco ordering not yet implemented'
+      ensure_api_session!
+      tokens = load_api_tokens
+
+      logger.info "[Sysco] Adding #{items.size} items to cart via API"
+
+      # Step 1: Create a draft order
+      order_name = Time.current.strftime('%b %d %Y %I:%M %p')
+      order = graphql_create_order(name: order_name, delivery_date: delivery_date)
+      order_id = order['id']
+      sequence_id = order['sequenceId'] || 1
+      logger.info "[Sysco] Created draft order: #{order_id} (#{order_name})"
+
+      # Step 2: Add items in a single UpdateOrder call
+      line_items = items.map do |item|
+        {
+          qty: item[:quantity].to_i,
+          soldAs: 'cs',
+          productId: item[:sku].to_s,
+          pricingType: 'N',
+          price: item[:expected_price].to_f,
+          totalPrice: (item[:expected_price].to_f * item[:quantity].to_i),
+          commissionBasis: 0,
+          siteId: tokens[:site_id],
+          sellerId: tokens[:seller_id]
+        }
+      end
+
+      added_items = []
+      failed_items = []
+
+      begin
+        updated = graphql_update_order(
+          order_id: order_id,
+          sequence_id: sequence_id,
+          line_items: line_items
+        )
+
+        # Verify which items made it onto the order
+        order_product_ids = (updated['lineItems'] || []).map { |li| li['productId'].to_s }
+        items.each do |item|
+          if order_product_ids.include?(item[:sku].to_s)
+            added_items << item
+            logger.info "[Sysco] Added SKU #{item[:sku]} qty #{item[:quantity]}"
+          else
+            failed_items << { sku: item[:sku], name: item[:name], error: 'Not found on order after add' }
+            logger.warn "[Sysco] SKU #{item[:sku]} not found on order after add"
+          end
+        end
+
+        @last_sysco_order_id = order_id
+        @last_sysco_sequence_id = updated['sequenceId'] || sequence_id
+      rescue StandardError => e
+        logger.error "[Sysco] Failed to add items to order: #{e.message}"
+        # Clean up the empty draft order
+        begin
+          graphql_delete_order(order_id)
+          logger.info "[Sysco] Cleaned up draft order #{order_id}"
+        rescue StandardError => del_err
+          logger.warn "[Sysco] Could not clean up draft order: #{del_err.message}"
+        end
+        raise ScrapingError, "Failed to add items to Sysco cart: #{e.message}"
+      end
+
+      if failed_items.any? && added_items.empty?
+        # All items failed — clean up the order
+        begin
+          graphql_delete_order(order_id)
+        rescue StandardError
+          nil
+        end
+        raise ScrapingError, "Failed to add any items to Sysco order. " \
+          "SKUs: #{failed_items.map { |f| f[:sku] }.join(', ')}"
+      end
+
+      logger.info "[Sysco] Cart ready: #{added_items.size} items, #{failed_items.size} failed, order=#{order_id}"
+      { added: added_items.size, failed: failed_items, order_id: order_id }
+    end
+
+    # Clear the Sysco cart by deleting the draft order.
+    def clear_cart
+      ensure_api_session!
+
+      # If we have a tracked order from add_to_cart, delete it
+      if @last_sysco_order_id
+        logger.info "[Sysco] Deleting draft order #{@last_sysco_order_id}"
+        graphql_delete_order(@last_sysco_order_id)
+        @last_sysco_order_id = nil
+        @last_sysco_sequence_id = nil
+        return
+      end
+
+      # Otherwise find and delete any open draft orders we created
+      orders = graphql_get_open_orders
+      draft_orders = orders.select { |o| o['status'] == 'OPEN' && o['orderSource'] == 'WEB' }
+      if draft_orders.any?
+        draft_orders.each do |order|
+          logger.info "[Sysco] Deleting draft order #{order['id']} (#{order['name']})"
+          graphql_delete_order(order['id'])
+        end
+      else
+        logger.info '[Sysco] No draft orders to clear'
+      end
     end
 
     def checkout(dry_run: false)
-      raise NotImplementedError, 'Sysco ordering not yet implemented'
+      raise NotImplementedError, 'Sysco checkout not yet implemented'
     end
 
     private
@@ -2312,6 +2464,166 @@ module Scrapers
         position: item['lineNumber'] || position
       }
     end
+
+    # ----------------------------------------------------------------
+    # Cart / Order GraphQL operations
+    # ----------------------------------------------------------------
+
+    def graphql_create_order(name:, delivery_date: nil)
+      data = graphql_request('createOrderMutation', create_order_mutation, {
+        order: {
+          deliveryInstructions: '',
+          poNumber: '',
+          deliveryDate: delivery_date,
+          name: name,
+          orderSource: 'WEB',
+          shippingCondition: 'GROUND',
+          invoiceSeparate: false,
+          originatedOrderSource: 'WEB',
+          lineItems: []
+        },
+        idempotencyToken: SecureRandom.uuid
+      })
+
+      order = data.dig('data', 'createOrderV2')
+      raise ScrapingError, 'createOrderV2 returned nil' unless order
+      order
+    end
+
+    def graphql_update_order(order_id:, sequence_id:, line_items:)
+      data = graphql_request('UpdateOrder', update_order_mutation, {
+        order: {
+          id: order_id,
+          orderSource: 'WEB',
+          invoiceSeparate: false,
+          sequenceId: sequence_id,
+          lineItems: line_items
+        },
+        isPatching: true
+      })
+
+      updated = data.dig('data', 'updateOrderV2')
+      raise ScrapingError, 'updateOrderV2 returned nil' unless updated
+      updated
+    end
+
+    def graphql_delete_order(order_id)
+      graphql_request('DeleteOrder', delete_order_mutation, { orderId: order_id })
+    end
+
+    def graphql_get_open_orders
+      tokens = load_api_tokens
+
+      # Extract sellerAccountId from shop_account_id (e.g., "usbl-019-707689" → "707689")
+      seller_account_id = tokens[:shop_account_id]&.split('-')&.last
+
+      data = graphql_request('GetOrderHeadersForAccounts', get_order_headers_query, {
+        accounts: [{
+          shopAccountId: tokens[:shop_account_id],
+          showSurcharge: false,
+          surchargePercentage: 0,
+          pricingV2Enabled: true,
+          timeZone: 'America/Indianapolis',
+          ordersCount: 20,
+          sellerAccounts: [{
+            sellerId: tokens[:seller_id],
+            siteId: tokens[:site_id],
+            sellerAccountId: seller_account_id
+          }]
+        }],
+        filters: {
+          deliveryDateFrom: ((Time.now.to_f - 30 * 86_400) * 1000).to_i,
+          orderSources: %w[SAM_ORDER SHOP_ORDER MOBILE_ORDER ESYSCO_ORDER SYSCO_MARKET_ORDER
+                           COUNTS_ORDER SMX_ORDER SUS_ORDER UNKNOWN_SOURCE PANTRY_LITE_ORDER OTHER],
+          hasHeaderErrors: false,
+          filterGroups: 'DELIVERY_DATE|SUBMITTED_DATE,EXCEPTIONS,SHIPPING_TYPE,FILTER_STATUS'
+        }
+      })
+
+      data.dig('data', 'getOrderHeadersForAccounts', 0, 'orderHeaders') || []
+    end
+
+    # ----------------------------------------------------------------
+    # Cart / Order GraphQL query definitions
+    # ----------------------------------------------------------------
+
+    def create_order_mutation
+      <<~GQL
+        mutation createOrderMutation($order: OrderInputV2!, $idempotencyToken: String, $container: ContainerInput) {
+          createOrderV2(
+            order: $order
+            idempotencyToken: $idempotencyToken
+            container: $container
+          ) {
+            id
+            name
+            status
+            sequenceId
+            totalPrice
+            totalLineItems
+          }
+        }
+      GQL
+    end
+
+    def update_order_mutation
+      <<~GQL
+        mutation UpdateOrder($order: OrderInputV2!, $isPatching: Boolean) {
+          updateOrderV2(
+            order: $order
+            isPatching: $isPatching
+          ) {
+            id
+            status
+            sequenceId
+            totalPrice
+            totalLineItems
+            lineItems {
+              id
+              productId
+              qty
+              soldAs
+              netUnitPrice
+            }
+          }
+        }
+      GQL
+    end
+
+    def delete_order_mutation
+      <<~GQL
+        mutation DeleteOrder($orderId: String!) {
+          deleteOrderV2(orderId: $orderId) {
+            __typename
+          }
+        }
+      GQL
+    end
+
+    def get_order_headers_query
+      <<~GQL
+        query GetOrderHeadersForAccounts($accounts: [AccountFilterInput!]!, $filters: OrderFilterInput) {
+          getOrderHeadersForAccounts(accounts: $accounts, filters: $filters) {
+            shopAccountId
+            orderHeaders {
+              id
+              name
+              status
+              totalPrice
+              totalLineItems
+              deliveryDate
+              orderSource
+              originatedOrderSource
+              createdDate
+            }
+          }
+        }
+      GQL
+    end
+
+    # ----------------------------------------------------------------
+    # Token extraction
+    # ----------------------------------------------------------------
 
     def extract_api_tokens_from_browser
       # Extract the JWT from localStorage
