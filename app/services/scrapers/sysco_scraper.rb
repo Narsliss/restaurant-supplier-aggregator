@@ -4,7 +4,7 @@ module Scrapers
     LOGIN_URL = 'https://secure.sysco.com/'.freeze
     CATALOG_URL = 'https://shop.sysco.com/app/catalog'.freeze
     LISTS_URL = 'https://shop.sysco.com/app/lists'.freeze
-    ORDER_MINIMUM = 0.00 # Unknown — will be determined during testing
+    ORDER_MINIMUM = 0.00 # No confirmed minimum — Sysco minimums vary by account
     PRODUCTS_PER_PAGE = 24
     MAX_PAGES_PER_TERM = 5
     GRAPHQL_URL = 'https://gateway-api.shop.sysco.com/graphql'.freeze
@@ -247,7 +247,7 @@ module Scrapers
 
         logger.info "[Sysco] API search '#{term}': got #{results.size} products (#{products.size}/#{total_results} total)"
 
-        # Log first product for debugging
+        # Log first product as a sample for monitoring
         if products.size == results.size && products.any?
           sample = products.first
           logger.info "[Sysco] Sample: SKU=#{sample[:supplier_sku]}, name=#{sample[:supplier_name]&.first(60)}, price=#{sample[:current_price]} #{sample[:price_unit]}, pack=#{sample[:pack_size]}"
@@ -1050,7 +1050,7 @@ module Scrapers
             }
           }
 
-          // Return both products and metadata for debugging
+          // Return both products and metadata for diagnostics
           return { products: products, matchMethod: matchMethod, cardCount: cards.length };
         })()
       JS
@@ -2191,8 +2191,8 @@ module Scrapers
         jwt: api['jwt'],
         syy_authorization: api['syy_authorization'],
         shop_account_id: api['shop_account_id'],
-        seller_id: api['seller_id'] || 'USBL',
-        site_id: api['site_id'] || '019'
+        seller_id: api['seller_id'],
+        site_id: api['site_id']
       }
     end
 
@@ -2291,8 +2291,8 @@ module Scrapers
 
       # Build a map of productId -> price data
       price_products = data.dig('data', 'getProducts') || []
-      price_products.each_with_object({}) do |pp, map|
-        map[pp['productId'].to_s] = pp
+      price_products.each_with_object({}) do |price_product, map|
+        map[price_product['productId'].to_s] = price_product
       end
     rescue StandardError => e
       logger.warn "[Sysco] Pricing API error: #{e.message} — returning empty prices"
@@ -2415,7 +2415,7 @@ module Scrapers
           })
 
           price_products = price_data.dig('data', 'getProducts') || []
-          price_map = price_products.each_with_object({}) { |pp, map| map[pp['productId'].to_s] = pp }
+          price_map = price_products.each_with_object({}) { |price_product, map| map[price_product['productId'].to_s] = price_product }
 
           all_items.each do |item|
             pp = price_map[item[:sku]]
@@ -2693,8 +2693,8 @@ module Scrapers
         jwt: jwt,
         syy_authorization: syy_auth,
         shop_account_id: shop_account_id,
-        seller_id: seller_id || 'USBL',
-        site_id: site_id || '019'
+        seller_id: seller_id,
+        site_id: site_id
       }
     end
 

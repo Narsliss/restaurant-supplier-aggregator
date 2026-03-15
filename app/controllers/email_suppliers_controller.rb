@@ -43,14 +43,11 @@ class EmailSuppliersController < ApplicationController
     @supplier.orders.where(supplier_name: nil).update_all(supplier_name: name)
 
     # Snapshot product info on order_items before supplier_products are destroyed
-    ActiveRecord::Base.connection.execute(<<~SQL.squish)
-      UPDATE order_items
-      SET product_name = sp.supplier_name, product_sku = sp.supplier_sku
-      FROM supplier_products sp
-      WHERE order_items.supplier_product_id = sp.id
-        AND sp.supplier_id = #{@supplier.id}
-        AND order_items.product_name IS NULL
-    SQL
+    sanitized = ActiveRecord::Base.sanitize_sql_array([
+      "UPDATE order_items SET product_name = sp.supplier_name, product_sku = sp.supplier_sku FROM supplier_products sp WHERE order_items.supplier_product_id = sp.id AND sp.supplier_id = ? AND order_items.product_name IS NULL",
+      @supplier.id
+    ])
+    ActiveRecord::Base.connection.execute(sanitized)
 
     @supplier.destroy!
     redirect_to supplier_credentials_path,
