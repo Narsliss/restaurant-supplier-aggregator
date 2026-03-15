@@ -42,94 +42,101 @@ class AiProductMatcherService
       .where(product_match_id: aggregated_list.product_match_ids)
       .pluck(:id, :product_match_id)
 
-    # Clear existing matches (re-running matching)
-    aggregated_list.product_matches.destroy_all
-
-    # Remove catalog-search-created items from previous runs so they don't
-    # snowball on re-match. Catalog search will re-create them afterwards.
-    cleanup_catalog_search_items!
-
     # Collect all items from connected supplier lists, grouped by supplier
     items_by_supplier = collect_items_by_supplier
-    return finish_empty if items_by_supplier.size < 2
-
-    # Pick anchor list (most items)
-    anchor_supplier_id, anchor_items = items_by_supplier.max_by { |_, items| items.size }
-    other_suppliers = items_by_supplier.except(anchor_supplier_id)
-
-    Rails.logger.info "[AiMatcher] Anchor: supplier #{anchor_supplier_id} with #{anchor_items.size} items. " \
-                      "Matching against #{other_suppliers.size} other suppliers."
-
-    position = 0
-
-    # For each anchor item, try to find matches in other suppliers
-    anchor_items.each do |anchor_item|
-      position += 1
-      matched_items = { anchor_supplier_id => anchor_item }
-      best_confidence = 1.0 # Anchor is always 100% confident
-
-      other_suppliers.each do |supplier_id, supplier_items|
-        match, confidence = find_best_match(anchor_item, supplier_items)
-        next unless match
-
-        matched_items[supplier_id] = match
-        best_confidence = [best_confidence, confidence].min
-        # Remove matched item from pool so it can't match again
-        supplier_items.delete(match)
-      end
-
-      # Create ProductMatch record
-      match_status = if matched_items.size > 1
-                       best_confidence >= AI_CONFIDENCE_THRESHOLD ? 'auto_matched' : 'auto_matched'
-                     else
-                       'unmatched'
-                     end
-
-      canonical = suggest_canonical_name(matched_items.values) || anchor_item.name
-
-      product_match = aggregated_list.product_matches.create!(
-        canonical_name: canonical.truncate(255),
-        match_status: match_status,
-        confidence_score: best_confidence.round(2),
-        position: position
-      )
-
-      # Create ProductMatchItem for each supplier's matched item
-      matched_items.each do |supplier_id, item|
-        product_match.product_match_items.create!(
-          supplier_list_item: item,
-          supplier_id: item.supplier_list.supplier_id,
-          is_primary: supplier_id == anchor_supplier_id
-        )
-      end
-
-      if matched_items.size > 1
-        results[:matched] += 1
-      else
-        results[:unmatched] += 1
-      end
-      results[:total] += 1
+    if items_by_supplier.size < 2
+      # Don't destroy existing matches if there aren't enough suppliers to re-match
+      return finish_empty
     end
 
-    # Handle leftover items in non-anchor lists (no anchor match found)
-    other_suppliers.each do |_supplier_id, remaining_items|
-      remaining_items.each do |item|
+    # Wrap destroy + rebuild in a transaction so a failure rolls back the
+    # delete and preserves the old matches instead of leaving an empty list.
+    ActiveRecord::Base.transaction do
+      # Clear existing matches (re-running matching)
+      aggregated_list.product_matches.destroy_all
+
+      # Remove catalog-search-created items from previous runs so they don't
+      # snowball on re-match. Catalog search will re-create them afterwards.
+      cleanup_catalog_search_items!
+
+      # Pick anchor list (most items)
+      anchor_supplier_id, anchor_items = items_by_supplier.max_by { |_, items| items.size }
+      other_suppliers = items_by_supplier.except(anchor_supplier_id)
+
+      Rails.logger.info "[AiMatcher] Anchor: supplier #{anchor_supplier_id} with #{anchor_items.size} items. " \
+                        "Matching against #{other_suppliers.size} other suppliers."
+
+      position = 0
+
+      # For each anchor item, try to find matches in other suppliers
+      anchor_items.each do |anchor_item|
         position += 1
+        matched_items = { anchor_supplier_id => anchor_item }
+        best_confidence = 1.0 # Anchor is always 100% confident
+
+        other_suppliers.each do |supplier_id, supplier_items|
+          match, confidence = find_best_match(anchor_item, supplier_items)
+          next unless match
+
+          matched_items[supplier_id] = match
+          best_confidence = [best_confidence, confidence].min
+          # Remove matched item from pool so it can't match again
+          supplier_items.delete(match)
+        end
+
+        # Create ProductMatch record
+        match_status = if matched_items.size > 1
+                         best_confidence >= AI_CONFIDENCE_THRESHOLD ? 'auto_matched' : 'auto_matched'
+                       else
+                         'unmatched'
+                       end
+
+        canonical = suggest_canonical_name(matched_items.values) || anchor_item.name
+
         product_match = aggregated_list.product_matches.create!(
-          canonical_name: item.name.truncate(255),
-          match_status: 'unmatched',
-          confidence_score: 0.0,
+          canonical_name: canonical.truncate(255),
+          match_status: match_status,
+          confidence_score: best_confidence.round(2),
           position: position
         )
-        product_match.product_match_items.create!(
-          supplier_list_item: item,
-          supplier_id: item.supplier_list.supplier_id,
-          is_primary: true
-        )
-        results[:unmatched] += 1
+
+        # Create ProductMatchItem for each supplier's matched item
+        matched_items.each do |supplier_id, item|
+          product_match.product_match_items.create!(
+            supplier_list_item: item,
+            supplier_id: item.supplier_list.supplier_id,
+            is_primary: supplier_id == anchor_supplier_id
+          )
+        end
+
+        if matched_items.size > 1
+          results[:matched] += 1
+        else
+          results[:unmatched] += 1
+        end
         results[:total] += 1
       end
-    end
+
+      # Handle leftover items in non-anchor lists (no anchor match found)
+      other_suppliers.each do |_supplier_id, remaining_items|
+        remaining_items.each do |item|
+          position += 1
+          product_match = aggregated_list.product_matches.create!(
+            canonical_name: item.name.truncate(255),
+            match_status: 'unmatched',
+            confidence_score: 0.0,
+            position: position
+          )
+          product_match.product_match_items.create!(
+            supplier_list_item: item,
+            supplier_id: item.supplier_list.supplier_id,
+            is_primary: true
+          )
+          results[:unmatched] += 1
+          results[:total] += 1
+        end
+      end
+    end # transaction — if anything above fails, old matches are preserved
 
     aggregated_list.mark_matched!
 
@@ -140,10 +147,9 @@ class AiProductMatcherService
     results
   rescue StandardError => e
     Rails.logger.error "[AiMatcher] Failed: #{e.class}: #{e.message}"
-    # Only mark failed if there are no existing matches — don't clobber
-    # a working list just because a re-match job errored
-    if aggregated_list.product_matches.any?
-      Rails.logger.warn "[AiMatcher] Keeping status '#{aggregated_list.match_status}' — list has existing matches"
+    # Transaction rolled back — old matches should still exist if this was a re-match
+    if aggregated_list.product_matches.reload.any?
+      Rails.logger.warn "[AiMatcher] Keeping status — list has #{aggregated_list.product_matches.count} existing matches"
       aggregated_list.mark_matched! unless aggregated_list.matched?
     else
       aggregated_list.mark_failed!
