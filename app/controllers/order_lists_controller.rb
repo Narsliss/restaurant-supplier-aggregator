@@ -143,9 +143,10 @@ class OrderListsController < ApplicationController
     return @product_matches = [] unless org
 
     # Find the matched list (promoted org-wide or location-specific)
-    @matched_list = AggregatedList.for_organization(org).promoted.matched.first
+    # Allow 'failed' status too — a failed re-match job doesn't invalidate existing matches
+    @matched_list = AggregatedList.for_organization(org).promoted.where(match_status: %w[matched failed]).first
     @matched_list ||= AggregatedList.for_organization(org)
-                        .matched_lists.matched
+                        .matched_lists.where(match_status: %w[matched failed])
                         .where(location_id: current_location&.id)
                         .first
 
