@@ -28,19 +28,13 @@
 Rails.application.config.after_initialize do
   next unless defined?(Ferrum::Browser::Process)
 
-  # Fix Ferrum bug: DEFAULT_OPTIONS is frozen but merge_default tries to
-  # call .delete on it when incognito: false. Patch merge_default to dup first.
+  # Fix Ferrum 0.17.1 bug: DEFAULT_OPTIONS is frozen but merge_default
+  # calls .delete on it when incognito: false, raising FrozenError.
+  # Replace the frozen hash with a mutable dup so .delete works.
   if defined?(Ferrum::Browser::Options::Chrome)
-    Ferrum::Browser::Options::Chrome.class_eval do
-      def merge_default(flags, options)
-        defaults = except("headless", "disable-gpu") if options.headless == false
-        defaults ||= self.class::DEFAULT_OPTIONS.dup
-        defaults.delete("no-startup-window") if options.incognito == false
-        defaults = defaults.merge("disable-gpu" => nil) if Ferrum::Utils::Platform.windows?
-        defaults = defaults.merge("use-angle" => "metal") if Ferrum::Utils::Platform.mac_arm?
-        defaults.merge(flags)
-      end
-    end
+    unfrozen = Ferrum::Browser::Options::Chrome::DEFAULT_OPTIONS.dup
+    Ferrum::Browser::Options::Chrome.send(:remove_const, :DEFAULT_OPTIONS)
+    Ferrum::Browser::Options::Chrome.const_set(:DEFAULT_OPTIONS, unfrozen)
   end
 
   Ferrum::Browser::Process.class_eval do
