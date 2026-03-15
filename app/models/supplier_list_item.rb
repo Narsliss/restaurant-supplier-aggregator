@@ -133,7 +133,7 @@ class SupplierListItem < ApplicationRecord
 
   # Price change detection (mirrors SupplierProduct pattern)
   def price_changed?
-    previous_price.present? && price != previous_price
+    price.present? && previous_price.present? && price != previous_price
   end
 
   def price_increased?
