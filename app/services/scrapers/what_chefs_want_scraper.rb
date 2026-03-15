@@ -1276,7 +1276,7 @@ module Scrapers
     def parse_review_total(text)
       # Look for "Total:\t$XX.XX" pattern
       match = text.match(/Total:\s*\$?([\d,.]+)/)
-      match ? match[1].gsub(',', '').to_f : 0.0
+      match ? match[1].gsub(',', '').to_f : nil
     end
 
     # Parse delivery info from the review page text

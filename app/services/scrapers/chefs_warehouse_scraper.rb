@@ -2012,7 +2012,7 @@ module Scrapers
       logger.info "[ChefsWarehouse] Checkout data: #{checkout_data.inspect}"
 
       {
-        total: checkout_data['total'] || 0,
+        total: checkout_data['total'].presence,
         delivery_date: checkout_data['delivery_date'],
         summary_text: checkout_data['summary_text'],
         buttons: checkout_data['buttons'] || []
