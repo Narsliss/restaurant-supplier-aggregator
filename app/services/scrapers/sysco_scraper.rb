@@ -530,7 +530,76 @@ module Scrapers
     end
 
     def checkout(dry_run: false)
-      raise NotImplementedError, 'Sysco checkout not yet implemented'
+      logger.info "[Sysco] checkout starting (dry_run=#{dry_run})"
+      ensure_api_session!
+
+      # Verify we have a draft order from add_to_cart
+      order_id = @last_sysco_order_id
+      sequence_id = @last_sysco_sequence_id
+      raise ScrapingError, 'No draft order — call add_to_cart first' unless order_id
+
+      # Get current order state for totals
+      orders = graphql_get_open_orders
+      current_order = orders.find { |o| o['id'] == order_id }
+
+      order_total = current_order&.dig('totalPrice')
+      item_count = current_order&.dig('totalLineItems')
+      delivery_date_ms = current_order&.dig('deliveryDate') # epoch ms
+
+      # Convert epoch ms to date string
+      delivery_str = if delivery_date_ms
+                       Time.at(delivery_date_ms / 1000).strftime('%b %d, %Y')
+                     end
+
+      logger.info "[Sysco] Order #{order_id}: #{item_count} items, total=#{order_total}, delivery=#{delivery_str}"
+
+      raise ScrapingError, 'Cart is empty' if item_count.nil? || item_count == 0
+
+      # Check order minimum
+      if order_total && order_total > 0 && order_total < ORDER_MINIMUM
+        raise OrderMinimumError.new(
+          'Order minimum not met',
+          minimum: ORDER_MINIMUM,
+          current_total: order_total
+        )
+      end
+
+      # ═══════════════════════════════════════════
+      # ═══ SAFETY GATE — DRY RUN CHECK ══════════
+      # ═══════════════════════════════════════════
+      if dry_run
+        logger.info "[Sysco] DRY RUN COMPLETE — stopping before submit"
+        logger.info "[Sysco] Would have submitted order #{order_id}: total=#{order_total}"
+
+        return {
+          confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+          total: order_total,
+          delivery_date: delivery_str,
+          dry_run: true,
+          cart_items: [],
+          checkout_summary: { order_id: order_id, total: order_total, item_count: item_count }
+        }
+      end
+
+      # ═══════════════════════════════════════════
+      # ═══ LIVE ORDER — Submit via API ═══════════
+      # ═══════════════════════════════════════════
+      logger.warn "[Sysco] PLACING LIVE ORDER — submitting order #{order_id}"
+      result = graphql_submit_order(order_id: order_id, sequence_id: sequence_id)
+
+      confirmation = result['confirmationNumber'] || result['id'] || "SYSCO-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      submitted_total = result['totalPrice'] || order_total
+
+      logger.info "[Sysco] Order submitted: #{confirmation}"
+
+      @last_sysco_order_id = nil
+      @last_sysco_sequence_id = nil
+
+      {
+        confirmation_number: confirmation,
+        total: submitted_total,
+        delivery_date: delivery_str
+      }
     end
 
     private
@@ -1864,14 +1933,9 @@ module Scrapers
 
       opts = {
         headless: headless_mode ? 'new' : false,
-        # CRITICAL: incognito must be false so Ferrum uses Chrome's default
-        # browser context (which reads/writes cookies from the persistent profile
-        # on disk). When incognito is true (Ferrum's default), Ferrum creates an
-        # isolated CDP BrowserContext via Target.createBrowserContext — that
-        # context has its own empty cookie jar and does NOT persist to disk.
-        # Setting this to false is what makes "close browser → reopen → still
-        # logged in" actually work.
-        incognito: false,
+        # Sysco uses JWT tokens (stored in session_data) for all API operations.
+        # Browser is only needed briefly for SSO login to capture tokens.
+        # Default incognito is fine since we don't rely on browser cookie persistence.
         timeout: 60,
         process_timeout: 60,
         window_size: [1280, 720],
@@ -1897,13 +1961,9 @@ module Scrapers
           "js-flags": '--max-old-space-size=512',
           "renderer-process-limit": 1,
           "disable-software-rasterizer": true,
-          "blink-settings": "imagesEnabled=false",
-          "user-data-dir": chrome_profile_dir
+          "blink-settings": "imagesEnabled=false"
         }
       }
-      # Tell our Ferrum patch to use the user-data-dir we specified and not
-      # delete it on quit. This lets sessions survive browser restarts.
-      opts[:persistent_user_data_dir] = true
       opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
       opts
     end
@@ -2522,6 +2582,25 @@ module Scrapers
       graphql_request('DeleteOrder', delete_order_mutation, { orderId: order_id })
     end
 
+    def graphql_submit_order(order_id:, sequence_id:)
+      data = graphql_request('SubmitOrder', submit_order_mutation, {
+        order: {
+          id: order_id,
+          orderSource: 'WEB',
+          sequenceId: sequence_id
+        }
+      })
+
+      submitted = data.dig('data', 'submitOrderV2')
+      unless submitted
+        errors = data.dig('errors')&.map { |e| e['message'] }&.join(', ') || 'unknown error'
+        logger.error "[Sysco] submitOrderV2 failed: #{errors}"
+        logger.error "[Sysco] Full response: #{data.to_json[0..500]}"
+        raise ScrapingError, "submitOrderV2 failed: #{errors}"
+      end
+      submitted
+    end
+
     def graphql_get_open_orders
       tokens = load_api_tokens
 
@@ -2627,6 +2706,23 @@ module Scrapers
               originatedOrderSource
               createdDate
             }
+          }
+        }
+      GQL
+    end
+
+    def submit_order_mutation
+      <<~GQL
+        mutation SubmitOrder($order: OrderInputV2!) {
+          submitOrderV2(order: $order) {
+            id
+            name
+            status
+            sequenceId
+            totalPrice
+            totalLineItems
+            deliveryDate
+            confirmationNumber
           }
         }
       GQL
