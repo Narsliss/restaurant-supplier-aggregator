@@ -355,9 +355,12 @@ class AggregatedListsController < ApplicationController
   end
 
   def order_builder
-    # Allow matched and failed — failed means a matching job errored,
-    # but existing matches are still valid and usable for ordering
-    unless @aggregated_list.matched? || @aggregated_list.match_status == 'failed'
+    # Auto-heal: if status is 'failed' but matches exist, restore to 'matched'
+    if @aggregated_list.match_status == 'failed' && @aggregated_list.product_matches.any?
+      @aggregated_list.mark_matched!
+    end
+
+    unless @aggregated_list.matched?
       redirect_to @aggregated_list
       return
     end
