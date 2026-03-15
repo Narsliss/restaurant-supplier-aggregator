@@ -31,13 +31,15 @@ Rails.application.config.after_initialize do
   # Fix Ferrum bug: DEFAULT_OPTIONS is frozen but merge_default tries to
   # call .delete on it when incognito: false. Patch merge_default to dup first.
   if defined?(Ferrum::Browser::Options::Chrome)
-    Ferrum::Browser::Options::Chrome.instance.define_singleton_method(:merge_default) do |flags, options|
-      defaults = except("headless", "disable-gpu") if options.headless == false
-      defaults ||= self.class::DEFAULT_OPTIONS.dup
-      defaults.delete("no-startup-window") if options.incognito == false
-      defaults = defaults.merge("disable-gpu" => nil) if Ferrum::Utils::Platform.windows?
-      defaults = defaults.merge("use-angle" => "metal") if Ferrum::Utils::Platform.mac_arm?
-      defaults.merge(flags)
+    Ferrum::Browser::Options::Chrome.class_eval do
+      def merge_default(flags, options)
+        defaults = except("headless", "disable-gpu") if options.headless == false
+        defaults ||= self.class::DEFAULT_OPTIONS.dup
+        defaults.delete("no-startup-window") if options.incognito == false
+        defaults = defaults.merge("disable-gpu" => nil) if Ferrum::Utils::Platform.windows?
+        defaults = defaults.merge("use-angle" => "metal") if Ferrum::Utils::Platform.mac_arm?
+        defaults.merge(flags)
+      end
     end
   end
 
