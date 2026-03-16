@@ -107,6 +107,12 @@ class UnitParser
 
       text = pack_size_str.to_s.strip.downcase
 
+      # Normalize: insert space between digits and letters ("32oz" → "32 oz", "550ct" → "550 ct")
+      text = text.gsub(/(\d)(#{unit_pattern})\b/i, '\1 \2')
+
+      # Strip duplicate trailing units: "4 3 lb lb" → "4 3 lb", "9 32 oz oz" → "9 32 oz"
+      text = text.sub(/\b(lb|oz|ct|ea|gal|kg|cs|in|ml|dz|fl)\s+\1\b/, '\1')
+
       # Try each parsing strategy in order
       result = parse_case_pack(text) ||
                parse_multiplied_pack(text) ||
@@ -187,9 +193,9 @@ class UnitParser
     private
 
     # Parses "Case - 12-2#" → 12 packs × 2 lb = 24 lb
-    # Also: "Case 12/2 LB", "CS 6-5 LB", "12/2 LB"
+    # Also: "Case 12/2 LB", "CS 6-5 LB", "12/2 LB", "4 3 LB" (space-separated)
     def parse_case_pack(text)
-      # Pattern: case/cs prefix (optional) + count - or / quantity unit
+      # Pattern 1: separator-based — count -/x quantity unit
       if text =~ /(?:case|cs)?\s*[\-\s]*(\d+)\s*([\-\/x])\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
         num1 = $1.to_f
         separator = $2
@@ -208,6 +214,22 @@ class UnitParser
           build_result(total.to_f, unit)
         else
           total = num1 * num2
+          build_result(total, unit)
+        end
+
+      # Pattern 2: space-separated — "4 3 LB", "12 46 OZ", "6 5 LB"
+      # Two numbers separated by space followed by a weight/volume unit.
+      # The first number is the pack count, second is the per-unit size.
+      # Only match when first number looks like a case count (small integer, typically 1-24).
+      elsif text =~ /\A\s*(\d+)\s+(\d+\.?\d*)\s*(#{unit_pattern})\s*\z/i
+        count = $1.to_f
+        per_unit = $2.to_f
+        unit = normalize_unit_str($3)
+
+        # Only treat as case pack if count is a typical case multiplier (1-24)
+        # and per_unit is different from count (avoid "50 50 LB" misparse)
+        if count >= 1 && count <= 24 && per_unit > 0 && count != per_unit
+          total = count * per_unit
           build_result(total, unit)
         end
       end

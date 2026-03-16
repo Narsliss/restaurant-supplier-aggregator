@@ -2359,6 +2359,21 @@ module Scrapers
       {}
     end
 
+    # Build a clean pack_size string from Sysco's packSize API object.
+    # The API returns { pack: "4", size: "3 LB", uom: "LB" } — size often
+    # already contains the unit, so naively joining all three duplicates it.
+    # Strategy: join pack + size, then strip any trailing duplicate unit.
+    def build_pack_size(pack_info)
+      raw = [pack_info['pack'], pack_info['size']].compact.join(' ').strip
+      return nil if raw.blank?
+
+      # Remove duplicate trailing unit: "4 3 LB LB" → "4 3 LB", "9 32OZ OZ" → "9 32OZ"
+      raw = raw.sub(/\b(LB|OZ|CT|EA|GAL|KG|CS|IN|ML|DZ|FL)\s+\1\b/i, '\1')
+      # Also handle no-space duplication: "32OZOZ" (unlikely but defensive)
+      raw = raw.sub(/(LB|OZ|CT|EA|GAL|KG|CS)(LB|OZ|CT|EA|GAL|KG|CS)\z/i) { $1 }
+      raw.strip.presence
+    end
+
     def parse_search_result(result, price_map)
       product_id = result['productId'].to_s
       return nil if product_id.blank?
@@ -2367,8 +2382,7 @@ module Scrapers
       brand_name = info.dig('brand', 'name') || ''
       product_name = info['name'] || info['description'] || ''
       pack_size_info = info['packSize'] || {}
-      pack_size = [pack_size_info['pack'], pack_size_info['size']].compact.join(' ').strip
-      pack_size = nil if pack_size.blank?
+      pack_size = build_pack_size(pack_size_info)
 
       stock_indicator = result.dig('availableStockInfo', 'stockIndicator') || 'S'
       is_orderable = info['isOrderable'] != false && info['isShopOrderable'] != false
@@ -2505,8 +2519,7 @@ module Scrapers
       brand_name = info.dig('brand', 'name') || ''
       product_name = info['name'] || info['description'] || ''
       pack_info = info['packSize'] || {}
-      pack_size = [pack_info['pack'], pack_info['size']].compact.join(' ').strip
-      pack_size = nil if pack_size.blank?
+      pack_size = build_pack_size(pack_info)
 
       in_stock = info['isOrderable'] != false && info['isShopOrderable'] != false &&
                  !info['isPhasedOut'] && info['isAvailable'] != false
