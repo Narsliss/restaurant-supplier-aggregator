@@ -100,4 +100,28 @@ class Supplier < ApplicationRecord
   def checkout_enabled?
     checkout_enabled
   end
+
+  # Display helpers for compact card grid
+  BRAND_COLORS = {
+    'usfoods'            => 'text-red-500',
+    'sysco'              => 'text-blue-400',
+    'whatchefswant'      => 'text-yellow-400',
+    'chefswarehouse'     => 'text-orange-400',
+    'premiereproduceone' => 'text-purple-400',
+  }.freeze
+
+  def brand_color_class
+    BRAND_COLORS[code] || 'text-gray-400'
+  end
+
+  def short_name
+    case code
+    when 'usfoods'            then 'US Foods'
+    when 'sysco'              then 'Sysco'
+    when 'whatchefswant'      then 'WCW'
+    when 'chefswarehouse'     then "Chef's WH"
+    when 'premiereproduceone' then 'PPO'
+    else name.truncate(14)
+    end
+  end
 end

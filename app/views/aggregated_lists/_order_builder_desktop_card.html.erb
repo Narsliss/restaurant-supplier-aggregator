@@ -8,7 +8,7 @@
      data-order-builder-row data-product-name="<%= match.display_name.downcase %>" data-category="<%= category %>">
   <div class="flex flex-col sm:flex-row">
     <%# Left: Product name + qty controls + line total %>
-    <div class="sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100 flex flex-col justify-between">
+    <div class="shrink-0 border-b sm:border-b-0 sm:border-r border-gray-100 flex flex-col justify-between" style="width:200px; padding:14px;">
       <div>
         <div class="text-sm font-medium text-gray-900 flex items-center gap-1">
           <button type="button"
@@ -65,16 +65,16 @@
             </svg>
           </button>
         </div>
-        <%# Line total — below qty controls so it doesn't overflow %>
+        <%# Line total %>
         <div class="mt-1.5">
           <span class="text-sm font-bold text-gray-900" data-order-builder-target="lineTotal">&mdash;</span>
         </div>
       </div>
     </div>
 
-    <%# Right: Grid of supplier cells (clickable to select supplier) %>
-    <div class="flex-1 p-3">
-      <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
+    <%# Right: Grid of supplier cells — matches Option A mockup exactly %>
+    <div class="flex-1" style="padding:10px;">
+      <div class="grid" style="grid-template-columns: repeat(<%= suppliers.size %>, 1fr); gap: 6px;">
         <% suppliers.each do |supplier| %>
           <% item = match.item_for_supplier(supplier) %>
           <% if item %>
@@ -85,8 +85,9 @@
               <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
               <% is_default = cheapest && cheapest[:supplier] == supplier %>
               <% cell_price = item.price_unit.present? ? item.estimated_total_price : effective_price %>
-              <div class="rounded-lg border p-3 cursor-pointer transition-all border-gray-200 bg-white
-                          <%= is_default ? 'ring-2 ring-brand-orange' : 'hover:bg-gray-50' %>"
+              <div class="rounded-lg relative min-w-0 cursor-pointer transition-all
+                          <%= is_default ? 'ring-2 ring-brand-orange' : '' %>"
+                   style="padding:10px; border-radius:8px; <%= is_cheapest ? 'border:2px solid rgba(34,197,94,0.5); background:rgba(20,83,45,0.08);' : 'border:1px solid #334155; background:#0f172a;' %>"
                    data-action="click->order-builder#selectSupplier"
                    data-supplier-price="<%= cell_price %>"
                    data-supplier-id-value="<%= supplier.id %>"
@@ -98,32 +99,49 @@
                    data-piece-price="<%= item.piece_price %>"
                    data-piece-pack-size="<%= item.piece_pack_size %>"
                    data-current-uom="CS">
-                <%# Supplier name header %>
-                <div class="flex items-center justify-between mb-1.5">
-                  <span data-supplier-label class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : 'text-gray-500' %>">
-                    <%= supplier.name %>
-                  </span>
-                  <span data-best-badge class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700 uppercase <%= 'hidden' unless is_cheapest %>">Best</span>
+                <% if is_cheapest %>
+                  <span data-best-badge style="position:absolute; top:-8px; right:-8px; padding:2px 7px; background:#16a34a; color:white; font-size:9px; font-weight:700; border-radius:20px;">BEST</span>
+                <% else %>
+                  <span data-best-badge style="position:absolute; top:-8px; right:-8px; padding:2px 7px; background:#16a34a; color:white; font-size:9px; font-weight:700; border-radius:20px; display:none;">BEST</span>
+                <% end %>
+
+                <%# Supplier name — 9px %>
+                <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                     data-supplier-label
+                     class="<%= is_cheapest ? 'text-green-400' : supplier.brand_color_class %>">
+                  <%= supplier.short_name %>
                 </div>
-                <%# Price %>
-                <span data-price-label class="text-base font-bold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>">
-                  <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
-                </span>
-                <% if item.price_unit.present? && item.estimated_total_price != item.price %>
-                  <span class="block text-xs text-gray-500">~<%= number_to_currency(item.estimated_total_price) %></span>
-                <% end %>
+
+                <%# Product name — 11px, 2-line clamp %>
+                <div style="font-size:11px; color:#cbd5e1; line-height:1.3; margin-bottom:3px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
+                  <%= item.name.to_s.truncate(80) %>
+                </div>
+
+                <%# Pack size — 10px %>
                 <% if effective_pack_size.present? %>
-                  <div class="text-xs text-gray-400 mt-0.5"><%= effective_pack_size %></div>
+                  <div style="font-size:10px; color:#475569;"><%= effective_pack_size %></div>
                 <% end %>
+
+                <%# Price — 14px bold %>
+                <div data-price-label style="font-size:14px; font-weight:700; margin-top:4px; <%= is_cheapest ? 'color:#4ade80;' : 'color:#f8fafc;' %>">
+                  <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
+                </div>
+                <% if item.price_unit.present? && item.estimated_total_price != item.price %>
+                  <span style="font-size:10px; color:#64748b;">~<%= number_to_currency(item.estimated_total_price) %></span>
+                <% end %>
+
+                <%# Per-unit — 10px %>
                 <% if item.formatted_per_unit_price %>
-                  <span class="text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>" data-per-unit-price>
+                  <div data-per-unit-price style="font-size:10px; margin-top:1px; <%= is_cheapest ? 'color:#4ade80;' : 'color:#475569;' %>">
                     <%= item.formatted_per_unit_price %>
-                  </span>
+                  </div>
                 <% end %>
+
+                <%# CS/PC toggle %>
                 <% if item.piece_price.present? %>
-                  <div class="inline-flex rounded border border-gray-300 text-xs mt-1.5" data-order-builder-target="uomToggle">
+                  <div style="display:inline-flex; border-radius:4px; border:1px solid #475569; font-size:11px; margin-top:6px;" data-order-builder-target="uomToggle">
                     <button type="button"
-                            class="px-2 py-0.5 rounded-l bg-gray-700 text-white font-medium"
+                            style="padding:2px 8px; border-radius:3px 0 0 3px; background:#374151; color:white; font-weight:500; border:none; cursor:pointer;"
                             data-action="click->order-builder#selectUom"
                             data-uom="CS"
                             data-uom-price="<%= cell_price %>"
@@ -132,7 +150,7 @@
                             data-match-id="<%= match.id %>"
                             data-supplier-id="<%= supplier.id %>">CS</button>
                     <button type="button"
-                            class="px-2 py-0.5 rounded-r text-gray-400"
+                            style="padding:2px 8px; border-radius:0 3px 3px 0; color:#64748b; border:none; cursor:pointer; background:transparent;"
                             data-action="click->order-builder#selectUom"
                             data-uom="PC"
                             data-uom-price="<%= item.piece_price %>"
@@ -142,20 +160,23 @@
                             data-supplier-id="<%= supplier.id %>">PC</button>
                   </div>
                 <% end %>
+
                 <% unless sp ? sp.in_stock : item.in_stock %>
-                  <span class="text-xs text-red-500 font-medium mt-0.5 block">Out of stock</span>
+                  <span style="font-size:10px; color:#ef4444; font-weight:500; margin-top:2px; display:block;">Out of stock</span>
                 <% end %>
               </div>
             <% else %>
-              <div class="rounded-lg border border-gray-200 bg-white p-3">
-                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 block mb-1.5"><%= supplier.name %></span>
-                <span class="text-sm text-gray-400">No price</span>
+              <%# No price %>
+              <div style="padding:10px; border-radius:8px; border:1px solid #334155; background:#0f172a; min-width:0;">
+                <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" class="<%= supplier.brand_color_class %>"><%= supplier.short_name %></div>
+                <div style="font-size:11px; color:#475569;">No price</div>
               </div>
             <% end %>
           <% else %>
-            <div class="rounded-lg border border-gray-200 bg-white p-3">
-              <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-500 block mb-1.5"><%= supplier.name %></span>
-              <span class="text-sm text-gray-300 italic">No match</span>
+            <%# No match %>
+            <div style="padding:10px; border-radius:8px; border:1px solid #334155; background:#0f172a; min-width:0;">
+              <div style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" class="<%= supplier.brand_color_class %>"><%= supplier.short_name %></div>
+              <div style="font-size:11px; color:#475569; font-style:italic;">No match</div>
             </div>
           <% end %>
         <% end %>
