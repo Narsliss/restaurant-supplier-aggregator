@@ -131,6 +131,35 @@ class UnitParser
       (price.to_f / parsed[:normalized_quantity]).round(4)
     end
 
+    # Returns the normalized quantity for a SINGLE piece within a case pack.
+    # For "4x1 Gallon BC" → 128 fl oz (one gallon), "12x10.5 Oz BC" → 10.5 oz.
+    # Returns nil for non-case-pack formats (e.g., "50 LB").
+    def per_piece_normalized(pack_size_str)
+      return nil unless pack_size_str.present?
+      text = pack_size_str.to_s.strip.downcase
+
+      # Match multiplied: "4x1 gallon", "12x10.5 oz"
+      if text =~ /(\d+)\s*[x\/\-]\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
+        per_piece = $2.to_f
+        unit = normalize_unit_str($3)
+        result = normalize_to_base(per_piece, unit)
+        return { quantity: result[:quantity].round(4), unit: result[:unit] } if result
+      end
+
+      # Match space-separated: "4 3 lb", "12 46 oz"
+      if text =~ /\A\s*(\d+)\s+(\d+\.?\d*)\s*(#{unit_pattern})\s*\z/i
+        count = $1.to_f
+        per_piece = $2.to_f
+        unit = normalize_unit_str($3)
+        if count > 1 && count <= 24 && count != per_piece
+          result = normalize_to_base(per_piece, unit)
+          return { quantity: result[:quantity].round(4), unit: result[:unit] } if result
+        end
+      end
+
+      nil
+    end
+
     # Check if two pack sizes are comparable (same normalized unit category)
     def comparable?(pack_size_a, pack_size_b)
       a = parse(pack_size_a)

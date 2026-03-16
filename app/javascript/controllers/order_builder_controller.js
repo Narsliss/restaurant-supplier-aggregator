@@ -523,6 +523,37 @@ export default class extends Controller {
         const packSize = btn.dataset.uomPackSize
         if (packSize) packDiv.textContent = packSize
       }
+
+      // Update per-unit price text
+      const perUnitText = btn.dataset.uomPerUnit
+      const perUnitSpan = cell.querySelector("[data-per-unit-price]")
+      if (perUnitSpan && perUnitText) {
+        perUnitSpan.textContent = perUnitText
+      }
+
+      // Handle "Best" badge: hide when switching to PC (apples-to-oranges),
+      // restore when switching back to CS if this cell was originally cheapest
+      const wasCheapest = cell.dataset.cheapest === "true"
+      if (wasCheapest) {
+        const badge = cell.querySelector("[data-best-badge]")
+        const supplierLabel = cell.querySelector("[data-supplier-label]")
+        const priceLabel = cell.querySelector("[data-price-label]")
+        const perUnit = cell.querySelector("[data-per-unit-price]")
+
+        if (uom === "PC") {
+          // Hide Best badge and remove green styling
+          if (badge) badge.classList.add("hidden")
+          if (supplierLabel) { supplierLabel.classList.remove("text-green-700"); supplierLabel.classList.add("text-gray-500") }
+          if (priceLabel) { priceLabel.classList.remove("text-green-700"); priceLabel.classList.add("text-gray-900") }
+          if (perUnit) { perUnit.classList.remove("text-green-600", "font-medium"); perUnit.classList.add("text-gray-400") }
+        } else {
+          // Restore Best badge and green styling
+          if (badge) badge.classList.remove("hidden")
+          if (supplierLabel) { supplierLabel.classList.remove("text-gray-500"); supplierLabel.classList.add("text-green-700") }
+          if (priceLabel) { priceLabel.classList.remove("text-gray-900"); priceLabel.classList.add("text-green-700") }
+          if (perUnit) { perUnit.classList.remove("text-gray-400"); perUnit.classList.add("text-green-600", "font-medium") }
+        }
+      }
     }
 
     // Update quantity input price if this supplier is currently selected

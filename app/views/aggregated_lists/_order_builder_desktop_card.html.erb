@@ -100,15 +100,13 @@
                    data-current-uom="CS">
                 <%# Supplier name header %>
                 <div class="flex items-center justify-between mb-1.5">
-                  <span class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : 'text-gray-500' %>">
+                  <span data-supplier-label class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : 'text-gray-500' %>">
                     <%= supplier.name %>
                   </span>
-                  <% if is_cheapest %>
-                    <span class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700 uppercase">Best</span>
-                  <% end %>
+                  <span data-best-badge class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700 uppercase <%= 'hidden' unless is_cheapest %>">Best</span>
                 </div>
                 <%# Price %>
-                <span class="text-base font-bold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>">
+                <span data-price-label class="text-base font-bold <%= is_cheapest ? 'text-green-700' : 'text-gray-900' %>">
                   <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                 </span>
                 <% if item.price_unit.present? && item.estimated_total_price != item.price %>
@@ -118,7 +116,7 @@
                   <div class="text-xs text-gray-400 mt-0.5"><%= effective_pack_size %></div>
                 <% end %>
                 <% if item.formatted_per_unit_price %>
-                  <span class="text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
+                  <span class="text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>" data-per-unit-price>
                     <%= item.formatted_per_unit_price %>
                   </span>
                 <% end %>
@@ -130,6 +128,7 @@
                             data-uom="CS"
                             data-uom-price="<%= cell_price %>"
                             data-uom-pack-size="<%= effective_pack_size %>"
+                            data-uom-per-unit="<%= item.formatted_per_unit_price %>"
                             data-match-id="<%= match.id %>"
                             data-supplier-id="<%= supplier.id %>">CS</button>
                     <button type="button"
@@ -138,6 +137,7 @@
                             data-uom="PC"
                             data-uom-price="<%= item.piece_price %>"
                             data-uom-pack-size="<%= item.piece_pack_size || 'PC' %>"
+                            data-uom-per-unit="<%= item.formatted_piece_per_unit_price %>"
                             data-match-id="<%= match.id %>"
                             data-supplier-id="<%= supplier.id %>">PC</button>
                   </div>

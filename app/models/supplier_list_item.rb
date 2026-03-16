@@ -126,6 +126,24 @@ class SupplierListItem < ApplicationRecord
     UnitParser.format_per_unit(per_unit_price, normalized_unit)
   end
 
+  # Per-unit price for a single PIECE within a case pack.
+  # Uses the per-piece quantity extracted from the case pack size.
+  # Example: "12x10.5 Oz BC" at piece_price=$7.98 → $7.98 / 10.5 oz = $0.76/oz
+  def piece_per_unit_price
+    return nil unless piece_price.present? && piece_price > 0
+
+    per_piece = UnitParser.per_piece_normalized(pack_size)
+    if per_piece && per_piece[:quantity] > 0
+      (piece_price / per_piece[:quantity]).round(4)
+    end
+  end
+
+  def formatted_piece_per_unit_price
+    per_piece = UnitParser.per_piece_normalized(pack_size)
+    return nil unless per_piece
+    UnitParser.format_per_unit(piece_per_unit_price, per_piece[:unit])
+  end
+
   # Estimated total price for the full pack.
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.
