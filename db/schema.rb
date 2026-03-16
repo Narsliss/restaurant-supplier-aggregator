@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_15_185637) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_15_224448) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -233,6 +233,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_15_185637) do
     t.decimal "verified_price", precision: 10, scale: 2
     t.string "product_name"
     t.string "product_sku"
+    t.string "uom"
     t.index ["order_id"], name: "index_order_items_on_order_id"
     t.index ["status"], name: "index_order_items_on_status"
     t.index ["supplier_product_id"], name: "index_order_items_on_supplier_product_id"
@@ -703,6 +704,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_15_185637) do
     t.decimal "previous_price", precision: 10, scale: 2
     t.datetime "price_updated_at"
     t.string "price_unit"
+    t.decimal "piece_price", precision: 10, scale: 2
+    t.string "piece_pack_size"
     t.index ["supplier_list_id", "sku"], name: "idx_list_items_list_sku", unique: true
     t.index ["supplier_list_id"], name: "index_supplier_list_items_on_supplier_list_id"
     t.index ["supplier_product_id"], name: "index_supplier_list_items_on_supplier_product_id"
@@ -771,6 +774,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_15_185637) do
     t.integer "consecutive_misses", default: 0, null: false
     t.datetime "discontinued_at"
     t.string "price_unit"
+    t.decimal "piece_price", precision: 10, scale: 2
+    t.string "piece_pack_size"
     t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
     t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["in_stock"], name: "index_supplier_products_on_in_stock"

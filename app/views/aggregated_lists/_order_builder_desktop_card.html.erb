@@ -84,15 +84,20 @@
             <% if effective_price %>
               <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
               <% is_default = cheapest && cheapest[:supplier] == supplier %>
+              <% cell_price = item.price_unit.present? ? item.estimated_total_price : effective_price %>
               <div class="rounded-lg border p-3 cursor-pointer transition-all border-gray-200 bg-white
                           <%= is_default ? 'ring-2 ring-brand-orange' : 'hover:bg-gray-50' %>"
                    data-action="click->order-builder#selectSupplier"
-                   data-supplier-price="<%= item.price_unit.present? ? item.estimated_total_price : effective_price %>"
+                   data-supplier-price="<%= cell_price %>"
                    data-supplier-id-value="<%= supplier.id %>"
                    data-match-id="<%= match.id %>"
                    data-order-builder-target="supplierCell"
                    data-default="<%= is_default %>"
-                   data-cheapest="<%= is_cheapest %>">
+                   data-cheapest="<%= is_cheapest %>"
+                   data-case-price="<%= cell_price %>"
+                   data-piece-price="<%= item.piece_price %>"
+                   data-piece-pack-size="<%= item.piece_pack_size %>"
+                   data-current-uom="CS">
                 <%# Supplier name header %>
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="text-[11px] font-semibold uppercase tracking-wider <%= is_cheapest ? 'text-green-700' : 'text-gray-500' %>">
@@ -116,6 +121,26 @@
                   <span class="text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
                     <%= item.formatted_per_unit_price %>
                   </span>
+                <% end %>
+                <% if item.piece_price.present? %>
+                  <div class="inline-flex rounded border border-gray-300 text-xs mt-1.5" data-order-builder-target="uomToggle">
+                    <button type="button"
+                            class="px-2 py-0.5 rounded-l bg-gray-700 text-white font-medium"
+                            data-action="click->order-builder#selectUom"
+                            data-uom="CS"
+                            data-uom-price="<%= cell_price %>"
+                            data-uom-pack-size="<%= effective_pack_size %>"
+                            data-match-id="<%= match.id %>"
+                            data-supplier-id="<%= supplier.id %>">CS</button>
+                    <button type="button"
+                            class="px-2 py-0.5 rounded-r text-gray-400"
+                            data-action="click->order-builder#selectUom"
+                            data-uom="PC"
+                            data-uom-price="<%= item.piece_price %>"
+                            data-uom-pack-size="<%= item.piece_pack_size || 'PC' %>"
+                            data-match-id="<%= match.id %>"
+                            data-supplier-id="<%= supplier.id %>">PC</button>
+                  </div>
                 <% end %>
                 <% unless sp ? sp.in_stock : item.in_stock %>
                   <span class="text-xs text-red-500 font-medium mt-0.5 block">Out of stock</span>

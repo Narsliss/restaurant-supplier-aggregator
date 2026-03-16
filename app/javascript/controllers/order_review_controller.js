@@ -440,9 +440,9 @@ export default class extends Controller {
 
     // Update card ring
     if (meetsMinimum) {
-      card.classList.remove("ring-2", "ring-yellow-400")
+      card.classList.remove("ring-2", "ring-red-400")
     } else {
-      card.classList.add("ring-2", "ring-yellow-400")
+      card.classList.add("ring-2", "ring-red-400")
     }
 
     // Update warning banners
@@ -455,12 +455,12 @@ export default class extends Controller {
           const p = warning.querySelector("p")
           if (p) {
             p.innerHTML = `
-              <span class="font-medium">Warning:</span>
-              ${supplierName} order minimum not met.
-              <span class="text-yellow-600">
-                Current: ${this._formatCurrency(subtotal)},
-                Need: ${this._formatCurrency(shortfall)} more
-                (Minimum: ${this._formatCurrency(minimum)})
+              <span class="font-medium">Order minimum not met.</span>
+              ${supplierName} requires a minimum of
+              <strong>${this._formatCurrency(minimum)}</strong> per order.
+              <span class="text-red-600">
+                Current total: ${this._formatCurrency(subtotal)} &mdash;
+                ${this._formatCurrency(shortfall)} more needed.
               </span>
             `
           }
@@ -468,10 +468,21 @@ export default class extends Controller {
       }
     })
 
-    // Show or hide suggestions based on minimum status
+    // Show or hide suggestions based on any minimum status
+    const caseMin = parseInt(card.dataset.caseMinimum) || 0
+    let totalCases = 0
+    if (caseMin > 0) {
+      card.querySelectorAll("[data-order-review-target='itemRow']").forEach(row => {
+        if (row.dataset.orderId === orderId) {
+          const input = row.querySelector("[data-order-review-target='quantityInput']")
+          totalCases += input ? (parseInt(input.value) || 0) : 0
+        }
+      })
+    }
+    const meetsCaseHere = caseMin === 0 || totalCases >= caseMin
     this.suggestionsSectionTargets.forEach(el => {
       if (el.dataset.orderId === orderId) {
-        el.style.display = meetsMinimum ? "none" : ""
+        el.style.display = (meetsMinimum && meetsCaseHere) ? "none" : ""
       }
     })
   }
@@ -1054,16 +1065,17 @@ export default class extends Controller {
       totalAmount += subtotal
 
       const meetsMinium = minimum === 0 || subtotal >= minimum
+      const meetsCaseMin = caseMin === 0 || totalCases >= caseMin
       const hasDate = this._hasValidDeliveryDate(orderId)
       const verificationStatus = card.dataset.verificationStatus
       const isVerified = ["verified", "price_changed", "skipped"].includes(verificationStatus)
       const hasNoUnavailable = !card.querySelector("[data-in-stock='false']")
       const hasCredentials = card.dataset.hasCredentials !== "false"
-      const canSubmit = hasCredentials && meetsMinium && hasDate && isVerified && hasNoUnavailable
+      const canSubmit = hasCredentials && meetsMinium && meetsCaseMin && hasDate && isVerified && hasNoUnavailable
 
       cardData.push({
         orderId, card, subtotal, itemCount, totalCases,
-        minimum, caseMin, meetsMinium, canSubmit
+        minimum, caseMin, meetsMinium, meetsCaseMin, canSubmit
       })
     })
 
@@ -1115,9 +1127,9 @@ export default class extends Controller {
 
       // Card ring
       if (meetsMinium) {
-        card.classList.remove("ring-2", "ring-yellow-400")
+        card.classList.remove("ring-2", "ring-red-400")
       } else {
-        card.classList.add("ring-2", "ring-yellow-400")
+        card.classList.add("ring-2", "ring-red-400")
       }
 
       // Warning banners
@@ -1130,12 +1142,12 @@ export default class extends Controller {
             const p = warning.querySelector("p")
             if (p) {
               p.innerHTML = `
-                <span class="font-medium">Warning:</span>
-                ${supplierName} order minimum not met.
-                <span class="text-yellow-600">
-                  Current: ${this._formatCurrency(subtotal)},
-                  Need: ${this._formatCurrency(shortfall)} more
-                  (Minimum: ${this._formatCurrency(minimum)})
+                <span class="font-medium">Order minimum not met.</span>
+                ${supplierName} requires a minimum of
+                <strong>${this._formatCurrency(minimum)}</strong> per order.
+                <span class="text-red-600">
+                  Current total: ${this._formatCurrency(subtotal)} &mdash;
+                  ${this._formatCurrency(shortfall)} more needed.
                 </span>
               `
             }
@@ -1143,16 +1155,17 @@ export default class extends Controller {
         }
       })
 
-      // Suggestions
+      // Case minimum
+      const meetsCaseMin = caseMin === 0 || totalCases >= caseMin
+
+      // Suggestions (show when any minimum not met)
       this.suggestionsSectionTargets.forEach(el => {
         if (el.dataset.orderId === orderId) {
-          el.style.display = meetsMinium ? "none" : ""
+          el.style.display = (meetsMinium && meetsCaseMin) ? "none" : ""
         }
       })
 
-      // Case minimum
       if (caseMin > 0) {
-        const meetsCaseMin = totalCases >= caseMin
 
         this.caseMinimumWarningTargets.forEach(warning => {
           if (warning.dataset.orderId === orderId) {
@@ -1162,7 +1175,7 @@ export default class extends Controller {
               if (shortfallEl) {
                 const diff = caseMin - totalCases
                 shortfallEl.textContent =
-                  `You currently have ${totalCases} case${totalCases === 1 ? '' : 's'} — ${diff} more needed. An additional charge may apply.`
+                  `You currently have ${totalCases} case${totalCases === 1 ? '' : 's'} — ${diff} more needed.`
               }
             }
           }
@@ -1330,9 +1343,9 @@ export default class extends Controller {
 
       // Update card ring
       if (meetsMinium) {
-        card.classList.remove("ring-2", "ring-yellow-400")
+        card.classList.remove("ring-2", "ring-red-400")
       } else {
-        card.classList.add("ring-2", "ring-yellow-400")
+        card.classList.add("ring-2", "ring-red-400")
       }
 
       // Update warning banners
@@ -1345,12 +1358,12 @@ export default class extends Controller {
             const p = warning.querySelector("p")
             if (p) {
               p.innerHTML = `
-                <span class="font-medium">Warning:</span>
-                ${supplierName} order minimum not met.
-                <span class="text-yellow-600">
-                  Current: ${this._formatCurrency(subtotal)},
-                  Need: ${this._formatCurrency(shortfall)} more
-                  (Minimum: ${this._formatCurrency(minimum)})
+                <span class="font-medium">Order minimum not met.</span>
+                ${supplierName} requires a minimum of
+                <strong>${this._formatCurrency(minimum)}</strong> per order.
+                <span class="text-red-600">
+                  Current total: ${this._formatCurrency(subtotal)} &mdash;
+                  ${this._formatCurrency(shortfall)} more needed.
                 </span>
               `
             }
@@ -1358,23 +1371,24 @@ export default class extends Controller {
         }
       })
 
-      // Show or hide suggestions based on minimum status
+      // Case minimum (blocking)
+      const caseMin = parseInt(card.dataset.caseMinimum) || 0
+      let totalCasesForMin = 0
+      rows.forEach(row => {
+        const input = row.querySelector("[data-order-review-target='quantityInput']")
+        totalCasesForMin += input ? (parseInt(input.value) || 0) : 0
+      })
+      const meetsCaseMinHere = caseMin === 0 || totalCasesForMin >= caseMin
+
+      // Show or hide suggestions based on any minimum status
       this.suggestionsSectionTargets.forEach(el => {
         if (el.dataset.orderId === orderId) {
-          el.style.display = meetsMinium ? "none" : ""
+          el.style.display = (meetsMinium && meetsCaseMinHere) ? "none" : ""
         }
       })
 
-      // Case minimum (warning only — does NOT affect submit)
-      const caseMin = parseInt(card.dataset.caseMinimum) || 0
       if (caseMin > 0) {
-        let totalCases = 0
-        rows.forEach(row => {
-          const input = row.querySelector("[data-order-review-target='quantityInput']")
-          totalCases += input ? (parseInt(input.value) || 0) : 0
-        })
-
-        const meetsCaseMin = totalCases >= caseMin
+        const meetsCaseMin = totalCasesForMin >= caseMin
 
         this.caseMinimumWarningTargets.forEach(warning => {
           if (warning.dataset.orderId === orderId) {
@@ -1382,9 +1396,9 @@ export default class extends Controller {
             if (!meetsCaseMin) {
               const shortfallEl = warning.querySelector("[data-order-review-target='caseMinimumShortfall']")
               if (shortfallEl) {
-                const diff = caseMin - totalCases
+                const diff = caseMin - totalCasesForMin
                 shortfallEl.textContent =
-                  `You currently have ${totalCases} case${totalCases === 1 ? '' : 's'} — ${diff} more needed. An additional charge may apply.`
+                  `You currently have ${totalCasesForMin} case${totalCasesForMin === 1 ? '' : 's'} — ${diff} more needed.`
               }
             }
           }
@@ -1396,7 +1410,7 @@ export default class extends Controller {
               badge.style.display = "none"
             } else {
               badge.style.display = ""
-              const diff = caseMin - totalCases
+              const diff = caseMin - totalCasesForMin
               badge.textContent = `${diff} more case${diff === 1 ? '' : 's'} needed`
             }
           }
@@ -1453,24 +1467,28 @@ export default class extends Controller {
     this.orderCardTargets.forEach(card => {
       const orderId = card.dataset.orderId
       const minimum = parseFloat(card.dataset.minimum) || 0
+      const caseMin = parseInt(card.dataset.caseMinimum) || 0
       const verificationStatus = card.dataset.verificationStatus
 
-      // Calculate subtotal
+      // Calculate subtotal and case count
       const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
       let subtotal = 0
+      let totalCases = 0
       rows.forEach(row => {
         const unitPrice = parseFloat(row.dataset.unitPrice) || 0
         const input = row.querySelector("[data-order-review-target='quantityInput']")
         const qty = input ? (parseInt(input.value) || 0) : 0
         subtotal += unitPrice * qty
+        totalCases += qty
       })
 
       const meetsMinimum = minimum === 0 || subtotal >= minimum
+      const meetsCaseMin = caseMin === 0 || totalCases >= caseMin
       const hasDate = this._hasValidDeliveryDate(orderId)
       const isVerified = ["verified", "price_changed", "skipped"].includes(verificationStatus)
       const hasNoUnavailable = !card.querySelector("[data-in-stock='false']")
       const hasCredentials = card.dataset.hasCredentials !== "false"
-      const canSubmit = hasCredentials && meetsMinimum && hasDate && isVerified && hasNoUnavailable
+      const canSubmit = hasCredentials && meetsMinimum && meetsCaseMin && hasDate && isVerified && hasNoUnavailable
 
       if (canSubmit) submittableCount++
 

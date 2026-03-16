@@ -93,6 +93,37 @@
       </div>
     </div>
 
+    <%# Order Requirements (edit only) %>
+    <% if credential.persisted? %>
+      <div class="border-t border-gray-100 pt-5 mt-2">
+        <h3 class="text-sm font-semibold text-gray-900 mb-1">Order Requirements</h3>
+        <p class="text-xs text-gray-500 mb-4">Set minimum order requirements for this supplier. Leave blank for no minimum.</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label for="order_minimum" class="block text-sm font-medium text-gray-700 mb-1">Order Minimum ($)</label>
+            <div class="relative">
+              <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 text-sm">$</span>
+              <input type="number" name="order_minimum" id="order_minimum"
+                     value="<%= @order_minimum ? number_with_precision(@order_minimum, precision: 2, strip_insignificant_zeros: true) : '' %>"
+                     step="0.01" min="0"
+                     placeholder="0.00"
+                     class="block w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-brand-green focus:ring-brand-green py-2.5 pl-7 pr-3">
+            </div>
+            <p class="text-xs text-gray-400 mt-1">Minimum dollar amount per order</p>
+          </div>
+          <div>
+            <label for="case_minimum" class="block text-sm font-medium text-gray-700 mb-1">Case Minimum</label>
+            <input type="number" name="case_minimum" id="case_minimum"
+                   value="<%= @case_minimum %>"
+                   step="1" min="0"
+                   placeholder="0"
+                   class="block w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-brand-green focus:ring-brand-green py-2.5 px-3">
+            <p class="text-xs text-gray-400 mt-1">Minimum cases or pieces per order</p>
+          </div>
+        </div>
+      </div>
+    <% end %>
+
     <%# Action buttons %>
     <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2 border-t border-gray-100">
       <%= link_to "Cancel", supplier_credentials_path, class: "px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-center transition-colors" %>

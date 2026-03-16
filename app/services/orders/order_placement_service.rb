@@ -298,7 +298,8 @@ module Orders
           sku: item.supplier_product.supplier_sku,
           name: item.supplier_product.supplier_name,
           quantity: item.quantity.to_i,
-          expected_price: item.unit_price
+          expected_price: item.unit_price,
+          uom: item.uom
         }
       end
     end

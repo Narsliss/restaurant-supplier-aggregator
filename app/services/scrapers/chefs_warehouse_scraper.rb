@@ -741,6 +741,11 @@ module Scrapers
       qty = item[:quantity].to_i
       qty = 1 if qty < 1
 
+      # Select PC (Piece) UOM if requested — must happen before adding to cart
+      if item[:uom] == "PC"
+        select_piece_uom(item)
+      end
+
       # CW's Vue.js SPA ignores programmatic quantity input changes.
       # Most reliable approach: click Add to Cart once per unit needed.
       qty.times do |i|
@@ -794,6 +799,60 @@ module Scrapers
 
         # Brief pause between clicks to let Vue update the cart state
         sleep 1.5 if i < qty - 1
+      end
+    end
+
+    # Click the PC (Piece) button on the product detail page before adding to cart.
+    # CW shows CS/PC toggle buttons near the quantity input on items that support both.
+    # Falls back to CS (default) with a warning if the PC button can't be found.
+    def select_piece_uom(item)
+      clicked = browser.evaluate(<<~JS)
+        (function() {
+          // Strategy 1: Look for buttons with data-uom or data-unit attributes
+          var uomBtns = document.querySelectorAll('[data-uom], [data-unit], [data-value]');
+          for (var btn of uomBtns) {
+            var val = (btn.getAttribute('data-uom') || btn.getAttribute('data-unit') || btn.getAttribute('data-value') || '').toLowerCase();
+            if (val === 'pc' || val === 'piece' || val === 'ea' || val === 'each') {
+              btn.click();
+              return { clicked: true, method: 'data-attr', value: val };
+            }
+          }
+
+          // Strategy 2: Look for buttons/spans with text "PC" or "Piece" near the add-to-cart area
+          var containers = document.querySelectorAll(
+            '.product-detail, .pdp-container, .product-info, [class*="product-detail"], [class*="pdp"], main'
+          );
+          for (var container of containers) {
+            var btns = container.querySelectorAll('button, span.selectable, a, [role="button"], label, input[type="radio"]');
+            for (var btn of btns) {
+              var text = btn.innerText ? btn.innerText.trim() : (btn.value || '');
+              if (text.match(/^(PC|Piece|Each|EA)$/i)) {
+                btn.click();
+                return { clicked: true, method: 'text-match', text: text };
+              }
+            }
+          }
+
+          // Strategy 3: Look for radio inputs or select options
+          var radios = document.querySelectorAll('input[type="radio"]');
+          for (var radio of radios) {
+            var label = document.querySelector('label[for="' + radio.id + '"]');
+            var labelText = label ? label.innerText.trim() : '';
+            if (labelText.match(/^(PC|Piece|Each|EA)$/i) || radio.value.match(/^(PC|Piece|Each|EA)$/i)) {
+              radio.click();
+              return { clicked: true, method: 'radio', value: radio.value };
+            }
+          }
+
+          return { clicked: false };
+        })()
+      JS
+
+      if clicked && clicked['clicked']
+        logger.info "[ChefsWarehouse] Selected PC UOM for SKU #{item[:sku]}: #{clicked.inspect}"
+        sleep 1.5 # Wait for Vue to re-render with piece pricing
+      else
+        logger.warn "[ChefsWarehouse] PC button not found for SKU #{item[:sku]} — proceeding with default UOM (CS)"
       end
     end
 
@@ -919,6 +978,8 @@ module Scrapers
       # If no guides found, treat the current page as a single guide
       if parsed_guides.empty?
         products = extract_order_guide_products
+        # Enrich with piece pricing while still on the guide page
+        enrich_guide_items_with_piece_pricing(products)
         return [{
           name: 'Order Guide',
           remote_id: 'order-guide',
@@ -949,6 +1010,10 @@ module Scrapers
         products = extract_order_guide_products
         logger.info "[ChefsWarehouse] Guide '#{guide_name}': #{products.size} products"
 
+        # Enrich with piece pricing while still on the guide page —
+        # clicks Piece variant buttons to read alternate prices
+        enrich_guide_items_with_piece_pricing(products)
+
         # Determine list type based on guide ID
         list_type = guide['remote_id'] == '-1' ? 'favorites' : 'order_guide'
 
@@ -964,6 +1029,112 @@ module Scrapers
       end
 
       result_lists
+    end
+
+    # Enrich order guide items with piece pricing by clicking the Piece variant
+    # button on items that have both Case and Piece UOM options.
+    #
+    # Must be called while the order guide detail page is still loaded in the browser.
+    # For each item with a Piece variant, clicks Piece → reads new price → clicks Case back.
+    #
+    # Matches DOM elements to items by SKU (not position) because the DOM has
+    # ~40 navigation li.cw-list-item elements before the actual products.
+    def enrich_guide_items_with_piece_pricing(items)
+      # Build a SKU lookup for the items array
+      items_by_sku = {}
+      items.each { |item| items_by_sku[item[:sku]] = item if item[:sku].present? }
+
+      # Find DOM indices of items with both Case and Piece enabled, along with their SKU
+      dual_uom_data = browser.evaluate(
+        'Array.from(document.querySelectorAll("li.cw-list-item")).map(function(item, idx){' \
+        'var btns=item.querySelectorAll(".variant-btn");' \
+        'var hasCase=false,hasPiece=false;' \
+        'Array.from(btns).forEach(function(b){' \
+        'var t=b.innerText.trim();' \
+        'if(t==="Case"&&!b.classList.contains("disabled"))hasCase=true;' \
+        'if(t==="Piece"&&!b.classList.contains("disabled"))hasPiece=true});' \
+        'if(!hasCase||!hasPiece)return null;' \
+        'var link=item.querySelector("a[href*=products]");' \
+        'var sku=null;' \
+        'if(link){var m=link.getAttribute("href").match(/\\/products\\/([^/]+)/);if(m)sku=m[1]}' \
+        'if(!sku){var infos=item.querySelectorAll("ul.info-list li.item");' \
+        'for(var j=0;j<infos.length;j++){var t=infos[j].innerText.trim();if(t.match(/^[A-Z0-9]{2,}$/i)){sku=t;break}}}' \
+        'return sku?idx+":"+sku:null' \
+        '}).filter(function(v){return v!==null}).join(",")'
+      )
+
+      return if dual_uom_data.blank?
+
+      # Parse "domIndex:sku" pairs
+      pairs = dual_uom_data.split(',').map { |s| idx, sku = s.split(':', 2); [idx.to_i, sku] }
+      logger.info "[ChefsWarehouse] Found #{pairs.size} items with Case/Piece toggle on order guide"
+
+      enriched = 0
+      pairs.each do |dom_idx, sku|
+        item = items_by_sku[sku]
+        next unless item # SKU not in our extracted items
+
+        begin
+          # Click the Piece button on this DOM element
+          clicked = browser.evaluate(
+            "Array.from(document.querySelectorAll('li.cw-list-item')[#{dom_idx}]" \
+            ".querySelectorAll('.variant-btn')).filter(function(b){" \
+            "return b.innerText.trim()==='Piece'&&!b.classList.contains('disabled')" \
+            "}).map(function(b){b.click();return true})[0]||false"
+          )
+          next unless clicked
+
+          sleep 1.5 # Wait for Vue re-render
+
+          # Read the piece price from the DOM element's price span
+          piece_price_str = browser.evaluate(
+            "document.querySelectorAll('li.cw-list-item')[#{dom_idx}]" \
+            ".querySelector('span.price')" \
+            "?document.querySelectorAll('li.cw-list-item')[#{dom_idx}]" \
+            ".querySelector('span.price').innerText.trim():''"
+          )
+
+          # Read the piece pack size
+          piece_pack = browser.evaluate(
+            "document.querySelectorAll('li.cw-list-item')[#{dom_idx}]" \
+            ".querySelector('.pack-size,[class*=pack]')" \
+            "?document.querySelectorAll('li.cw-list-item')[#{dom_idx}]" \
+            ".querySelector('.pack-size,[class*=pack]').innerText.trim():''"
+          )
+
+          # Click back to Case
+          browser.evaluate(
+            "Array.from(document.querySelectorAll('li.cw-list-item')[#{dom_idx}]" \
+            ".querySelectorAll('.variant-btn')).filter(function(b){" \
+            "return b.innerText.trim()==='Case'&&!b.classList.contains('disabled')" \
+            "}).map(function(b){b.click();return true})[0]||false"
+          )
+          sleep 0.5
+
+          # Parse and validate piece price
+          next unless piece_price_str.present?
+
+          price_match = piece_price_str.match(/\$(\d+[,\d]*\.\d{2})/)
+          next unless price_match
+
+          piece_price = price_match[1].delete(',').to_f
+          next unless piece_price > 0 && piece_price != item[:price]
+
+          item[:piece_price] = piece_price
+          item[:piece_pack_size] = piece_pack.presence
+          enriched += 1
+          logger.info "[ChefsWarehouse] Piece price $#{piece_price} for #{item[:name]} (SKU: #{sku}, case: $#{item[:price]})"
+        rescue StandardError => e
+          logger.debug "[ChefsWarehouse] Error reading piece price for #{sku} (DOM #{dom_idx}): #{e.message}"
+          browser.evaluate(
+            "Array.from(document.querySelectorAll('li.cw-list-item')[#{dom_idx}]" \
+            ".querySelectorAll('.variant-btn')).filter(function(b){" \
+            "return b.innerText.trim()==='Case'}).map(function(b){b.click();return true})[0]||false"
+          ) rescue nil
+        end
+      end
+
+      logger.info "[ChefsWarehouse] Piece price enrichment complete: #{enriched}/#{pairs.size} items enriched"
     end
 
     # Extract products from the current order guide detail page.
@@ -1033,9 +1204,67 @@ module Scrapers
               // Price (e.g. "$60.50 / Piece" or "$129.15 / Case")
               var priceEl = item.querySelector('.price');
               var price = null;
+              var priceUomLabel = null;
               if (priceEl) {
-                var priceMatch = priceEl.innerText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+                var priceText = priceEl.innerText.trim();
+                var priceMatch = priceText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
                 if (priceMatch) price = parseFloat(priceMatch[1].replace(',', ''));
+                // Capture UOM from "/ Piece" or "/ Case" suffix
+                var uomMatch = priceText.match(/\\/\\s*(Piece|Case|Each|PC|CS)/i);
+                if (uomMatch) priceUomLabel = uomMatch[1].toLowerCase();
+              }
+
+              // Look for CS/PC toggle or alternate price within the item
+              // CW may show toggle buttons, a secondary price, or data attributes
+              var piecePrice = null;
+              var piecePack = null;
+              var casePrice = null;
+
+              // Strategy 1: Look for UOM toggle buttons with price data
+              var uomBtns = item.querySelectorAll('[data-uom], [data-unit], .uom-toggle button, .unit-toggle button, .uom-selector button');
+              for (var b = 0; b < uomBtns.length; b++) {
+                var btn = uomBtns[b];
+                var btnText = btn.innerText.trim().toLowerCase();
+                var btnPrice = btn.getAttribute('data-price') || btn.getAttribute('data-unit-price');
+                if (btnPrice) {
+                  var parsedBtnPrice = parseFloat(btnPrice.replace(/[^\\d.]/g, ''));
+                  if (btnText.match(/piece|pc|ea/i)) {
+                    piecePrice = parsedBtnPrice;
+                  } else if (btnText.match(/case|cs/i)) {
+                    casePrice = parsedBtnPrice;
+                  }
+                }
+              }
+
+              // Strategy 2: Look for secondary price elements
+              var priceEls = item.querySelectorAll('.price, [class*="price"]');
+              for (var p = 0; p < priceEls.length; p++) {
+                var pEl = priceEls[p];
+                var pText = pEl.innerText.trim();
+                var pMatch = pText.match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+                var pUom = pText.match(/\\/\\s*(Piece|Case|Each|PC|CS)/i);
+                if (pMatch && pUom) {
+                  var pVal = parseFloat(pMatch[1].replace(',', ''));
+                  if (pUom[1].toLowerCase().match(/piece|pc|ea/) && pVal !== price) {
+                    piecePrice = pVal;
+                  } else if (pUom[1].toLowerCase().match(/case|cs/) && pVal !== price) {
+                    casePrice = pVal;
+                  }
+                }
+              }
+
+              // Assign piece/case prices based on the primary price UOM
+              if (priceUomLabel && priceUomLabel.match(/piece|pc|ea/)) {
+                // Primary price IS the piece price
+                piecePrice = piecePrice || price;
+                price = casePrice || price; // prefer case as the main price
+                // If we only have piece price, keep it as primary and set piecePrice
+                if (!casePrice) {
+                  price = piecePrice;
+                  piecePrice = null; // only one UOM available
+                }
+              } else if (piecePrice && !casePrice) {
+                // Primary is case, we found a piece price — good
               }
 
               // Full name with brand
@@ -1049,8 +1278,11 @@ module Scrapers
                 sku: sku,
                 name: fullName.substring(0, 255),
                 price: price,
+                piece_price: piecePrice,
+                piece_pack_size: piecePack,
                 pack_size: packSize,
-                in_stock: inStock
+                in_stock: inStock,
+                price_uom_label: priceUomLabel
               });
             }
 
@@ -1066,6 +1298,8 @@ module Scrapers
           sku: item['sku'],
           name: item['name'],
           price: item['price'].is_a?(Numeric) ? item['price'] : nil,
+          piece_price: item['piece_price'].is_a?(Numeric) ? item['piece_price'] : nil,
+          piece_pack_size: item['piece_pack_size'].to_s.strip.presence,
           pack_size: item['pack_size'].to_s.strip.presence,
           quantity: 1,
           in_stock: item['in_stock'] != false,
@@ -1613,11 +1847,11 @@ module Scrapers
 
     # ── Product scraping ────────────────────────────────────────────
     def scrape_product(sku)
-      navigate_to("#{BASE_URL}/product/#{sku}")
+      navigate_to("#{BASE_URL}/products/#{sku}/")
 
       return nil unless browser.at_css('.product-detail, .pdp-container')
 
-      {
+      result = {
         supplier_sku: sku,
         supplier_name: extract_text('.product-name, h1.title'),
         current_price: extract_price(extract_text('.price, .product-price')),
@@ -1625,6 +1859,143 @@ module Scrapers
         in_stock: browser.at_css('.out-of-stock, .sold-out').nil?,
         scraped_at: Time.current
       }
+
+      # Extract CS/PC piece pricing from the product detail page
+      piece_data = extract_piece_pricing_from_pdp
+      result[:piece_price] = piece_data[:piece_price] if piece_data[:piece_price]
+      result[:piece_pack_size] = piece_data[:piece_pack_size] if piece_data[:piece_pack_size]
+
+      result
+    end
+
+    # Extract piece (PC) pricing from a CW product detail page.
+    #
+    # CW's Vue.js SPA renders CS/PC toggle buttons as `button.variant-btn`
+    # inside a `qty-uom-selector` container. The main product's toggles are
+    # separate from the `recommended-product-variants` section at the bottom.
+    #
+    # Approach:
+    #   1. Find variant-btn elements NOT inside recommended-product-variants
+    #   2. Check if both CS and PC are present and enabled (not disabled)
+    #   3. If currently on CS, click PC, wait for Vue re-render, read new price
+    #   4. Click back to CS to restore default state
+    #
+    # Uses simple JS expressions (not IIFEs) because Ferrum handles those more reliably.
+    def extract_piece_pricing_from_pdp
+      piece_result = { piece_price: nil, piece_pack_size: nil }
+
+      # Step 1: Check if this product has both CS and PC variant buttons.
+      # Scope to the FIRST .product-details__buy-box — this is the main product's
+      # buy area. Related/recommended product cards lower on the page have their
+      # own .product-details__buy-box containers that we must ignore.
+      variant_texts = browser.evaluate(
+        'document.querySelector(".product-details__buy-box") ? ' \
+        'Array.from(document.querySelector(".product-details__buy-box").querySelectorAll(".variant-btn")).map(function(b){' \
+        'return b.innerText.trim()+(b.classList.contains("disabled")?"*":"")+(b.classList.contains("selected")?"!":"")' \
+        '}).join(",") : ""'
+      )
+
+      logger.debug "[ChefsWarehouse] Main product variant buttons: #{variant_texts}"
+
+      return piece_result if variant_texts.blank?
+
+      # Parse variant info: look for both CS and PC, both enabled
+      variants = variant_texts.split(',').map(&:strip).reject(&:empty?)
+      has_cs = variants.any? { |v| v.start_with?('CS') && !v.include?('*') }
+      has_pc = variants.any? { |v| v.start_with?('PC') && !v.include?('*') }
+
+      unless has_cs && has_pc
+        logger.debug "[ChefsWarehouse] Product doesn't have both CS and PC enabled (variants: #{variant_texts})"
+        return piece_result
+      end
+
+      # Step 2: Read the current (case) price from the first buy-box
+      case_price = browser.evaluate(
+        'document.querySelector(".product-details__buy-box") ? ' \
+        'Array.from(document.querySelector(".product-details__buy-box").querySelectorAll("span")).filter(function(s){' \
+        'var m=s.innerText.trim().match(/^\\$(\\d+[,\\d]*\\.\\d{2})/);return m!==null' \
+        '}).map(function(s){' \
+        'return parseFloat(s.innerText.trim().match(/\\$(\\d+[,\\d]*\\.\\d{2})/)[1].replace(",",""))' \
+        '})[0] : null'
+      )
+
+      # Fallback: try the first product-details container
+      if !case_price.is_a?(Numeric) || case_price <= 0
+        case_price = browser.evaluate(
+          'document.querySelector(".product-details") ? ' \
+          'Array.from(document.querySelector(".product-details").querySelectorAll("span")).filter(function(s){' \
+          'var m=s.innerText.trim().match(/^\\$(\\d+[,\\d]*\\.\\d{2})/);return m!==null' \
+          '}).map(function(s){' \
+          'return parseFloat(s.innerText.trim().match(/\\$(\\d+[,\\d]*\\.\\d{2})/)[1].replace(",",""))' \
+          '})[0] : null'
+        )
+      end
+
+      logger.debug "[ChefsWarehouse] Current case price: $#{case_price}"
+
+      unless case_price.is_a?(Numeric) && case_price > 0
+        logger.debug "[ChefsWarehouse] Could not read case price, skipping PC extraction"
+        return piece_result
+      end
+
+      # Step 3: Click the PC button in the FIRST buy-box only
+      clicked = browser.evaluate(
+        'document.querySelector(".product-details__buy-box") ? ' \
+        'Array.from(document.querySelector(".product-details__buy-box").querySelectorAll(".variant-btn")).filter(function(b){' \
+        'return b.innerText.trim()==="PC" && !b.classList.contains("disabled")' \
+        '}).map(function(b){b.click();return true})[0] || false : false'
+      )
+
+      unless clicked
+        logger.debug "[ChefsWarehouse] Could not click PC button in main buy-box"
+        return piece_result
+      end
+
+      # Step 4: Wait for Vue re-render and read the piece price
+      sleep 2
+
+      piece_price = browser.evaluate(
+        'document.querySelector(".product-details__buy-box") ? ' \
+        'Array.from(document.querySelector(".product-details__buy-box").querySelectorAll("span")).filter(function(s){' \
+        'var m=s.innerText.trim().match(/^\\$(\\d+[,\\d]*\\.\\d{2})/);return m!==null' \
+        '}).map(function(s){' \
+        'return parseFloat(s.innerText.trim().match(/\\$(\\d+[,\\d]*\\.\\d{2})/)[1].replace(",",""))' \
+        '})[0] : null'
+      )
+
+      logger.debug "[ChefsWarehouse] Price after clicking PC: $#{piece_price}"
+
+      # Validate: piece price must differ from case price
+      if piece_price.is_a?(Numeric) && piece_price > 0 && piece_price != case_price
+        piece_result[:piece_price] = piece_price
+
+        # Read piece pack size from the main product area
+        pack_text = browser.evaluate(
+          'document.querySelector(".product-details") ? ' \
+          'Array.from(document.querySelector(".product-details").querySelectorAll("span,div")).filter(function(s){' \
+          'return s.innerText.trim().match(/^\\d+x\\d+|^\\d+\\s*(CT|OZ|LB|EA|PC)/i) && s.children.length===0' \
+          '}).map(function(s){return s.innerText.trim()})[0] : null'
+        )
+        piece_result[:piece_pack_size] = pack_text if pack_text.present?
+
+        logger.info "[ChefsWarehouse] Extracted piece price: $#{piece_price} (case: $#{case_price})"
+      else
+        logger.debug "[ChefsWarehouse] Piece price same as case or invalid — not a dual-UOM product"
+      end
+
+      # Step 5: Click back to CS to restore default state
+      browser.evaluate(
+        'document.querySelector(".product-details__buy-box") ? ' \
+        'Array.from(document.querySelector(".product-details__buy-box").querySelectorAll(".variant-btn")).filter(function(b){' \
+        'return b.innerText.trim()==="CS" && !b.classList.contains("disabled")' \
+        '}).map(function(b){b.click();return true})[0] || false : false'
+      )
+      sleep 0.5
+
+      piece_result
+    rescue StandardError => e
+      logger.debug "[ChefsWarehouse] Error extracting piece pricing: #{e.message}"
+      { piece_price: nil, piece_pack_size: nil }
     end
 
     # ── Catalog search ──────────────────────────────────────────────

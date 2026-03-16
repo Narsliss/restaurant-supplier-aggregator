@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "mobileSupplierDetail"]
+  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "mobileSupplierDetail", "uomToggle"]
   static values = { supplierMinimums: Object }
 
   connect() {
@@ -467,6 +467,85 @@ export default class extends Controller {
       input.name = `supplier_overrides[${matchId}]`
       input.value = newSupplierId
       overridesDiv.appendChild(input)
+    }
+
+    this._updateMatchLineTotal(matchId)
+    this._scheduleUpdateTotals()
+  }
+
+  selectUom(event) {
+    event.preventDefault()
+    event.stopPropagation() // Don't trigger selectSupplier on the parent cell
+
+    const btn = event.currentTarget
+    const uom = btn.dataset.uom                     // "CS" or "PC"
+    const uomPrice = parseFloat(btn.dataset.uomPrice) || 0
+    const matchId = btn.dataset.matchId
+    const supplierId = btn.dataset.supplierId
+
+    // Update the toggle button styles within this toggle group
+    const toggleContainer = btn.closest("[data-order-builder-target='uomToggle']")
+    if (toggleContainer) {
+      toggleContainer.querySelectorAll("button").forEach(b => {
+        if (b.dataset.uom === uom) {
+          b.className = b.className
+            .replace(/text-gray-400/g, "")
+            .replace(/bg-gray-700 text-white font-medium/g, "")
+          b.classList.add("bg-gray-700", "text-white", "font-medium")
+        } else {
+          b.className = b.className
+            .replace(/bg-gray-700/g, "")
+            .replace(/text-white/g, "")
+            .replace(/font-medium/g, "")
+          b.classList.add("text-gray-400")
+        }
+      })
+    }
+
+    // Update the supplier cell's price display
+    const cell = btn.closest("[data-order-builder-target='supplierCell']")
+    if (cell) {
+      cell.dataset.supplierPrice = uomPrice
+      cell.dataset.currentUom = uom
+
+      // Update price text (first bold span)
+      const priceSpan = cell.querySelector(".text-base.font-bold")
+      if (priceSpan) {
+        // Preserve any arrow icons
+        const arrow = priceSpan.querySelector("span")
+        priceSpan.textContent = `$${uomPrice.toFixed(2)}`
+        if (arrow) priceSpan.appendChild(arrow)
+      }
+
+      // Update pack size text
+      const packDiv = cell.querySelector(".text-xs.text-gray-400.mt-0\\.5")
+      if (packDiv) {
+        const packSize = btn.dataset.uomPackSize
+        if (packSize) packDiv.textContent = packSize
+      }
+    }
+
+    // Update quantity input price if this supplier is currently selected
+    const matchInputs = this._matchInputs?.[matchId] || []
+    matchInputs.forEach(input => {
+      if (input.dataset.supplierId === supplierId) {
+        input.dataset.price = uomPrice
+      }
+    })
+
+    // Update hidden UOM override field
+    let overridesDiv = document.getElementById("uom-overrides")
+    if (overridesDiv) {
+      let existing = overridesDiv.querySelector(`input[name="uom_overrides[${matchId}]"]`)
+      if (existing) {
+        existing.value = uom
+      } else {
+        const input = document.createElement("input")
+        input.type = "hidden"
+        input.name = `uom_overrides[${matchId}]`
+        input.value = uom
+        overridesDiv.appendChild(input)
+      }
     }
 
     this._updateMatchLineTotal(matchId)

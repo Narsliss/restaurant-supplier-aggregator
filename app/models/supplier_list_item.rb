@@ -77,6 +77,8 @@ class SupplierListItem < ApplicationRecord
         supplier_name: name,
         current_price: price,
         pack_size: pack_size,
+        piece_price: piece_price,
+        piece_pack_size: piece_pack_size,
         in_stock: in_stock,
         price_updated_at: Time.current,
         last_scraped_at: Time.current

@@ -83,6 +83,30 @@
             <% end %>
           </div>
 
+          <%# Order requirements %>
+          <%
+            loc_id = credential.location_id
+            reqs = @supplier_requirements.select { |r| r.supplier_id == credential.supplier_id }
+            order_min_req = reqs.find { |r| r.requirement_type == 'order_minimum' && r.location_id == loc_id } ||
+                            reqs.find { |r| r.requirement_type == 'order_minimum' && r.location_id.nil? }
+            case_min_req = reqs.find { |r| r.requirement_type == 'case_minimum' && r.location_id == loc_id } ||
+                           reqs.find { |r| r.requirement_type == 'case_minimum' && r.location_id.nil? }
+          %>
+          <% if order_min_req || case_min_req %>
+            <div class="flex flex-wrap gap-2 mt-2">
+              <% if order_min_req %>
+                <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                  Min <%= number_to_currency(order_min_req.numeric_value, precision: 0) %>
+                </span>
+              <% end %>
+              <% if case_min_req %>
+                <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                  Min <%= case_min_req.numeric_value.to_i %> cases
+                </span>
+              <% end %>
+            </div>
+          <% end %>
+
           <%# Status message block — shown during validating/verifying states %>
           <div data-credential-validator-target="statusBlock" class="hidden mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg">
             <div class="flex items-start gap-2">

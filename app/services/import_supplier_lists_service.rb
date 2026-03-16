@@ -117,6 +117,8 @@ class ImportSupplierListsService
       price: item_data[:price],
       price_unit: item_data[:price_unit],
       pack_size: item_data[:pack_size],
+      piece_price: item_data[:piece_price],
+      piece_pack_size: item_data[:piece_pack_size],
       quantity: item_data[:quantity] || 1,
       in_stock: item_data[:in_stock] != false,
       position: item_data[:position] || 0,
@@ -168,6 +170,10 @@ class ImportSupplierListsService
 
     # Update pack_size if present and different
     attrs[:pack_size] = item.pack_size if item.pack_size.present? && item.pack_size != sp.pack_size
+
+    # Propagate piece pricing (CS/PC dual pricing from Chef's Warehouse)
+    attrs[:piece_price] = item.piece_price if item.piece_price != sp.piece_price
+    attrs[:piece_pack_size] = item.piece_pack_size if item.piece_pack_size != sp.piece_pack_size
 
     sp.update!(attrs)
 

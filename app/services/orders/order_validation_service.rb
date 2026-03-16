@@ -91,7 +91,7 @@ module Orders
 
       if current_count < minimum
         difference = minimum - current_count
-        add_warning(
+        add_error(
           type: "case_minimum",
           message: requirement.formatted_error_message(
             current_count: current_count.to_i,

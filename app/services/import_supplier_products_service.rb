@@ -123,6 +123,8 @@ class ImportSupplierProductsService
         supplier_name: item[:supplier_name],
         current_price: item[:current_price],
         pack_size: item[:pack_size],
+        piece_price: item[:piece_price],
+        piece_pack_size: item[:piece_pack_size],
         supplier_url: item[:supplier_url],
         in_stock: item[:in_stock] != false,
         price_updated_at: item[:current_price].present? ? Time.current : nil,
@@ -154,6 +156,10 @@ class ImportSupplierProductsService
       end
 
       attrs[:in_stock] = item[:in_stock] unless item[:in_stock].nil?
+
+      # Piece pricing (CS/PC) — update when scraper provides it
+      attrs[:piece_price] = item[:piece_price] if item[:piece_price].present?
+      attrs[:piece_pack_size] = item[:piece_pack_size] if item[:piece_pack_size].present?
 
       # Reset discontinuation tracking — product is still in the catalog
       if supplier_product.consecutive_misses > 0 || supplier_product.discontinued?

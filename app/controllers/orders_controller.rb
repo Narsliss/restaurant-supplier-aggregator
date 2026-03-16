@@ -94,7 +94,7 @@ class OrdersController < ApplicationController
     @minimum = @order.supplier&.order_minimum(@order.location)
     @meets_minimum = @minimum.nil? || (@order.subtotal || 0) >= (@minimum || 0)
 
-    # Case minimum (warning only)
+    # Case minimum (blocking)
     @case_minimum = @order.supplier&.case_minimum(@order.location)
     @case_count = @order.item_count
     @meets_case_minimum = @case_minimum.nil? || @case_count >= @case_minimum
@@ -302,6 +302,7 @@ class OrdersController < ApplicationController
       aggregated_list: aggregated_list,
       quantities: quantities,
       supplier_overrides: params[:supplier_overrides] || {},
+      uom_overrides: params[:uom_overrides] || {},
       location: current_location,
       delivery_date: params[:delivery_date],
       order_list: order_list
@@ -376,12 +377,12 @@ class OrdersController < ApplicationController
       minimum = order.supplier.order_minimum(order.location)
       meets_minimum = minimum.nil? || (order.subtotal || 0) >= minimum
 
-      # Case minimum (warning only)
+      # Case minimum (blocking)
       case_min = order.supplier.case_minimum(order.location)
       current_case_count = order.item_count
       meets_case_minimum = case_min.nil? || current_case_count >= case_min
 
-      suggestions = if !meets_minimum
+      suggestions = if !meets_minimum || !meets_case_minimum
         Orders::MinimumSuggestionService.new(user: current_user, order: order).suggestions
       else
         []
@@ -422,7 +423,7 @@ class OrdersController < ApplicationController
       total_items: @review_orders.sum { |r| r[:item_count] },
       total_amount: @review_orders.sum { |r| r[:subtotal] },
       total_savings: @review_orders.sum { |r| r[:savings] },
-      all_minimums_met: @review_orders.all? { |r| r[:meets_minimum] }
+      all_minimums_met: @review_orders.all? { |r| r[:meets_minimum] && r[:meets_case_minimum] }
     }
   end
 

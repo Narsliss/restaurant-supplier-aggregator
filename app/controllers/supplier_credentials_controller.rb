@@ -22,6 +22,11 @@ class SupplierCredentialsController < ApplicationController
                                              .group(:supplier_id)
                                              .count
 
+    # Pre-load order requirements per supplier for display on cards
+    @supplier_requirements = SupplierRequirement.where(supplier_id: supplier_ids, active: true)
+                                                 .where(requirement_type: %w[order_minimum case_minimum])
+                                                 .select(:supplier_id, :requirement_type, :numeric_value, :location_id)
+
     # Load email suppliers for the new section
     @email_suppliers = Supplier.email_suppliers
                                .where(organization_id: current_user.current_organization_id)
@@ -104,7 +109,9 @@ class SupplierCredentialsController < ApplicationController
     end
   end
 
-  def edit; end
+  def edit
+    load_requirement_values
+  end
 
   def update
     # Don't allow changing supplier on an existing credential
@@ -118,23 +125,33 @@ class SupplierCredentialsController < ApplicationController
     filtered_params = credential_params.dup
     filtered_params.delete(:password) if filtered_params[:password].blank?
 
+    # Track whether actual login credentials changed (vs just requirements)
+    credentials_changed = filtered_params[:username].present? && filtered_params[:username] != @credential.username ||
+                          filtered_params[:password].present?
+
     if @credential.update(filtered_params)
+      save_supplier_requirements
+
       Rails.logger.info "[SupplierCredentials] Updated credential ##{@credential.id} for #{@credential.supplier.name} (user: #{current_user.id})"
 
-      # All validations run async — headless Chrome is too slow on shared
-      # Railway vCPUs to block an HTTP request.
-      Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
-      @credential.update!(status: 'pending')
-      ValidateCredentialsJob.perform_later(@credential.id)
+      if credentials_changed
+        # Only re-validate when login credentials actually changed
+        Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
+        @credential.update!(status: 'pending')
+        ValidateCredentialsJob.perform_later(@credential.id)
 
-      message = if @credential.supplier.no_password_required?
-                  "#{@credential.supplier.name} credentials updated. Check your email or phone for a verification code."
-                else
-                  "#{@credential.supplier.name} credentials updated. Re-validating now — this usually takes 15-30 seconds."
-                end
+        message = if @credential.supplier.no_password_required?
+                    "#{@credential.supplier.name} credentials updated. Check your email or phone for a verification code."
+                  else
+                    "#{@credential.supplier.name} credentials updated. Re-validating now — this usually takes 15-30 seconds."
+                  end
+      else
+        message = "#{@credential.supplier.name} settings updated."
+      end
 
       redirect_to supplier_credentials_path, notice: message
     else
+      load_requirement_values
       Rails.logger.warn "[SupplierCredentials] Failed to update credential ##{@credential.id}: #{@credential.errors.full_messages.join(', ')}"
       render :edit, status: :unprocessable_entity
     end
@@ -446,6 +463,54 @@ class SupplierCredentialsController < ApplicationController
 
   def credential_params
     params.require(:supplier_credential).permit(:supplier_id, :username, :password, :location_id)
+  end
+
+  def load_requirement_values
+    supplier = @credential.supplier
+    location = @credential.location
+    @order_minimum = SupplierRequirement.effective_for(supplier: supplier, type: 'order_minimum', location: location)&.numeric_value
+    @case_minimum = SupplierRequirement.effective_for(supplier: supplier, type: 'case_minimum', location: location)&.numeric_value&.to_i
+    # Clear zero values so the form shows blank instead of "0"
+    @order_minimum = nil if @order_minimum.to_f.zero?
+    @case_minimum = nil if @case_minimum.to_i.zero?
+  end
+
+  def save_supplier_requirements
+    supplier = @credential.supplier
+    location = @credential.location
+
+    save_requirement(supplier, location, 'order_minimum', params[:order_minimum],
+      is_blocking: true,
+      error_message: 'Order minimum is ${{minimum}}. Current total: ${{current_total}} (need ${{difference}} more).')
+
+    save_requirement(supplier, location, 'case_minimum', params[:case_minimum],
+      is_blocking: true,
+      error_message: 'Minimum {{minimum}} cases required. You have {{current_count}} items in your order.')
+  end
+
+  def save_requirement(supplier, location, type, value, is_blocking:, error_message:)
+    numeric = value.to_f
+
+    if numeric > 0
+      req = SupplierRequirement.find_or_initialize_by(
+        supplier: supplier,
+        requirement_type: type,
+        location: location
+      )
+      req.assign_attributes(
+        numeric_value: numeric,
+        is_blocking: is_blocking,
+        active: true,
+        error_message: error_message
+      )
+      req.save!
+    else
+      SupplierRequirement.where(
+        supplier: supplier,
+        requirement_type: type,
+        location: location
+      ).destroy_all
+    end
   end
 
 end
