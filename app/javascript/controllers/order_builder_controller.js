@@ -488,16 +488,11 @@ export default class extends Controller {
     if (toggleContainer) {
       toggleContainer.querySelectorAll("button").forEach(b => {
         if (b.dataset.uom === uom) {
-          b.className = b.className
-            .replace(/text-gray-400/g, "")
-            .replace(/bg-gray-700 text-white font-medium/g, "")
-          b.classList.add("bg-gray-700", "text-white", "font-medium")
+          b.classList.remove("text-gray-500", "bg-transparent")
+          b.classList.add("bg-gray-200", "text-gray-900", "font-medium")
         } else {
-          b.className = b.className
-            .replace(/bg-gray-700/g, "")
-            .replace(/text-white/g, "")
-            .replace(/font-medium/g, "")
-          b.classList.add("text-gray-400")
+          b.classList.remove("bg-gray-200", "text-gray-900", "font-medium")
+          b.classList.add("text-gray-500", "bg-transparent")
         }
       })
     }
@@ -508,8 +503,8 @@ export default class extends Controller {
       cell.dataset.supplierPrice = uomPrice
       cell.dataset.currentUom = uom
 
-      // Update price text (first bold span)
-      const priceSpan = cell.querySelector(".text-base.font-bold")
+      // Update price text
+      const priceSpan = cell.querySelector("[data-price-label]")
       if (priceSpan) {
         // Preserve any arrow icons
         const arrow = priceSpan.querySelector("span")
@@ -518,7 +513,7 @@ export default class extends Controller {
       }
 
       // Update pack size text
-      const packDiv = cell.querySelector(".text-xs.text-gray-400.mt-0\\.5")
+      const packDiv = cell.querySelector("[data-pack-size]")
       if (packDiv) {
         const packSize = btn.dataset.uomPackSize
         if (packSize) packDiv.textContent = packSize
@@ -543,15 +538,15 @@ export default class extends Controller {
         if (uom === "PC") {
           // Hide Best badge and remove green styling
           if (badge) badge.classList.add("hidden")
-          if (supplierLabel) { supplierLabel.classList.remove("text-green-700"); supplierLabel.classList.add("text-gray-500") }
-          if (priceLabel) { priceLabel.classList.remove("text-green-700"); priceLabel.classList.add("text-gray-900") }
-          if (perUnit) { perUnit.classList.remove("text-green-600", "font-medium"); perUnit.classList.add("text-gray-400") }
+          if (supplierLabel) { supplierLabel.classList.remove("text-green-600"); supplierLabel.classList.add("text-gray-500") }
+          if (priceLabel) { priceLabel.classList.remove("text-green-600"); priceLabel.classList.add("text-gray-900") }
+          if (perUnit) { perUnit.classList.remove("text-green-600"); perUnit.classList.add("text-gray-500") }
         } else {
           // Restore Best badge and green styling
           if (badge) badge.classList.remove("hidden")
-          if (supplierLabel) { supplierLabel.classList.remove("text-gray-500"); supplierLabel.classList.add("text-green-700") }
-          if (priceLabel) { priceLabel.classList.remove("text-gray-900"); priceLabel.classList.add("text-green-700") }
-          if (perUnit) { perUnit.classList.remove("text-gray-400"); perUnit.classList.add("text-green-600", "font-medium") }
+          if (supplierLabel) { supplierLabel.classList.remove("text-gray-500"); supplierLabel.classList.add("text-green-600") }
+          if (priceLabel) { priceLabel.classList.remove("text-gray-900"); priceLabel.classList.add("text-green-600") }
+          if (perUnit) { perUnit.classList.remove("text-gray-500"); perUnit.classList.add("text-green-600") }
         }
       }
     }

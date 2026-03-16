@@ -103,11 +103,11 @@ class Supplier < ApplicationRecord
 
   # Display helpers for compact card grid
   BRAND_COLORS = {
-    'usfoods'            => 'text-red-500',
-    'sysco'              => 'text-blue-400',
-    'whatchefswant'      => 'text-yellow-400',
-    'chefswarehouse'     => 'text-orange-400',
-    'premiereproduceone' => 'text-purple-400',
+    'usfoods'            => 'text-red-600',
+    'sysco'              => 'text-blue-700',
+    'whatchefswant'      => 'text-yellow-600',
+    'chefswarehouse'     => 'text-orange-600',
+    'premiereproduceone' => 'text-purple-600',
   }.freeze
 
   def brand_color_class

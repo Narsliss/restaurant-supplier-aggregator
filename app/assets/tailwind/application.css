@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Safelist: dynamic classes used in Supplier model (brand_color_class) that
+   Tailwind can't detect from scanning views alone. */
+@source inline("text-red-600 text-blue-700 text-yellow-600 text-orange-600 text-purple-600 text-green-600");
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
@@ -301,6 +305,14 @@
   }
   .dark .text-amber-800 {
     color: #fcd34d !important;
+  }
+
+  /* --- Supplier brand colors (used dynamically via Supplier#brand_color_class) --- */
+  .dark .text-orange-600 {
+    color: #fdba74 !important; /* orange-300 */
+  }
+  .dark .text-purple-600 {
+    color: #c4b5fd !important; /* purple-300 */
   }
 
   /* --- Alert/info boxes (50-shade backgrounds) --- */
