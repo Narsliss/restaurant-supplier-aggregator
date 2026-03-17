@@ -195,6 +195,7 @@ class ProductMatchItemsController < ApplicationController
   # Only loads items already on the match — no extra queries per supplier.
   def prepare_turbo_row_data(match)
     @suppliers = @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq
+    @total_supplier_cols = @suppliers.size
 
     # Build supplier map for this one match
     supplier_map = {}

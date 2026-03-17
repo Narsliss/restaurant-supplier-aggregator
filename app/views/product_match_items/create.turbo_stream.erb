@@ -5,8 +5,8 @@
       <%= render "aggregated_lists/match_row_left", match: @product_match, aggregated_list: @aggregated_list %>
 
       <%# Right: Grid of supplier cells with recalculated prices %>
-      <div class="flex-1 p-3">
-        <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
+      <div class="flex-1" style="padding:10px;">
+        <div class="grid" style="grid-template-columns: repeat(<%= @total_supplier_cols %>, 1fr); gap: 6px;">
           <% @suppliers.each do |supplier| %>
             <% lookup = @match_supplier_map.dig(@product_match.id, supplier.id) %>
             <% item = lookup&.dig(:item) %>

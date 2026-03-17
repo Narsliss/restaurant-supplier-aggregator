@@ -29,9 +29,10 @@
         <%= render "aggregated_lists/match_row_left", match: @new_orphan_match, aggregated_list: @aggregated_list %>
 
         <%# Right: Grid of supplier cells %>
-        <div class="flex-1 p-3">
-          <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
-            <% @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq.each do |supplier| %>
+        <div class="flex-1" style="padding:10px;">
+          <% suppliers = @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq %>
+          <div class="grid" style="grid-template-columns: repeat(<%= suppliers.size %>, 1fr); gap: 6px;">
+            <% suppliers.each do |supplier| %>
               <% if supplier.id == @old_supplier.id && orphan_item %>
                 <%= render "aggregated_lists/supplier_cell_card",
                            product_match: @new_orphan_match,
