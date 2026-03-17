@@ -305,8 +305,9 @@ class AggregatedListsController < ApplicationController
   def demote
     # Restore the location-based name when demoting back to a location list
     attrs = { promoted_org_wide: false }
-    if @aggregated_list.location.present?
-      attrs[:name] = "#{@aggregated_list.location.name} Matched List"
+    if @aggregated_list.location_id.present?
+      location = Location.find_by(id: @aggregated_list.location_id)
+      attrs[:name] = "#{location.name} Matched List" if location
     end
     @aggregated_list.update!(attrs)
     redirect_to aggregated_lists_path, notice: "\"#{@aggregated_list.name}\" is no longer the organization-wide list."
