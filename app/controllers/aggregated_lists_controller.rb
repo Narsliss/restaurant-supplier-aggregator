@@ -323,8 +323,10 @@ class AggregatedListsController < ApplicationController
                                         .pluck(:id)
     guide_items = SupplierListItem.where(supplier_list_id: supplier_list_ids)
     guide_items = guide_items.where("LOWER(name) LIKE ?", "%#{query}%") if query.present?
-    guide_results = guide_items.select(:id, :name, :price, :pack_size, :supplier_product_id)
-                               .order(:name).limit(15)
+    # Deduplicate across multiple supplier lists — pick the most recently updated entry per product
+    guide_results = guide_items.select("DISTINCT ON (COALESCE(supplier_product_id, id)) id, name, price, pack_size, supplier_product_id")
+                               .order(Arel.sql("COALESCE(supplier_product_id, id), updated_at DESC"))
+                               .limit(15)
 
     # Track which catalog products are already covered by order guide items
     covered_product_ids = guide_results.filter_map(&:supplier_product_id).to_set
