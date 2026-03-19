@@ -20,6 +20,13 @@ class PriceVerificationJob < ApplicationJob
     order = Order.find_by(id: order_id)
     return unless order
 
+    # Demo mode: skip verification (same as email suppliers)
+    if ENV['DEMO_MODE'] == 'true'
+      order.update!(verification_status: 'skipped')
+      Rails.logger.info "[PriceVerificationJob] Order ##{order_id} skipped — demo mode"
+      return
+    end
+
     # Guard: only verify orders that are in "verifying" state
     unless order.verifying?
       Rails.logger.info "[PriceVerificationJob] Order ##{order_id} is #{order.status}, skipping."

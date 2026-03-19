@@ -63,29 +63,18 @@ RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
 FROM base
 
 # Install Chrome/Chromium for headless browser automation (Ferrum)
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y \
-    chromium \
-    chromium-driver \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    xdg-utils \
-    && rm -rf /var/lib/apt/lists /var/cache/apt/archives
+# Set INSTALL_CHROMIUM=false for demo/lightweight images
+ARG INSTALL_CHROMIUM=true
+RUN if [ "$INSTALL_CHROMIUM" = "true" ]; then \
+      apt-get update -qq && \
+      apt-get install --no-install-recommends -y \
+        chromium chromium-driver fonts-liberation libasound2 \
+        libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcups2 \
+        libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 \
+        libxcomposite1 libxdamage1 libxfixes3 libxkbcommon0 \
+        libxrandr2 xdg-utils && \
+      rm -rf /var/lib/apt/lists /var/cache/apt/archives; \
+    fi
 
 # Set Chrome path for Ferrum
 ENV BROWSER_PATH="/usr/bin/chromium"

@@ -6,6 +6,13 @@ class PlaceOrderJob < ApplicationJob
   def perform(order_id, options = {})
     order = Order.find(order_id)
 
+    # Demo mode: simulate successful submission without browser automation
+    if ENV['DEMO_MODE'] == 'true'
+      order.update!(status: 'submitted', submitted_at: Time.current)
+      Rails.logger.info "[PlaceOrderJob] Order #{order.id} demo-submitted for #{order.supplier.name}"
+      return
+    end
+
     Rails.logger.info "[PlaceOrderJob] Processing order #{order.id} for #{order.supplier.name}"
 
     service = Orders::OrderPlacementService.new(order)

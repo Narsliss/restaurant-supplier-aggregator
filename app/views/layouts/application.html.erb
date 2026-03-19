@@ -23,6 +23,11 @@
   </head>
 
   <body class="h-full">
+    <% if ENV['DEMO_MODE'] == 'true' %>
+      <div class="bg-amber-500 text-center text-sm py-1.5 font-semibold text-white tracking-wide">
+        Demo Environment &mdash; Sample data resets nightly at midnight
+      </div>
+    <% end %>
     <div class="min-h-full flex flex-col">
       <% if user_signed_in? %>
         <% if controller.class.module_parent_name == 'Admin' %>

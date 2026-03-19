@@ -28,6 +28,33 @@
         </div>
       <% end %>
 
+      <% if ENV['DEMO_MODE'] == 'true' %>
+        <div class="mt-6 mb-4">
+          <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Quick sign in as:</p>
+          <div class="grid grid-cols-2 gap-2" data-controller="demo-login">
+            <% [
+              { name: "Marco Rossi", role: "Owner", email: "carmin@las-noches.com", icon: "👤" },
+              { name: "Sarah Chen", role: "Manager", email: "manager@test.com", icon: "📊" },
+              { name: "James Wilson", role: "Chef", email: "chef@test.com", icon: "👨‍🍳" },
+            ].each do |demo_user| %>
+              <button type="button"
+                      data-action="demo-login#fill"
+                      data-demo-login-email-param="<%= demo_user[:email] %>"
+                      data-demo-login-password-param="Demo1234!"
+                      class="flex flex-col items-center p-3 rounded-lg border-2 border-gray-200 hover:border-brand-orange hover:bg-brand-orange/5 transition-all cursor-pointer text-center">
+                <span class="text-lg mb-0.5"><%= demo_user[:icon] %></span>
+                <span class="text-sm font-semibold text-gray-900"><%= demo_user[:name] %></span>
+                <span class="text-xs text-gray-500"><%= demo_user[:role] %></span>
+              </button>
+            <% end %>
+          </div>
+          <div class="relative mt-4 mb-2">
+            <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200"></div></div>
+            <div class="relative flex justify-center text-xs"><span class="bg-white px-2 text-gray-400">or sign in manually</span></div>
+          </div>
+        </div>
+      <% end %>
+
       <div class="mt-8">
         <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "space-y-5" }) do |f| %>
           <div>
