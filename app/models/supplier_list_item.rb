@@ -102,7 +102,7 @@ class SupplierListItem < ApplicationRecord
   # When price_unit is nil, the price is for the whole pack (default behavior).
   # Example: $125.00 for a 10 LB case → $125.00 / 160 oz = $0.78/oz
   def per_unit_price
-    return nil unless price
+    return nil unless effective_price
 
     effective_price_unit = price_unit.presence || inferred_price_unit
     if effective_price_unit.present?
@@ -148,7 +148,7 @@ class SupplierListItem < ApplicationRecord
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.
   def estimated_total_price
-    UnitParser.estimated_total(price, price_unit.presence || inferred_price_unit, pack_size)
+    UnitParser.estimated_total(effective_price, price_unit.presence || inferred_price_unit, pack_size)
   end
 
   # Price change detection (mirrors SupplierProduct pattern)
@@ -184,11 +184,19 @@ class SupplierListItem < ApplicationRecord
     !!in_stock
   end
 
+  # Fall back to the linked supplier_product's current_price when the list
+  # item's own price column is nil (happens when the order-guide scraper
+  # misses a price that the catalog scraper captured on the product page).
+  def effective_price
+    price.presence || supplier_product&.current_price
+  end
+
   # Price display — shows "/lb", "/oz" etc. when price is per-unit
   def formatted_price
-    return 'N/A' unless price
+    ep = effective_price
+    return 'N/A' unless ep
 
-    base = "$#{'%.2f' % price}"
+    base = "$#{'%.2f' % ep}"
     effective_unit = price_unit.presence || inferred_price_unit
     if effective_unit.present?
       unit_display = effective_unit.upcase
@@ -245,7 +253,7 @@ class SupplierListItem < ApplicationRecord
 
     return nil unless conversion && conversion > 0
 
-    (price / conversion).round(4)
+    (effective_price / conversion).round(4)
   end
 
   # Price is for the whole pack — divide by total normalized quantity.
@@ -253,7 +261,7 @@ class SupplierListItem < ApplicationRecord
     return nil unless parsed_pack_size[:parseable]
     return nil if parsed_pack_size[:normalized_quantity] <= 0
 
-    (price / parsed_pack_size[:normalized_quantity]).round(4)
+    (effective_price / parsed_pack_size[:normalized_quantity]).round(4)
   end
 
   def sanitize_sql_like(string)
