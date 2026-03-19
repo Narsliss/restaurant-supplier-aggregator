@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
 
-# Demo mode: auto-seed on first boot if database is empty
+# Demo mode: auto-seed on first boot if database is empty (or force reseed)
 if [ "$DEMO_MODE" = "true" ] && [ "${PROCESS_TYPE:-web}" = "web" ]; then
   echo "Demo mode: checking if seed is needed..."
   USERS=$(./bin/rails runner "puts User.count" 2>/dev/null || echo "0")
-  if [ "$USERS" = "0" ]; then
-    echo "No users found — running demo seed..."
-    ./bin/rails runner "load Rails.root.join('db/seeds/demo.rb')"
+  if [ "$USERS" = "0" ] || [ "$FORCE_RESEED" = "true" ]; then
+    echo "Running demo seed (users: $USERS, force: ${FORCE_RESEED:-false})..."
+    ./bin/rails runner "DemoResetJob.perform_now"
     echo "Demo seed complete."
   else
     echo "Database already seeded ($USERS users found)."
