@@ -285,8 +285,7 @@ class DashboardController < ApplicationController
     # Getting-started cards for chefs
     org = current_user.current_organization
     @getting_started = [
-      { title: "Connect a supplier", description: "Link your supplier account to pull in pricing and order guides", done: true, path: new_supplier_credential_path, cta: "Connect" },
-      { title: "Import your order lists", description: "Pull in order guides and shopping lists from connected suppliers", done: scoped_supplier_lists.any?, path: supplier_lists_path, cta: "Import" }
+      { title: "Connect a supplier", description: "Link your supplier account to pull in pricing and order guides", done: true, path: new_supplier_credential_path, cta: "Connect" }
     ]
     @getting_started = nil if @getting_started.all? { |s| s[:done] } || current_user.onboarding_dismissed_at?
   end

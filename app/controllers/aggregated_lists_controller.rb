@@ -214,13 +214,13 @@ class AggregatedListsController < ApplicationController
       end
 
       if params[:return_to] == "supplier_lists"
-        redirect_to supplier_lists_path
+        redirect_to aggregated_lists_path
       else
         redirect_to @aggregated_list
       end
     else
       if params[:return_to] == "supplier_lists"
-        redirect_to supplier_lists_path
+        redirect_to aggregated_lists_path
       else
         @available_lists = available_supplier_lists
         render :new, status: :unprocessable_entity

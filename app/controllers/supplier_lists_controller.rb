@@ -5,65 +5,9 @@ class SupplierListsController < ApplicationController
   before_action :require_operator!, only: %i[sync sync_all]
 
   def index
-    @supplier_lists = scoped_supplier_lists
-                      .includes(:supplier, :supplier_credential)
-                      .order('suppliers.name ASC, supplier_lists.name ASC')
-
-    @lists_by_supplier = @supplier_lists.group_by(&:supplier)
-    @credentials = scoped_credentials.active.includes(:supplier)
-    @read_only = current_role == 'manager'
-
-    # Detect if a sync is still in progress
-    has_syncing_lists = @supplier_lists.where(sync_status: 'syncing').exists?
-
-    credential_ids = @credentials.pluck(:id)
-    pending_job_credential_ids = []
-    if credential_ids.any?
-      SolidQueue::Job
-        .where(class_name: 'ImportSupplierListsJob', finished_at: nil)
-        .where('created_at > ?', 30.minutes.ago)
-        .pluck(:arguments)
-        .each do |args|
-          cred_id = (JSON.parse(args)["arguments"]&.first rescue nil)
-          pending_job_credential_ids << cred_id if cred_id && credential_ids.include?(cred_id)
-        end
-    end
-    has_pending_import_jobs = pending_job_credential_ids.any?
-
-    actually_syncing = has_syncing_lists || has_pending_import_jobs
-
-    if params[:syncing].present?
-      if actually_syncing
-        @syncing = true
-      else
-        # Sync was triggered via URL param but everything is done now.
-        # Brief grace period in case the job hasn't been picked up yet.
-        sync_started = Time.at(params[:syncing].to_i) rescue nil
-        recently_started = sync_started && sync_started > 30.seconds.ago
-        if recently_started
-          @syncing = true
-        else
-          # Sync is done — redirect to clean URL so banner disappears
-          # and auto-refresh stops.
-          redirect_to supplier_lists_path, notice: "Supplier lists updated." and return
-        end
-      end
-    else
-      @syncing = actually_syncing
-    end
-
-    @syncing_credential_ids = Set.new(pending_job_credential_ids)
-    @syncing_credential_ids += @supplier_lists.where(sync_status: 'syncing').pluck(:supplier_credential_id)
-
-    # Comparison lists (AggregatedLists) — chefs only see their own location's lists
-    @aggregated_lists = current_organization_aggregated_lists
-                          .includes(supplier_lists: :supplier)
-                          .order(updated_at: :desc)
-    if chef? && current_location
-      @aggregated_lists = @aggregated_lists.where(location_id: current_location.id)
-    end
-    @location_has_matched_list = current_location && @aggregated_lists.matched_lists.where(location_id: current_location.id).exists?
-    @lists_by_supplier_for_form = @supplier_lists.group_by(&:supplier)
+    # This page is no longer the primary UI — redirect to credentials page.
+    # Individual supplier list show pages are still accessible directly.
+    redirect_to supplier_credentials_path
   end
 
   def show
@@ -75,7 +19,7 @@ class SupplierListsController < ApplicationController
     ImportSupplierListsJob.perform_later(@supplier_list.supplier_credential_id, force: true)
     @supplier_list.update(sync_status: 'syncing')
 
-    redirect_to supplier_lists_path(syncing: Time.current.to_i)
+    redirect_to supplier_credentials_path, notice: "Syncing #{@supplier_list.supplier.name} order guides..."
   end
 
   def sync_all
@@ -89,7 +33,7 @@ class SupplierListsController < ApplicationController
       ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id)
     end
 
-    redirect_to supplier_lists_path(syncing: Time.current.to_i)
+    redirect_to supplier_credentials_path, notice: "Syncing all supplier order guides..."
   end
 
   private

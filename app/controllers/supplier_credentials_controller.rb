@@ -427,8 +427,8 @@ class SupplierCredentialsController < ApplicationController
 
     respond_to do |format|
       format.html do
-        redirect_to supplier_lists_path(syncing: Time.current.to_i),
-                    notice: "Importing order guides from #{@credential.supplier.name}..."
+        redirect_to supplier_credentials_path,
+                    notice: "Importing order guides from #{@credential.supplier.name}. Products will appear shortly."
       end
       format.json do
         render json: { status: 'importing', credential_id: @credential.id, supplier: @credential.supplier.name }

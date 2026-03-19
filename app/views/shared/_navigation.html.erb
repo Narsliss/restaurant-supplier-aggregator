@@ -20,7 +20,7 @@
           <%# Consistent link order: New Order (CTA), Supplier Info, Order History %>
           <%# Active state helpers %>
           <% new_order_active = (controller_name == 'orders' && action_name == 'select_list') || (controller_name == 'aggregated_lists' && action_name == 'order_builder') || (controller_name == 'order_lists' && action_name == 'order_builder') %>
-          <% supplier_data_active = %w[supplier_lists supplier_credentials product_matches].include?(controller_name) || (controller_name == 'aggregated_lists' && action_name != 'order_builder') %>
+          <% supplier_data_active = %w[supplier_credentials product_matches].include?(controller_name) || (controller_name == 'aggregated_lists' && action_name != 'order_builder') %>
           <% order_history_active = controller_name == 'orders' && action_name != 'select_list' %>
           <% order_lists_active = controller_name == 'order_lists' && action_name != 'order_builder' %>
           <% orders_section_active = order_history_active || order_lists_active %>
@@ -44,7 +44,7 @@
                 <%= link_to "Supplier Credentials", supplier_credentials_path,
                     class: "block px-4 py-2 text-sm #{controller_name == 'supplier_credentials' ? 'bg-brand-green-50 text-brand-green-dark font-medium' : 'text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark'}" %>
                 <%= link_to "Product Matching", aggregated_lists_path,
-                    class: "block px-4 py-2 text-sm #{%w[aggregated_lists product_matches supplier_lists].include?(controller_name) && action_name != 'order_builder' ? 'bg-brand-green-50 text-brand-green-dark font-medium' : 'text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark'}" %>
+                    class: "block px-4 py-2 text-sm #{%w[aggregated_lists product_matches].include?(controller_name) && action_name != 'order_builder' ? 'bg-brand-green-50 text-brand-green-dark font-medium' : 'text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark'}" %>
                 </div>
               </div>
             </div>

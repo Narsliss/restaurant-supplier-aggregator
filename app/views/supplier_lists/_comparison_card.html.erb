@@ -63,7 +63,7 @@
       <% end %>
     <% end %>
 
-    <% if can_manage %>
+    <% if can_manage && !aggregated_list.matched_list? && !aggregated_list.promoted? %>
       <%= button_to aggregated_list_path(aggregated_list),
           method: :delete,
           form: { data: { turbo_confirm: "Delete \"#{aggregated_list.name}\"? This will remove all product matches and cannot be undone." } },
