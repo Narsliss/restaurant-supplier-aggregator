@@ -9,15 +9,28 @@ echo "SECRET_KEY_BASE is $([ -n "$SECRET_KEY_BASE" ] && echo 'set' || echo 'NOT 
 
 # Run db:migrate only for web process, with a timeout to avoid blocking boot
 if [ "${PROCESS_TYPE:-web}" = "web" ]; then
-  echo "Running database migrations (60s timeout)..."
-  timeout 60 ./bin/rails db:migrate 2>&1
-  MIGRATE_EXIT=$?
-  if [ $MIGRATE_EXIT -eq 0 ]; then
-    echo "Migrations done."
-  elif [ $MIGRATE_EXIT -eq 124 ]; then
-    echo "WARNING: Migration timed out after 60s — starting server anyway"
+  # Check if schema exists (fresh DB needs db:schema:load, existing DB needs db:migrate)
+  TABLE_COUNT=$(./bin/rails runner "puts ActiveRecord::Base.connection.tables.size" 2>/dev/null || echo "0")
+  if [ "$TABLE_COUNT" -lt "5" ]; then
+    echo "Fresh database detected ($TABLE_COUNT tables) — loading schema..."
+    timeout 120 ./bin/rails db:schema:load 2>&1
+    SCHEMA_EXIT=$?
+    if [ $SCHEMA_EXIT -eq 0 ]; then
+      echo "Schema loaded."
+    else
+      echo "WARNING: Schema load failed (exit code $SCHEMA_EXIT) — starting server anyway"
+    fi
   else
-    echo "WARNING: Migration failed (exit code $MIGRATE_EXIT) — starting server anyway"
+    echo "Running database migrations (60s timeout)..."
+    timeout 60 ./bin/rails db:migrate 2>&1
+    MIGRATE_EXIT=$?
+    if [ $MIGRATE_EXIT -eq 0 ]; then
+      echo "Migrations done."
+    elif [ $MIGRATE_EXIT -eq 124 ]; then
+      echo "WARNING: Migration timed out after 60s — starting server anyway"
+    else
+      echo "WARNING: Migration failed (exit code $MIGRATE_EXIT) — starting server anyway"
+    fi
   fi
 fi
 
