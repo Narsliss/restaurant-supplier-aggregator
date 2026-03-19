@@ -62,9 +62,11 @@ class ReportsController < ApplicationController
       )
     suppliers_by_id = Supplier.where(id: supplier_rows.map(&:first)).index_by(&:id)
 
-    @by_supplier = supplier_rows.map do |row|
+    @by_supplier = supplier_rows.filter_map do |row|
+      supplier = suppliers_by_id[row[0]]
+      next unless supplier
       {
-        supplier: suppliers_by_id[row[0]],
+        supplier: supplier,
         total_spent: row[1],
         order_count: row[2],
         savings: row[3]

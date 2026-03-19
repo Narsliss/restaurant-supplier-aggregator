@@ -206,8 +206,10 @@ class DashboardController < ApplicationController
         Arel.sql("COALESCE(SUM(savings_amount), 0)")
       )
     suppliers_by_id = Supplier.where(id: supplier_rows.map(&:first)).index_by(&:id)
-    @by_supplier = supplier_rows.map do |row|
-      { supplier: suppliers_by_id[row[0]], total_spent: row[1], order_count: row[2], savings: row[3] }
+    @by_supplier = supplier_rows.filter_map do |row|
+      supplier = suppliers_by_id[row[0]]
+      next unless supplier
+      { supplier: supplier, total_spent: row[1], order_count: row[2], savings: row[3] }
     end.sort_by { |r| -r[:total_spent] }
 
     @read_only = true

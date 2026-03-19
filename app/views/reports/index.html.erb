@@ -97,7 +97,7 @@
         <tbody class="divide-y divide-gray-200">
           <% @by_supplier.each do |row| %>
             <tr>
-              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:supplier].name %></td>
+              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:supplier]&.name || "Unknown" %></td>
               <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
               <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
               <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
