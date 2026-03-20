@@ -84,6 +84,89 @@ class ReportsController < ApplicationController
     end.sort_by { |r| -r[:total_spent] }
   end
 
+  def member
+    @locations = accessible_locations
+    org = current_user.current_organization
+
+    # Find the user — must be in the same org
+    @member = User.joins(:memberships)
+                  .where(memberships: { organization_id: org.id })
+                  .find(params[:user_id])
+
+    orders = filtered_orders.where(user: @member)
+
+    @summary = summary_stats(orders)
+    @by_supplier = supplier_breakdown(orders)
+    @top_products = top_products(orders)
+    @weekly_trend = weekly_trend(orders)
+
+    # Recent orders (last 10)
+    @recent_orders = orders.order(created_at: :desc).limit(10)
+                           .includes(:supplier, :location)
+
+    # Per-user missed savings — same logic as the main missed_savings action
+    # but scoped to this member's orders
+    promoted = AggregatedList.where(organization_id: org.id).promoted.first
+    if promoted
+      agg_lists = AggregatedList.where(id: promoted.id)
+    else
+      agg_lists = AggregatedList.where(organization_id: org.id)
+                                .where(location_id: @locations.select(:id))
+                                .matched_lists
+    end
+
+    @missed_items = []
+    @total_potential_savings = 0
+
+    if agg_lists.any?
+      ordered_items = OrderItem
+        .joins(:order)
+        .where(orders: { id: orders.select(:id) })
+        .where.not(supplier_product_id: nil)
+        .group(:supplier_product_id)
+        .pluck(
+          Arel.sql("order_items.supplier_product_id"),
+          Arel.sql("MAX(order_items.product_name)"),
+          Arel.sql("AVG(order_items.unit_price)"),
+          Arel.sql("SUM(order_items.quantity)"),
+          Arel.sql("SUM(order_items.line_total)")
+        )
+
+      if ordered_items.any?
+        sp_ids = ordered_items.map(&:first)
+        match_items = ProductMatchItem
+          .joins(:supplier_list_item)
+          .where(supplier_list_items: { supplier_product_id: sp_ids })
+          .where(product_match_id: agg_lists.joins(:product_matches).select("product_matches.id"))
+          .includes(product_match: { product_match_items: [{ supplier_list_item: :supplier_product }, :supplier] })
+          .index_by { |pmi| pmi.supplier_list_item.supplier_product_id }
+
+        @missed_items = ordered_items.filter_map do |sp_id, name, avg_price, total_qty, total_spent|
+          pmi = match_items[sp_id]
+          next unless pmi
+          pm = pmi.product_match
+          cheapest = pm.cheapest_supplier
+          ordered_supplier = pmi.supplier
+          next unless cheapest && cheapest[:supplier].id != ordered_supplier.id
+          next unless cheapest[:price] && avg_price && cheapest[:price] < avg_price
+          savings_per_unit = avg_price - cheapest[:price]
+          {
+            product_name: name,
+            ordered_from: ordered_supplier.name,
+            ordered_price: avg_price.round(2),
+            cheaper_supplier: cheapest[:supplier].name,
+            cheaper_price: cheapest[:price].round(2),
+            savings_per_order: savings_per_unit.round(2),
+            total_potential_savings: (savings_per_unit * total_qty).round(2),
+            total_qty: total_qty.round(1)
+          }
+        end.sort_by { |r| -r[:total_potential_savings] }
+
+        @total_potential_savings = @missed_items.sum { |r| r[:total_potential_savings] }
+      end
+    end
+  end
+
   def savings
     orders = filtered_orders
 

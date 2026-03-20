@@ -1,0 +1,150 @@
+<div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <%= render 'breadcrumb', title: @member.full_name %>
+
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900"><%= @member.full_name %></h1>
+      <p class="text-gray-600 mt-1"><%= @member.email %></p>
+    </div>
+  </div>
+
+  <%= render 'filter_bar', url: member_reports_path(user_id: @member.id), show_location_filter: true %>
+  <%= render 'summary_cards', summary: @summary %>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+    <!-- By Supplier -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">By Supplier</h2>
+      </div>
+      <% if @by_supplier.any? %>
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spent</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Savings</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @by_supplier.each do |row| %>
+              <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='<%= supplier_reports_path(supplier_id: row[:supplier].id, **filter_params) %>'">
+                <td class="px-6 py-4 text-sm font-medium text-brand-orange"><%= row[:supplier].name %> <span class="text-gray-400 text-xs ml-1">&rarr;</span></td>
+                <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
+                <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
+                <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% else %>
+        <div class="px-6 py-8 text-center text-sm text-gray-400">No orders in this period</div>
+      <% end %>
+    </div>
+
+    <%= render 'top_products_table', top_products: @top_products %>
+  </div>
+
+  <!-- Recent Orders -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Recent Orders</h2>
+    </div>
+    <% if @recent_orders.any? %>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Restaurant</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Items</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @recent_orders.each do |order| %>
+              <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='<%= order_path(order) %>'">
+                <td class="px-6 py-4 text-sm text-gray-900"><%= order.created_at.strftime("%b %d, %Y") %></td>
+                <td class="px-6 py-4 text-sm text-gray-900"><%= order.supplier&.name || order.supplier_name %></td>
+                <td class="px-6 py-4 text-sm text-gray-500"><%= order.location&.name %></td>
+                <td class="px-6 py-4 text-sm font-medium text-gray-900 text-right"><%= number_to_currency(order.total_amount) %></td>
+                <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= order.order_items.size %></td>
+                <td class="px-6 py-4 text-sm">
+                  <% status_color = case order.status
+                     when 'submitted', 'confirmed' then 'green'
+                     when 'pending', 'verifying', 'processing' then 'yellow'
+                     when 'failed', 'cancelled' then 'red'
+                     else 'gray'
+                     end %>
+                  <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-<%= status_color %>-100 text-<%= status_color %>-700">
+                    <%= order.status.titleize %>
+                  </span>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="px-6 py-8 text-center text-sm text-gray-400">No orders in this period</div>
+    <% end %>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+    <%= render 'weekly_trend', weekly_trend: @weekly_trend %>
+
+    <!-- Missed Savings for this member -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Savings Left on the Table</h2>
+        <% if @total_potential_savings > 0 %>
+          <p class="text-sm text-amber-600 font-medium mt-0.5"><%= number_to_currency(@total_potential_savings) %> potential savings identified</p>
+        <% else %>
+          <p class="text-sm text-gray-500 mt-0.5">Products where a cheaper supplier was available</p>
+        <% end %>
+      </div>
+      <% if @missed_items.any? %>
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ordered From</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cheaper At</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Their Price</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Could Save</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              <% @missed_items.first(10).each do |item| %>
+                <tr>
+                  <td class="px-4 py-3 text-sm font-medium text-gray-900 max-w-[160px] truncate"><%= item[:product_name] %></td>
+                  <td class="px-4 py-3 text-sm text-gray-500"><%= item[:ordered_from] %></td>
+                  <td class="px-4 py-3 text-sm text-gray-900 text-right"><%= number_to_currency(item[:ordered_price]) %></td>
+                  <td class="px-4 py-3 text-sm font-medium text-green-700"><%= item[:cheaper_supplier] %></td>
+                  <td class="px-4 py-3 text-sm text-green-600 text-right"><%= number_to_currency(item[:cheaper_price]) %></td>
+                  <td class="px-4 py-3 text-sm font-semibold text-amber-600 text-right"><%= number_to_currency(item[:total_potential_savings]) %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+        <% if @missed_items.count > 10 %>
+          <div class="px-4 py-3 border-t border-gray-100 text-center">
+            <%= link_to "View all #{@missed_items.count} items →", missed_savings_reports_path(**filter_params),
+                class: "text-sm text-brand-orange hover:text-brand-orange-light font-medium" %>
+          </div>
+        <% end %>
+      <% else %>
+        <div class="px-6 py-8 text-center">
+          <p class="text-sm text-green-600 font-medium">No missed savings found</p>
+          <p class="text-xs text-gray-400 mt-1"><%= @member.first_name || "This chef" %> is ordering from the cheapest supplier for every product.</p>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</div>

@@ -78,6 +78,7 @@ Rails.application.routes.draw do
     collection do
       get 'location/:location_id', action: :location, as: :location
       get 'supplier/:supplier_id', action: :supplier, as: :supplier
+      get 'member/:user_id', action: :member, as: :member
       get :savings
       get :missed_savings
     end

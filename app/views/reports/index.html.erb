@@ -99,8 +99,8 @@
         </thead>
         <tbody class="divide-y divide-gray-200">
           <% @by_member.each do |row| %>
-            <tr>
-              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:user].full_name %></td>
+            <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='<%= member_reports_path(user_id: row[:user].id, **filter_params) %>'">
+              <td class="px-6 py-4 text-sm font-medium text-brand-orange"><%= row[:user].full_name %> <span class="text-gray-400 text-xs ml-1">&rarr;</span></td>
               <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
               <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
             </tr>
