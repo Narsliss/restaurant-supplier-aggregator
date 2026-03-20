@@ -25,14 +25,11 @@ puts "[DemoSeed] Decompressing and restoring data snapshot..."
 require 'zlib'
 sql = Zlib::GzipReader.open(dump_path) { |gz| gz.read }
 
-# Execute the SQL statements (INSERT statements from pg_dump --inserts)
-# Split on semicolons but handle values containing semicolons in strings
-statements = sql.split(/;\s*\n/).reject(&:blank?)
-statements.each_with_index do |stmt, i|
-  conn.execute(stmt + ";") rescue nil
-end
+# Execute the entire SQL dump at once — uses COPY format which is
+# dramatically faster than individual INSERTs over a network connection
+conn.execute(sql)
 
-puts "[DemoSeed] Data restored (#{statements.size} statements)."
+puts "[DemoSeed] Data restored."
 
 # ── Step 2: Reset sequence counters ───────────────────────────────────
 
