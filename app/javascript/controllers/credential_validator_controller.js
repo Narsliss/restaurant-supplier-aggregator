@@ -593,6 +593,28 @@ export default class extends Controller {
     return resp.json()
   }
 
+  // Save display position when the number input changes
+  updatePosition(event) {
+    const input = event.target
+    const url = input.dataset.url
+    const position = parseInt(input.value) || 0
+
+    fetch(url, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": this.csrfToken,
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({ display_position: position })
+    }).then(response => {
+      if (response.ok) {
+        input.classList.add("border-green-400")
+        setTimeout(() => input.classList.remove("border-green-400"), 1000)
+      }
+    })
+  }
+
   get csrfToken() {
     return document.querySelector('meta[name="csrf-token"]')?.content || ""
   }

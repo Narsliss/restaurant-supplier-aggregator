@@ -112,6 +112,7 @@ Rails.application.routes.draw do
       post :import_lists
       post :submit_2fa_code
       get :status
+      patch :update_display_position
     end
   end
 

@@ -1,7 +1,7 @@
 class SupplierCredentialsController < ApplicationController
   before_action :set_credential,
                 only: %i[show edit update destroy validate refresh_session import_products import_lists submit_2fa_code
-                         status]
+                         status update_display_position]
   before_action :set_suppliers, only: %i[new create edit update]
   before_action :require_operator!, only: %i[new create edit update destroy]
   before_action :require_location_context!
@@ -9,7 +9,7 @@ class SupplierCredentialsController < ApplicationController
   def index
     @credentials = scoped_credentials
                                .includes(:supplier)
-                               .order('suppliers.name')
+                               .order('supplier_credentials.display_position ASC, suppliers.name ASC')
     @read_only = current_role == 'manager'
 
     # Pre-compute supplier product stats to avoid N+1 queries in the view.
@@ -350,6 +350,16 @@ class SupplierCredentialsController < ApplicationController
                         }
                       end
     }
+  end
+
+  def update_display_position
+    position = params[:display_position].to_i
+    @credential.update!(display_position: position)
+
+    respond_to do |format|
+      format.html { redirect_to supplier_credentials_path }
+      format.json { render json: { success: true, display_position: position } }
+    end
   end
 
   def import_products

@@ -42,7 +42,7 @@ class AggregatedListsController < ApplicationController
     @product_matches = @aggregated_list.product_matches
                                        .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 WHEN 'rejected' THEN 4 ELSE 5 END, position ASC"))
-    @suppliers = @supplier_lists.map(&:supplier).uniq
+    @suppliers = sort_suppliers_for_user(@supplier_lists.map(&:supplier).uniq)
 
     # Pre-compute stats with a single grouped query instead of 3 separate COUNTs
     status_counts = @aggregated_list.product_matches.group(:match_status).count
@@ -380,7 +380,9 @@ class AggregatedListsController < ApplicationController
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     # Show suppliers the user has active credentials for, plus email suppliers (no credentials needed)
     available_supplier_ids = scoped_credentials.active.pluck(:supplier_id).to_set
-    @suppliers = @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) || s.email_supplier? }
+    @suppliers = sort_suppliers_for_user(
+      @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) || s.email_supplier? }
+    )
 
     # --- Optional order list context (unified builder) ---
     @order_list = nil

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_15_224448) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_20_190618) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -662,6 +662,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_15_224448) do
     t.datetime "last_deep_import_at"
     t.integer "refresh_failures", default: 0, null: false
     t.bigint "location_id"
+    t.integer "display_position", default: 0
     t.index ["location_id"], name: "index_supplier_credentials_on_location_id"
     t.index ["organization_id", "location_id"], name: "idx_supplier_creds_org_location"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"
