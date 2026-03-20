@@ -107,9 +107,9 @@
       <div class="px-4 py-4 sm:px-6 space-y-4">
         <% max_loc_spend = @location_stats.map { |r| r[:monthly_spend] }.max.to_f %>
         <% @location_stats.each do |row| %>
-          <div>
+          <%= link_to location_reports_path(location_id: row[:location].id), class: "block rounded-lg px-2 py-1.5 -mx-2 hover:bg-gray-50 transition-colors group" do %>
             <div class="flex items-center justify-between mb-1">
-              <span class="text-sm font-medium text-gray-900 truncate"><%= row[:location].name %></span>
+              <span class="text-sm font-medium text-brand-orange truncate group-hover:underline"><%= row[:location].name %> <span class="text-gray-400 text-xs">&rarr;</span></span>
               <div class="text-right shrink-0 ml-3">
                 <span class="text-sm font-semibold text-gray-900"><%= number_to_currency(row[:monthly_spend]) %></span>
                 <span class="text-xs text-gray-500 ml-1">(<%= row[:order_count] %> orders)</span>
@@ -122,7 +122,7 @@
             <% if row[:savings] > 0 %>
               <p class="mt-0.5 text-xs text-green-600">Saved <%= number_to_currency(row[:savings]) %></p>
             <% end %>
-          </div>
+          <% end %>
         <% end %>
       </div>
     <% else %>
@@ -140,9 +140,9 @@
       <div class="px-4 py-4 sm:px-6 space-y-4">
         <% max_sup_spend = @by_supplier.map { |r| r[:total_spent] }.max.to_f %>
         <% @by_supplier.each do |row| %>
-          <div>
+          <%= link_to supplier_reports_path(supplier_id: row[:supplier].id), class: "block rounded-lg px-2 py-1.5 -mx-2 hover:bg-gray-50 transition-colors group" do %>
             <div class="flex items-center justify-between mb-1">
-              <span class="text-sm font-medium text-gray-900 truncate"><%= row[:supplier].name %></span>
+              <span class="text-sm font-medium text-brand-orange truncate group-hover:underline"><%= row[:supplier].name %> <span class="text-gray-400 text-xs">&rarr;</span></span>
               <div class="text-right shrink-0 ml-3">
                 <span class="text-sm font-semibold text-gray-900"><%= number_to_currency(row[:total_spent]) %></span>
                 <span class="text-xs text-gray-500 ml-1">(<%= row[:order_count] %> orders)</span>
@@ -155,7 +155,7 @@
             <% if row[:savings] > 0 %>
               <p class="mt-0.5 text-xs text-green-600">Saved <%= number_to_currency(row[:savings]) %></p>
             <% end %>
-          </div>
+          <% end %>
         <% end %>
       </div>
     <% else %>
