@@ -64,12 +64,12 @@ User.find_each do |user|
 end
 
 # Scrub supplier credentials — keep them "active" but with wiped secrets
-# Null out encrypted fields so they can't be used to authenticate
+# Set encrypted fields to empty strings (NOT NULL constraint on username)
 SupplierCredential.update_all(
-  encrypted_password: nil,
-  encrypted_password_iv: nil,
-  encrypted_username: nil,
-  encrypted_username_iv: nil,
+  encrypted_password: '',
+  encrypted_password_iv: '',
+  encrypted_username: 'demo',
+  encrypted_username_iv: '',
   encrypted_session_data: nil,
   encrypted_session_data_iv: nil,
   status: 'active'
