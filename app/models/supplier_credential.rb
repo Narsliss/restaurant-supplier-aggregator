@@ -111,8 +111,22 @@ class SupplierCredential < ApplicationRecord
     update!(session_data: nil)
   end
 
+  # Safe accessors that handle decryption failures gracefully
+  # (e.g., data encrypted with a different key after a DB restore)
+  def safe_username
+    username
+  rescue OpenSSL::Cipher::CipherError, ArgumentError
+    nil
+  end
+
+  def safe_session_data
+    session_data
+  rescue OpenSSL::Cipher::CipherError, ArgumentError
+    nil
+  end
+
   def session_valid?
-    return false unless session_data.present? && last_login_at.present?
+    return false unless safe_session_data.present? && last_login_at.present?
 
     # Use different TTLs based on supplier auth type:
     # - 2FA suppliers (US Foods, PPO): sessions typically last 24+ hours on the
