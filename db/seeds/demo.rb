@@ -63,17 +63,16 @@ User.find_each do |user|
   )
 end
 
-# Scrub supplier credentials — keep them "active" but with wiped secrets
-# Set encrypted fields to empty strings (NOT NULL constraint on username)
-SupplierCredential.update_all(
-  encrypted_password: '',
-  encrypted_password_iv: '',
-  encrypted_username: 'demo',
-  encrypted_username_iv: '',
-  encrypted_session_data: nil,
-  encrypted_session_data_iv: nil,
-  status: 'active'
-)
+# Scrub supplier credentials — keep them "active" but with properly
+# encrypted fake values (update_all bypasses encryption and creates
+# invalid IVs that crash the view on decryption)
+SupplierCredential.find_each do |cred|
+  cred.username = "demo@supplierhub.com"
+  cred.password = "demo-password"
+  cred.session_data = nil
+  cred.status = 'active'
+  cred.save!(validate: false)
+end
 
 # ── Step 4: Adjust timestamps so data looks fresh ─────────────────────
 

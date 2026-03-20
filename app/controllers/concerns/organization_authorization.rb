@@ -166,7 +166,7 @@ module OrganizationAuthorization
     return if current_user&.super_admin?
 
     unless current_location
-      redirect_to root_path(context: "location_required")
+      redirect_to root_path, alert: "Please select a specific restaurant from the dropdown above to access this page."
     end
   end
 
