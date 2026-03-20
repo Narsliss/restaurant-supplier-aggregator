@@ -66,17 +66,23 @@ end
 # Scrub supplier credentials — keep them "active" but with properly
 # encrypted fake values (update_all bypasses encryption and creates
 # invalid IVs that crash the view on decryption)
+# First, wipe all encrypted fields at the SQL level so decryption can't crash.
+# This avoids "must specify an iv" errors from corrupted encrypted data.
+SupplierCredential.update_all(
+  encrypted_session_data: nil,
+  encrypted_session_data_iv: nil,
+  last_login_at: nil,
+  status: 'active'
+)
+
+# Now re-encrypt username/password properly through the model
 SupplierCredential.find_each do |cred|
   begin
     cred.username = "demo@supplierhub.com"
     cred.password = "demo-password" if cred.supplier&.password_required?
-    cred.session_data = nil
-    cred.status = 'active'
     cred.save!(validate: false)
   rescue => e
     puts "[DemoSeed] WARNING: Could not scrub credential #{cred.id}: #{e.message}"
-    # Fallback: use update_columns with properly encrypted values
-    cred.update_columns(status: 'active')
   end
 end
 
