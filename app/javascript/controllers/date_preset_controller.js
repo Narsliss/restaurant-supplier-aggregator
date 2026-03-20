@@ -3,14 +3,56 @@ import { Controller } from "@hotwired/stimulus"
 export default class extends Controller {
   static targets = ["startDate", "endDate", "preset"]
 
+  connect() {
+    this._detectPreset()
+  }
+
   apply(event) {
     const value = event.target.value
     if (!value) return
 
+    const range = this._rangeFor(value)
+    if (!range) return
+
+    this.startDateTarget.value = this._formatDate(range.start)
+    this.endDateTarget.value = this._formatDate(range.end)
+
+    // Auto-submit the form
+    this.element.requestSubmit()
+  }
+
+  // Check if current date values match any preset and select it
+  _detectPreset() {
+    const currentStart = this.startDateTarget.value
+    const currentEnd = this.endDateTarget.value
+    if (!currentStart || !currentEnd) return
+
+    const presets = [
+      "last_30", "last_60", "last_90",
+      "this_month", "last_month",
+      "this_quarter", "last_quarter",
+      "this_year", "last_year"
+    ]
+
+    for (const key of presets) {
+      const range = this._rangeFor(key)
+      if (range &&
+          this._formatDate(range.start) === currentStart &&
+          this._formatDate(range.end) === currentEnd) {
+        this.presetTarget.value = key
+        return
+      }
+    }
+
+    // No match — leave as "Custom"
+    this.presetTarget.value = ""
+  }
+
+  _rangeFor(key) {
     const today = new Date()
     let start, end
 
-    switch (value) {
+    switch (key) {
       case "last_30":
         start = this._daysAgo(30)
         end = today
@@ -50,14 +92,10 @@ export default class extends Controller {
         end = new Date(today.getFullYear() - 1, 11, 31)
         break
       default:
-        return
+        return null
     }
 
-    this.startDateTarget.value = this._formatDate(start)
-    this.endDateTarget.value = this._formatDate(end)
-
-    // Auto-submit the form
-    this.element.requestSubmit()
+    return { start, end }
   }
 
   _daysAgo(n) {
