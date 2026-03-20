@@ -11,6 +11,7 @@ RUN apt-get update -qq && \
     libjemalloc2 \
     libvips \
     libpq5 \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Set production environment

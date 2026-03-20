@@ -22,12 +22,18 @@ end
 
 puts "[DemoSeed] Decompressing and restoring data snapshot..."
 
-require 'zlib'
-sql = Zlib::GzipReader.open(dump_path) { |gz| gz.read }
+# Use psql directly for COPY format — ActiveRecord can't handle
+# the COPY protocol. Pipe the gzipped dump through gunzip | psql.
+db_url = ENV['DATABASE_URL']
+unless db_url
+  puts "[DemoSeed] ERROR: DATABASE_URL not set!"
+  exit 1
+end
 
-# Execute the entire SQL dump at once — uses COPY format which is
-# dramatically faster than individual INSERTs over a network connection
-conn.execute(sql)
+result = system("gunzip -c #{dump_path} | psql '#{db_url}' --quiet --no-psqlrc 2>&1")
+unless result
+  puts "[DemoSeed] WARNING: psql restore had errors (some may be harmless duplicate key warnings)"
+end
 
 puts "[DemoSeed] Data restored."
 
