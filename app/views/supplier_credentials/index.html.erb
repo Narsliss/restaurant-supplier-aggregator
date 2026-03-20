@@ -33,9 +33,9 @@
           <%# Username %>
           <p class="text-xs text-gray-500 mt-0.5 truncate">
             <% if credential.supplier.welcome_url_auth? %>
-              <span title="<%= credential.safe_username %>">Welcome URL configured</span>
+              <span title="<%= credential.username %>">Welcome URL configured</span>
             <% else %>
-              <%= credential.safe_username || "Connected" %>
+              <%= credential.username || "Connected" %>
             <% end %>
           </p>
 
