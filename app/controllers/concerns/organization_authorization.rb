@@ -114,12 +114,13 @@ module OrganizationAuthorization
   end
 
   # Sort suppliers by the current user's display_position preference.
-  # Falls back to supplier name for any without a position set.
+  # For email suppliers (no credentials), falls back to the supplier's
+  # own display_position. Final fallback is alphabetical by name.
   def sort_suppliers_for_user(suppliers)
     positions = scoped_credentials.where(supplier_id: suppliers.map(&:id))
                                   .pluck(:supplier_id, :display_position)
                                   .to_h
-    suppliers.sort_by { |s| [positions[s.id] || 999, s.name] }
+    suppliers.sort_by { |s| [positions[s.id] || s.display_position || 999, s.name] }
   end
 
   # Supplier lists scoped to current location (shared per restaurant)

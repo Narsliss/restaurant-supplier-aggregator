@@ -29,10 +29,15 @@ class EmailSuppliersController < ApplicationController
 
   def update
     if @supplier.update(supplier_params)
-      redirect_to supplier_credentials_path,
-                  notice: "#{@supplier.name} updated."
+      respond_to do |format|
+        format.html { redirect_to supplier_credentials_path, notice: "#{@supplier.name} updated." }
+        format.json { render json: { success: true } }
+      end
     else
-      render :edit, status: :unprocessable_entity
+      respond_to do |format|
+        format.html { render :edit, status: :unprocessable_entity }
+        format.json { render json: { error: @supplier.errors.full_messages }, status: :unprocessable_entity }
+      end
     end
   end
 
@@ -63,7 +68,7 @@ class EmailSuppliersController < ApplicationController
   end
 
   def supplier_params
-    params.require(:supplier).permit(:name, :contact_email, :ordering_instructions)
+    params.require(:supplier).permit(:name, :contact_email, :ordering_instructions, :display_position)
   end
 
   def generate_code(name)
