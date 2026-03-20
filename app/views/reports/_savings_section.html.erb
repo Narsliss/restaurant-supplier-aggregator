@@ -1,0 +1,39 @@
+<% if product_savings.any? %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-gray-900"><%= title || "Best Deals" %></h2>
+          <p class="text-sm text-gray-500 mt-0.5"><%= subtitle || "Products where you saved vs. the most expensive option" %></p>
+        </div>
+        <div class="bg-green-100 rounded-lg px-3 py-1.5">
+          <span class="text-sm font-bold text-green-700"><%= number_to_currency(total_savings) %> saved</span>
+        </div>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">You Paid</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Most Expensive</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Savings</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Qty</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% product_savings.each do |product_name, actual, worst_case, savings, qty| %>
+            <tr>
+              <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-xs truncate"><%= product_name %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(actual) %></td>
+              <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= number_to_currency(worst_case) %></td>
+              <td class="px-6 py-4 text-sm font-semibold text-green-600 text-right"><%= number_to_currency(savings) %></td>
+              <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= qty.round(1) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<% end %>

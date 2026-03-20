@@ -40,7 +40,7 @@
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
     <%= render 'top_products_table', top_products: @top_products %>
 
     <!-- By Location -->
@@ -74,4 +74,17 @@
       <% end %>
     </div>
   </div>
+
+  <%= render 'savings_section',
+      product_savings: @product_savings,
+      total_savings: @total_supplier_savings,
+      title: "Best Deals from #{@supplier.name}",
+      subtitle: "Products where ordering from this supplier saved you vs. the most expensive option" %>
+
+  <%= render 'missed_savings_section',
+      missed_items: @missed_items,
+      total_missed: @total_missed_savings,
+      limit: nil,
+      title: "Consider Switching from #{@supplier.name}",
+      subtitle: "Products you ordered here that are cheaper at another supplier" %>
 </div>

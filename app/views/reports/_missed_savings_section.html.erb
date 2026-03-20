@@ -1,0 +1,47 @@
+<% if missed_items.any? %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-gray-900"><%= title || "Consider Switching" %></h2>
+          <p class="text-sm text-gray-500 mt-0.5"><%= subtitle || "Products where a cheaper supplier was available" %></p>
+        </div>
+        <div class="bg-amber-100 rounded-lg px-3 py-1.5">
+          <span class="text-sm font-bold text-amber-700"><%= number_to_currency(total_missed) %> potential</span>
+        </div>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ordered From</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cheaper At</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Their Price</th>
+            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Could Save</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% (limit ? missed_items.first(limit) : missed_items).each do |item| %>
+            <tr>
+              <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-[200px] truncate"><%= item[:product_name] %></td>
+              <td class="px-6 py-4 text-sm text-gray-500"><%= item[:ordered_from] %></td>
+              <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item[:ordered_price]) %></td>
+              <td class="px-6 py-4 text-sm font-medium text-green-700"><%= item[:cheaper_supplier] %></td>
+              <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(item[:cheaper_price]) %></td>
+              <td class="px-6 py-4 text-sm font-bold text-amber-600 text-right"><%= number_to_currency(item[:total_potential_savings]) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+    <% if limit && missed_items.count > limit %>
+      <div class="px-4 py-3 border-t border-gray-100 text-center">
+        <%= link_to "View all #{missed_items.count} items &rarr;".html_safe, missed_savings_reports_path(**filter_params),
+            class: "text-sm text-brand-orange hover:text-brand-orange-light font-medium" %>
+      </div>
+    <% end %>
+  </div>
+<% end %>
