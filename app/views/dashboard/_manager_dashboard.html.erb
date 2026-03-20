@@ -69,30 +69,69 @@
   <% end %>
 </dl>
 
-<!-- Weekly Spending Trend (full width) -->
-<div class="bg-white shadow rounded-lg mb-8">
-  <div class="px-4 py-5 sm:px-6 border-b border-gray-100">
-    <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Weekly Spending</h3>
+<!-- Spending Trend (full width, toggleable) -->
+<div class="bg-white shadow rounded-lg mb-8" data-controller="spending-trend">
+  <div class="px-4 py-5 sm:px-6 border-b border-gray-100 flex items-center justify-between">
+    <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Spending Trend</h3>
+    <div class="flex rounded-lg overflow-hidden border border-gray-200">
+      <button type="button"
+              data-spending-trend-target="weeklyBtn"
+              data-action="spending-trend#showWeekly"
+              class="px-3 py-1.5 text-xs font-medium transition-colors bg-brand-orange text-white">
+        Weekly
+      </button>
+      <button type="button"
+              data-spending-trend-target="monthlyBtn"
+              data-action="spending-trend#showMonthly"
+              class="px-3 py-1.5 text-xs font-medium transition-colors text-gray-500 hover:text-gray-700">
+        Monthly
+      </button>
+    </div>
   </div>
   <div class="p-6">
-    <% max_total = [@weekly_trend.map { |w| w[:total] }.max.to_f, 1].max %>
-    <% if @weekly_trend.any? { |w| w[:total] > 0 } %>
-      <div class="flex items-stretch justify-between h-48 gap-2">
-        <% @weekly_trend.each do |week| %>
-          <div class="flex flex-col items-center justify-end flex-1">
-            <% if week[:total] > 0 %>
-              <span class="text-xs text-gray-500 mb-1 whitespace-nowrap"><%= number_to_currency(week[:total], precision: 0) %></span>
-            <% end %>
-            <div class="w-full bg-brand-orange rounded-t transition-all"
-                 style="height: <%= week[:total] > 0 ? [(week[:total] / max_total * 100).round, 4].max : 2 %>%">
+    <%# Weekly chart %>
+    <div data-spending-trend-target="weeklyChart">
+      <% max_weekly = [@weekly_trend.map { |w| w[:total] }.max.to_f, 1].max %>
+      <% if @weekly_trend.any? { |w| w[:total] > 0 } %>
+        <div class="flex items-stretch justify-between h-48 gap-2">
+          <% @weekly_trend.each do |week| %>
+            <div class="flex flex-col items-center justify-end flex-1">
+              <% if week[:total] > 0 %>
+                <span class="text-xs text-gray-500 mb-1 whitespace-nowrap"><%= number_to_currency(week[:total], precision: 0) %></span>
+              <% end %>
+              <div class="w-full bg-brand-orange rounded-t transition-all"
+                   style="height: <%= week[:total] > 0 ? [(week[:total] / max_weekly * 100).round, 4].max : 2 %>%">
+              </div>
+              <p class="text-xs text-gray-500 mt-2"><%= week[:label] %></p>
             </div>
-            <p class="text-xs text-gray-500 mt-2"><%= week[:label] %></p>
-          </div>
-        <% end %>
-      </div>
-    <% else %>
-      <div class="flex items-center justify-center h-48 text-sm text-gray-400">No spending data yet</div>
-    <% end %>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="flex items-center justify-center h-48 text-sm text-gray-400">No spending data yet</div>
+      <% end %>
+    </div>
+
+    <%# Monthly chart %>
+    <div data-spending-trend-target="monthlyChart" class="hidden">
+      <% max_monthly = [@monthly_trend.map { |m| m[:total] }.max.to_f, 1].max %>
+      <% if @monthly_trend.any? { |m| m[:total] > 0 } %>
+        <div class="flex items-stretch justify-between h-48 gap-2">
+          <% @monthly_trend.each do |month| %>
+            <div class="flex flex-col items-center justify-end flex-1">
+              <% if month[:total] > 0 %>
+                <span class="text-xs text-gray-500 mb-1 whitespace-nowrap"><%= number_to_currency(month[:total], precision: 0) %></span>
+              <% end %>
+              <div class="w-full bg-brand-green rounded-t transition-all"
+                   style="height: <%= month[:total] > 0 ? [(month[:total] / max_monthly * 100).round, 4].max : 2 %>%">
+              </div>
+              <p class="text-xs text-gray-500 mt-2"><%= month[:label] %></p>
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="flex items-center justify-center h-48 text-sm text-gray-400">No spending data yet</div>
+      <% end %>
+    </div>
   </div>
 </div>
 

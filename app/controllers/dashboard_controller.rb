@@ -170,8 +170,9 @@ class DashboardController < ApplicationController
       avg_order_change: percentage_change(current_month_stats[3], prior_month_stats[3])
     }
 
-    # Weekly spending trend (8 weeks)
+    # Spending trends
     @weekly_trend = load_weekly_trend(kpi_orders)
+    @monthly_trend = load_monthly_trend(kpi_orders)
 
     # Spending by restaurant
     org = current_user.current_organization
@@ -378,6 +379,24 @@ class DashboardController < ApplicationController
       week_start = (Date.current - weeks_ago.weeks).beginning_of_week
       row = weekly_data[week_start]
       { week: week_start, label: week_start.strftime("%b %d"), total: row ? row[1] : 0, count: row ? row[2] : 0 }
+    end.reverse
+  end
+
+  # Shared: 6-month spending trend bar chart data
+  def load_monthly_trend(base_orders)
+    six_months_ago = 6.months.ago.beginning_of_month.beginning_of_day
+    monthly_data = base_orders.where("orders.created_at >= ?", six_months_ago)
+      .group(Arel.sql("date_trunc('month', orders.created_at)"))
+      .pluck(
+        Arel.sql("date_trunc('month', orders.created_at)"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)")
+      ).index_by { |row| row[0].to_date }
+
+    (0..5).map do |months_ago|
+      month_start = (Date.current - months_ago.months).beginning_of_month
+      row = monthly_data[month_start]
+      { month: month_start, label: month_start.strftime("%b %Y"), total: row ? row[1] : 0, count: row ? row[2] : 0 }
     end.reverse
   end
 
