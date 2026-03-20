@@ -8,6 +8,7 @@ class SupplierCredentialsController < ApplicationController
 
   def index
     @credentials = scoped_credentials
+                               .joins(:supplier)
                                .includes(:supplier)
                                .order('supplier_credentials.display_position ASC, suppliers.name ASC')
     @read_only = current_role == 'manager'
