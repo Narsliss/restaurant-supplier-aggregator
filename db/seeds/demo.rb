@@ -63,16 +63,18 @@ User.find_each do |user|
   )
 end
 
-# Scrub supplier credentials — keep them "active" but with fake data
+# Scrub supplier credentials — keep them "active" but with wiped secrets
+# Null out encrypted fields so they can't be used to authenticate
 SupplierCredential.update_all(
-  session_data: '{"cookies":[]}',
+  encrypted_password: nil,
+  encrypted_password_iv: nil,
+  encrypted_username: nil,
+  encrypted_username_iv: nil,
+  encrypted_session_data: nil,
+  encrypted_session_data_iv: nil,
   status: 'active',
   last_synced_at: 1.day.ago
 )
-
-# Re-encrypt credential passwords with a dummy value
-dummy_ciphertext = SupplierCredential.new(password: 'demo-not-real').password_ciphertext
-SupplierCredential.update_all(password_ciphertext: dummy_ciphertext)
 
 # ── Step 4: Adjust timestamps so data looks fresh ─────────────────────
 
