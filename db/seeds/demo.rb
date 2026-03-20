@@ -66,24 +66,29 @@ end
 # Scrub supplier credentials — keep them "active" but with properly
 # encrypted fake values (update_all bypasses encryption and creates
 # invalid IVs that crash the view on decryption)
-# First, wipe all encrypted fields at the SQL level so decryption can't crash.
-# This avoids "must specify an iv" errors from corrupted encrypted data.
+# Wipe ALL encrypted fields at the SQL level first. The dump was taken
+# from a different environment with a different encryption key, so none
+# of the encrypted values can be decrypted here. We must nil everything
+# before re-encrypting with the current environment's key.
 SupplierCredential.update_all(
+  encrypted_username: nil,
+  encrypted_username_iv: nil,
+  encrypted_password: nil,
+  encrypted_password_iv: nil,
   encrypted_session_data: nil,
   encrypted_session_data_iv: nil,
   last_login_at: nil,
   status: 'active'
 )
 
-# Now re-encrypt username/password properly through the model
+# Now re-encrypt with this environment's key
 SupplierCredential.find_each do |cred|
-  begin
-    cred.username = "demo@supplierhub.com"
-    cred.password = "demo-password" if cred.supplier&.password_required?
-    cred.save!(validate: false)
-  rescue => e
-    puts "[DemoSeed] WARNING: Could not scrub credential #{cred.id}: #{e.message}"
-  end
+  cred.username = "demo@supplierhub.com"
+  cred.password = "demo-password" if cred.supplier&.password_required?
+  cred.session_data = nil
+  cred.save!(validate: false)
+rescue => e
+  puts "[DemoSeed] WARNING: Could not scrub credential #{cred.id}: #{e.message}"
 end
 
 # ── Step 4: Adjust timestamps so data looks fresh ─────────────────────
