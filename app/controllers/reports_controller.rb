@@ -34,6 +34,7 @@ class ReportsController < ApplicationController
     @by_supplier = supplier_breakdown(orders)
     @by_member = member_breakdown(orders)
     @weekly_trend = weekly_trend(orders)
+    @monthly_trend = monthly_trend(orders)
   end
 
   def location
@@ -45,6 +46,7 @@ class ReportsController < ApplicationController
     @by_supplier = supplier_breakdown(orders)
     @top_products = top_products(orders)
     @weekly_trend = weekly_trend(orders)
+    @monthly_trend = monthly_trend(orders)
     @by_member = member_breakdown(orders)
 
     @product_savings = product_savings_for(orders)
@@ -109,6 +111,7 @@ class ReportsController < ApplicationController
     @by_supplier = supplier_breakdown(orders)
     @top_products = top_products(orders)
     @weekly_trend = weekly_trend(orders)
+    @monthly_trend = monthly_trend(orders)
 
     # Recent orders (last 10)
     @recent_orders = orders.order(created_at: :desc).limit(10)
@@ -232,6 +235,23 @@ class ReportsController < ApplicationController
       week_start = (Date.current - weeks_ago.weeks).beginning_of_week
       row = data[week_start]
       { week: week_start, label: week_start.strftime("%b %d"), total: row ? row[1] : 0, count: row ? row[2] : 0 }
+    end.reverse
+  end
+
+  def monthly_trend(orders)
+    six_months_ago = 6.months.ago.beginning_of_month.beginning_of_day
+    data = orders.where("orders.created_at >= ?", six_months_ago)
+      .group(Arel.sql("date_trunc('month', orders.created_at)"))
+      .pluck(
+        Arel.sql("date_trunc('month', orders.created_at)"),
+        Arel.sql("COALESCE(SUM(total_amount), 0)"),
+        Arel.sql("COUNT(*)")
+      ).index_by { |row| row[0].to_date }
+
+    (0..5).map do |months_ago|
+      month_start = (Date.current - months_ago.months).beginning_of_month
+      row = data[month_start]
+      { month: month_start, label: month_start.strftime("%b %Y"), total: row ? row[1] : 0, count: row ? row[2] : 0 }
     end.reverse
   end
 

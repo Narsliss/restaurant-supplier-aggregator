@@ -75,7 +75,7 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
     <%= render 'top_products_table', top_products: @top_products %>
-    <%= render 'weekly_trend', weekly_trend: @weekly_trend %>
+    <%= render 'weekly_trend', weekly_trend: @weekly_trend, monthly_trend: @monthly_trend %>
   </div>
 
   <%= render 'savings_section',
