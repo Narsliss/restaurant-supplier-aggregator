@@ -19,24 +19,11 @@ export default class extends Controller {
     return localStorage.getItem(this.storageKey) // "light", "dark", or null (system)
   }
 
-  // Cycle: system → light → dark → system …
+  // Toggle: light ↔ dark
   cycle() {
-    const current = this.currentPreference
-    let next
-    if (current === null) {
-      next = "light"
-    } else if (current === "light") {
-      next = "dark"
-    } else {
-      next = null // system
-    }
-
-    if (next) {
-      localStorage.setItem(this.storageKey, next)
-    } else {
-      localStorage.removeItem(this.storageKey)
-    }
-
+    const isDark = document.documentElement.classList.contains("dark")
+    const next = isDark ? "light" : "dark"
+    localStorage.setItem(this.storageKey, next)
     this.applyTheme()
   }
 
@@ -56,28 +43,32 @@ export default class extends Controller {
   }
 
   applyTheme() {
-    const preference = this.currentPreference
-    const isDark = preference === "dark" ||
-      (!preference && this.mediaQuery.matches)
+    let preference = this.currentPreference
+    // If no preference saved, resolve system preference and persist it
+    if (!preference) {
+      preference = this.mediaQuery.matches ? "dark" : "light"
+      localStorage.setItem(this.storageKey, preference)
+    }
+    const isDark = preference === "dark"
 
     document.documentElement.classList.toggle("dark", isDark)
     this._updateIcons(preference)
   }
 
   _updateIcons(preference) {
+    const isDark = document.documentElement.classList.contains("dark")
     // Use plural targets to update both desktop and mobile instances
     this.lightIconTargets.forEach(el => {
-      el.classList.toggle("hidden", preference !== "light")
+      el.classList.toggle("hidden", isDark)
     })
     this.darkIconTargets.forEach(el => {
-      el.classList.toggle("hidden", preference !== "dark")
+      el.classList.toggle("hidden", !isDark)
     })
     this.systemIconTargets.forEach(el => {
-      el.classList.toggle("hidden", preference !== null)
+      el.classList.add("hidden")
     })
     this.labelTargets.forEach(el => {
-      const labels = { light: "Light", dark: "Dark" }
-      el.textContent = labels[preference] || "System"
+      el.textContent = isDark ? "Dark" : "Light"
     })
   }
 
