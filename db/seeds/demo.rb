@@ -72,8 +72,7 @@ SupplierCredential.update_all(
   encrypted_username_iv: nil,
   encrypted_session_data: nil,
   encrypted_session_data_iv: nil,
-  status: 'active',
-  last_synced_at: 1.day.ago
+  status: 'active'
 )
 
 # ── Step 4: Adjust timestamps so data looks fresh ─────────────────────

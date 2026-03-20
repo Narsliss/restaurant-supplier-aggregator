@@ -17,12 +17,10 @@ class DemoResetJob < ApplicationJob
 
     conn = ActiveRecord::Base.connection
 
-    # Tables managed by initializers or Rails internals — don't truncate
+    # Tables managed by Rails internals — don't truncate
     skip = %w[
       schema_migrations
       ar_internal_metadata
-      suppliers
-      supplier_requirements
     ]
 
     # Disable foreign key checks for clean truncation
