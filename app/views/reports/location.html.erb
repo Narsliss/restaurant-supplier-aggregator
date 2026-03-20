@@ -1,0 +1,80 @@
+<div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <%= render 'breadcrumb', title: @location.name %>
+
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900"><%= @location.name %></h1>
+      <p class="text-gray-600 mt-1">Spending and order detail for this restaurant</p>
+    </div>
+  </div>
+
+  <%= render 'filter_bar', url: location_reports_path(location_id: @location.id), show_location_filter: false %>
+  <%= render 'summary_cards', summary: @summary %>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+    <!-- By Supplier at this location -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">By Supplier</h2>
+      </div>
+      <% if @by_supplier.any? %>
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spent</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Savings</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @by_supplier.each do |row| %>
+              <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='<%= supplier_reports_path(supplier_id: row[:supplier].id, **filter_params) %>'">
+                <td class="px-6 py-4 text-sm font-medium text-brand-orange"><%= row[:supplier].name %> <span class="text-gray-400 text-xs ml-1">&rarr;</span></td>
+                <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
+                <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
+                <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% else %>
+        <div class="px-6 py-8 text-center text-sm text-gray-400">No orders in this period</div>
+      <% end %>
+    </div>
+
+    <!-- By Team Member at this location -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">By Team Member</h2>
+      </div>
+      <% if @by_member.any? %>
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spent</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @by_member.each do |row| %>
+              <tr>
+                <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:user].full_name %></td>
+                <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
+                <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% else %>
+        <div class="px-6 py-8 text-center text-sm text-gray-400">No orders in this period</div>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <%= render 'top_products_table', top_products: @top_products %>
+    <%= render 'weekly_trend', weekly_trend: @weekly_trend %>
+  </div>
+</div>

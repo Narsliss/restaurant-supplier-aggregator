@@ -1,0 +1,92 @@
+<div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <%= render 'breadcrumb', title: 'Missed Savings' %>
+
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900">Missed Savings</h1>
+      <p class="text-gray-600 mt-1">Products you ordered where a cheaper supplier alternative was available</p>
+    </div>
+  </div>
+
+  <%= render 'filter_bar', url: missed_savings_reports_path, show_location_filter: true %>
+
+  <% unless @has_matched_lists %>
+    <!-- No matched lists -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+      <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      <h3 class="text-lg font-medium text-gray-900 mb-2">Price comparison not available</h3>
+      <p class="text-sm text-gray-500 max-w-md mx-auto">
+        Connect your supplier accounts and run product matching to enable cross-supplier price comparison.
+        Once your products are matched across suppliers, we can identify where cheaper options exist.
+      </p>
+      <%= link_to "Go to Product Matching", aggregated_lists_path,
+          class: "inline-block mt-4 px-4 py-2 bg-brand-orange text-white rounded-lg hover:bg-brand-orange-light text-sm font-medium transition-colors" %>
+    </div>
+  <% else %>
+    <!-- Total potential savings highlight -->
+    <% if @missed_items.any? %>
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 mb-8">
+        <div class="flex items-center gap-4">
+          <div class="bg-amber-100 rounded-full p-3">
+            <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-amber-800">Potential Savings Identified</p>
+            <p class="text-3xl font-bold text-amber-700"><%= number_to_currency(@total_potential_savings) %></p>
+            <p class="text-xs text-amber-600 mt-1">You could save this by switching to cheaper suppliers for the products below</p>
+          </div>
+        </div>
+      </div>
+    <% end %>
+
+    <!-- Missed savings table -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Products with Cheaper Alternatives</h2>
+        <p class="text-sm text-gray-500 mt-0.5">Based on current supplier pricing vs. what you paid</p>
+      </div>
+      <% if @missed_items.any? %>
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ordered From</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price Paid</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cheaper At</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Their Price</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Save/Unit</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Potential</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              <% @missed_items.each do |item| %>
+                <tr>
+                  <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-[200px] truncate"><%= item[:product_name] %></td>
+                  <td class="px-6 py-4 text-sm text-gray-500"><%= item[:ordered_from] %></td>
+                  <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item[:ordered_price]) %></td>
+                  <td class="px-6 py-4 text-sm font-medium text-green-700"><%= item[:cheaper_supplier] %></td>
+                  <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(item[:cheaper_price]) %></td>
+                  <td class="px-6 py-4 text-sm font-semibold text-amber-600 text-right"><%= number_to_currency(item[:savings_per_order]) %></td>
+                  <td class="px-6 py-4 text-sm font-bold text-amber-700 text-right"><%= number_to_currency(item[:total_potential_savings]) %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% else %>
+        <div class="px-6 py-12 text-center">
+          <svg class="w-12 h-12 text-green-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <h3 class="text-lg font-medium text-gray-900 mb-2">No missed savings found</h3>
+          <p class="text-sm text-gray-500">Great news! You're already ordering from the cheapest supplier for every product.</p>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+</div>

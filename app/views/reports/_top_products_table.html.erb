@@ -1,0 +1,29 @@
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200">
+    <h2 class="text-lg font-semibold text-gray-900">Top Products</h2>
+  </div>
+  <% if top_products.any? %>
+    <table class="min-w-full divide-y divide-gray-200">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+          <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Qty Ordered</th>
+          <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Spent</th>
+          <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        <% top_products.each do |product_name, qty, total, order_count| %>
+          <tr>
+            <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-xs truncate"><%= product_name %></td>
+            <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= qty.round(1) %></td>
+            <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(total) %></td>
+            <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= order_count %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <div class="px-6 py-8 text-center text-sm text-gray-400">No product data in this period</div>
+  <% end %>
+</div>

@@ -1,0 +1,25 @@
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-200">
+    <h2 class="text-lg font-semibold text-gray-900">Weekly Spending</h2>
+  </div>
+  <div class="p-6">
+    <% max_total = [weekly_trend.map { |w| w[:total] }.max.to_f, 1].max %>
+    <% if weekly_trend.any? { |w| w[:total] > 0 } %>
+      <div class="flex items-stretch justify-between h-48 gap-2">
+        <% weekly_trend.each do |week| %>
+          <div class="flex flex-col items-center justify-end flex-1">
+            <% if week[:total] > 0 %>
+              <span class="text-xs text-gray-500 mb-1 whitespace-nowrap"><%= number_to_currency(week[:total], precision: 0) %></span>
+            <% end %>
+            <div class="w-full bg-brand-orange rounded-t transition-all"
+                 style="height: <%= week[:total] > 0 ? [(week[:total] / max_total * 100).round, 4].max : 2 %>%">
+            </div>
+            <p class="text-xs text-gray-500 mt-2"><%= week[:label] %></p>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-48 text-sm text-gray-400">No spending data yet</div>
+    <% end %>
+  </div>
+</div>

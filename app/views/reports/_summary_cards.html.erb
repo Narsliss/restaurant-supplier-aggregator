@@ -1,0 +1,18 @@
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <p class="text-sm text-gray-500">Total Spent</p>
+    <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(summary[:total_spent]) %></p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <p class="text-sm text-gray-500">Total Savings</p>
+    <p class="text-2xl font-bold text-green-600"><%= number_to_currency(summary[:total_savings]) %></p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <p class="text-sm text-gray-500">Orders</p>
+    <p class="text-2xl font-bold text-gray-900"><%= summary[:order_count] %></p>
+  </div>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <p class="text-sm text-gray-500">Avg Order Size</p>
+    <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(summary[:avg_order_size]) %></p>
+  </div>
+</div>

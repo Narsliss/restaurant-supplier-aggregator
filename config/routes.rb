@@ -74,7 +74,14 @@ Rails.application.routes.draw do
   end
 
   # Reports (owners + managers)
-  resources :reports, only: [:index]
+  resources :reports, only: [:index] do
+    collection do
+      get 'location/:location_id', action: :location, as: :location
+      get 'supplier/:supplier_id', action: :supplier, as: :supplier
+      get :savings
+      get :missed_savings
+    end
+  end
 
   # Accept invitation (public route)
   get 'invitations/:token/accept', to: 'organizations/invitations#accept', as: :accept_invitation

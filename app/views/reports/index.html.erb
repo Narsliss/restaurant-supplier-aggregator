@@ -6,50 +6,27 @@
     </div>
   </div>
 
-  <!-- Filters -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-8">
-    <%= form_with url: reports_path, method: :get, local: true, class: "flex flex-wrap items-end gap-4" do |f| %>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">From</label>
-        <input type="date" name="start_date" value="<%= @start_date %>" class="rounded-md border-gray-300 text-sm">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">To</label>
-        <input type="date" name="end_date" value="<%= @end_date %>" class="rounded-md border-gray-300 text-sm">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Restaurant</label>
-        <select name="location_id" class="rounded-md border-gray-300 text-sm">
-          <option value="">All Restaurants</option>
-          <% @locations.each do |loc| %>
-            <option value="<%= loc.id %>" <%= 'selected' if @selected_location_id == loc.id %>><%= loc.name %></option>
-          <% end %>
-        </select>
-      </div>
-      <button type="submit" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
-        Apply
-      </button>
-    <% end %>
-  </div>
+  <%= render 'filter_bar', url: reports_path, show_location_filter: true %>
+  <%= render 'summary_cards', summary: @summary %>
 
-  <!-- Summary Cards -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <p class="text-sm text-gray-500">Total Spent</p>
-      <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(@summary[:total_spent]) %></p>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <p class="text-sm text-gray-500">Total Savings</p>
-      <p class="text-2xl font-bold text-green-600"><%= number_to_currency(@summary[:total_savings]) %></p>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <p class="text-sm text-gray-500">Orders</p>
-      <p class="text-2xl font-bold text-gray-900"><%= @summary[:order_count] %></p>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <p class="text-sm text-gray-500">Avg Order Size</p>
-      <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(@summary[:avg_order_size]) %></p>
-    </div>
+  <!-- Savings insight links -->
+  <div class="flex flex-wrap gap-3 mb-8">
+    <%= link_to savings_reports_path(**filter_params),
+        class: "inline-flex items-center gap-2 px-4 py-2.5 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors" do %>
+      <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span class="text-sm font-medium text-green-700">Product Savings</span>
+      <span class="text-xs text-green-500">&rarr;</span>
+    <% end %>
+    <%= link_to missed_savings_reports_path(**filter_params),
+        class: "inline-flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors" do %>
+      <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+      </svg>
+      <span class="text-sm font-medium text-amber-700">Missed Savings</span>
+      <span class="text-xs text-amber-500">&rarr;</span>
+    <% end %>
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -69,8 +46,8 @@
         </thead>
         <tbody class="divide-y divide-gray-200">
           <% @by_restaurant.each do |row| %>
-            <tr>
-              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:location].name %></td>
+            <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='<%= location_reports_path(location_id: row[:location].id, **filter_params) %>'">
+              <td class="px-6 py-4 text-sm font-medium text-brand-orange"><%= row[:location].name %> <span class="text-gray-400 text-xs ml-1">&rarr;</span></td>
               <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
               <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
               <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
@@ -96,8 +73,8 @@
         </thead>
         <tbody class="divide-y divide-gray-200">
           <% @by_supplier.each do |row| %>
-            <tr>
-              <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= row[:supplier]&.name || "Unknown" %></td>
+            <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='<%= supplier_reports_path(supplier_id: row[:supplier].id, **filter_params) %>'">
+              <td class="px-6 py-4 text-sm font-medium text-brand-orange"><%= row[:supplier]&.name || "Unknown" %> <span class="text-gray-400 text-xs ml-1">&rarr;</span></td>
               <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
               <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
               <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
@@ -133,30 +110,6 @@
     </div>
 
     <!-- Weekly Trend -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div class="px-6 py-4 border-b border-gray-200">
-        <h2 class="text-lg font-semibold text-gray-900">Weekly Spending</h2>
-      </div>
-      <div class="p-6">
-        <% max_total = [@weekly_trend.map { |w| w[:total] }.max.to_f, 1].max %>
-        <% if @weekly_trend.any? { |w| w[:total] > 0 } %>
-          <div class="flex items-stretch justify-between h-48 gap-2">
-            <% @weekly_trend.each do |week| %>
-              <div class="flex flex-col items-center justify-end flex-1">
-                <% if week[:total] > 0 %>
-                  <span class="text-xs text-gray-500 mb-1 whitespace-nowrap"><%= number_to_currency(week[:total], precision: 0) %></span>
-                <% end %>
-                <div class="w-full bg-brand-orange rounded-t transition-all"
-                     style="height: <%= week[:total] > 0 ? [(week[:total] / max_total * 100).round, 4].max : 2 %>%">
-                </div>
-                <p class="text-xs text-gray-500 mt-2"><%= week[:label] %></p>
-              </div>
-            <% end %>
-          </div>
-        <% else %>
-          <div class="flex items-center justify-center h-48 text-sm text-gray-400">No spending data yet</div>
-        <% end %>
-      </div>
-    </div>
+    <%= render 'weekly_trend', weekly_trend: @weekly_trend %>
   </div>
 </div>

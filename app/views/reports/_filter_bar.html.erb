@@ -1,0 +1,26 @@
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-8">
+  <%= form_with url: url, method: :get, local: true, class: "flex flex-wrap items-end gap-4" do |f| %>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">From</label>
+      <input type="date" name="start_date" value="<%= @start_date %>" class="rounded-md border-gray-300 text-sm">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">To</label>
+      <input type="date" name="end_date" value="<%= @end_date %>" class="rounded-md border-gray-300 text-sm">
+    </div>
+    <% if defined?(show_location_filter) && show_location_filter && @locations %>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Restaurant</label>
+        <select name="location_id" class="rounded-md border-gray-300 text-sm">
+          <option value="">All Restaurants</option>
+          <% @locations.each do |loc| %>
+            <option value="<%= loc.id %>" <%= 'selected' if @selected_location_id == loc.id %>><%= loc.name %></option>
+          <% end %>
+        </select>
+      </div>
+    <% end %>
+    <button type="submit" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
+      Apply
+    </button>
+  <% end %>
+</div>

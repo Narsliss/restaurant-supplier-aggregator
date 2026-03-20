@@ -1,0 +1,77 @@
+<div class="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+  <%= render 'breadcrumb', title: @supplier.name %>
+
+  <div class="flex justify-between items-center mb-8">
+    <div>
+      <h1 class="text-3xl font-bold text-gray-900"><%= @supplier.name %></h1>
+      <p class="text-gray-600 mt-1">Order detail and product breakdown</p>
+    </div>
+  </div>
+
+  <%= render 'filter_bar', url: supplier_reports_path(supplier_id: @supplier.id), show_location_filter: true %>
+
+  <!-- Summary + frequency -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Total Spent</p>
+      <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(@summary[:total_spent]) %></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Total Savings</p>
+      <p class="text-2xl font-bold text-green-600"><%= number_to_currency(@summary[:total_savings]) %></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Orders</p>
+      <p class="text-2xl font-bold text-gray-900"><%= @summary[:order_count] %></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Avg Order Size</p>
+      <p class="text-2xl font-bold text-gray-900"><%= number_to_currency(@summary[:avg_order_size]) %></p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm text-gray-500">Order Frequency</p>
+      <p class="text-2xl font-bold text-gray-900">
+        <% if @order_frequency_days %>
+          Every <%= @order_frequency_days %> days
+        <% else %>
+          &mdash;
+        <% end %>
+      </p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <%= render 'top_products_table', top_products: @top_products %>
+
+    <!-- By Location -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">By Restaurant</h2>
+      </div>
+      <% if @by_location.any? %>
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Restaurant</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Spent</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Orders</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Savings</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            <% @by_location.each do |row| %>
+              <tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='<%= location_reports_path(location_id: row[:location].id, **filter_params) %>'">
+                <td class="px-6 py-4 text-sm font-medium text-brand-orange"><%= row[:location].name %> <span class="text-gray-400 text-xs ml-1">&rarr;</span></td>
+                <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(row[:total_spent]) %></td>
+                <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= row[:order_count] %></td>
+                <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(row[:savings]) %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% else %>
+        <div class="px-6 py-8 text-center text-sm text-gray-400">No orders in this period</div>
+      <% end %>
+    </div>
+  </div>
+</div>
