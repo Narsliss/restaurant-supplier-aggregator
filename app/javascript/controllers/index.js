@@ -30,6 +30,7 @@ import PdfUploadController from "./pdf_upload_controller"
 import PriceListStatusController from "./price_list_status_controller"
 import DemoLoginController from "./demo_login_controller"
 import SpendingTrendController from "./spending_trend_controller"
+import DatePresetController from "./date_preset_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -61,3 +62,4 @@ application.register("pdf-upload", PdfUploadController)
 application.register("price-list-status", PriceListStatusController)
 application.register("demo-login", DemoLoginController)
 application.register("spending-trend", SpendingTrendController)
+application.register("date-preset", DatePresetController)

@@ -1,12 +1,31 @@
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-8">
-  <%= form_with url: url, method: :get, local: true, class: "flex flex-wrap items-end gap-4" do |f| %>
+  <%= form_with url: url, method: :get, local: true, class: "flex flex-wrap items-end gap-4", data: { controller: "date-preset" } do |f| %>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
+      <select data-action="date-preset#apply" data-date-preset-target="preset" class="rounded-md border-gray-300 text-sm">
+        <option value="">Custom</option>
+        <optgroup label="Relative">
+          <option value="last_30">Last 30 Days</option>
+          <option value="last_60">Last 60 Days</option>
+          <option value="last_90">Last 90 Days</option>
+        </optgroup>
+        <optgroup label="Calendar">
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="this_quarter">This Quarter</option>
+          <option value="last_quarter">Last Quarter</option>
+          <option value="this_year">This Year</option>
+          <option value="last_year">Last Year</option>
+        </optgroup>
+      </select>
+    </div>
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">From</label>
-      <input type="date" name="start_date" value="<%= @start_date %>" class="rounded-md border-gray-300 text-sm">
+      <input type="date" name="start_date" value="<%= @start_date %>" data-date-preset-target="startDate" class="rounded-md border-gray-300 text-sm">
     </div>
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">To</label>
-      <input type="date" name="end_date" value="<%= @end_date %>" class="rounded-md border-gray-300 text-sm">
+      <input type="date" name="end_date" value="<%= @end_date %>" data-date-preset-target="endDate" class="rounded-md border-gray-300 text-sm">
     </div>
     <% if defined?(show_location_filter) && show_location_filter && @locations %>
       <div>
