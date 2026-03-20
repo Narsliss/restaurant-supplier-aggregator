@@ -355,7 +355,7 @@ class SupplierCredentialsController < ApplicationController
 
   def update_display_position
     position = params[:display_position].to_i
-    @credential.update!(display_position: position)
+    @credential.update_column(:display_position, position)
 
     respond_to do |format|
       format.html { redirect_to supplier_credentials_path }
