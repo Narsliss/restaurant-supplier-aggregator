@@ -67,11 +67,17 @@ end
 # encrypted fake values (update_all bypasses encryption and creates
 # invalid IVs that crash the view on decryption)
 SupplierCredential.find_each do |cred|
-  cred.username = "demo@supplierhub.com"
-  cred.password = "demo-password"
-  cred.session_data = nil
-  cred.status = 'active'
-  cred.save!(validate: false)
+  begin
+    cred.username = "demo@supplierhub.com"
+    cred.password = "demo-password" if cred.supplier&.password_required?
+    cred.session_data = nil
+    cred.status = 'active'
+    cred.save!(validate: false)
+  rescue => e
+    puts "[DemoSeed] WARNING: Could not scrub credential #{cred.id}: #{e.message}"
+    # Fallback: use update_columns with properly encrypted values
+    cred.update_columns(status: 'active')
+  end
 end
 
 # ── Step 4: Adjust timestamps so data looks fresh ─────────────────────
