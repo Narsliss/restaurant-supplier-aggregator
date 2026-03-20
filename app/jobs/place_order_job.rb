@@ -10,6 +10,7 @@ class PlaceOrderJob < ApplicationJob
     if ENV['DEMO_MODE'] == 'true'
       order.update!(status: 'submitted', submitted_at: Time.current)
       Rails.logger.info "[PlaceOrderJob] Order #{order.id} demo-submitted for #{order.supplier.name}"
+      notify_owner(order)
       return
     end
 
@@ -28,6 +29,7 @@ class PlaceOrderJob < ApplicationJob
       else
         # Real order placed — send confirmation
         OrderMailer.order_confirmed(order).deliver_later
+        notify_owner(order)
         Rails.logger.info "[PlaceOrderJob] Order #{order.id} placed successfully"
       end
     else
@@ -43,6 +45,14 @@ class PlaceOrderJob < ApplicationJob
   end
 
   private
+
+  # Notify org owner(s) when a non-owner team member places an order
+  def notify_owner(order)
+    return if order.user == order.organization.owner
+    OrderMailer.order_placed_notification(order).deliver_later
+  rescue => e
+    Rails.logger.warn "[PlaceOrderJob] Owner notification failed for order #{order.id}: #{e.message}"
+  end
 
   def handle_failure(order, result)
     case result[:error_type]
