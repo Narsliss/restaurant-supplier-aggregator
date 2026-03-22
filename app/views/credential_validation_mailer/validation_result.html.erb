@@ -17,6 +17,6 @@
 
 <p>
   <strong>Supplier:</strong> <%= @supplier.name %><br>
-  <strong>Username:</strong> <%= @credential.username %><br>
+  <strong>Username:</strong> <%= @credential.safe_username %><br>
   <strong>Status:</strong> <%= @credential.status.titleize %>
 </p>

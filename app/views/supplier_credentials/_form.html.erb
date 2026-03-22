@@ -63,7 +63,7 @@
       <label data-credential-form-target="usernameLabel" for="supplier_credential_username" class="block text-sm font-medium text-gray-700 mb-1">
         <%= credential.supplier&.welcome_url_auth? ? "Welcome URL" : "Email / Username" %>
       </label>
-      <%= form.text_field :username,
+      <%= form.text_field :username, value: credential.safe_username,
           class: "block w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-brand-green focus:ring-brand-green py-2.5 px-3",
           required: true,
           autocomplete: "supplier-username",

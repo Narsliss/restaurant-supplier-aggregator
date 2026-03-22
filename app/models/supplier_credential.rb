@@ -111,6 +111,22 @@ class SupplierCredential < ApplicationRecord
     update!(session_data: nil)
   end
 
+  # Safe accessors for views/mailers — rescue decryption errors from
+  # key mismatches (e.g., credentials encrypted with a different key).
+  # Scrapers and jobs use the raw attr_encrypted getters directly so
+  # they fail loudly on bad data instead of silently sending nil.
+  def safe_username
+    username
+  rescue OpenSSL::Cipher::CipherError, ArgumentError
+    nil
+  end
+
+  def safe_password
+    password
+  rescue OpenSSL::Cipher::CipherError, ArgumentError
+    nil
+  end
+
   def session_valid?
     return false unless session_data.present? && last_login_at.present?
 
