@@ -2065,6 +2065,30 @@ module Scrapers
       raise AuthenticationError, error_msg
     end
 
+    # PPO's Next.js / React Native Web app fails to hydrate when fonts are
+    # blocked — the base interception is too aggressive for SPAs that depend
+    # on icon fonts to render. Block images and analytics but allow fonts.
+    def setup_network_interception(browser_instance)
+      browser_instance.network.intercept
+      browser_instance.on(:request) do |request|
+        url = request.url
+        if url.match?(/\.(jpg|jpeg|png|gif|webp|ico)(\?|$)/i) ||
+           url.include?('adobedtm.com') ||
+           url.include?('analytics') ||
+           url.include?('google-analytics') ||
+           url.include?('googletagmanager') ||
+           url.include?('doubleclick') ||
+           url.include?('facebook.com/tr') ||
+           url.include?('hotjar')
+          request.abort
+        else
+          request.continue
+        end
+      end
+    rescue StandardError => e
+      logger.warn "[PremiereProduceOne] Network interception setup failed: #{e.message}"
+    end
+
     # Set a value on a React controlled input using the native HTMLInputElement
     # value setter. React overrides the input's value property with its own getter/setter,
     # so setting .value directly doesn't trigger React's onChange. By calling the NATIVE
