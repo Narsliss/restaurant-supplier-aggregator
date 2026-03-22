@@ -165,9 +165,12 @@ module Orders
       )
 
       # Copy order items to the list
-      order.order_items.each do |order_item|
+      order.order_items.includes(supplier_product: :product).each do |order_item|
+        product = order_item.supplier_product&.product
+        next unless product
+
         order_list.order_list_items.build(
-          supplier_product: order_item.supplier_product,
+          product: product,
           quantity: order_item.quantity
         )
       end
@@ -344,10 +347,13 @@ module Orders
 
         order_item.mark_failed!(item[:message])
 
-        # Update supplier_product in_stock to false so future orders
-        # won't include items that the platform says are unavailable
+        # Only mark supplier_product as out-of-stock when the error indicates a genuine
+        # stock issue (supplier site says "out of stock", "discontinued", etc.).
+        # Browser/rendering errors (e.g., "Element is not focusable", "no native input")
+        # should NOT poison the database — they're transient infrastructure issues.
         sp = order_item.supplier_product
-        if sp&.in_stock
+        error_msg = item[:error] || item[:message] || ''
+        if sp&.in_stock && stock_related_error?(error_msg)
           sp.update!(in_stock: false)
           Rails.logger.info "[OrderPlacement] Marked #{sp.supplier_name} (#{sp.supplier_sku}) as out of stock"
         end
@@ -500,9 +506,10 @@ module Orders
                           .find_by(supplier_products: { supplier_sku: fi[:sku] })
         next unless order_item
 
-        # Update supplier_product stock status so future orders know
+        # Only mark out-of-stock for genuine stock errors, not browser failures
         sp = order_item.supplier_product
-        if sp&.in_stock
+        error_msg = fi[:error] || ''
+        if sp&.in_stock && stock_related_error?(error_msg)
           sp.update!(in_stock: false)
           Rails.logger.info "[OrderPlacement] Marked #{sp.supplier_name} (#{sp.supplier_sku}) as out of stock"
         end
@@ -567,6 +574,14 @@ module Orders
 
     def format_currency(amount)
       "$#{'%.2f' % amount}"
+    end
+
+    # Returns true when the error message indicates a genuine stock/availability issue
+    # from the supplier site (e.g., "out of stock", "discontinued"). Returns false for
+    # browser/rendering errors (e.g., "Element is not focusable", "no native input").
+    def stock_related_error?(error_message)
+      return true if error_message.blank? # conservative: no message = assume stock issue
+      error_message.match?(/out of stock|unavailable|discontinued|no longer available|not available|removed from catalog/i)
     end
 
     # Parse the supplier-confirmed delivery date string (e.g., "Mar 16")

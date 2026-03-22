@@ -693,7 +693,19 @@ module Scrapers
 
       # Clear previous search first, then search for the new SKU.
       # Without clearing, React may not re-filter when overwriting the input value.
-      search_input.focus
+      begin
+        search_input.focus
+      rescue Ferrum::BrowserError, Ferrum::NodeNotFoundError => e
+        # "Element is not focusable" means React hasn't fully hydrated.
+        # Reload the page and retry once — this recovers for all remaining items too.
+        logger.warn "[PremiereProduceOne] Search input not focusable (#{e.message}), reloading page and retrying..."
+        navigate_to(BASE_URL)
+        wait_for_react_render(timeout: 15)
+        ensure_catalog_page_loaded
+        search_input = browser.at_css("input[placeholder='Search']")
+        raise ScrapingError, 'Search input not found after reload' unless search_input
+        search_input.focus
+      end
       set_react_input_value(search_input, '')
       sleep 1 # Let React process the cleared input and show all items
       set_react_input_value(search_input, item[:sku].to_s)

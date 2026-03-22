@@ -51,7 +51,7 @@ class StaggeredSupplierImportJob < ApplicationJob
   def create_scraping_log(supplier)
     ScrapingLog.create!(
       supplier: supplier,
-      job_id: job_id,
+      job_id: "#{job_id}-#{supplier.id}",
       status: 'pending'
     )
   end

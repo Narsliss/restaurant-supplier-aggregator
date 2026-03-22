@@ -24,18 +24,18 @@ production:
   staggered_supplier_import:
     class: StaggeredSupplierImportJob
     queue: scraping
-    schedule: "0 5 * * *"
-    description: "Daily supplier product catalog import at 5 AM"
+    schedule: "0 4 * * *"
+    description: "Daily supplier product catalog import at midnight EST (4 AM UTC)"
 
   # Daily list/order guide sync for all organization credentials
-  # Scheduled at 8 AM (3 hours after staggered import) to avoid overlap —
+  # Scheduled 3 hours after staggered import to avoid overlap —
   # a slow US Foods import can run 1-3 hours, and concurrent browser sessions
   # to the same supplier risk rate limiting and double memory usage.
   sync_all_lists:
     class: SyncAllListsJob
     queue: scraping
-    schedule: "0 8 * * *"
-    description: "Sync supplier lists/order guides once daily at 8 AM"
+    schedule: "0 7 * * *"
+    description: "Sync supplier lists/order guides once daily at 3 AM EST (7 AM UTC)"
 
   # Nightly demo environment reset (no-op unless DEMO_MODE=true)
   demo_nightly_reset:

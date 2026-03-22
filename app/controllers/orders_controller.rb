@@ -469,11 +469,18 @@ class OrdersController < ApplicationController
 
     orders = submittable
 
-    # Accept any price changes and proceed directly to placement
-    orders.each do |order|
+    # Accept any price changes and proceed directly to placement.
+    # Stagger jobs by 15s each to avoid overwhelming the worker with
+    # concurrent Chromium instances (which causes browser hydration failures).
+    orders.each_with_index do |order, index|
       order.accept_price_changes! if order.price_changed?
       order.update!(status: "processing", error_message: nil, confirmation_number: nil)
-      PlaceOrderJob.perform_later(order.id)
+      delay = index * 15.seconds
+      if delay.zero?
+        PlaceOrderJob.perform_later(order.id)
+      else
+        PlaceOrderJob.set(wait: delay).perform_later(order.id)
+      end
     end
 
     # Single order: redirect to show page so user sees real-time processing status
@@ -564,10 +571,15 @@ class OrdersController < ApplicationController
       return
     end
 
-    orders.each do |order|
+    orders.each_with_index do |order, index|
       order.accept_price_changes!
       order.update!(status: "processing")
-      PlaceOrderJob.perform_later(order.id)
+      delay = index * 15.seconds
+      if delay.zero?
+        PlaceOrderJob.perform_later(order.id)
+      else
+        PlaceOrderJob.set(wait: delay).perform_later(order.id)
+      end
     end
 
     render json: {

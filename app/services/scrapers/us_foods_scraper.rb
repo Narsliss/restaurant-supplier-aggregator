@@ -1401,8 +1401,30 @@ module Scrapers
       JS
       logger.info "[UsFoods] Input focus for SKU #{sku}: #{focused}"
 
-      unless focused && focused['ok']
-        raise ScrapingError, "Could not focus quantity input for SKU #{sku}: #{focused&.dig('error')}"
+      # If focus failed, the page may not have fully hydrated (Angular/Ionic).
+      # Reload the search page and retry once.
+      if !focused || !focused['ok']
+        logger.warn "[UsFoods] Input focus failed for SKU #{sku} (#{focused&.dig('error')}), reloading and retrying..."
+        navigate_to("#{BASE_URL}/desktop/search2?searchText=#{sku}")
+        sleep 4
+
+        focused = browser.evaluate(<<~JS)
+          (function() {
+            var ionInput = document.querySelector('ion-input.quantity-input-box');
+            if (!ionInput) return { ok: false, error: 'no ion-input.quantity-input-box found' };
+            var nativeInput = ionInput.querySelector('input.native-input') || ionInput.querySelector('input');
+            if (!nativeInput) return { ok: false, error: 'no native input inside ion-input' };
+            nativeInput.click();
+            nativeInput.focus();
+            nativeInput.select();
+            return { ok: true, currentValue: nativeInput.value };
+          })()
+        JS
+        logger.info "[UsFoods] Input focus retry for SKU #{sku}: #{focused}"
+
+        unless focused && focused['ok']
+          raise ScrapingError, "Could not focus quantity input for SKU #{sku}: #{focused&.dig('error')}"
+        end
       end
 
       sleep 0.3

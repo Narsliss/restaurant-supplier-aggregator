@@ -96,11 +96,13 @@ module Orders
     def submit_all!(orders, accept_price_changes: false)
       results = []
 
-      orders.each do |order|
-        PlaceOrderJob.perform_later(
-          order.id,
-          accept_price_changes: accept_price_changes
-        )
+      orders.each_with_index do |order, index|
+        delay = index * 15.seconds
+        if delay.zero?
+          PlaceOrderJob.perform_later(order.id, accept_price_changes: accept_price_changes)
+        else
+          PlaceOrderJob.set(wait: delay).perform_later(order.id, accept_price_changes: accept_price_changes)
+        end
         order.update!(status: 'processing')
         results << { order: order, status: 'submitted' }
       rescue StandardError => e
