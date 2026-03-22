@@ -1,5 +1,5 @@
-<%# Build a map of supplier IDs to their auth_type %>
-<% suppliers_auth_map = @all_suppliers.each_with_object({}) { |s, h| h[s.id] = s.auth_type } %>
+<%# Build a map of supplier IDs to their auth_type and code %>
+<% suppliers_auth_map = @all_suppliers.each_with_object({}) { |s, h| h[s.id] = { auth_type: s.auth_type, code: s.code } } %>
 
 <%= form_with(model: credential, class: "space-y-5", data: { controller: "credential-form", credential_form_suppliers_value: suppliers_auth_map.to_json }) do |form| %>
   <% if credential.errors.any? %>

@@ -30,14 +30,16 @@ export default class extends Controller {
 
     this.showFieldsContainer()
 
-    const authType = this.suppliersValue[supplierId]
+    const supplier = this.suppliersValue[supplierId] || {}
+    const authType = typeof supplier === "string" ? supplier : supplier.auth_type
+    const code = typeof supplier === "string" ? null : supplier.code
 
     switch (authType) {
       case "two_fa":
         this.hidePasswordField()
         this.showTwoFaNotice()
         this.hideWelcomeUrlNotice()
-        this.setUsernameMode("email")
+        this.setUsernameMode(code === "usfoods" ? "userid" : "email")
         break
       case "welcome_url":
         this.hidePasswordField()
@@ -56,12 +58,16 @@ export default class extends Controller {
 
   setUsernameMode(mode) {
     if (this.hasUsernameLabelTarget) {
-      this.usernameLabelTarget.textContent = mode === "url" ? "Welcome URL" : "Email / Username"
+      const labels = { url: "Welcome URL", userid: "User ID", email: "Email Address" }
+      this.usernameLabelTarget.textContent = labels[mode] || "Email Address"
     }
     if (this.hasUsernameInputTarget) {
-      this.usernameInputTarget.placeholder = mode === "url"
-        ? "https://www.whatchefswant.com/welcome/..."
-        : ""
+      const placeholders = {
+        url: "https://www.whatchefswant.com/welcome/...",
+        userid: "Enter your User ID",
+        email: "you@restaurant.com"
+      }
+      this.usernameInputTarget.placeholder = placeholders[mode] || "you@restaurant.com"
     }
   }
 
