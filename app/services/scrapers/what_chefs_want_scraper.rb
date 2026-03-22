@@ -320,29 +320,44 @@ module Scrapers
         end
       end
 
-      # Find number inputs - should be one per Order Guide search result
-      # Set quantity using the React nativeSetter pattern
+      # Find the quantity input for THIS specific SKU.
+      # CRITICAL: Never fall back to the first input — a fuzzy search may return
+      # multiple products (e.g., SKU 95342 and 95324), and picking the wrong one
+      # orders the wrong product.
       set_result = browser.evaluate(<<~JS)
         (function() {
+          var sku = '#{sku}';
           var inputs = document.querySelectorAll('input[type=number]');
-          if (inputs.length === 0) return 'no_inputs';
+          if (inputs.length === 0) return { status: 'no_inputs' };
 
-          // If there's only one input, use it (single search result)
+          // If there's exactly one input, verify the page actually contains our exact SKU
+          // near that input before using it
           var targetInput = null;
-          if (inputs.length === 1) {
-            targetInput = inputs[0];
-          } else {
-            // Multiple inputs — try to find the one nearest to our SKU text
-            // Walk through all inputs and check nearby text for our SKU
-            for (var i = 0; i < inputs.length; i++) {
-              var row = inputs[i].closest('tr, [class*="row"], [class*="item"]');
-              if (row && row.innerText.includes('#{sku}')) {
+
+          // Walk each input and find the one whose containing row/card has our EXACT SKU.
+          // Use progressively broader parent selectors to find the product container.
+          for (var i = 0; i < inputs.length; i++) {
+            var el = inputs[i];
+            // Walk up the DOM tree looking for a container that has our exact SKU
+            var parent = el.parentElement;
+            var depth = 0;
+            while (parent && depth < 15) {
+              var text = parent.innerText || '';
+              // Check for exact SKU match using word boundary (not substring match).
+              // This prevents SKU 95342 from matching a row containing only 95324.
+              var skuPattern = new RegExp('(^|\\\\D)' + sku.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '(\\\\D|$)');
+              if (skuPattern.test(text)) {
                 targetInput = inputs[i];
                 break;
               }
+              parent = parent.parentElement;
+              depth++;
             }
-            // Fallback: first input
-            if (!targetInput) targetInput = inputs[0];
+            if (targetInput) break;
+          }
+
+          if (!targetInput) {
+            return { status: 'no_match', inputCount: inputs.length };
           }
 
           var nativeSetter = Object.getOwnPropertyDescriptor(
@@ -352,11 +367,20 @@ module Scrapers
           targetInput.dispatchEvent(new Event('input', { bubbles: true }));
           targetInput.dispatchEvent(new Event('change', { bubbles: true }));
           targetInput.dispatchEvent(new Event('blur', { bubbles: true }));
-          return 'set_qty';
+          return { status: 'set_qty' };
         })()
       JS
 
-      raise ScrapingError, "No quantity input found for SKU #{sku}" if set_result == 'no_inputs'
+      if set_result.is_a?(Hash)
+        case set_result['status']
+        when 'no_inputs'
+          raise ScrapingError, "No quantity input found for SKU #{sku}"
+        when 'no_match'
+          raise ScrapingError, "Could not match quantity input to SKU #{sku} (#{set_result['inputCount']} inputs on page, none matched)"
+        end
+      elsif set_result == 'no_inputs'
+        raise ScrapingError, "No quantity input found for SKU #{sku}"
+      end
 
       sleep 2
 
