@@ -658,6 +658,7 @@ module Scrapers
 
       logger.info "[WhatChefsWant] Starting order browser (headless=#{headless_mode})"
       @browser = Ferrum::Browser.new(**browser_opts)
+      setup_network_interception(@browser)
 
       # Login
       perform_login_steps

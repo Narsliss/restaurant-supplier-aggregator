@@ -55,6 +55,7 @@ module Scrapers
 
       logger.info "[Scraper] Starting browser (headless=#{headless_mode}, timeout=7min)"
       @browser = Ferrum::Browser.new(**browser_opts)
+      setup_network_interception(@browser)
       yield(browser)
     ensure
       browser&.quit
@@ -1491,6 +1492,7 @@ module Scrapers
       browser_opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
 
       @browser = Ferrum::Browser.new(**browser_opts)
+      setup_network_interception(@browser)
 
       # Login (wrapped in rescue to close browser on failure)
       begin

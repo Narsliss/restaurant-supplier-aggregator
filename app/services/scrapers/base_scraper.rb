@@ -78,6 +78,7 @@ module Scrapers
 
       logger.info "[Scraper] Starting browser (headless=#{headless_mode})"
       @browser = Ferrum::Browser.new(**browser_opts)
+      setup_network_interception(@browser)
       yield(browser)
     ensure
       browser&.quit
@@ -635,6 +636,30 @@ module Scrapers
 
     def rate_limit_delay
       sleep rand(0.5..1.5)
+    end
+
+    # Block images, fonts, and analytics to reduce memory/bandwidth pressure.
+    # Scrapers only need DOM elements and text — visual assets waste resources,
+    # especially when multiple browsers run concurrently on the worker.
+    def setup_network_interception(browser_instance)
+      browser_instance.network.intercept
+      browser_instance.on(:request) do |request|
+        url = request.url
+        if url.match?(/\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot)(\?|$)/i) ||
+           url.include?('adobedtm.com') ||
+           url.include?('analytics') ||
+           url.include?('google-analytics') ||
+           url.include?('googletagmanager') ||
+           url.include?('doubleclick') ||
+           url.include?('facebook.com/tr') ||
+           url.include?('hotjar')
+          request.abort
+        else
+          request.continue
+        end
+      end
+    rescue StandardError => e
+      logger.warn "[Scraper] Network interception setup failed: #{e.message}"
     end
   end
 end

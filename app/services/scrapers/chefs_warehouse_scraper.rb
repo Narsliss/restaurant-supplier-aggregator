@@ -30,6 +30,7 @@ module Scrapers
 
       logger.info "[ChefsWarehouse] Starting browser (headless=#{headless_mode}, timeout=60)"
       @browser = Ferrum::Browser.new(**browser_opts)
+      setup_network_interception(@browser)
       yield(browser)
     ensure
       browser&.quit
