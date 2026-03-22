@@ -11,7 +11,8 @@ class OrganizationsController < ApplicationController
 
     # Supplier requirements for owner view
     if owner?
-      @suppliers = Supplier.active.order(:name)
+      connected_supplier_ids = SupplierCredential.where(organization: @organization).select(:supplier_id).distinct
+      @suppliers = Supplier.active.where(id: connected_supplier_ids).order(:name)
       supplier_ids = @suppliers.pluck(:id)
       location_ids = @locations.pluck(:id)
 
