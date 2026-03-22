@@ -64,7 +64,7 @@ Rails.application.routes.draw do
   # Organizations & Team Management
   resource :organization, only: %i[show new create edit update] do
     post :switch, on: :member
-    post :update_case_minimum, on: :collection
+    post :update_requirement, on: :collection
     resources :memberships, only: %i[update destroy], module: :organizations do
       patch :update_locations, on: :member
     end

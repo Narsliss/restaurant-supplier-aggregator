@@ -1,6 +1,6 @@
 class OrganizationsController < ApplicationController
-  before_action :set_organization, only: [:show, :edit, :update, :update_case_minimum]
-  before_action :require_owner!, only: [:edit, :update, :update_case_minimum]
+  before_action :set_organization, only: [:show, :edit, :update, :update_requirement]
+  before_action :require_owner!, only: [:edit, :update, :update_requirement]
 
   def show
     @members = @organization.memberships.active.includes(:user, :locations).order(:role, :created_at)
@@ -9,22 +9,33 @@ class OrganizationsController < ApplicationController
     @seat_count = @organization.seat_count
     @seat_limit = @organization.seat_limit
 
-    # Case minimums for owner view
+    # Supplier requirements for owner view
     if owner?
       @suppliers = Supplier.active.order(:name)
+      supplier_ids = @suppliers.pluck(:id)
+      location_ids = @locations.pluck(:id)
+
+      # Case minimums
       @case_minimums = SupplierRequirement.where(
-        requirement_type: 'case_minimum',
-        active: true
-      ).where(supplier_id: @suppliers.pluck(:id))
-       .where(location_id: @locations.pluck(:id))
-       .index_by { |r| [r.supplier_id, r.location_id] }
+        requirement_type: 'case_minimum', active: true,
+        supplier_id: supplier_ids, location_id: location_ids
+      ).index_by { |r| [r.supplier_id, r.location_id] }
 
       @global_case_minimums = SupplierRequirement.where(
-        requirement_type: 'case_minimum',
-        active: true,
-        location_id: nil
-      ).where(supplier_id: @suppliers.pluck(:id))
-       .index_by(&:supplier_id)
+        requirement_type: 'case_minimum', active: true,
+        supplier_id: supplier_ids, location_id: nil
+      ).index_by(&:supplier_id)
+
+      # Order (dollar) minimums
+      @order_minimums = SupplierRequirement.where(
+        requirement_type: 'order_minimum', active: true,
+        supplier_id: supplier_ids, location_id: location_ids
+      ).index_by { |r| [r.supplier_id, r.location_id] }
+
+      @global_order_minimums = SupplierRequirement.where(
+        requirement_type: 'order_minimum', active: true,
+        supplier_id: supplier_ids, location_id: nil
+      ).index_by(&:supplier_id)
     end
   end
 
@@ -60,30 +71,47 @@ class OrganizationsController < ApplicationController
     end
   end
 
-  def update_case_minimum
+  def update_requirement
     supplier = Supplier.find(params[:supplier_id])
-    location = @organization.locations.find(params[:location_id])
-    value = params[:case_minimum].to_i
+    req_type = params[:requirement_type]
+
+    unless req_type.in?(%w[case_minimum order_minimum])
+      return render json: { error: 'Invalid requirement type' }, status: :unprocessable_entity
+    end
+
+    is_global = params[:location_id].blank?
+    location = is_global ? nil : @organization.locations.find(params[:location_id])
+    value = params[:value].to_f
 
     if value > 0
       req = SupplierRequirement.find_or_initialize_by(
-        supplier: supplier,
-        location: location,
-        requirement_type: 'case_minimum'
+        supplier: supplier, location: location, requirement_type: req_type
       )
+      error_message = if req_type == 'case_minimum'
+                        "#{supplier.name} requires a minimum of {{minimum}} cases per order. You have {{current_count}} cases."
+                      else
+                        "#{supplier.name} requires a minimum order of ${{minimum}}. Your current total is ${{current_total}}."
+                      end
       req.assign_attributes(
-        numeric_value: value,
-        is_blocking: false,
-        active: true,
-        error_message: "#{supplier.name} requires a minimum of {{minimum}} cases per order. You have {{current_count}} cases. An additional charge may apply."
+        numeric_value: value, is_blocking: req_type == 'order_minimum',
+        active: true, error_message: error_message
       )
       req.save!
-      redirect_to organization_path, notice: "Case minimum for #{supplier.name} at #{location.name} set to #{value}."
+
+      # Global default supercedes all location overrides
+      if is_global
+        SupplierRequirement.where(
+          supplier: supplier, requirement_type: req_type
+        ).where.not(location_id: nil).destroy_all
+      end
+
+      render json: { saved: true, global: is_global }
     else
       SupplierRequirement.where(
-        supplier: supplier, location: location, requirement_type: 'case_minimum'
+        supplier: supplier, location: location, requirement_type: req_type
       ).destroy_all
-      redirect_to organization_path, notice: "Case minimum for #{supplier.name} at #{location.name} removed."
+
+      render json: { saved: true, removed: true, global: is_global }
     end
   end
 

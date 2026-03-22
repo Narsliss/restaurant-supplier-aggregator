@@ -3,7 +3,7 @@
     <h1 class="text-2xl font-bold text-gray-900">Supplier Credentials</h1>
     <div class="flex items-center gap-2">
       <% if owner? %>
-        <%= link_to organization_path(anchor: "case-minimums"), class: "inline-flex items-center justify-center border border-amber-300 text-amber-700 bg-amber-50 px-4 py-2 rounded-lg hover:bg-amber-100 text-sm" do %>
+        <%= link_to organization_path(anchor: "requirements"), class: "inline-flex items-center justify-center border border-amber-300 text-amber-700 bg-amber-50 px-4 py-2 rounded-lg hover:bg-amber-100 text-sm" do %>
           <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/></svg>
           Set Case Minimums
         <% end %>
