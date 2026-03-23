@@ -282,8 +282,17 @@ module Scrapers
 
       open_orders = api_client.get_open_orders
       (open_orders&.dig('orders') || []).each do |order|
-        # Clear by sending empty cart
-        api_client.update_cart(order['uuid'], [])
+        items = order['orders_items'] || []
+        next if items.empty?
+
+        # Set quantity to 0 for each item to remove it
+        remove_items = items.filter_map do |item|
+          uuid = item.dig('variants_pack', 'uuid')
+          next unless uuid
+          { variant_pack_id: uuid, quantity: 0, item_name: item['restaurant_display_name'] || '' }
+        end
+
+        api_client.update_cart(order['uuid'], remove_items) if remove_items.any?
       end
       logger.info '[PPO] API cart cleared'
     rescue StandardError => e
