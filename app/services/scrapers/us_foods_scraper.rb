@@ -217,16 +217,23 @@ module Scrapers
       deduped
     end
 
-    # ── Soft Refresh (browser-based, then extracts API tokens) ──
+    # ── Soft Refresh (API-based with browser fallback) ──
 
     def soft_refresh
+      # Try API refresh first (no browser needed)
+      if api_client.restore_session
+        credential.mark_active!
+        logger.info '[UsFoods] API soft refresh succeeded'
+        return true
+      end
+
+      # Fall back to browser refresh if API refresh fails
+      logger.info '[UsFoods] API refresh failed, falling back to browser...'
       result = browser_soft_refresh
 
       if result
-        # After browser refresh, reset API client so it picks up fresh tokens
-        # from the updated localStorage on next use
-        @api_client = nil
-        logger.info '[UsFoods] Soft refresh succeeded — API tokens refreshed'
+        @api_client = nil # Reset so next call picks up fresh tokens
+        logger.info '[UsFoods] Browser soft refresh succeeded'
       end
 
       result

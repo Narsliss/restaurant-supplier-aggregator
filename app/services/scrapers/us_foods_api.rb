@@ -52,12 +52,19 @@ module Scrapers
         @token_expires_at = api_tokens['expires_at'] ? Time.parse(api_tokens['expires_at']) : nil
         @auth_context = api_tokens['auth_context']
 
+        # If token is still valid, verify it
         unless token_expired?
           identity = get_identity
           if identity && identity['userId']
             logger.info "[USF-API] Session restored from api_tokens for user #{identity['userId']}"
             return true
           end
+        end
+
+        # Token expired but we have a refresh token — try refreshing via API
+        if @refresh_token.present?
+          logger.info '[USF-API] Token expired, attempting API refresh...'
+          return true if refresh_access_token
         end
       end
 
@@ -120,16 +127,35 @@ module Scrapers
     end
 
     # Refresh the access token using the refresh token.
+    # US Foods uses grantType "refreshToken" (camelCase) and consumer-id "ecomr4".
     def refresh_access_token
       return false unless @refresh_token
 
       logger.info '[USF-API] Refreshing access token...'
-      response = post_json('/auth-api/v1/oauth/token', {
-        grantType: 'refresh_token',
+
+      # Must use ecomr4 consumer-id for refresh (different from regular API calls)
+      req = Net::HTTP::Post.new('/auth-api/v1/oauth/token')
+      req['Content-Type'] = 'application/json'
+      req['Accept'] = 'application/json'
+      req['consumer-id'] = 'ecomr4'
+      req['correlation-id'] = "ecomr4-#{SecureRandom.uuid}"
+      req['transaction-id'] = "#{(Time.current.to_f * 1000).to_i}"
+      req['trace-context'] = 'login'
+      req.body = {
+        grantType: 'refreshToken',
         scopes: SCOPES,
         platform: 'DESKTOP',
-        refreshToken: @refresh_token
-      })
+        authContext: @auth_context ? {
+          divisionNumber: @auth_context['division_number'],
+          customerNumber: @auth_context['customer_number'],
+          departmentNumber: @auth_context['department_number']
+        } : { divisionNumber: 0, customerNumber: 0, departmentNumber: 0 },
+        refreshToken: @refresh_token,
+        idToken: ''
+      }.to_json
+
+      resp = http.request(req)
+      response = parse_response(resp)
 
       if response && response['accessToken']
         store_tokens(response)
