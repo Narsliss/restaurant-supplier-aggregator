@@ -56,6 +56,644 @@ module Scrapers
       cleaning-supplies
     ].freeze
 
+    # ══════════════════════════════════════════════════════════════
+    # API-based implementation — no browser needed
+    # The methods below override BaseScraper's browser-based defaults.
+    # Browser-based originals are preserved below as _browser_* methods.
+    # ══════════════════════════════════════════════════════════════
+
+    def api_client
+      @api_client ||= ChefsWarehouseApi.new(credential)
+    end
+
+    # ── Auth ────────────────────────────────────────────────────
+
+    def login
+      logger.info '[ChefsWarehouse] API login'
+      result = api_client.login
+      if result
+        credential.mark_active!
+        logger.info '[ChefsWarehouse] API login succeeded'
+      else
+        raise AuthenticationError, 'CW API login failed'
+      end
+      result
+    end
+
+    def soft_refresh
+      logger.info '[ChefsWarehouse] API soft refresh'
+      api_client.restore_session
+    rescue StandardError => e
+      logger.warn "[ChefsWarehouse] API soft refresh error: #{e.message}"
+      false
+    end
+
+    # ── Lists ───────────────────────────────────────────────────
+
+    # Override BaseScraper#scrape_lists to bypass with_browser entirely.
+    def scrape_lists
+      api_client.ensure_session!
+
+      guides = api_client.list_order_guides
+      logger.info "[ChefsWarehouse] API found #{guides.size} order guides"
+
+      result_lists = []
+      guides.each do |guide|
+        next if guide[:remote_id].blank?
+
+        logger.info "[ChefsWarehouse] API fetching guide '#{guide[:name]}' (id=#{guide[:remote_id]})"
+        data = api_client.fetch_order_guide(guide[:remote_id])
+        next unless data
+
+        # Fetch prices for all items in the guide
+        products_with_prices = enrich_products_with_api_prices(data[:products])
+
+        list_type = guide[:remote_id] == '-1' ? 'favorites' : 'order_guide'
+        result_lists << {
+          name: data[:name] || guide[:name],
+          remote_id: guide[:remote_id],
+          url: guide[:url],
+          list_type: list_type,
+          items: products_with_prices
+        }
+      end
+
+      result_lists
+    end
+
+    # ── Prices ──────────────────────────────────────────────────
+
+    def scrape_prices(product_skus)
+      api_client.ensure_session!
+      results = []
+
+      # Build variant info for each SKU.
+      # Variant codes follow the pattern JDE_{sku}-{businessUnitId}
+      variants = product_skus.map do |sku|
+        {
+          code: "JDE_#{sku}-800001",
+          uom: 'CS',
+          stocking_type: 'P',
+          vendor_id: nil,
+          business_unit_id: '800001'
+        }
+      end
+
+      prices = api_client.fetch_prices(variants)
+
+      # Map back to the expected format
+      prices.each_with_index do |price_data, i|
+        sku = product_skus[i]
+        sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
+
+        results << {
+          supplier_sku: sku,
+          current_price: price_data[:primary_price],
+          in_stock: true,
+          supplier_name: sp&.supplier_name || sp&.product&.name || sku
+        }
+      end
+
+      results
+    end
+
+    # ── Catalog ─────────────────────────────────────────────────
+
+    # API-based catalog import:
+    #   1. Walk the category tree via API to discover all leaf categories
+    #   2. Search each leaf category via the CMS search endpoint (paginated)
+    #   3. Fetch prices in batches
+    # No browser needed.
+    def scrape_catalog(search_terms, max_per_term: 100, &on_batch)
+      api_client.ensure_session!
+      results = []
+
+      # Discover all leaf categories
+      logger.info '[ChefsWarehouse] API: Discovering leaf categories...'
+      leaf_categories = discover_leaf_categories
+      logger.info "[ChefsWarehouse] API: Found #{leaf_categories.size} leaf categories"
+
+      leaf_categories.each do |category|
+        begin
+          category_products = []
+          page_token = ''
+
+          loop do
+            search_result = api_client.search_category(
+              category[:path],
+              page_size: 50,
+              page_token: page_token
+            )
+            batch = search_result[:products]
+            break if batch.empty?
+
+            formatted = batch.map { |p| format_catalog_product(p, category[:name]) }
+            category_products.concat(formatted)
+
+            if on_batch && formatted.any?
+              on_batch.call(formatted)
+            end
+
+            # Check for next page
+            page_token = search_result[:page_token].to_s
+            break if page_token.blank?
+            break if category_products.size >= max_per_term
+          end
+
+          results.concat(category_products) unless on_batch
+          logger.info "[ChefsWarehouse] API category '#{category[:name]}': #{category_products.size} products"
+        rescue StandardError => e
+          logger.warn "[ChefsWarehouse] API category '#{category[:name]}' failed: #{e.class}: #{e.message}"
+        end
+      end
+
+      return [] if on_batch
+
+      deduped = results.uniq { |r| r[:supplier_sku] }
+      logger.info "[ChefsWarehouse] API total unique products: #{deduped.size} (from #{results.size} raw)"
+      deduped
+    end
+
+    # ── Cart & Checkout ─────────────────────────────────────────
+
+    def add_to_cart(items, delivery_date: nil)
+      api_client.ensure_session!
+
+      # Look up variant metadata for each SKU from the order guide
+      guide_data = load_order_guide_items
+      added_items = []
+      failed_items = []
+
+      api_items = items.filter_map do |item|
+        guide_item = guide_data[item[:sku]]
+        unless guide_item
+          logger.warn "[ChefsWarehouse] SKU #{item[:sku]} not found in order guide — skipping"
+          failed_items << { sku: item[:sku], error: 'Not in order guide', name: item[:name] }
+          next
+        end
+
+        {
+          code: guide_item[:variant_code],
+          metadata: guide_item[:variant_metadata],
+          business_unit_id: guide_item[:business_unit_id] || '800001',
+          quantity: item[:quantity] || 1,
+          stocking_type: guide_item[:stocking_type],
+          vendor_id: guide_item[:vendor_id],
+          uom: item[:uom] || guide_item[:uom] || 'CS',
+          sell_by_multiple: guide_item[:sell_by_multiple] || 1
+        }
+      end
+
+      if api_items.any?
+        begin
+          result = api_client.add_to_cart(api_items)
+          if result.is_a?(Hash) && result['success']
+            added_items = items.select { |i| guide_data[i[:sku]] }
+            logger.info "[ChefsWarehouse] API added #{result['totalCount']} items to cart"
+          else
+            logger.warn "[ChefsWarehouse] API add_to_cart returned: #{result.inspect[0..200]}"
+            failed_items.concat(api_items.map { |i| { sku: i[:code], error: 'API rejected', name: nil } })
+          end
+        rescue StandardError => e
+          logger.error "[ChefsWarehouse] API add_to_cart failed: #{e.message}"
+          failed_items.concat(api_items.map { |i| { sku: i[:code], error: e.message, name: nil } })
+        end
+      end
+
+      # Set delivery date if provided
+      if delivery_date && added_items.any?
+        begin
+          api_client.set_delivery_date(delivery_date.to_s)
+          logger.info "[ChefsWarehouse] API set delivery date: #{delivery_date}"
+        rescue StandardError => e
+          logger.warn "[ChefsWarehouse] API set_delivery_date failed: #{e.message}"
+        end
+      end
+
+      if failed_items.any? && added_items.empty?
+        raise ItemUnavailableError.new(
+          "#{failed_items.count} item(s) could not be added",
+          items: failed_items
+        )
+      end
+
+      { added: added_items.count, failed: failed_items }
+    end
+
+    def clear_cart
+      api_client.ensure_session!
+      api_client.delete_cart
+      logger.info '[ChefsWarehouse] API cart cleared'
+    rescue StandardError => e
+      logger.warn "[ChefsWarehouse] API clear_cart failed: #{e.message}"
+    end
+
+    def checkout(dry_run: false)
+      logger.info "[ChefsWarehouse] API checkout (dry_run=#{dry_run})"
+      api_client.ensure_session!
+
+      # Refresh prices
+      api_client.refresh_cart_prices
+
+      # Get cart data
+      cart = api_client.get_cart
+      unless cart.is_a?(Hash)
+        raise ScrapingError, 'Could not retrieve cart'
+      end
+
+      item_count = cart.dig('summary', 'itemCount') || 0
+      subtotal = cart.dig('summary', 'totals', 'totalDecimal') || 0.0
+
+      raise ScrapingError, 'Cart is empty' if item_count == 0
+
+      if subtotal < ORDER_MINIMUM
+        raise OrderMinimumError.new(
+          'Order minimum not met',
+          minimum: ORDER_MINIMUM,
+          current_total: subtotal
+        )
+      end
+
+      delivery_address = cart.dig('summary', 'deliveryAddress')
+      @last_delivery_address = delivery_address if delivery_address.present?
+
+      if dry_run
+        logger.info "[ChefsWarehouse] API DRY RUN COMPLETE — #{item_count} items, total=$#{subtotal}"
+        return {
+          confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+          total: subtotal,
+          delivery_date: nil,
+          dry_run: true,
+          cart_items: [],
+          checkout_summary: { item_count: item_count, subtotal: subtotal }
+        }
+      end
+
+      # Validate before submitting
+      validation = api_client.validate_cart
+      logger.info "[ChefsWarehouse] API cart validation: #{validation.inspect}"
+
+      # LIVE ORDER
+      logger.warn "[ChefsWarehouse] API PLACING LIVE ORDER"
+      result = api_client.submit_cart(dry_run: false)
+
+      confirmation_number = result&.dig('confirmationNumber') || result&.dig('orderNumber') || "API-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      logger.info "[ChefsWarehouse] API order placed: #{confirmation_number}"
+
+      {
+        confirmation_number: confirmation_number,
+        total: subtotal,
+        delivery_date: nil,
+        dry_run: false,
+        cart_items: [],
+        checkout_summary: result
+      }
+    end
+
+    def extract_delivery_address
+      return @last_delivery_address if @last_delivery_address.present?
+
+      cart = api_client.get_cart
+      @last_delivery_address = cart&.dig('summary', 'deliveryAddress')
+    rescue StandardError => e
+      logger.warn "[ChefsWarehouse] API extract_delivery_address failed: #{e.message}"
+      nil
+    end
+
+    private
+
+    # ── API helpers ─────────────────────────────────────────────
+
+    # Enrich order guide products with prices from the API.
+    def enrich_products_with_api_prices(products)
+      return products if products.empty?
+
+      # Build variant list for price lookup
+      variants = products.filter_map do |p|
+        next unless p[:variant_code]
+        {
+          code: p[:variant_code],
+          uom: p[:uom] || 'CS',
+          stocking_type: p[:stocking_type] || 'P',
+          vendor_id: p[:vendor_id],
+          business_unit_id: p[:business_unit_id] || '800001'
+        }
+      end
+
+      # Also fetch piece prices (secondary UOM)
+      piece_variants = products.filter_map do |p|
+        next unless p[:variant_code]
+        {
+          code: p[:variant_code],
+          uom: 'PC',
+          stocking_type: p[:stocking_type] || 'P',
+          vendor_id: p[:vendor_id],
+          business_unit_id: p[:business_unit_id] || '800001'
+        }
+      end
+
+      prices = api_client.fetch_prices(variants)
+      piece_prices = api_client.fetch_prices(piece_variants)
+
+      # Build price lookup by variant code
+      price_map = {}
+      prices.each { |p| price_map[p[:variant_code]] = p }
+      piece_price_map = {}
+      piece_prices.each { |p| piece_price_map[p[:variant_code]] = p }
+
+      products.map do |p|
+        price_data = price_map[p[:variant_code]]
+        piece_data = piece_price_map[p[:variant_code]]
+
+        {
+          sku: p[:sku],
+          name: p[:name],
+          price: price_data&.dig(:primary_price),
+          pack_size: p[:pack_size],
+          quantity: 1,
+          in_stock: p[:in_stock] != false,
+          position: nil,
+          price_unit: price_data&.dig(:primary_uom),
+          piece_price: piece_data&.dig(:secondary_price) || piece_data&.dig(:primary_price),
+          piece_pack_size: 'PC',
+          remote_item_id: p[:variant_code]
+        }
+      end
+    end
+
+    def browser_opts_for_catalog
+      headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
+      opts = {
+        headless: headless_mode,
+        timeout: 60,
+        process_timeout: 30,
+        window_size: [1920, 1080],
+        browser_options: {
+          "no-sandbox": true,
+          "disable-gpu": true,
+          "disable-dev-shm-usage": true,
+          "disable-blink-features": 'AutomationControlled'
+        }
+      }
+      opts[:browser_path] = ENV['BROWSER_PATH'] if ENV['BROWSER_PATH'].present?
+      opts
+    end
+
+    def format_catalog_product(product, category_name)
+      {
+        supplier_sku: product[:sku],
+        supplier_name: product[:name],
+        current_price: nil, # Prices fetched separately if needed
+        pack_size: product[:pack_size],
+        in_stock: product[:in_stock],
+        category: category_name,
+        subcategory: product[:subcategory],
+        brand: product[:brand],
+        supplier_url: "#{BASE_URL}/products/#{product[:sku]}/"
+      }
+    end
+
+    # Fetch all order guide items and build a SKU -> variant data lookup.
+    # Used by add_to_cart to get the metadata block needed for the cart/add API.
+    def load_order_guide_items
+      @order_guide_items_cache ||= begin
+        guides = api_client.list_order_guides
+        items = {}
+        guides.each do |guide|
+          next if guide[:remote_id].blank?
+          data = api_client.fetch_order_guide(guide[:remote_id])
+          next unless data
+          data[:products].each do |p|
+            items[p[:sku]] = p unless items[p[:sku]]
+          end
+        end
+        items
+      end
+    end
+
+    def derive_variant_code(sku)
+      sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
+      "JDE_#{sku}-800001"
+    end
+
+    # Walk the CW category tree via API to find all leaf categories.
+    # Leaf = a category whose subcategories have no further children,
+    # or a category with no subcategories at all.
+    def discover_leaf_categories
+      top_categories = api_client.fetch_categories
+      leaves = []
+
+      top_categories.each do |cat|
+        walk_category(cat[:path], cat[:name], leaves)
+      end
+
+      leaves
+    end
+
+    def walk_category(path, name, leaves, depth: 0)
+      return if depth > 5 # Safety limit
+
+      response = api_client.fetch_category_page(path)
+      return unless response.is_a?(Hash)
+
+      vm = response['viewModel'] || {}
+
+      # Top-level categories use 'subCategories' with name/url keys.
+      # Subcategory pages use 'categoryLinks' with text/href keys (includes siblings).
+      children = []
+
+      sub_categories = vm['subCategories'] || []
+      if sub_categories.any?
+        # Top-level: subCategories are direct children
+        children = sub_categories.map { |s| { 'href' => s['url'], 'text' => s['name'] } }
+      else
+        # Subcategory: categoryLinks includes siblings. Filter to children only.
+        category_links = vm['categoryLinks'] || []
+        children = category_links.select do |c|
+          href = c['href'].to_s
+          href != path && href.start_with?(path.chomp('/'))
+        end
+      end
+
+      if children.empty?
+        leaves << { path: path, name: name }
+        logger.debug "[ChefsWarehouse] Leaf: #{name} (#{path})"
+      else
+        logger.debug "[ChefsWarehouse] Branch: #{name} -> #{children.size} children"
+        children.each do |child|
+          child_name = (child['text'] || child['name'])&.strip || name
+          walk_category(child['href'], child_name, leaves, depth: depth + 1)
+        end
+      end
+    rescue StandardError => e
+      logger.warn "[ChefsWarehouse] Failed to walk category '#{name}' (#{path}): #{e.message}"
+      leaves << { path: path, name: name }
+    end
+
+    # Navigate to a category page in the browser and scrape products from the DOM.
+    # Handles pagination by clicking the Next button until all pages are scraped.
+    def browse_category_page(category_path, category_name, max: 50)
+      url = "#{BASE_URL}#{category_path}"
+      navigate_to(url)
+      sleep 4 # Wait for SPA + Algolia to load products
+
+      all_products = []
+      page = 1
+
+      loop do
+        # Scroll down to ensure all products on this page are rendered
+        3.times do
+          browser.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+          sleep 1
+        end
+
+        # Extract products from the current page
+        page_products = extract_products_from_page(category_name)
+        break if page_products.empty?
+
+        all_products.concat(page_products)
+        logger.debug "[ChefsWarehouse] Page #{page}: #{page_products.size} products (total: #{all_products.size})"
+
+        break if all_products.size >= max
+
+        # Try to click the Next page button
+        has_next = browser.evaluate(<<~JS)
+          (function() {
+            // Look for next page button/link in pagination
+            var nextBtns = document.querySelectorAll(
+              '.ais-Pagination-item--nextPage a, ' +
+              '.ais-Pagination-item--nextPage button, ' +
+              'a[aria-label="Next"], ' +
+              'button[aria-label="Next"], ' +
+              '[class*="pagination"] [class*="next"] a, ' +
+              '[class*="pagination"] [class*="next"] button'
+            );
+            for (var btn of nextBtns) {
+              if (btn.offsetParent !== null && !btn.closest('[class*="disabled"]')) {
+                btn.scrollIntoView({ block: 'center' });
+                btn.click();
+                return true;
+              }
+            }
+
+            // Fallback: look for a ">" or "Next" text button in pagination
+            var pagItems = document.querySelectorAll('[class*="pagination"] a, [class*="pagination"] button, [class*="Pagination"] a');
+            for (var item of pagItems) {
+              var text = (item.innerText || '').trim();
+              if ((text === '›' || text === '>' || text === 'Next' || text === '»') && item.offsetParent !== null) {
+                item.scrollIntoView({ block: 'center' });
+                item.click();
+                return true;
+              }
+            }
+
+            return false;
+          })()
+        JS
+
+        break unless has_next
+
+        page += 1
+        sleep 3 # Wait for next page to load
+      end
+
+      all_products.uniq { |p| p[:supplier_sku] }
+    end
+
+    # Extract products from the currently loaded page DOM.
+    def extract_products_from_page(category_name)
+      raw = browser.evaluate(<<~JS)
+        (function() {
+          var results = [];
+          var seen = {};
+
+          // CW PLP uses product cards/tiles
+          var cards = document.querySelectorAll('.product-card, .product-tile, [class*="product-item"]');
+          if (cards.length === 0) {
+            cards = document.querySelectorAll('li.cw-list-item');
+          }
+
+          for (var i = 0; i < cards.length; i++) {
+            var card = cards[i];
+
+            var nameEl = card.querySelector('a.item-title, .item-title, .product-name, h3, h4, [class*="title"]');
+            var name = nameEl ? nameEl.innerText.trim() : '';
+
+            var sku = '';
+            var prodLink = card.querySelector('a[href*="/products/"]');
+            if (prodLink) {
+              var hrefMatch = prodLink.getAttribute('href').match(/\\/products\\/([^/]+)\\/?$/);
+              if (hrefMatch) sku = hrefMatch[1];
+            }
+            if (!sku) {
+              var infoItems = card.querySelectorAll('ul.info-list li.item, .sku, [class*="sku"]');
+              for (var j = 0; j < infoItems.length; j++) {
+                var liText = infoItems[j].innerText.trim();
+                if (liText.match(/^[A-Z0-9]{2,}$/i) && !liText.match(/^(CS|PC|EA)$/i)) {
+                  sku = liText;
+                  break;
+                }
+              }
+            }
+
+            if (!sku || !name || seen[sku]) continue;
+            seen[sku] = true;
+
+            var packEl = card.querySelector('.pack-size, [class*="pack"]');
+            var packSize = packEl ? packEl.innerText.trim() : '';
+
+            var priceEl = card.querySelector('.price, [class*="price"]');
+            var price = null;
+            if (priceEl) {
+              var priceMatch = priceEl.innerText.trim().match(/\\$(\\d+[,\\d]*\\.\\d{2})/);
+              if (priceMatch) price = parseFloat(priceMatch[1].replace(',', ''));
+            }
+
+            var brandEl = card.querySelector('.brand, .body-one, [class*="brand"]');
+            var brand = brandEl ? brandEl.innerText.trim() : '';
+
+            var oos = card.querySelector('.out-of-stock, .sold-out, [class*="out-of-stock"]');
+            var inStock = !oos;
+
+            results.push({
+              sku: sku,
+              name: name,
+              price: price,
+              packSize: packSize,
+              brand: brand,
+              inStock: inStock
+            });
+          }
+
+          return JSON.stringify(results);
+        })()
+      JS
+
+      products = begin
+        JSON.parse(raw)
+      rescue StandardError
+        []
+      end
+
+      products.map do |p|
+        {
+          supplier_sku: p['sku'],
+          supplier_name: p['name'],
+          current_price: p['price'],
+          pack_size: p['packSize'],
+          in_stock: p['inStock'] != false,
+          category: category_name,
+          supplier_url: "#{BASE_URL}/products/#{p['sku']}/"
+        }
+      end
+    end
+
+    public
+
+    # ══════════════════════════════════════════════════════════════
+    # Browser-based code below (preserved for fallback)
+    # ══════════════════════════════════════════════════════════════
+
     # Broad selectors — the site is a JS SPA with dynamically generated IDs
     # The login form uses type=text for email (not type=email) and has uid-* IDs
     EMAIL_SELECTORS = [
@@ -94,9 +732,9 @@ module Scrapers
       '.header-account', '#account-menu', '#user-nav'
     ].freeze
 
-    def login
+    def browser_login
       with_browser do
-        logger.info "[ChefsWarehouse] Starting login for #{credential.username}"
+        logger.info "[ChefsWarehouse] Starting browser login for #{credential.username}"
 
         # Determine the best login URL
         login_url = credential.supplier.login_url.presence || "#{BASE_URL}/login"
@@ -359,7 +997,7 @@ module Scrapers
       false
     end
 
-    def scrape_prices(product_skus)
+    def browser_scrape_prices(product_skus)
       results = []
 
       with_browser do
@@ -397,7 +1035,7 @@ module Scrapers
       results
     end
 
-    def clear_cart
+    def browser_clear_cart
       with_browser do
         unless restore_session && logged_in?
           perform_login_steps
@@ -496,7 +1134,7 @@ module Scrapers
       end
     end
 
-    def add_to_cart(items, delivery_date: nil)
+    def browser_add_to_cart(items, delivery_date: nil)
       @target_delivery_date = delivery_date
 
       with_browser do
@@ -539,8 +1177,8 @@ module Scrapers
       end
     end
 
-    def checkout(dry_run: false)
-      logger.info "[ChefsWarehouse] checkout starting (dry_run=#{dry_run})"
+    def browser_checkout(dry_run: false)
+      logger.info "[ChefsWarehouse] browser checkout starting (dry_run=#{dry_run})"
 
       with_browser do
         # Step 1: Restore session / login
@@ -612,9 +1250,9 @@ module Scrapers
       end
     end
 
-    # Extract delivery address from CW account page.
+    # Extract delivery address from CW account page (browser-based fallback).
     # Must be called inside an existing with_browser block (browser already open).
-    def extract_delivery_address
+    def browser_extract_delivery_address
       logger.info "[ChefsWarehouse] Extracting delivery address from account..."
 
       # Try the account dashboard addresses page
@@ -1462,10 +2100,8 @@ module Scrapers
 
     public
 
-    # Override scrape_catalog to use hybrid category browsing + search.
-    # Supports &on_batch for incremental DB writes — yields batches as each
-    # category/search completes instead of accumulating everything in memory.
-    def scrape_catalog(search_terms, max_per_term: 50, &on_batch)
+    # Browser-based catalog scraper (fallback).
+    def browser_scrape_catalog(search_terms, max_per_term: 50, &on_batch)
       results = []
       # Target: if we get 500+ products from categories, only do 10 strategic searches
       # Otherwise, do all searches to ensure coverage
