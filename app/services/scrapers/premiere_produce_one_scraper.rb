@@ -25,6 +25,321 @@ module Scrapers
     # we MUST keep the browser alive while waiting for the user's code.
     # This method is designed to run inside a Sidekiq job.
 
+    # ══════════════════════════════════════════════════════════════
+    # API-based implementation — uses Pepper GraphQL API
+    # Token from AWS Cognito, refreshable without browser.
+    # Browser only needed for: initial passwordless login (2FA).
+    # ══════════════════════════════════════════════════════════════
+
+    def api_client
+      @api_client ||= PremiereProduceOneApi.new(credential)
+    end
+
+    # ── Auth ────────────────────────────────────────────────────
+
+    def soft_refresh
+      if api_client.restore_session
+        credential.mark_active!
+        logger.info '[PPO] API soft refresh succeeded (Cognito token refresh)'
+        true
+      else
+        # Fall back to browser
+        logger.info '[PPO] API refresh failed, falling back to browser...'
+        browser_soft_refresh
+      end
+    rescue StandardError => e
+      logger.warn "[PPO] Soft refresh error: #{e.message}"
+      false
+    end
+
+    # ── Lists ───────────────────────────────────────────────────
+
+    def scrape_lists
+      api_client.ensure_session!
+
+      delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
+
+      # Get order guide items
+      og_result = api_client.get_order_guide_items
+      og_items = og_result&.dig('getOrderGuideItems') || []
+
+      # Get pricing for ALL products (not just order guide — the order guide
+      # info endpoint returns fewer items)
+      info_result = api_client.get_product_info_list(delivery_date: delivery_date)
+      price_list = info_result&.dig('getVariantPackInfoList') || []
+      prices_by_id = {}
+      price_list.each { |p| prices_by_id[p['variant_pack_id']] = p }
+
+      # Format order guide
+      formatted_items = og_items.map.with_index do |og_item, idx|
+        vp = og_item['variant_pack'] || {}
+        item = vp['item'] || {}
+        pack = vp['pack'] || {}
+        price_info = prices_by_id[vp['uuid']]
+        price = price_info ? (price_info['price_in_micros'] || 0) / 1_000_000.0 : nil
+
+        {
+          sku: vp['external_item_id'],
+          name: item['display_name'],
+          price: price,
+          pack_size: pack['unit'],
+          quantity: 1,
+          in_stock: price_info&.dig('availability_status') != 'OUT_OF_STOCK',
+          position: idx,
+          price_unit: pack['unit'],
+          piece_price: nil,
+          piece_pack_size: nil,
+          remote_item_id: vp['uuid']
+        }
+      end
+
+      result = [{
+        name: 'Order Guide',
+        remote_id: 'order-guide',
+        url: BASE_URL,
+        list_type: 'order_guide',
+        items: formatted_items
+      }]
+
+      logger.info "[PPO] API scraped #{formatted_items.size} order guide items"
+      result
+    end
+
+    # ── Prices ──────────────────────────────────────────────────
+
+    def scrape_prices(product_skus)
+      api_client.ensure_session!
+
+      delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
+
+      # Get all prices
+      info_result = api_client.get_product_info_list(delivery_date: delivery_date)
+      price_list = info_result&.dig('getVariantPackInfoList') || []
+
+      # Get catalog for product names (keyed by external_item_id)
+      catalog_result = api_client.get_catalog(item_limit: 5000)
+      catalog_items = catalog_result&.dig('getSupplierVariantPackGroupItems') || []
+      products_by_sku = {}
+      variant_to_sku = {}
+      catalog_items.each do |ci|
+        vp = ci['variant_pack'] || {}
+        sku = vp['external_item_id']
+        products_by_sku[sku] = vp if sku
+        variant_to_sku[vp['uuid']] = sku if vp['uuid']
+      end
+
+      # Build price lookup by SKU
+      prices_by_sku = {}
+      price_list.each do |p|
+        sku = variant_to_sku[p['variant_pack_id']]
+        prices_by_sku[sku] = (p['price_in_micros'] || 0) / 1_000_000.0 if sku
+      end
+
+      product_skus.map do |sku|
+        product = products_by_sku[sku]
+        item = product&.dig('item') || {}
+        sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
+
+        {
+          supplier_sku: sku,
+          current_price: prices_by_sku[sku],
+          in_stock: true,
+          supplier_name: item['display_name'] || sp&.supplier_name || sku
+        }
+      end
+    end
+
+    # ── Catalog ─────────────────────────────────────────────────
+
+    def scrape_catalog(search_terms, max_per_term: 50, &on_batch)
+      api_client.ensure_session!
+
+      delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
+
+      # Get full catalog
+      catalog_result = api_client.get_catalog(item_limit: 5000)
+      catalog_items = catalog_result&.dig('getSupplierVariantPackGroupItems') || []
+
+      # Get pricing
+      info_result = api_client.get_product_info_list(delivery_date: delivery_date)
+      price_list = info_result&.dig('getVariantPackInfoList') || []
+      prices_by_id = {}
+      price_list.each { |p| prices_by_id[p['variant_pack_id']] = p }
+
+      results = []
+
+      catalog_items.each_slice(50) do |batch|
+        formatted = batch.filter_map do |ci|
+          vp = ci['variant_pack'] || {}
+          item = vp['item'] || {}
+          pack = vp['pack'] || {}
+          sku = vp['external_item_id']
+          next unless sku
+
+          price_info = prices_by_id[vp['uuid']]
+          price = price_info ? (price_info['price_in_micros'] || 0) / 1_000_000.0 : nil
+
+          {
+            supplier_sku: sku,
+            supplier_name: item['display_name'],
+            current_price: price,
+            pack_size: pack['unit'],
+            in_stock: price_info&.dig('availability_status') != 'OUT_OF_STOCK',
+            category: item['category'] || ci['variant_pack_group_display_name'],
+            supplier_url: "#{BASE_URL}/item/#{vp['uuid']}"
+          }
+        end
+
+        if on_batch && formatted.any?
+          on_batch.call(formatted)
+        else
+          results.concat(formatted)
+        end
+      end
+
+      return [] if on_batch
+
+      deduped = results.uniq { |r| r[:supplier_sku] }
+      logger.info "[PPO] API catalog: #{deduped.size} products"
+      deduped
+    end
+
+    # ── Cart & Orders ───────────────────────────────────────────
+
+    def add_to_cart(items, delivery_date: nil)
+      api_client.ensure_session!
+
+      delivery_date_str = (delivery_date || Date.today + 1).to_s
+      delivery_date_str = "#{delivery_date_str}T04:00:00.000Z" unless delivery_date_str.include?('T')
+
+      # Get or create a draft order
+      open_orders = api_client.get_open_orders
+      draft = (open_orders&.dig('orders') || []).first
+
+      unless draft
+        create_result = api_client.create_order(delivery_date: delivery_date_str)
+        draft = create_result&.dig('createOrder', 'order')
+        raise ScrapingError, 'Failed to create draft order' unless draft
+      end
+
+      order_uuid = draft['uuid']
+
+      # Look up variant_pack_ids for SKUs
+      catalog_result = api_client.get_catalog(item_limit: 5000)
+      catalog_items = catalog_result&.dig('getSupplierVariantPackGroupItems') || []
+      sku_to_variant = {}
+      sku_to_name = {}
+      catalog_items.each do |ci|
+        vp = ci['variant_pack'] || {}
+        sku = vp['external_item_id']
+        if sku
+          sku_to_variant[sku] = vp['uuid']
+          sku_to_name[sku] = vp.dig('item', 'display_name')
+        end
+      end
+
+      cart_items = []
+      failed_items = []
+
+      items.each do |item|
+        variant_id = sku_to_variant[item[:sku]]
+        if variant_id
+          cart_items << {
+            variant_pack_id: variant_id,
+            quantity: item[:quantity] || 1,
+            item_name: sku_to_name[item[:sku]] || item[:name] || ''
+          }
+        else
+          failed_items << { sku: item[:sku], error: 'Not found in catalog', name: item[:name] }
+        end
+      end
+
+      if cart_items.any?
+        result = api_client.update_cart(order_uuid, cart_items)
+        unless result&.dig('updateCart', 'order')
+          failed_items.concat(cart_items.map { |i| { sku: i[:item_name], error: 'API rejected' } })
+          cart_items = []
+        end
+      end
+
+      # Set delivery date
+      if delivery_date && cart_items.any?
+        api_client.update_fulfillment(order_uuid, delivery_date_str)
+      end
+
+      if failed_items.any? && cart_items.empty?
+        raise ItemUnavailableError.new(
+          "#{failed_items.count} item(s) could not be added",
+          items: failed_items
+        )
+      end
+
+      { added: cart_items.count, failed: failed_items }
+    end
+
+    def clear_cart
+      api_client.ensure_session!
+
+      open_orders = api_client.get_open_orders
+      (open_orders&.dig('orders') || []).each do |order|
+        # Clear by sending empty cart
+        api_client.update_cart(order['uuid'], [])
+      end
+      logger.info '[PPO] API cart cleared'
+    rescue StandardError => e
+      logger.warn "[PPO] API clear_cart failed: #{e.message}"
+    end
+
+    def checkout(dry_run: false)
+      api_client.ensure_session!
+
+      open_orders = api_client.get_open_orders
+      order = (open_orders&.dig('orders') || []).first
+      raise ScrapingError, 'No draft order to checkout' unless order
+
+      order_uuid = order['uuid']
+      validation = api_client.validate_order(order_uuid)
+      val_data = validation&.dig('validateOrder') || {}
+
+      items = val_data.dig('order', 'orders_items') || []
+      total = items.sum do |i|
+        price = (i.dig('order_item_prices', 'unit_price_at_order_micros') || 0) / 1_000_000.0
+        qty = i.dig('order_item_prices', 'pack_quantity_at_order') || 1
+        price * qty
+      end
+
+      if dry_run
+        logger.info "[PPO] API DRY RUN — #{items.size} items, total=$#{'%.2f' % total}"
+        return {
+          confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+          total: total,
+          delivery_date: order['restaurant_desired_delivery_time'],
+          dry_run: true,
+          cart_items: items.map { |i| { name: i['restaurant_display_name'] } },
+          checkout_summary: val_data
+        }
+      end
+
+      unless val_data['can_place_order']
+        raise ScrapingError, "Order validation failed: #{val_data['alerts']}"
+      end
+
+      # TODO: Place order mutation (not captured in discovery — need to capture)
+      logger.warn '[PPO] LIVE ORDER — place order mutation not yet implemented'
+      raise ScrapingError, 'PPO live order placement via API not yet implemented'
+    end
+
+    def extract_delivery_address
+      # PPO doesn't have a separate delivery address concept
+      nil
+    end
+
+    public
+
+    # ══════════════════════════════════════════════════════════════
+    # Browser-based code below (kept for login and fallback)
+    # ══════════════════════════════════════════════════════════════
+
     # Override with_browser to use a longer timeout for 2FA wait.
     # The base class uses 30s, but we need 7 minutes (5 min code wait + buffer).
     def with_browser
@@ -322,9 +637,8 @@ module Scrapers
     end
 
     # Lightweight session check: restore cookies → navigate → check if still logged in.
-    # Returns true if session is alive (and extends last_login_at), false if expired.
-    # Does NOT trigger 2FA or attempt login — just checks if the saved session works.
-    def soft_refresh
+    # Browser-based soft refresh (fallback).
+    def browser_soft_refresh
       with_browser do
         navigate_to(BASE_URL)
         if restore_session
@@ -347,9 +661,8 @@ module Scrapers
 
     # Override base scrape_catalog because PPO requires 2FA for login.
     # The base class calls perform_login_steps which only enters the email —
-    # PPO needs the full login flow (with 2FA code polling) to get past the
-    # verification page.
-    def scrape_catalog(search_terms, max_per_term: 50)
+    # Browser-based catalog (fallback).
+    def browser_scrape_catalog(search_terms, max_per_term: 50)
       results = []
 
       with_browser do
@@ -478,9 +791,8 @@ module Scrapers
     # link is in the left sidebar. The dropdown chevron may reveal multiple guides.
     # Categories filter within the guide (All, BAKERY & DESSERT, etc.).
     # Override scrape_lists (not scrape_supplier_lists) because PPO requires
-    # full login with 2FA, so we can't rely on BaseScraper's version which
-    # calls perform_login_steps but doesn't handle 2FA code polling.
-    def scrape_lists
+    # Browser-based lists (fallback).
+    def browser_scrape_lists
       with_browser do
         navigate_to(BASE_URL)
         if restore_session
@@ -575,7 +887,7 @@ module Scrapers
       end
     end
 
-    def scrape_prices(product_skus)
+    def browser_scrape_prices(product_skus)
       results = []
 
       with_browser do
@@ -607,7 +919,7 @@ module Scrapers
       results
     end
 
-    def add_to_cart(items, delivery_date: nil)
+    def browser_add_to_cart(items, delivery_date: nil)
       @target_delivery_date = delivery_date
       ensure_order_browser!
 
@@ -1361,7 +1673,7 @@ module Scrapers
 
     public
 
-    def checkout(dry_run: false)
+    def browser_checkout(dry_run: false)
       logger.info "[PremiereProduceOne] checkout starting (dry_run=#{dry_run})"
       ensure_order_browser!
 
@@ -1540,7 +1852,7 @@ module Scrapers
       @browser = nil
     end
 
-    def clear_cart
+    def browser_clear_cart
       logger.info '[PremiereProduceOne] Clearing cart...'
       ensure_order_browser!
 
