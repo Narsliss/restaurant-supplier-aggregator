@@ -15,10 +15,9 @@ module Scrapers
     GRAPHQL_URL = 'https://api.usepepper.com/v1/graphql'
     COGNITO_ENDPOINT = 'https://cognito-idp.us-east-1.amazonaws.com'
     COGNITO_CLIENT_ID = 'lk2aec240lkl74akre9mopgto'
-    BUSINESS_ORG_UUID = '45f43212-e6c7-4d39-8bcf-1c95c95f520d'
-    SUPPLIER_UUID = '181ecb30-4fea-4c2c-bbc9-3afb35c146a3'
 
-    attr_reader :credential, :logger, :restaurant_uuid, :chat_uuid
+    attr_reader :credential, :logger, :restaurant_uuid, :chat_uuid,
+                :supplier_uuid, :business_org_uuid
 
     def initialize(credential)
       @credential = credential
@@ -27,6 +26,8 @@ module Scrapers
       @refresh_token = nil
       @restaurant_uuid = nil
       @chat_uuid = nil
+      @supplier_uuid = nil
+      @business_org_uuid = nil
     end
 
     # ── Authentication ────────────────────────────────────────────
@@ -44,6 +45,8 @@ module Scrapers
         @refresh_token = api_tokens['refresh_token']
         @restaurant_uuid = api_tokens['restaurant_uuid']
         @chat_uuid = api_tokens['chat_uuid']
+        @supplier_uuid = api_tokens['supplier_uuid']
+        @business_org_uuid = api_tokens['business_org_uuid']
 
         if verify_token
           logger.info '[PPO-API] Session restored from api_tokens'
@@ -142,7 +145,7 @@ module Scrapers
       graphql('Catalog_VariantPackGroupItems', CATALOG_QUERY, {
         itemLimit: item_limit,
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -153,7 +156,7 @@ module Scrapers
       graphql('VariantPackInfoContext_InfoList', INFO_LIST_QUERY, {
         deliveryDate: delivery_date,
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -164,7 +167,7 @@ module Scrapers
       graphql('SearchItems', SEARCH_QUERY, {
         query: query,
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID,
+        supplierUUID: @supplier_uuid,
         fulfillmentDate: delivery_date
       })
     end
@@ -173,7 +176,7 @@ module Scrapers
     def get_groups
       graphql('GetGroups', GROUPS_QUERY, {
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -182,7 +185,7 @@ module Scrapers
     def get_order_guide_items
       graphql('GetOrderGuideItems', ORDER_GUIDE_QUERY, {
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -193,7 +196,7 @@ module Scrapers
       graphql('VariantPackInfoContext_OrderGuideInfoList', ORDER_GUIDE_INFO_QUERY, {
         deliveryDate: delivery_date,
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -207,7 +210,7 @@ module Scrapers
         fulfillmentType: 'DELIVERY',
         orderDomain: 'GLOBAL',
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -252,7 +255,7 @@ module Scrapers
     def get_open_orders
       graphql('OpenOrders', OPEN_ORDERS_QUERY, {
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -272,7 +275,7 @@ module Scrapers
         filters: [{ operation: 'EQUALS', type: 'SCOPE', value: scope }],
         pageSize: 1000,
         restaurantUUID: @restaurant_uuid,
-        supplierUUID: SUPPLIER_UUID
+        supplierUUID: @supplier_uuid
       })
     end
 
@@ -332,9 +335,10 @@ module Scrapers
     end
 
     def verify_token
-      result = graphql('Auth_Verify', VERIFY_QUERY, {})
-      if result&.dig('businesses')
-        extract_context(result) unless @restaurant_uuid
+      result = graphql('DiscoverContext', DISCOVER_CONTEXT_QUERY, {})
+      chats = result&.dig('employee_chats')
+      if chats.is_a?(Array) && chats.any?
+        extract_context(result)
         true
       else
         false
@@ -344,8 +348,12 @@ module Scrapers
     def extract_context(result)
       chats = result['employee_chats'] || []
       if chats.any?
-        @restaurant_uuid = chats.first['restaurant_uuid']
-        @chat_uuid = chats.first['chat_uuid']
+        chat = chats.first
+        @restaurant_uuid = chat['restaurant_uuid']
+        @chat_uuid = chat['chat_uuid']
+        @supplier_uuid = chat['supplier_uuid']
+        @business_org_uuid = chat['business_organization_uuid']
+        logger.info "[PPO-API] Context: restaurant=#{@restaurant_uuid&.slice(0, 8)}, supplier=#{@supplier_uuid&.slice(0, 8)}, org=#{@business_org_uuid&.slice(0, 8)}"
       end
     end
 
@@ -361,7 +369,9 @@ module Scrapers
         'id_token' => @id_token,
         'refresh_token' => @refresh_token,
         'restaurant_uuid' => @restaurant_uuid,
-        'chat_uuid' => @chat_uuid
+        'chat_uuid' => @chat_uuid,
+        'supplier_uuid' => @supplier_uuid,
+        'business_org_uuid' => @business_org_uuid
       }
 
       credential.update!(session_data: session_data.to_json)
@@ -370,7 +380,8 @@ module Scrapers
 
     # ── GraphQL Queries ───────────────────────────────────────────
 
-    VERIFY_QUERY = "query Auth_Verify { businesses(where: {uuid: {_eq: \"#{BUSINESS_ORG_UUID}\"}}) { uuid __typename } employee_chats(where: {business_organization_uuid: {_eq: \"#{BUSINESS_ORG_UUID}\"}}) { chat_uuid restaurant_uuid __typename } }"
+    # Discovery query — no hardcoded UUIDs, discovers all context from the token
+    DISCOVER_CONTEXT_QUERY = 'query DiscoverContext { employee_chats { chat_uuid restaurant_uuid supplier_uuid business_organization_uuid __typename } }'
 
     CATALOG_QUERY = 'query Catalog_VariantPackGroupItems($itemLimit: Int!, $restaurantUUID: uuid!, $supplierUUID: uuid!) { getSupplierVariantPackGroupItems(restaurant_id: $restaurantUUID, supplier_id: $supplierUUID, variant_pack_group_item_limit: $itemLimit) { variant_pack { external_item_id uuid item { category description display_name uuid __typename } metadata pack { unit unit_count uuid __typename } __typename } variant_pack_group { uuid type __typename } variant_pack_group_display_name variant_pack_group_item_count __typename } }'
 
