@@ -229,8 +229,6 @@ module Scrapers
 
     def validate_order(order_uuid)
       graphql('OrderSummary_ValidateOrder', VALIDATE_ORDER_QUERY, {
-        locale: 'en',
-        skipSaltApi: false,
         orderUUID: order_uuid,
         restaurantUUID: @restaurant_uuid
       })
@@ -377,7 +375,7 @@ module Scrapers
 
     UPDATE_CART_QUERY = 'mutation NewOrder_UpdateCart($orderUUID: uuid!, $updatedItems: [UpdateItemInput!]!) { updateCart(order_id: $orderUUID, updated_items: $updatedItems) { order { uuid status orders_items { restaurant_display_name order_item_prices { pack_quantity_at_order __typename } variants_pack { uuid external_item_id __typename } __typename } __typename } __typename } }'
 
-    VALIDATE_ORDER_QUERY = 'mutation OrderSummary_ValidateOrder($locale: String!, $orderUUID: uuid!, $restaurantUUID: uuid!, $skipSaltApi: Boolean!) { validateOrder(order_id: $orderUUID, restaurant_id: $restaurantUUID) { alerts can_place_order order { orders_items { restaurant_display_name order_item_prices { currency_code pack_quantity_at_order unit_price_at_order_micros __typename } pack { unit unit_count __typename } variants_pack { external_item_id uuid __typename } __typename } __typename } __typename } }'
+    VALIDATE_ORDER_QUERY = 'mutation OrderSummary_ValidateOrder($orderUUID: uuid!, $restaurantUUID: uuid!) { validateOrder(order_id: $orderUUID, restaurant_id: $restaurantUUID) { alerts can_place_order order { orders_items { restaurant_display_name order_item_prices { currency_code pack_quantity_at_order unit_price_at_order_micros __typename } pack { unit unit_count __typename } variants_pack { external_item_id uuid __typename } __typename } __typename } __typename } }'
 
     UPDATE_FULFILLMENT_QUERY = 'mutation NewOrder_UpdateFulfillment($orderUUID: uuid!, $set: orders_set_input!, $unplacedOrderStatuses: [order_status_enum!]) { update_orders(where: {uuid: {_eq: $orderUUID}, status: {_in: $unplacedOrderStatuses}}, _set: $set) { returning { fulfillment_type restaurant_desired_delivery_time uuid __typename } __typename } }'
 
