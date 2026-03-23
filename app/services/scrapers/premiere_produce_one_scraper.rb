@@ -307,35 +307,49 @@ module Scrapers
       raise ScrapingError, 'No draft order to checkout' unless order
 
       order_uuid = order['uuid']
-      validation = api_client.validate_order(order_uuid)
-      val_data = validation&.dig('validateOrder') || {}
+      order_items = order['orders_items'] || []
+      raise ScrapingError, 'Cart is empty' if order_items.empty?
 
-      items = val_data.dig('order', 'orders_items') || []
-      total = items.sum do |i|
-        price = (i.dig('order_item_prices', 'unit_price_at_order_micros') || 0) / 1_000_000.0
-        qty = i.dig('order_item_prices', 'pack_quantity_at_order') || 1
-        price * qty
+      # Calculate total from price info
+      delivery_date = order['restaurant_desired_delivery_time']
+      info = api_client.get_product_info_list(delivery_date: delivery_date)
+      prices = {}
+      (info&.dig('getVariantPackInfoList') || []).each { |p| prices[p['variant_pack_id']] = p }
+
+      total = order_items.sum do |item|
+        vp_uuid = item.dig('variants_pack', 'uuid')
+        price_info = prices[vp_uuid]
+        (price_info&.dig('price_in_micros') || 0) / 1_000_000.0
       end
 
       if dry_run
-        logger.info "[PPO] API DRY RUN — #{items.size} items, total=$#{'%.2f' % total}"
+        logger.info "[PPO] API DRY RUN — #{order_items.size} items, total=$#{'%.2f' % total}"
         return {
           confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
           total: total,
-          delivery_date: order['restaurant_desired_delivery_time'],
+          delivery_date: delivery_date,
           dry_run: true,
-          cart_items: items.map { |i| { name: i['restaurant_display_name'] } },
-          checkout_summary: val_data
+          cart_items: order_items.map { |i| { name: i['restaurant_display_name'] } },
+          checkout_summary: {}
         }
       end
 
-      unless val_data['can_place_order']
-        raise ScrapingError, "Order validation failed: #{val_data['alerts']}"
-      end
+      # LIVE ORDER
+      logger.warn "[PPO] API PLACING LIVE ORDER — #{order_items.size} items, total=$#{'%.2f' % total}"
+      result = api_client.submit_order(order_uuid)
+      submitted = result&.dig('submitOrder', 'order')
 
-      # TODO: Place order mutation (not captured in discovery — need to capture)
-      logger.warn '[PPO] LIVE ORDER — place order mutation not yet implemented'
-      raise ScrapingError, 'PPO live order placement via API not yet implemented'
+      confirmation_number = submitted&.dig('uuid') || "PPO-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      logger.info "[PPO] Order placed: #{confirmation_number}"
+
+      {
+        confirmation_number: confirmation_number,
+        total: total,
+        delivery_date: delivery_date,
+        dry_run: false,
+        cart_items: order_items.map { |i| { name: i['restaurant_display_name'] } },
+        checkout_summary: submitted
+      }
     end
 
     def extract_delivery_address

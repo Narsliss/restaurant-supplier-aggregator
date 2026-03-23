@@ -229,8 +229,10 @@ module Scrapers
 
     def validate_order(order_uuid)
       graphql('OrderSummary_ValidateOrder', VALIDATE_ORDER_QUERY, {
+        locale: 'en',
         orderUUID: order_uuid,
-        restaurantUUID: @restaurant_uuid
+        restaurantUUID: @restaurant_uuid,
+        skipSaltApi: false
       })
     end
 
@@ -251,6 +253,17 @@ module Scrapers
       graphql('OpenOrders', OPEN_ORDERS_QUERY, {
         restaurantUUID: @restaurant_uuid,
         supplierUUID: SUPPLIER_UUID
+      })
+    end
+
+    # Submit/place a draft order. THIS PLACES A REAL ORDER.
+    def submit_order(order_uuid, po_number: nil, notes: nil)
+      graphql('NewOrder_SubmitOrder', SUBMIT_ORDER_QUERY, {
+        orderUUID: order_uuid,
+        orderNotes: notes,
+        paymentMethod: nil,
+        poNumber: po_number,
+        additionalInputValues: []
       })
     end
 
@@ -375,12 +388,14 @@ module Scrapers
 
     UPDATE_CART_QUERY = 'mutation NewOrder_UpdateCart($orderUUID: uuid!, $updatedItems: [UpdateItemInput!]!) { updateCart(order_id: $orderUUID, updated_items: $updatedItems) { order { uuid status orders_items { restaurant_display_name order_item_prices { pack_quantity_at_order __typename } variants_pack { uuid external_item_id __typename } __typename } __typename } __typename } }'
 
-    VALIDATE_ORDER_QUERY = 'mutation OrderSummary_ValidateOrder($orderUUID: uuid!, $restaurantUUID: uuid!) { validateOrder(order_id: $orderUUID, restaurant_id: $restaurantUUID) { alerts can_place_order order { orders_items { restaurant_display_name order_item_prices { currency_code pack_quantity_at_order unit_price_at_order_micros __typename } pack { unit unit_count __typename } variants_pack { external_item_id uuid __typename } __typename } __typename } __typename } }'
+    VALIDATE_ORDER_QUERY = 'mutation OrderSummary_ValidateOrder($locale: String!, $orderUUID: uuid!, $restaurantUUID: uuid!, $skipSaltApi: Boolean!) { validateOrder(order_id: $orderUUID) { alerts { alert_level alert_message } can_place_order missing_essential_item_ids order_minimum { amount is_hard unit } order { uuid status orders_items { uuid restaurant_display_name order_item_prices { currency_code pack_quantity_at_order unit_price_at_order_micros __typename } variants_pack { external_item_id uuid __typename } __typename } __typename } __typename } }'
 
     UPDATE_FULFILLMENT_QUERY = 'mutation NewOrder_UpdateFulfillment($orderUUID: uuid!, $set: orders_set_input!, $unplacedOrderStatuses: [order_status_enum!]) { update_orders(where: {uuid: {_eq: $orderUUID}, status: {_in: $unplacedOrderStatuses}}, _set: $set) { returning { fulfillment_type restaurant_desired_delivery_time uuid __typename } __typename } }'
 
     OPEN_ORDERS_QUERY = 'query OpenOrders($restaurantUUID: uuid!, $supplierUUID: uuid!) { orders(where: {supplier_uuid: {_eq: $supplierUUID}, restaurant_uuid: {_eq: $restaurantUUID}, status: {_in: ["DRAFT", "IN_REVIEW"]}}) { uuid status restaurant_desired_delivery_time orders_items { restaurant_display_name variants_pack { uuid external_item_id __typename } __typename } __typename } }'
 
-    ORDER_HISTORY_QUERY = 'query OrderHistory_SearchOrders($filters: [OrderFilterInput!]!, $pageSize: Int!, $restaurantUUID: uuid!, $supplierUUID: uuid!) { searchOrders(filters: $filters, page_size: $pageSize, restaurant_id: $restaurantUUID, supplier_id: $supplierUUID) { orders { uuid status placed_at restaurant_desired_delivery_time orders_items { restaurant_display_name order_item_prices { pack_quantity_at_order unit_price_at_order_micros __typename } __typename } __typename } __typename } }'
+    SUBMIT_ORDER_QUERY = 'mutation NewOrder_SubmitOrder($orderUUID: uuid!, $orderNotes: String, $paymentMethod: String, $poNumber: String, $additionalInputValues: [AdditionalInputValueInput!]!) { submitOrder(order_id: $orderUUID, order_notes: $orderNotes, payment_method: $paymentMethod, po_number: $poNumber, additional_input_values: $additionalInputValues) { order { uuid status placed_at restaurant_desired_delivery_time __typename } split_order_id_list __typename } }'
+
+    ORDER_HISTORY_QUERY ='query OrderHistory_SearchOrders($filters: [OrderFilterInput!]!, $pageSize: Int!, $restaurantUUID: uuid!, $supplierUUID: uuid!) { searchOrders(filters: $filters, page_size: $pageSize, restaurant_id: $restaurantUUID, supplier_id: $supplierUUID) { orders { uuid status placed_at restaurant_desired_delivery_time orders_items { restaurant_display_name order_item_prices { pack_quantity_at_order unit_price_at_order_micros __typename } __typename } __typename } __typename } }'
   end
 end
