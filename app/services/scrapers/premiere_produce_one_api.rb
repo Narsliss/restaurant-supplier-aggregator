@@ -14,7 +14,9 @@ module Scrapers
   class PremiereProduceOneApi
     GRAPHQL_URL = 'https://api.usepepper.com/v1/graphql'
     COGNITO_ENDPOINT = 'https://cognito-idp.us-east-1.amazonaws.com'
-    COGNITO_CLIENT_ID = 'lk2aec240lkl74akre9mopgto'
+    # Cognito client ID is extracted from localStorage keys at runtime.
+    # Fallback in case localStorage doesn't have it.
+    DEFAULT_COGNITO_CLIENT_ID = 'lk2aec240lkl74akre9mopgto'
 
     attr_reader :credential, :logger, :restaurant_uuid, :chat_uuid,
                 :supplier_uuid, :business_org_uuid
@@ -24,6 +26,7 @@ module Scrapers
       @logger = Rails.logger
       @id_token = nil
       @refresh_token = nil
+      @cognito_client_id = nil
       @restaurant_uuid = nil
       @chat_uuid = nil
       @supplier_uuid = nil
@@ -47,6 +50,7 @@ module Scrapers
         @chat_uuid = api_tokens['chat_uuid']
         @supplier_uuid = api_tokens['supplier_uuid']
         @business_org_uuid = api_tokens['business_org_uuid']
+        @cognito_client_id = api_tokens['cognito_client_id']
 
         if verify_token
           logger.info '[PPO-API] Session restored from api_tokens'
@@ -67,6 +71,9 @@ module Scrapers
       if id_token_key && refresh_token_key
         @id_token = ls[id_token_key]
         @refresh_token = ls[refresh_token_key]
+        # Extract Cognito client ID from key: CognitoIdentityServiceProvider.{clientId}.user.idToken
+        parts = id_token_key.split('.')
+        @cognito_client_id = parts[1] if parts.size >= 3
 
         if verify_token
           save_session_tokens
@@ -102,7 +109,7 @@ module Scrapers
       req['X-Amz-Target'] = 'AWSCognitoIdentityProviderService.InitiateAuth'
       req.body = {
         AuthFlow: 'REFRESH_TOKEN_AUTH',
-        ClientId: COGNITO_CLIENT_ID,
+        ClientId: @cognito_client_id || DEFAULT_COGNITO_CLIENT_ID,
         AuthParameters: { REFRESH_TOKEN: @refresh_token }
       }.to_json
 
@@ -368,6 +375,7 @@ module Scrapers
       session_data['api_tokens'] = {
         'id_token' => @id_token,
         'refresh_token' => @refresh_token,
+        'cognito_client_id' => @cognito_client_id,
         'restaurant_uuid' => @restaurant_uuid,
         'chat_uuid' => @chat_uuid,
         'supplier_uuid' => @supplier_uuid,
