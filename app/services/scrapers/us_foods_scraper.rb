@@ -24,6 +24,253 @@ module Scrapers
       "a[href*='logout']", "a[href*='sign-out']"
     ].freeze
 
+    # ══════════════════════════════════════════════════════════════
+    # API-based implementation — uses Panamax REST API
+    # Token obtained from browser session (saved in localStorage
+    # as CapacitorStorage.auth-response after login/soft_refresh).
+    # Browser still needed for: 2FA login, soft_refresh, cart/checkout.
+    # ══════════════════════════════════════════════════════════════
+
+    def api_client
+      @api_client ||= UsFoodsApi.new(credential)
+    end
+
+    # ── Lists (Order Guides + Shopping Lists) ──────────────────
+
+    # Override BaseScraper#scrape_lists to use API.
+    def scrape_lists
+      api_client.ensure_session!
+
+      result_lists = []
+
+      # Order guides
+      guides = api_client.list_order_guides || []
+      guide_items = api_client.get_order_guide_items || []
+      guide_groups = api_client.get_order_guide_groups || []
+
+      # Fetch product details and prices for all guide items
+      product_numbers = guide_items.map { |i| i['productNumber'] }.compact.uniq
+      products_by_number = fetch_products_map(product_numbers)
+      prices_by_number = api_client.fetch_prices(product_numbers)
+
+      guides.each do |guide|
+        guide_key = guide.dig('listKey', 'listId')
+        items_for_guide = guide_items.select { |i| i.dig('listKey', 'listId') == guide_key }
+
+        formatted_items = items_for_guide.map.with_index do |item, idx|
+          pn = item['productNumber']
+          product = products_by_number[pn]
+          price = prices_by_number[pn]
+          format_list_item(pn, product, price, idx)
+        end
+
+        result_lists << {
+          name: guide['listName'] || "Order Guide #{guide_key}",
+          remote_id: "OG-#{guide_key}",
+          url: "#{BASE_URL}/desktop/lists/view/OG-#{guide_key}",
+          list_type: 'order_guide',
+          items: formatted_items
+        }
+      end
+
+      # Shopping lists
+      shopping_lists = api_client.list_shopping_lists || []
+      list_items = api_client.get_shopping_list_items || []
+
+      # Fetch products/prices for shopping list items too
+      sl_product_numbers = list_items.map { |i| i['productNumber'] }.compact.uniq
+      sl_new_numbers = sl_product_numbers - product_numbers
+      if sl_new_numbers.any?
+        sl_products = fetch_products_map(sl_new_numbers)
+        products_by_number.merge!(sl_products)
+        sl_prices = api_client.fetch_prices(sl_new_numbers)
+        prices_by_number.merge!(sl_prices)
+      end
+
+      shopping_lists.each do |list|
+        list_key = list.dig('listKey', 'listId')
+        items_for_list = list_items.select { |i| i.dig('listKey', 'listId') == list_key }
+
+        formatted_items = items_for_list.map.with_index do |item, idx|
+          pn = item['productNumber']
+          product = products_by_number[pn]
+          price = prices_by_number[pn]
+          format_list_item(pn, product, price, idx)
+        end
+
+        result_lists << {
+          name: list['listName'] || "Shopping List #{list_key}",
+          remote_id: "SL-#{list_key}",
+          url: "#{BASE_URL}/desktop/lists/view/SL-#{list_key}",
+          list_type: 'custom',
+          items: formatted_items
+        }
+      end
+
+      logger.info "[UsFoods] API scraped #{result_lists.size} lists (#{result_lists.sum { |l| l[:items].size }} total items)"
+      result_lists
+    end
+
+    # ── Prices ──────────────────────────────────────────────────
+
+    def scrape_prices(product_skus)
+      api_client.ensure_session!
+
+      product_numbers = product_skus.map(&:to_i)
+      products_by_number = fetch_products_map(product_numbers)
+      prices_by_number = api_client.fetch_prices(product_numbers)
+
+      product_numbers.map do |pn|
+        product = products_by_number[pn]
+        price = prices_by_number[pn]
+        summary = product&.dig('summary') || product || {}
+
+        {
+          supplier_sku: pn.to_s,
+          current_price: price&.dig(:case_price),
+          in_stock: product.present?,
+          supplier_name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - ')
+        }
+      end
+    end
+
+    # ── Catalog ─────────────────────────────────────────────────
+
+    # Non-food categories to skip during catalog import.
+    # Products in these categories are still imported if they appear
+    # in the user's order guides or shopping lists.
+    EXCLUDED_CATALOG_CATEGORIES = [
+      'Equipment and Supplies',
+      'Disposables',
+      'Chemicals and Cleaning'
+    ].freeze
+
+    def scrape_catalog(_search_terms, max_per_term: 100, &on_batch)
+      api_client.ensure_session!
+      results = []
+
+      # Get taxonomy for category-based Coveo search
+      taxonomy = api_client.get_taxonomy
+      categories = taxonomy&.dig('categories') || []
+      logger.info "[UsFoods] API taxonomy: #{categories.size} top-level categories"
+
+      # Discover all product numbers via Coveo, category by category
+      # (Coveo has a 5000 result limit per query)
+      all_product_numbers = []
+
+      categories.reject { |c| EXCLUDED_CATALOG_CATEGORIES.include?(c['categoryName']) }.each do |cat|
+        cat_name = cat['categoryName']
+        numbers = api_client.search_product_numbers(category: cat_name, max_results: 5000, filter: '@product_status==0')
+        all_product_numbers.concat(numbers)
+        logger.info "[UsFoods] Coveo category '#{cat_name}': #{numbers.size} products"
+
+        # If a category has 5000+ products, split by subcategory
+        if numbers.size >= 4900
+          (cat['children'] || []).each do |subcat|
+            sub_name = "#{cat_name}|#{subcat['categoryName']}"
+            sub_numbers = api_client.search_product_numbers(category: sub_name, max_results: 5000, filter: '@product_status==0')
+            new_numbers = sub_numbers - all_product_numbers
+            all_product_numbers.concat(new_numbers)
+            logger.info "[UsFoods] Coveo subcategory '#{sub_name}': #{sub_numbers.size} (#{new_numbers.size} new)"
+          end
+        end
+      end
+
+      all_product_numbers = all_product_numbers.uniq
+      logger.info "[UsFoods] Total unique product numbers from Coveo: #{all_product_numbers.size}"
+
+      # Fetch product details and prices from Panamax in batches
+      all_product_numbers.each_slice(50) do |batch|
+        products = api_client.fetch_products(batch)
+        prices = api_client.fetch_prices(batch)
+
+        formatted = products.filter_map do |p|
+          summary = p['summary'] || p
+          next if summary['productNumber'].nil?
+
+          pn = summary['productNumber']
+          price = prices[pn]
+
+          {
+            supplier_sku: pn.to_s,
+            supplier_name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - '),
+            current_price: price&.dig(:case_price),
+            pack_size: summary['salesPackSize'],
+            in_stock: true,
+            category: summary['classDescription']&.titleize,
+            subcategory: summary['categoryDescription']&.titleize,
+            supplier_url: "#{BASE_URL}/desktop/product/#{pn}"
+          }
+        end
+
+        if on_batch && formatted.any?
+          on_batch.call(formatted)
+        else
+          results.concat(formatted)
+        end
+      end
+
+      return [] if on_batch
+
+      deduped = results.uniq { |r| r[:supplier_sku] }
+      logger.info "[UsFoods] API total unique products: #{deduped.size}"
+      deduped
+    end
+
+    # ── Soft Refresh (browser-based, then extracts API tokens) ──
+
+    def soft_refresh
+      result = browser_soft_refresh
+
+      if result
+        # After browser refresh, reset API client so it picks up fresh tokens
+        # from the updated localStorage on next use
+        @api_client = nil
+        logger.info '[UsFoods] Soft refresh succeeded — API tokens refreshed'
+      end
+
+      result
+    end
+
+    private
+
+    # ── API helpers ─────────────────────────────────────────────
+
+    def fetch_products_map(product_numbers)
+      return {} if product_numbers.empty?
+
+      products = api_client.fetch_products(product_numbers)
+      map = {}
+      products.each do |p|
+        pn = p['productNumber'] || p.dig('summary', 'productNumber')
+        map[pn] = p if pn
+      end
+      map
+    end
+
+    def format_list_item(product_number, product, price, position)
+      summary = product&.dig('summary') || product || {}
+      {
+        sku: product_number.to_s,
+        name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - '),
+        price: price&.dig(:case_price),
+        pack_size: summary['salesPackSize'],
+        quantity: 1,
+        in_stock: product.present?,
+        position: position,
+        price_unit: price&.dig(:price_uom),
+        piece_price: price&.dig(:split_price),
+        piece_pack_size: summary['eachUom'],
+        remote_item_id: product_number.to_s
+      }
+    end
+
+    public
+
+    # ══════════════════════════════════════════════════════════════
+    # Browser-based code below (kept for login, soft_refresh, cart/checkout)
+    # ══════════════════════════════════════════════════════════════
+
     # US Foods uses CloudFront WAF that blocks standard headless Chrome.
     # Override with stealth browser options to avoid bot detection.
     def with_browser
@@ -355,9 +602,8 @@ module Scrapers
       end
     end
 
-    # Soft refresh - just verify session is still valid without triggering full login/MFA
-    # Used by session refresh jobs to extend session lifetime without re-authentication
-    def soft_refresh
+    # Browser-based soft refresh (called by the API soft_refresh override).
+    def browser_soft_refresh
       with_browser do
         if restore_session
           browser.refresh
@@ -386,7 +632,7 @@ module Scrapers
       end
     end
 
-    def scrape_prices(product_skus)
+    def browser_scrape_prices(product_skus)
       results = []
 
       with_browser do
@@ -445,9 +691,8 @@ module Scrapers
       specialty-meats
     ].freeze
 
-    # Fast catalog import: empty search returns the customer's available products.
-    # Gets ~2,000 products in ~8.5 minutes — good enough for regular imports.
-    def scrape_catalog(_search_terms, max_per_term: 100, &on_batch)
+    # Browser-based catalog import (fallback).
+    def browser_scrape_catalog(_search_terms, max_per_term: 100, &on_batch)
       results = []
       total_yielded = 0
 
@@ -578,9 +823,8 @@ module Scrapers
     end
 
     # Scrape saved order lists from US Foods /desktop/lists page.
-    # US Foods organizes lists with names and product counts.
-    # Returns array of list hashes per the BaseScraper#scrape_lists contract.
-    def scrape_supplier_lists
+    # Browser-based list scraping (fallback).
+    def browser_scrape_supplier_lists
       lists_url = "#{BASE_URL}/desktop/lists"
       logger.info "[UsFoods] Navigating to lists page: #{lists_url}"
       navigate_to(lists_url)

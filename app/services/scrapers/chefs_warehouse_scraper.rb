@@ -82,7 +82,19 @@ module Scrapers
 
     def soft_refresh
       logger.info '[ChefsWarehouse] API soft refresh'
-      api_client.restore_session
+      if api_client.restore_session
+        credential.mark_active!
+        true
+      else
+        # CW uses password auth — we can always re-login via API
+        logger.info '[ChefsWarehouse] Session expired, re-logging in via API'
+        if api_client.login
+          credential.mark_active!
+          true
+        else
+          false
+        end
+      end
     rescue StandardError => e
       logger.warn "[ChefsWarehouse] API soft refresh error: #{e.message}"
       false
