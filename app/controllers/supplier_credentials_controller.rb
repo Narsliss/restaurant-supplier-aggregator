@@ -405,7 +405,7 @@ class SupplierCredentialsController < ApplicationController
     # reflects the import-in-progress state. Without this, there's a race window
     # where polling sees importing=false + status=active and re-enables the button.
     @credential.update_columns(importing: true)
-    ImportSupplierProductsJob.perform_later(@credential.supplier_id)
+    ImportSupplierProductsJob.perform_later(@credential.supplier_id, @credential.id)
     Rails.logger.info "[SupplierCredentials] Product import queued for credential ##{@credential.id} — #{@credential.supplier.name} (user: #{current_user.id})"
 
     respond_to do |format|

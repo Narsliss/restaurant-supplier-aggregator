@@ -122,7 +122,7 @@ class TwoFactorChannel < ApplicationCable::Channel
       # Login already completed by login_with_code — refresh session and
       # kick off initial imports so products/lists appear immediately.
       RefreshSessionJob.perform_later(request.supplier_credential_id)
-      ImportSupplierProductsJob.perform_later(request.supplier_credential_id)
+      ImportSupplierProductsJob.perform_later(request.supplier_credential.supplier_id, request.supplier_credential_id)
       ImportSupplierListsJob.perform_later(request.supplier_credential_id)
     when "checkout"
       # Find and resume the pending order
