@@ -65,7 +65,7 @@ module Scrapers
         end
 
         result_lists << {
-          name: guide['listName'] || "Order Guide #{guide_key}",
+          name: guide['listName'].presence || "Order Guide #{guide_key}",
           remote_id: "OG-#{guide_key}",
           url: "#{BASE_URL}/desktop/lists/view/OG-#{guide_key}",
           list_type: 'order_guide',
@@ -99,7 +99,7 @@ module Scrapers
         end
 
         result_lists << {
-          name: list['listName'] || "Shopping List #{list_key}",
+          name: list['listName'].presence || "Shopping List #{list_key}",
           remote_id: "SL-#{list_key}",
           url: "#{BASE_URL}/desktop/lists/view/SL-#{list_key}",
           list_type: 'custom',
