@@ -433,8 +433,6 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
-    @credential.update_columns(importing: true, import_status_text: 'Importing catalog and lists...')
-    ImportSupplierProductsJob.perform_later(@credential.supplier_id, @credential.id)
     ImportSupplierListsJob.perform_later(@credential.id)
     Rails.logger.info "[SupplierCredentials] List import queued for credential ##{@credential.id} — #{@credential.supplier.name} (user: #{current_user.id})"
 
