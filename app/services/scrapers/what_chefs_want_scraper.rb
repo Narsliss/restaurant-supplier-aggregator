@@ -498,23 +498,34 @@ module Scrapers
                             delivery_date.is_a?(String) ? delivery_date : delivery_date.strftime('%Y-%m-%d')
                           end
 
+      # Build lookup of SKU -> multiUnitProduct ID from order guide
+      mup_map = build_order_guide_mup_map
+
       added_items = []
       failed_items = []
 
       cart_items = []
       items.each do |item|
-        product_id = resolve_product_id(item[:sku])
-        if product_id
+        sku = item[:sku].to_s
+        mup_id = mup_map[sku]
+
+        unless mup_id
+          # Fallback: search the catalog (returns canonicalProduct ID — may not work for drafts)
+          logger.warn "[WhatChefsWant] SKU #{sku} not in order guide, trying catalog search"
+          mup_id = resolve_product_id_via_search(sku)
+        end
+
+        if mup_id
           cart_items << {
-            product_id: product_id,
+            product_id: mup_id,
             quantity: item[:quantity].to_i,
             price: item[:expected_price].to_f
           }
           added_items << item
-          logger.info "[WhatChefsWant] Resolved SKU #{item[:sku]} -> product #{product_id}"
+          logger.info "[WhatChefsWant] Resolved SKU #{sku} -> multiUnitProduct #{mup_id}"
         else
-          logger.warn "[WhatChefsWant] Could not find product for SKU #{item[:sku]}"
-          failed_items << { sku: item[:sku], name: item[:name], error: 'Product not found in catalog' }
+          logger.warn "[WhatChefsWant] Could not find product for SKU #{sku}"
+          failed_items << { sku: sku, name: item[:name], error: 'Product not found in catalog' }
         end
       end
 
@@ -538,7 +549,44 @@ module Scrapers
       { added: added_items.size, failed: failed_items, draft_id: @last_wcw_draft_id }
     end
 
-    def resolve_product_id(sku)
+    # Build a map of itemCode -> multiUnitProduct ID from the order guide.
+    # The order guide returns the correct product ID format for draft operations.
+    def build_order_guide_mup_map
+      map = {}
+      offset = 0
+
+      loop do
+        data = api_client.get_order_guide_items(limit: 100, offset: offset)
+        sections = data&.dig('data', 'formProducts', 'sectionsWithCount', 'sections') || []
+        page_count = 0
+
+        sections.each do |s|
+          (s['multiUnitProducts'] || []).each do |mup|
+            mup_id = mup['id']
+            mup_code = mup['itemCode'].to_s
+
+            # Map the multiUnitProduct's own itemCode
+            map[mup_code] = mup_id if mup_code.present?
+
+            # Also map any nested canonicalProduct itemCodes to the parent mup ID
+            (mup['products'] || []).each do |p|
+              cp_code = p.dig('canonicalproduct', 'itemCode').to_s
+              map[cp_code] = mup_id if cp_code.present?
+              page_count += 1
+            end
+          end
+        end
+
+        break if page_count == 0
+        offset += 100
+        break if page_count < 100
+      end
+
+      logger.info "[WhatChefsWant] Built MUP map: #{map.size} SKUs from order guide"
+      map
+    end
+
+    def resolve_product_id_via_search(sku)
       result = api_client.search_products(sku.to_s, limit: 5)
       contextual = result&.dig('data', 'catalogProductsSearchRootQuery', 'contextualProducts') || []
       products = contextual.map { |cp| cp['canonicalProduct'] }.compact
