@@ -25,7 +25,15 @@ class ImportSupplierListsService
     Rails.logger.info "[ImportLists] Scraped #{scraped_lists.size} lists from #{credential.supplier.name}"
 
     scraped_lists.each do |list_data|
-      upsert_list(list_data)
+      # Ensure list has a name — some suppliers return lists with blank names
+      list_data[:name] = list_data[:name].presence || "#{credential.supplier.name} List #{list_data[:remote_id]}"
+
+      begin
+        upsert_list(list_data)
+      rescue StandardError => e
+        Rails.logger.warn "[ImportLists] Failed to import list '#{list_data[:name]}': #{e.message}"
+        results[:errors] << "List '#{list_data[:name]}': #{e.message}"
+      end
     end
 
     # Mark any lists NOT in the scraped data as stale (they may have been deleted on the supplier site)
