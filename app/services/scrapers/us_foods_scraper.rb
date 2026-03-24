@@ -220,23 +220,14 @@ module Scrapers
     # ── Soft Refresh (API-based with browser fallback) ──
 
     def soft_refresh
-      # Try API refresh first (no browser needed)
       if api_client.restore_session
         credential.mark_active!
         logger.info '[UsFoods] API soft refresh succeeded'
-        return true
+        true
+      else
+        logger.warn '[UsFoods] API soft refresh failed — 2FA login required'
+        false
       end
-
-      # Fall back to browser refresh if API refresh fails
-      logger.info '[UsFoods] API refresh failed, falling back to browser...'
-      result = browser_soft_refresh
-
-      if result
-        @api_client = nil # Reset so next call picks up fresh tokens
-        logger.info '[UsFoods] Browser soft refresh succeeded'
-      end
-
-      result
     end
 
     private

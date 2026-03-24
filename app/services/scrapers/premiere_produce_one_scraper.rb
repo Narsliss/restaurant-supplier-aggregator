@@ -43,9 +43,8 @@ module Scrapers
         logger.info '[PPO] API soft refresh succeeded (Cognito token refresh)'
         true
       else
-        # Fall back to browser
-        logger.info '[PPO] API refresh failed, falling back to browser...'
-        browser_soft_refresh
+        logger.warn '[PPO] API soft refresh failed — passwordless login required'
+        false
       end
     rescue StandardError => e
       logger.warn "[PPO] Soft refresh error: #{e.message}"

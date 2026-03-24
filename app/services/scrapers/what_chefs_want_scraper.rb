@@ -17,8 +17,8 @@ module Scrapers
         logger.info '[WhatChefsWant] API soft refresh succeeded'
         true
       else
-        logger.info '[WhatChefsWant] API refresh failed, falling back to browser...'
-        login
+        logger.warn '[WhatChefsWant] API soft refresh failed — browser login required'
+        false
       end
     rescue StandardError => e
       logger.warn "[WhatChefsWant] Soft refresh error: #{e.message}"
