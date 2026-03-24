@@ -236,6 +236,24 @@ module Scrapers
       raise NotImplementedError, 'Subclass must implement #checkout'
     end
 
+    # Pre-order validation hooks. Override in subclasses that support them.
+    def get_order_minimum
+      nil
+    end
+
+    def get_delivery_availability(_delivery_date = nil)
+      nil
+    end
+
+    # No-op for API-only scrapers that don't use Ferrum.
+    def close_browser
+      # Only close if a browser was actually opened
+      @browser&.quit
+      @browser = nil
+    rescue StandardError
+      nil
+    end
+
     # Extract delivery address from supplier account page.
     # Called inside an existing with_browser block (browser already open & authenticated).
     # Subclasses override to navigate to the account/addresses page and extract the address.
