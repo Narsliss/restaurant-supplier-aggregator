@@ -121,7 +121,7 @@ module Scrapers
         logger.info "[USF-API] Authenticated via B2C idToken, user #{response['userId']}"
         true
       else
-        logger.warn "[USF-API] B2C token exchange failed: #{response.inspect[0..200]}"
+        logger.warn "[USF-API] B2C token exchange failed (status: #{response['statusCode'] || 'unknown'})"
         false
       end
     end
@@ -163,7 +163,7 @@ module Scrapers
         logger.info '[USF-API] Token refreshed successfully'
         true
       else
-        logger.warn "[USF-API] Token refresh failed: #{response.inspect[0..200]}"
+        logger.warn "[USF-API] Token refresh failed (status: #{response['statusCode'] || 'unknown'})"
         clear_tokens
         false
       end

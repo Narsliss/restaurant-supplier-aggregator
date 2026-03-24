@@ -2771,7 +2771,7 @@ module Scrapers
 
         # Already redirected back to usfoods.com — done!
         if current_url.include?('usfoods.com') && !current_url.include?('b2clogin.com')
-          logger.info "[UsFoods] Redirected to: #{current_url}"
+          logger.info "[UsFoods] Redirected to: #{sanitize_url(current_url)}"
           return
         end
 
@@ -2870,7 +2870,7 @@ module Scrapers
         'unknown'
       end
       logger.info '[UsFoods] === B2C Page Diagnostics ==='
-      logger.info "[UsFoods] URL: #{current_url}"
+      logger.info "[UsFoods] URL: #{sanitize_url(current_url)}"
 
       # Dump all elements with IDs
       ids = begin

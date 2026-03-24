@@ -56,6 +56,11 @@ module Scrapers
       value.to_s.to_json
     end
 
+    # Redact sensitive tokens from URLs before logging.
+    def sanitize_url(url)
+      url.to_s.gsub(/(access_token|id_token|token|refresh_token|code)=[^&#\s]+/, '\1=[FILTERED]')
+    end
+
     def with_browser
       headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
 
