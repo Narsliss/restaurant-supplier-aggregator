@@ -348,6 +348,37 @@ module Scrapers
     end
 
     # ----------------------------------------------------------------
+    # Order Submission
+    # ----------------------------------------------------------------
+
+    def submit_order(draft_id, delivery_date, products, instructions: '', po_number: '', fulfilment_type: 'delivery')
+      delivery_date_str = delivery_date.is_a?(String) ? delivery_date : delivery_date&.strftime('%Y-%m-%d')
+      delivery_date_str ||= next_delivery_date_str
+
+      graphql_request('CreateNewOrderMutation', create_new_order_mutation, {
+        formId: @form_id,
+        locationId: @location_id,
+        draftId: draft_id.to_s,
+        deliveryDate: delivery_date_str,
+        products: products,
+        instructions: instructions,
+        poNumber: po_number,
+        memoCode: '',
+        supplierOrder: false,
+        duplicateIsOk: false,
+        mergeIsOk: false,
+        separateOrder: false,
+        fulfilmentType: fulfilment_type,
+        customFulfilmentConfigId: nil,
+        multiCartData: [],
+        preAuthPaymentMethodId: nil,
+        birchstreetData: nil,
+        aggregatedSoftMinimumIsOk: false,
+        uomWiseQuantityMinMaxIsOk: false
+      })
+    end
+
+    # ----------------------------------------------------------------
     # Order Operations
     # ----------------------------------------------------------------
 
@@ -843,6 +874,51 @@ module Scrapers
               vendor { id name __typename }
               __typename
             }
+            __typename
+          }
+        }
+      GQL
+    end
+
+    def create_new_order_mutation
+      <<~GQL
+        mutation CreateNewOrderMutation(
+          $deliveryDate: String, $products: [ProductInput]!, $formId: ID!,
+          $locationId: ID!, $draftId: ID, $instructions: String,
+          $poNumber: String, $memoCode: String, $supplierOrder: Boolean,
+          $duplicateIsOk: Boolean, $mergeIsOk: Boolean, $separateOrder: Boolean,
+          $fulfilmentType: String!, $customFulfilmentConfigId: ID,
+          $multiCartData: [SingleCartDataInput],
+          $preAuthPaymentMethodId: ID, $birchstreetData: BirchstreetDataInput,
+          $aggregatedSoftMinimumIsOk: Boolean, $uomWiseQuantityMinMaxIsOk: Boolean
+        ) {
+          CreateNewOrderMutation(
+            deliveryDate: $deliveryDate
+            products: $products
+            formId: $formId
+            locationId: $locationId
+            draftId: $draftId
+            instructions: $instructions
+            poNumber: $poNumber
+            memoCode: $memoCode
+            supplierOrder: $supplierOrder
+            duplicateIsOk: $duplicateIsOk
+            mergeIsOk: $mergeIsOk
+            separateOrder: $separateOrder
+            fulfilmentType: $fulfilmentType
+            customFulfilmentConfigId: $customFulfilmentConfigId
+            multiCartData: $multiCartData
+            preAuthPaymentMethodId: $preAuthPaymentMethodId
+            birchstreetData: $birchstreetData
+            aggregatedSoftMinimumIsOk: $aggregatedSoftMinimumIsOk
+            uomWiseQuantityMinMaxIsOk: $uomWiseQuantityMinMaxIsOk
+          ) {
+            id
+            deliveryDateYMD
+            totalNumberOfItems
+            total { cents money __typename }
+            PONumber
+            fulfilmentType
             __typename
           }
         }

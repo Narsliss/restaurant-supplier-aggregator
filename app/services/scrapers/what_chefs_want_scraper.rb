@@ -222,18 +222,46 @@ module Scrapers
         }
       end
 
-      # LIVE ORDER — submit the draft
+      # LIVE ORDER — submit the draft via CreateNewOrderMutation
       logger.warn '[WhatChefsWant] API PLACING LIVE ORDER'
-      confirmation_number = "WCW-#{Time.current.strftime('%Y%m%d%H%M%S')}"
-      logger.info "[WhatChefsWant] API order placed: #{confirmation_number}"
+
+      # Build product list from draft for submission
+      draft_products = (draft_detail['products'] || []).map do |p|
+        mup_id = p.dig('multiUnitProduct', 'id') || p['id']
+        {
+          id: mup_id.to_s,
+          quantity: p['quantity'].to_i,
+          instructionText: nil,
+          sourceData: { sourcePage: 'OrderGuide', sourceLocation: 'API' },
+          addedToCartAt: Time.now.to_f,
+          spotPrice: nil,
+          salesMargin: nil
+        }
+      end
+
+      result = api_client.submit_order(draft_id, delivery_date, draft_products)
+      order = result&.dig('data', 'CreateNewOrderMutation')
+
+      unless order
+        errors = result&.dig('errors')&.map { |e| e['message'] }&.join(', ') || 'Unknown error'
+        raise ScrapingError, "Order submission failed: #{errors}"
+      end
+
+      confirmation_number = order['id'] || "WCW-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      order_total = order.dig('total', 'money')
+      logger.info "[WhatChefsWant] API order placed: ##{confirmation_number}, total: #{order_total}"
 
       {
-        confirmation_number: confirmation_number,
-        total: nil,
-        delivery_date: delivery_date,
+        confirmation_number: confirmation_number.to_s,
+        total: order_total&.to_f,
+        delivery_date: order['deliveryDateYMD'] || delivery_date,
         dry_run: false,
         cart_items: [],
-        checkout_summary: { draft_id: draft_id, item_count: item_count }
+        checkout_summary: {
+          draft_id: draft_id,
+          item_count: order['totalNumberOfItems'] || item_count,
+          order_id: order['id']
+        }
       }
     end
 
