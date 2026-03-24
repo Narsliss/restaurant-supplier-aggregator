@@ -336,21 +336,38 @@ module Scrapers
                             delivery_date.is_a?(String) ? delivery_date : delivery_date.strftime('%Y-%m-%dT00:00:00.000Z')
                           end
 
-      # Find existing IN_PROGRESS order for this delivery date
-      existing = orders.find do |o|
-        o['orderStatus'] == 'IN_PROGRESS' &&
-          (delivery_date_str.nil? || o['requestedDeliveryDate'] == delivery_date_str)
+      # Find existing IN_PROGRESS order, preferring matching delivery date
+      if delivery_date_str
+        existing = orders.find do |o|
+          o['orderStatus'] == 'IN_PROGRESS' && o['requestedDeliveryDate'] == delivery_date_str
+        end
+        return existing if existing
       end
 
-      return existing if existing
+      # Fall back to any IN_PROGRESS order
+      existing = orders.find { |o| o['orderStatus'] == 'IN_PROGRESS' }
+      if existing
+        # Update its delivery date if needed
+        if delivery_date_str && existing['requestedDeliveryDate'] != delivery_date_str
+          existing['requestedDeliveryDate'] = delivery_date_str
+          existing['confirmedDeliveryDate'] = delivery_date_str
+          existing['updateDtm'] = Time.current.iso8601(3)
+          result = put_json('/order-domain-api/v1/orders', existing)
+          return result || existing
+        end
+        return existing
+      end
 
-      # No existing order — create one
+      # No existing order — create via the next-delivery endpoint which
+      # triggers order creation on USF's side
+      logger.info '[USF-API] No existing order found, creating new order via API'
       delivery_date_str ||= begin
         ndd = get_next_delivery_date
-        ndd&.dig('nextDeliveryDate') || (Date.tomorrow.strftime('%Y-%m-%dT00:00:00.000Z'))
+        ndd&.dig('nextDeliveryDate') || Date.tomorrow.strftime('%Y-%m-%dT00:00:00.000Z')
       end
 
       user_id = @auth_context&.dig('user_id')
+      order_id = SecureRandom.uuid
       new_order = {
         'divisionNumber' => @auth_context&.dig('division_number'),
         'customerNumber' => @auth_context&.dig('customer_number'),
@@ -364,19 +381,33 @@ module Scrapers
         'updateOrderSource' => 'MO',
         'addUserRole' => 'CUST',
         'updateUserRole' => 'CUST',
-        'orderId' => SecureRandom.uuid,
-        'uniqueOrderId' => SecureRandom.uuid,
+        'orderId' => order_id,
+        'uniqueOrderId' => order_id,
         'addUserId' => user_id,
         'updateUserId' => user_id,
+        'orderTakerId' => user_id,
         'addDtm' => Time.current.iso8601(3),
         'updateDtm' => Time.current.iso8601(3),
+        'watermarkDtm' => Time.current.iso8601(3),
         'totalUnits' => 0,
         'totalEaches' => 0,
         'decomposeFlag' => true,
+        'errorDetails' => nil,
+        'error' => nil,
         'lineItems' => []
       }
 
-      put_json('/order-domain-api/v1/orders', new_order)
+      result = put_json('/order-domain-api/v1/orders', new_order)
+      if result
+        logger.info "[USF-API] Created order #{order_id}"
+        result
+      else
+        logger.error '[USF-API] Failed to create order — will retry by looking for it'
+        # The PUT might have created it even with a non-200 response. Check again.
+        sleep 1
+        orders = get_orders
+        orders&.find { |o| o['orderId'] == order_id } if orders.is_a?(Array)
+      end
     end
 
     # Add items to an existing order. Takes the current order object and
