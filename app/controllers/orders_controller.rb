@@ -442,7 +442,15 @@ class OrdersController < ApplicationController
     end
 
     if orders.empty?
-      redirect_to orders_path
+      # Check if orders exist but are already submitted/processing
+      existing = scoped_orders.for_batch(batch_id)
+      existing = existing.where(id: order_ids) if order_ids.present?
+      already_submitted = existing.where(status: %w[processing submitted confirmed])
+      if already_submitted.any?
+        redirect_to already_submitted.size == 1 ? order_path(already_submitted.first) : batch_progress_orders_path(batch_id: batch_id)
+      else
+        redirect_to orders_path, alert: "No orders ready to submit."
+      end
       return
     end
 
