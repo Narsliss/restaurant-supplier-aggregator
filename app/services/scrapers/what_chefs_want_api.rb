@@ -63,6 +63,14 @@ module Scrapers
       false
     end
 
+    def ensure_session!
+      return if @vendor_id && @location_id && @form_id && @cookies.any?
+
+      unless restore_session
+        raise Scrapers::BaseScraper::AuthenticationError, 'WCW API session not available — login required'
+      end
+    end
+
     def set_cookies_from_browser(cookies_hash, csrf_token = nil)
       @cookies = cookies_hash.transform_keys(&:to_s)
       @csrf_token = csrf_token || @cookies['x-csrf-v1']
@@ -185,13 +193,12 @@ module Scrapers
       })
     end
 
-    def browse_category(category_id, limit: 50, offset: 0, delivery_date: nil)
+    def browse_category(category_id, limit: 50, offset: 0, delivery_date: nil, subcategory_id: nil)
       delivery_date ||= next_delivery_date_str
       graphql_request('ConsumerCanonicalProductsByCategoriesQuery', browse_category_query, {
         verifiedVendorId: @verified_vendor_id,
-        vendorId: @vendor_id,
         categoryId: category_id,
-        formId: @form_id,
+        subcategoryId: subcategory_id,
         locationId: @location_id,
         deliveryDate: delivery_date,
         limit: limit,
@@ -222,7 +229,6 @@ module Scrapers
       graphql_request('formForOrder', form_for_order_query, {
         formId: form_id,
         locationId: @location_id,
-        vendorId: @vendor_id,
         searchString: '',
         sortView: 'custom_view',
         sortDirection: nil,
@@ -401,8 +407,9 @@ module Scrapers
       nil
     rescue Errno::ECONNRESET, Net::OpenTimeout, Net::ReadTimeout => e
       @logger.error "[WCW-API] Connection error for #{operation_name}: #{e.message}"
+      @http&.finish rescue nil
       @http = nil
-      nil
+      raise  # Re-raise so callers can handle/retry (matches USF/PPO pattern)
     end
 
     def ensure_http(uri)
@@ -413,7 +420,13 @@ module Scrapers
       @http.open_timeout = 30
       @http.read_timeout = 60
       @http.keep_alive_timeout = 30
+      @http.start
       @http
+    end
+
+    def close
+      @http&.finish rescue nil
+      @http = nil
     end
 
     def cookie_header
@@ -603,11 +616,9 @@ module Scrapers
             showSpecialItems: $showSpecialItems
             hideNewProducts: $hideNewProducts
           ) {
-            id
-            name
+            category { id name __typename }
             subcategories {
-              id
-              name
+              subcategory { id name __typename }
               __typename
             }
             __typename
@@ -619,8 +630,8 @@ module Scrapers
     def browse_category_query
       <<~GQL
         query ConsumerCanonicalProductsByCategoriesQuery(
-          $verifiedVendorId: ID!, $vendorId: ID, $categoryId: ID, $subcategoryId: ID,
-          $formId: ID, $locationId: ID, $deliveryDate: String, $limit: Int, $offset: Int,
+          $verifiedVendorId: ID!, $categoryId: ID, $subcategoryId: ID,
+          $locationId: ID, $deliveryDate: String, $limit: Int, $offset: Int,
           $showHidden: Boolean, $applyUomWiseVisibilityFilter: Boolean,
           $sortBy: String, $sortDirection: String, $applyPublicCatalogFilter: Boolean,
           $showSpecialItems: Boolean, $hideNewProducts: Boolean,
@@ -644,29 +655,30 @@ module Scrapers
             ignoreAdvertisedProducts: $ignoreAdvertisedProducts
             showInstacartAds: $showInstacartAds
           ) {
-            totalCount
-            products {
-              id
-              itemCode
-              description
-              pack
-              brandName
-              nameWithoutBrand
-              isActive
-              isOutOfStock(locationId: $locationId, deliveryDate: $deliveryDate)
-              unavailable(locationId: $locationId)
-              packSize
-              manufacturer { id name __typename }
-              l0category { id name __typename }
-              l1category { id name __typename }
-              unifiedPrice(locationId: $locationId, deliveryDate: $deliveryDate) {
+            count
+            contextualProducts {
+              canonicalProduct {
+                id
                 itemCode
-                defaultUnitPrice {
-                  unit
-                  normalizedUnit
-                  netTieredPrices {
-                    index
-                    price { float money __typename }
+                description
+                pack
+                brandName
+                nameWithoutBrand
+                isOutOfStock(locationId: $locationId, deliveryDate: $deliveryDate)
+                unavailable(locationId: $locationId)
+                packSize
+                l0category { id name __typename }
+                l1category { id name __typename }
+                unifiedPrice(locationId: $locationId, deliveryDate: $deliveryDate) {
+                  itemCode
+                  defaultUnitPrice {
+                    unit
+                    normalizedUnit
+                    netTieredPrices {
+                      index
+                      price { float money __typename }
+                      __typename
+                    }
                     __typename
                   }
                   __typename
@@ -710,7 +722,7 @@ module Scrapers
     def form_for_order_query
       <<~GQL
         query formForOrder(
-          $formId: ID!, $locationId: ID!, $vendorId: ID, $deliveryDate: String,
+          $formId: ID!, $locationId: ID!, $deliveryDate: String,
           $offset: Int, $limit: Int, $useElasticSearch: Boolean,
           $sectionId: ID, $sectionCategoryId: ID, $sortView: String,
           $sortDirection: String, $searchString: String,

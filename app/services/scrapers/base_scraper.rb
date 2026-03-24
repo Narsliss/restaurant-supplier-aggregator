@@ -46,6 +46,16 @@ module Scrapers
       @logger = Rails.logger
     end
 
+    # Properly escape a Ruby string for safe interpolation into JavaScript.
+    # Returns a JSON-encoded string (with surrounding double quotes) that is
+    # safe against newlines, backslashes, quotes, and other special characters.
+    #
+    # Usage in heredoc JS:  nativeSetter.call(el, #{js_string(value)});
+    #                       (note: no extra quotes needed — to_json includes them)
+    def js_string(value)
+      value.to_s.to_json
+    end
+
     def with_browser
       headless_mode = ENV.fetch('BROWSER_HEADLESS', 'true') == 'true'
 
@@ -82,6 +92,15 @@ module Scrapers
       yield(browser)
     ensure
       browser&.quit
+      close_api_client
+    end
+
+    # Close the API client's persistent HTTP connections, if any.
+    # Subclasses that define `api_client` should call this in cleanup paths
+    # (e.g., close_order_browser!) to avoid connection leaks.
+    def close_api_client
+      @api_client&.close if @api_client.respond_to?(:close)
+      @api_client = nil
     end
 
     def login

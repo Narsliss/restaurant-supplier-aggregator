@@ -153,9 +153,15 @@ module Scrapers
 
       prices = api_client.fetch_prices(variants)
 
-      # Map back to the expected format
-      prices.each_with_index do |price_data, i|
-        sku = product_skus[i]
+      # Map back by variant_code (not index) to avoid misattribution if API
+      # reorders or omits results.
+      price_map = prices.index_by { |p| p[:variant_code] }
+
+      product_skus.each do |sku|
+        variant_code = "JDE_#{sku}-800001"
+        price_data = price_map[variant_code]
+        next unless price_data
+
         sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
 
         results << {
@@ -2302,7 +2308,7 @@ module Scrapers
     def fill_element(element, value, label)
       # First try to get a stable selector for the element
       selector = get_element_selector(element)
-      escaped_value = value.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
+      safe_value = js_string(value)
 
       # Use JavaScript to fill the field - more robust for SPAs
       filled = begin
@@ -2311,20 +2317,21 @@ module Scrapers
             var el = document.querySelector('#{selector}');
             if (!el) return false;
 
+            var val = #{safe_value};
             // Clear and set value using native setter to trigger Vue/React bindings
             var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
             el.focus();
             el.dispatchEvent(new Event('focus', { bubbles: true }));
             nativeSetter.call(el, '');
             el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
-            nativeSetter.call(el, '#{escaped_value}');
+            nativeSetter.call(el, val);
 
             // Vue 3 v-model listens for InputEvent, not generic Event
-            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: '#{escaped_value}', inputType: 'insertText' }));
+            el.dispatchEvent(new InputEvent('input', { bubbles: true, data: val, inputType: 'insertText' }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('blur', { bubbles: true }));
 
-            return el.value === '#{escaped_value}';
+            return el.value === val;
           })()
         JS
       rescue StandardError
@@ -2368,19 +2375,20 @@ module Scrapers
 
     # Retry filling a field by searching for it again
     def retry_fill_by_label(label, value)
-      escaped_value = value.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
+      safe_value = js_string(value)
 
       if label.include?('email') || label.include?('username')
         browser.evaluate(<<~JS)
           (function() {
+            var val = #{safe_value};
             var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            function fillInput(inp, val) {
+            function fillInput(inp, v) {
               inp.focus();
               inp.dispatchEvent(new Event('focus', { bubbles: true }));
               nativeSetter.call(inp, '');
               inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
-              nativeSetter.call(inp, val);
-              inp.dispatchEvent(new InputEvent('input', { bubbles: true, data: val, inputType: 'insertText' }));
+              nativeSetter.call(inp, v);
+              inp.dispatchEvent(new InputEvent('input', { bubbles: true, data: v, inputType: 'insertText' }));
               inp.dispatchEvent(new Event('change', { bubbles: true }));
               inp.dispatchEvent(new Event('blur', { bubbles: true }));
             }
@@ -2392,7 +2400,7 @@ module Scrapers
                 var textInputs = container.querySelectorAll('input[type="text"], input[type="email"]');
                 for (var inp of textInputs) {
                   if (inp.offsetParent !== null) {
-                    fillInput(inp, '#{escaped_value}');
+                    fillInput(inp, val);
                     return true;
                   }
                 }
@@ -2402,7 +2410,7 @@ module Scrapers
             var inputs = document.querySelectorAll('input[type="email"], input[type="text"]');
             for (var inp of inputs) {
               if (inp.offsetParent !== null) {
-                fillInput(inp, '#{escaped_value}');
+                fillInput(inp, val);
                 return true;
               }
             }
@@ -2413,6 +2421,7 @@ module Scrapers
       elsif label.include?('password')
         browser.evaluate(<<~JS)
           (function() {
+            var val = #{safe_value};
             var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
             var inputs = document.querySelectorAll('input[type="password"]');
             for (var inp of inputs) {
@@ -2421,8 +2430,8 @@ module Scrapers
                 inp.dispatchEvent(new Event('focus', { bubbles: true }));
                 nativeSetter.call(inp, '');
                 inp.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
-                nativeSetter.call(inp, '#{escaped_value}');
-                inp.dispatchEvent(new InputEvent('input', { bubbles: true, data: '#{escaped_value}', inputType: 'insertText' }));
+                nativeSetter.call(inp, val);
+                inp.dispatchEvent(new InputEvent('input', { bubbles: true, data: val, inputType: 'insertText' }));
                 inp.dispatchEvent(new Event('change', { bubbles: true }));
                 inp.dispatchEvent(new Event('blur', { bubbles: true }));
                 return true;

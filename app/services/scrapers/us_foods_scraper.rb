@@ -329,6 +329,7 @@ module Scrapers
       save_session if @browser
       @browser&.quit
       @browser = nil
+      close_api_client
     rescue StandardError => e
       logger.debug "[UsFoods] Error closing order browser: #{e.message}"
       @browser = nil
@@ -584,14 +585,24 @@ module Scrapers
         navigate_to(BASE_URL)
 
         if restore_session
-          browser.refresh
-          sleep 2
+          navigate_to(BASE_URL)
+          sleep 5
+
+          # Wait for Ionic SPA to settle — may take a few seconds to redirect to /desktop/
+          5.times do
+            break if logged_in?
+            sleep 2
+          end
+
           if logged_in?
-            # Session is still valid - refresh the timestamp to extend validity
+            # Session is still valid - refresh the timestamp and capture fresh tokens
             save_session
             return true
           end
-          logger.info '[UsFoods] Session restore failed, doing fresh login'
+          # Stale cookies loaded the page but didn't fully authenticate.
+          # Clear cookies so perform_login_steps gets a clean login page.
+          logger.info '[UsFoods] Session restore failed, clearing stale cookies for fresh login'
+          browser.cookies.clear
         end
 
         perform_login_steps
@@ -613,8 +624,15 @@ module Scrapers
     def browser_soft_refresh
       with_browser do
         if restore_session
-          browser.refresh
-          sleep 2
+          navigate_to(BASE_URL)
+          sleep 5
+
+          # Wait for Ionic SPA to settle and redirect to /desktop/
+          5.times do
+            break if logged_in?
+            sleep 2
+          end
+
           if logged_in?
             save_session
             logger.info '[UsFoods] Soft refresh successful - session extended'

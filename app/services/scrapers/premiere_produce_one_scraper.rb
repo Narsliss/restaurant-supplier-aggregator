@@ -1907,6 +1907,7 @@ module Scrapers
       save_session if @browser
       @browser&.quit
       @browser = nil
+      close_api_client
     rescue StandardError => e
       logger.debug "[PremiereProduceOne] Error closing order browser: #{e.message}"
       @browser = nil
@@ -2467,17 +2468,18 @@ module Scrapers
     # setter from HTMLInputElement.prototype, we bypass React's override, then dispatch
     # the proper events so React picks up the change.
     def set_react_input_value(input_node, value)
-      escaped = value.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
+      safe_value = js_string(value)
 
       js = <<~JS
         (function(el) {
+          var val = #{safe_value};
           // Clear first
           var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
           nativeSetter.call(el, '');
           el.dispatchEvent(new Event('input', { bubbles: true }));
 
           // Set the actual value
-          nativeSetter.call(el, '#{escaped}');
+          nativeSetter.call(el, val);
 
           // Dispatch events that React listens for
           el.dispatchEvent(new Event('input', { bubbles: true }));
