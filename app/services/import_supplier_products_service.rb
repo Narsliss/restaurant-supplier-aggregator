@@ -384,6 +384,19 @@ class ImportSupplierProductsService
     unseen_products = unseen_skus.filter_map { |sku| @existing_by_sku[sku] }
     return if unseen_products.empty?
 
+    # Safety: only count one miss per day per product. Multiple imports in the
+    # same day (e.g., testing, manual refreshes) should not stack misses.
+    # Filter to products that haven't already been missed today.
+    today = Date.current
+    unseen_products = unseen_products.reject do |p|
+      p.last_missed_at.present? && p.last_missed_at.to_date == today
+    end
+
+    if unseen_products.empty?
+      Rails.logger.info "[ImportProducts] #{supplier.name}: all unseen products already missed today — skipping"
+      return
+    end
+
     # Products that will be discontinued (reached miss threshold)
     to_discontinue_ids = unseen_products.select do |p|
       (p.consecutive_misses + 1) >= SupplierProduct::DISCONTINUE_AFTER_MISSES && !p.discontinued
@@ -397,7 +410,7 @@ class ImportSupplierProductsService
     # Bulk increment miss counter for non-discontinue products
     if to_increment_ids.any?
       SupplierProduct.where(id: to_increment_ids)
-        .update_all("consecutive_misses = consecutive_misses + 1")
+        .update_all("consecutive_misses = consecutive_misses + 1, last_missed_at = '#{Time.current.iso8601}'")
     end
 
     # Bulk discontinue products that hit the threshold
@@ -406,6 +419,7 @@ class ImportSupplierProductsService
         "consecutive_misses = consecutive_misses + 1, " \
         "discontinued = true, " \
         "discontinued_at = '#{Time.current.iso8601}', " \
+        "last_missed_at = '#{Time.current.iso8601}', " \
         "in_stock = false"
       )
       results[:discontinued] += to_discontinue_ids.size
