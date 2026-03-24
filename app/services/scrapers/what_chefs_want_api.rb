@@ -320,8 +320,7 @@ module Scrapers
     def get_draft(draft_id)
       graphql_request('singleDraft', single_draft_query, {
         id: draft_id.to_s,
-        locationId: @location_id,
-        vendorId: @vendor_id
+        locationId: @location_id
       })
     end
 
@@ -851,7 +850,7 @@ module Scrapers
 
     def single_draft_query
       <<~GQL
-        query singleDraft($id: ID!, $locationId: ID, $vendorId: ID, $deliveryDate: String) {
+        query singleDraft($id: ID!, $locationId: ID) {
           draft(id: $id) {
             id
             updated
