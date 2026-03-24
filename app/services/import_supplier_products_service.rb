@@ -86,112 +86,171 @@ class ImportSupplierProductsService
 
   # Import a batch of scraped items into the DB immediately.
   # Called by the scraper via the block passed to scrape_catalog.
+  #
+  # Uses a two-path approach for performance:
+  #   - Existing products: bulk upsert via upsert_all (one SQL per batch)
+  #   - New products: individual saves (need find_or_create_product matching)
   def import_batch(items)
+    now = Time.current
+    update_rows = []
+    new_items = []
+    category_backfills = []
+
     items.each do |item|
-      next if item[:supplier_sku].blank?
-      next if @seen_skus.include?(item[:supplier_sku]) # Dedup within this import run
+      next if item[:supplier_sku].blank? || item[:supplier_name].blank?
+      next if @seen_skus.include?(item[:supplier_sku])
 
       @seen_skus.add(item[:supplier_sku])
-      import_item(item, @existing_by_sku, @product_index)
       @items_processed += 1
 
-      # Update progress every 25 items
-      next unless (@items_processed % 25).zero?
-
-      credential.update_columns(
-        import_progress: @items_processed,
-        import_total: 0, # 0 signals "total unknown" — UI should show count, not percentage
-        import_status_text: "Imported #{@items_processed} products so far..."
-      )
-      Rails.logger.info "[ImportProducts] #{supplier.name}: #{@items_processed} products processed (#{results[:imported]} new, #{results[:updated]} updated)"
-    end
-  end
-
-  # Import a single scraped item into the database.
-  # Uses pre-loaded data to avoid per-item DB queries.
-  def import_item(item, existing_by_sku, product_index)
-    return if item[:supplier_sku].blank? || item[:supplier_name].blank?
-
-    # O(1) hash lookup instead of DB find_or_initialize_by
-    supplier_product = existing_by_sku[item[:supplier_sku]]
-
-    if supplier_product.nil?
-      # New product — build in memory and save
-      supplier_product = SupplierProduct.new(
-        supplier: supplier,
-        supplier_sku: item[:supplier_sku],
-        supplier_name: item[:supplier_name],
-        current_price: item[:current_price],
-        pack_size: item[:pack_size],
-        piece_price: item[:piece_price],
-        piece_pack_size: item[:piece_pack_size],
-        supplier_url: item[:supplier_url],
-        in_stock: item[:in_stock] != false,
-        price_updated_at: item[:current_price].present? ? Time.current : nil,
-        last_scraped_at: Time.current
-      )
-
-      # Try to find or create a matching Product using in-memory index
-      product = find_or_create_product(item, product_index)
-      supplier_product.product = product if product
-
-      if supplier_product.save
-        # Add to the in-memory hash so subsequent duplicates in this batch
-        # are caught without hitting the DB
-        existing_by_sku[item[:supplier_sku]] = supplier_product
-        results[:imported] += 1
+      existing = @existing_by_sku[item[:supplier_sku]]
+      if existing
+        row = build_update_row(item, existing, now, category_backfills)
+        update_rows << row if row
       else
-        results[:errors] << "#{item[:supplier_name]}: #{supplier_product.errors.full_messages.join(', ')}"
-      end
-    else
-      # Update existing record with fresh data
-      attrs = { last_scraped_at: Time.current, supplier_name: item[:supplier_name] }
-      attrs[:pack_size] = item[:pack_size] if item[:pack_size].present?
-      attrs[:supplier_url] = item[:supplier_url] if item[:supplier_url].present?
-
-      if item[:current_price].present? && item[:current_price] != supplier_product.current_price
-        attrs[:previous_price] = supplier_product.current_price
-        attrs[:current_price] = item[:current_price]
-        attrs[:price_updated_at] = Time.current
-      end
-
-      attrs[:in_stock] = item[:in_stock] unless item[:in_stock].nil?
-
-      # Piece pricing (CS/PC) — update when scraper provides it
-      attrs[:piece_price] = item[:piece_price] if item[:piece_price].present?
-      attrs[:piece_pack_size] = item[:piece_pack_size] if item[:piece_pack_size].present?
-
-      # Reset discontinuation tracking — product is still in the catalog
-      if supplier_product.consecutive_misses > 0 || supplier_product.discontinued?
-        attrs[:consecutive_misses] = 0
-        if supplier_product.discontinued?
-          attrs[:discontinued] = false
-          attrs[:discontinued_at] = nil
-          results[:reinstated] += 1
-          Rails.logger.info "[ImportProducts] Reinstated #{item[:supplier_name]} (SKU: #{item[:supplier_sku]}) — reappeared in catalog"
-        end
-      end
-
-      supplier_product.update!(attrs)
-      results[:updated] += 1
-
-      # Backfill category on the linked Product if still nil
-      product = supplier_product.product
-      if product && product.category.blank?
-        cat = item[:category]
-        unless cat.present?
-          result = AiProductCategorizer.rule_based_categorize(item[:supplier_name])
-          cat = result[:category] if result[:confidence] >= 0.7
-        end
-        product.update!(category: cat, subcategory: item[:subcategory]) if cat.present?
+        new_items << item
       end
     end
-  rescue StandardError => e
-    results[:errors] << "#{item[:supplier_name]}: #{e.message}"
-    Rails.logger.warn "[ImportProducts] Error importing #{item[:supplier_sku]}: #{e.message}"
+
+    # BULK path: upsert all existing product updates in one SQL statement
+    bulk_upsert_existing(update_rows) if update_rows.any?
+
+    # INDIVIDUAL path: new products need find_or_create_product matching
+    new_items.each do |item|
+      import_new_item(item)
+    end
+
+    # Batch category backfills
+    backfill_categories(category_backfills) if category_backfills.any?
+
+    # Progress update (once per batch, not every 25 items)
+    credential.update_columns(
+      import_progress: @items_processed,
+      import_total: 0,
+      import_status_text: "Imported #{@items_processed} products so far..."
+    )
+    Rails.logger.info "[ImportProducts] #{supplier.name}: #{@items_processed} products processed (#{results[:imported]} new, #{results[:updated]} updated)"
   end
 
   private
+
+  # Build a hash for an existing product update (no DB call).
+  def build_update_row(item, existing, now, category_backfills)
+    row = {
+      id: existing.id,
+      supplier_id: existing.supplier_id,
+      supplier_sku: existing.supplier_sku,
+      supplier_name: item[:supplier_name],
+      last_scraped_at: now,
+      updated_at: now,
+      current_price: existing.current_price,
+      previous_price: existing.previous_price,
+      pack_size: item[:pack_size].present? ? item[:pack_size] : existing.pack_size,
+      supplier_url: item[:supplier_url].present? ? item[:supplier_url] : existing.supplier_url,
+      in_stock: item[:in_stock].nil? ? existing.in_stock : item[:in_stock],
+      price_updated_at: existing.price_updated_at,
+      piece_price: item[:piece_price].present? ? item[:piece_price] : existing.piece_price,
+      piece_pack_size: item[:piece_pack_size].present? ? item[:piece_pack_size] : existing.piece_pack_size,
+      consecutive_misses: existing.consecutive_misses,
+      discontinued: existing.discontinued,
+      discontinued_at: existing.discontinued_at
+    }
+
+    # Price change detection
+    if item[:current_price].present? && item[:current_price] != existing.current_price
+      row[:previous_price] = existing.current_price
+      row[:current_price] = item[:current_price]
+      row[:price_updated_at] = now
+    end
+
+    # Reinstatement
+    if existing.consecutive_misses > 0 || existing.discontinued?
+      row[:consecutive_misses] = 0
+      if existing.discontinued?
+        row[:discontinued] = false
+        row[:discontinued_at] = nil
+        results[:reinstated] += 1
+        Rails.logger.info "[ImportProducts] Reinstated #{item[:supplier_name]} (SKU: #{item[:supplier_sku]}) — reappeared in catalog"
+      end
+    end
+
+    results[:updated] += 1
+
+    # Track category backfill needed
+    if existing.product_id && existing.product&.category.blank?
+      category_backfills << { product_id: existing.product_id, item: item }
+    end
+
+    row
+  rescue StandardError => e
+    results[:errors] << "#{item[:supplier_name]}: #{e.message}"
+    Rails.logger.warn "[ImportProducts] Error building update for #{item[:supplier_sku]}: #{e.message}"
+    nil
+  end
+
+  # Bulk upsert existing products in one SQL statement.
+  def bulk_upsert_existing(rows)
+    return if rows.empty?
+
+    SupplierProduct.upsert_all(
+      rows,
+      unique_by: %i[supplier_id supplier_sku],
+      update_only: %i[
+        supplier_name current_price previous_price pack_size
+        supplier_url in_stock price_updated_at last_scraped_at
+        piece_price piece_pack_size consecutive_misses
+        discontinued discontinued_at updated_at
+      ]
+    )
+  end
+
+  # Import a single new product (needs product matching).
+  def import_new_item(item)
+    return if item[:supplier_sku].blank? || item[:supplier_name].blank?
+
+    supplier_product = SupplierProduct.new(
+      supplier: supplier,
+      supplier_sku: item[:supplier_sku],
+      supplier_name: item[:supplier_name],
+      current_price: item[:current_price],
+      pack_size: item[:pack_size],
+      piece_price: item[:piece_price],
+      piece_pack_size: item[:piece_pack_size],
+      supplier_url: item[:supplier_url],
+      in_stock: item[:in_stock] != false,
+      price_updated_at: item[:current_price].present? ? Time.current : nil,
+      last_scraped_at: Time.current
+    )
+
+    product = find_or_create_product(item, @product_index)
+    supplier_product.product = product if product
+
+    if supplier_product.save
+      @existing_by_sku[item[:supplier_sku]] = supplier_product
+      results[:imported] += 1
+    else
+      results[:errors] << "#{item[:supplier_name]}: #{supplier_product.errors.full_messages.join(', ')}"
+    end
+  rescue StandardError => e
+    results[:errors] << "#{item[:supplier_name]}: #{e.message}"
+    Rails.logger.warn "[ImportProducts] Error importing new #{item[:supplier_sku]}: #{e.message}"
+  end
+
+  # Batch category backfills using update_columns (no callbacks).
+  def backfill_categories(backfills)
+    backfills.each do |entry|
+      product = Product.find_by(id: entry[:product_id])
+      next unless product && product.category.blank?
+
+      item = entry[:item]
+      cat = item[:category]
+      unless cat.present?
+        result = AiProductCategorizer.rule_based_categorize(item[:supplier_name])
+        cat = result[:category] if result[:confidence] >= 0.7
+      end
+      product.update_columns(category: cat, subcategory: item[:subcategory]) if cat.present?
+    end
+  end
 
   # Build an in-memory index of products keyed by the first word of normalized_name.
   # Also keeps a hash by exact normalized_name for O(1) exact match lookups.

@@ -179,17 +179,23 @@ module Scrapers
       all_product_numbers = all_product_numbers.uniq
       logger.info "[UsFoods] Total unique product numbers from Coveo: #{all_product_numbers.size}"
 
-      # Fetch product details and prices from Panamax in batches
+      # Pre-fetch ALL prices in one pass (still batched internally at 50)
+      # so we don't interleave price calls with product calls
+      logger.info "[UsFoods] Pre-fetching prices for #{all_product_numbers.size} products..."
+      all_prices = api_client.fetch_prices(all_product_numbers)
+      logger.info "[UsFoods] Fetched prices for #{all_prices.size} products"
+
+      # Fetch product details in batches, accumulate into larger chunks for DB writes
+      buffer = []
       all_product_numbers.each_slice(50) do |batch|
         products = api_client.fetch_products(batch)
-        prices = api_client.fetch_prices(batch)
 
         formatted = products.filter_map do |p|
           summary = p['summary'] || p
           next if summary['productNumber'].nil?
 
           pn = summary['productNumber']
-          price = prices[pn]
+          price = all_prices[pn]
 
           {
             supplier_sku: pn.to_s,
@@ -203,14 +209,22 @@ module Scrapers
           }
         end
 
-        if on_batch && formatted.any?
-          on_batch.call(formatted)
+        if on_batch
+          buffer.concat(formatted)
+          if buffer.size >= 500
+            on_batch.call(buffer)
+            buffer = []
+          end
         else
           results.concat(formatted)
         end
       end
 
-      return [] if on_batch
+      # Flush remaining buffer
+      if on_batch
+        on_batch.call(buffer) if buffer.any?
+        return []
+      end
 
       deduped = results.uniq { |r| r[:supplier_sku] }
       logger.info "[UsFoods] API total unique products: #{deduped.size}"
