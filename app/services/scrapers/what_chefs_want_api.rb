@@ -66,9 +66,21 @@ module Scrapers
     def ensure_session!
       return if @vendor_id && @location_id && @form_id && @cookies.any?
 
+      # Reload credential from DB — another job may have refreshed
+      # the session while we were queued.
+      credential.reload
       unless restore_session
         raise Scrapers::BaseScraper::AuthenticationError, 'WCW API session not available — login required'
       end
+    end
+
+    # Call this after an auth error to attempt recovery.
+    def handle_auth_failure
+      @logger.info '[WCW-API] Auth failure — reloading session from DB...'
+      credential.reload
+      @cookies = {}
+      @vendor_id = nil
+      restore_session
     end
 
     def set_cookies_from_browser(cookies_hash, csrf_token = nil)

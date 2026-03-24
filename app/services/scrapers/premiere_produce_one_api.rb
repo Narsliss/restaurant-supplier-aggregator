@@ -136,9 +136,24 @@ module Scrapers
 
     def ensure_session!
       return if @id_token.present?
+
+      # Reload credential from DB — another job (e.g. RefreshSessionJob)
+      # may have refreshed the token while we were queued.
+      credential.reload
       return if restore_session
 
       raise BaseScraper::AuthenticationError, 'PPO API session expired — passwordless login required'
+    end
+
+    # Call this after a GraphQL auth error to attempt recovery.
+    def handle_auth_failure
+      logger.info '[PPO-API] Auth failure — attempting Cognito token refresh...'
+      credential.reload
+      @id_token = nil # Force restore_session to re-read from DB
+      return true if restore_session
+
+      logger.warn '[PPO-API] Token refresh failed after auth error'
+      false
     end
 
     def session_valid?

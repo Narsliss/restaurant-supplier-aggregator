@@ -172,9 +172,24 @@ module Scrapers
     # Ensure we have a valid session (restore, refresh, or fail).
     def ensure_session!
       return if @access_token && !token_expired?
+
+      # Reload credential from DB — another job (e.g. RefreshSessionJob)
+      # may have refreshed the token while we were queued.
+      credential.reload
       return if restore_session
 
       raise BaseScraper::AuthenticationError, 'USF API session expired — 2FA login required'
+    end
+
+    # Call this after a 401 to attempt recovery before giving up.
+    def handle_auth_failure
+      logger.info '[USF-API] Got 401 — attempting token refresh...'
+      credential.reload
+      @access_token = nil # Force restore_session to re-read from DB
+      return true if restore_session
+
+      logger.warn '[USF-API] Token refresh failed after 401'
+      false
     end
 
     def session_valid?

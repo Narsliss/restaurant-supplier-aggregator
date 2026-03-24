@@ -97,9 +97,24 @@ module Scrapers
 
     # Ensure we have a valid session (restore or login).
     def ensure_session!
+      # Reload credential from DB — another job may have refreshed
+      # the session while we were queued.
+      credential.reload
       return if restore_session
 
       raise BaseScraper::AuthenticationError, 'CW API login failed' unless login
+    end
+
+    # Call this after an auth error to attempt recovery.
+    def handle_auth_failure
+      logger.info '[CW-API] Auth failure — attempting re-login...'
+      credential.reload
+      @cookies = {}
+      return true if restore_session
+      return true if login
+
+      logger.warn '[CW-API] Re-login failed after auth error'
+      false
     end
 
     # ── Categories ─────────────────────────────────────────────────
