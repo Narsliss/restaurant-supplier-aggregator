@@ -124,7 +124,8 @@ module Scrapers
     # JSON for anonymous requests but HTML for authenticated ones.
     def fetch_category_page(category_path)
       require 'net/http'
-      uri = URI.parse("#{BASE_URL}#{category_path.chomp('/')}/?expand=*&currentPageUrl=#{CGI.escape(category_path)}&tz=America%2FNew_York&t=#{Time.now.to_i}")
+      encoded_path = URI::DEFAULT_PARSER.escape(category_path.chomp('/'))
+      uri = URI.parse("#{BASE_URL}#{encoded_path}/?expand=*&currentPageUrl=#{CGI.escape(category_path)}&tz=America%2FNew_York&t=#{Time.now.to_i}")
       req = Net::HTTP::Get.new(uri.request_uri)
       req['Accept'] = 'application/json'
       req['User-Agent'] = 'Mozilla/5.0'
