@@ -134,6 +134,23 @@ class ImportSupplierProductsService
 
   private
 
+  # Catalog imports run with a super_admin credential that may have different
+  # location/delivery context than individual users. Stock availability is
+  # location-specific, so catalog imports should never downgrade in_stock
+  # from true to false — only the per-user order guide sync (ImportSupplierListsService)
+  # has the right context to mark items out of stock.
+  #
+  # Rules:
+  #   nil (scraper didn't set it)  → preserve existing
+  #   true                         → upgrade: mark in stock
+  #   false                        → preserve existing (don't downgrade)
+  def resolve_stock_status(scraped_stock, existing_stock)
+    return existing_stock if scraped_stock.nil?
+    return true if scraped_stock == true
+    # scraped_stock is false — don't downgrade, preserve existing
+    existing_stock
+  end
+
   # Build a hash for an existing product update (no DB call).
   def build_update_row(item, existing, now, category_backfills)
     row = {
@@ -146,7 +163,7 @@ class ImportSupplierProductsService
       previous_price: existing.previous_price,
       pack_size: item[:pack_size].present? ? item[:pack_size] : existing.pack_size,
       supplier_url: item[:supplier_url].present? ? item[:supplier_url] : existing.supplier_url,
-      in_stock: item[:in_stock].nil? ? existing.in_stock : item[:in_stock],
+      in_stock: resolve_stock_status(item[:in_stock], existing.in_stock),
       price_updated_at: existing.price_updated_at,
       piece_price: item[:piece_price].present? ? item[:piece_price] : existing.piece_price,
       piece_pack_size: item[:piece_pack_size].present? ? item[:piece_pack_size] : existing.piece_pack_size,
