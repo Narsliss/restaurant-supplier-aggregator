@@ -36,15 +36,7 @@ module Scrapers
           return true if logged_in?
         end
 
-        # What Chefs Want uses a welcome URL for authentication —
-        # the user pastes a long encoded link from their supplier email
-        # that logs them in directly without username/password.
-        welcome_url = credential.username
-        if welcome_url.present? && welcome_url.start_with?('http')
-          login_via_welcome_url(welcome_url)
-        else
-          login_via_credentials
-        end
+        login_via_credentials
 
         # After browser login, capture cookies for the API client
         extract_cookies_for_api
@@ -323,71 +315,6 @@ module Scrapers
 
     # ── Login helpers (browser-only, used by #login) ──────────────
 
-    def login_via_welcome_url(url)
-      logger.info "[WhatChefsWant] Logging in via welcome URL: #{url.truncate(80)}"
-      navigate_to(url)
-      wait_for_page_load
-
-      logger.info '[WhatChefsWant] Waiting for SPA to load...'
-      wait_for_spa_load
-
-      5.times do |i|
-        current_url = begin
-          browser.current_url
-        rescue StandardError
-          'unknown'
-        end
-        page_title = begin
-          browser.evaluate('document.title')
-        rescue StandardError
-          'unknown'
-        end
-        body_length = begin
-          browser.evaluate('document.body ? document.body.innerText.length : 0')
-        rescue StandardError
-          0
-        end
-        link_count = begin
-          browser.evaluate("document.querySelectorAll('a').length")
-        rescue StandardError
-          0
-        end
-        logger.info "[WhatChefsWant] Check #{i + 1}: URL=#{current_url}, Title=#{page_title}, body_length=#{body_length}, links=#{link_count}"
-
-        break if logged_in?
-
-        sleep 3
-      end
-
-      if logged_in?
-        save_session
-        credential.mark_active!
-        true
-      else
-        current_url = begin
-          browser.current_url
-        rescue StandardError
-          'unknown'
-        end
-        page_title = begin
-          browser.evaluate('document.title')
-        rescue StandardError
-          'unknown'
-        end
-        body_snippet = begin
-          browser.evaluate("document.body ? document.body.innerText.substring(0, 500) : 'no body'")
-        rescue StandardError
-          'could not read'
-        end
-        logger.error "[WhatChefsWant] Welcome URL login failed. URL: #{current_url}, Title: #{page_title}"
-        logger.error "[WhatChefsWant] Page content: #{body_snippet}"
-
-        error_msg = 'Welcome URL did not log in. The link may have expired — check for a newer email from What Chefs Want.'
-        credential.mark_failed!(error_msg)
-        raise AuthenticationError, error_msg
-      end
-    end
-
     def login_via_credentials
       cutanddry_login = "#{PLATFORM_URL}/log-in"
       logger.info "[WhatChefsWant] Logging in via credentials at #{cutanddry_login}"
@@ -566,31 +493,17 @@ module Scrapers
     protected
 
     def perform_login_steps
-      welcome_url = credential.username
-      if welcome_url.present? && welcome_url.start_with?('http')
-        logger.info '[WhatChefsWant] perform_login_steps via welcome URL'
-        navigate_to(welcome_url)
-        wait_for_page_load
-        wait_for_spa_load
+      navigate_to(LOGIN_URL)
+      wait_for_page_load
+      sleep 2
+      wait_for_spa_load(timeout: 10)
 
-        5.times do |_i|
-          break if logged_in?
+      fill_cutanddry_login_form
+      sleep 1
+      click_cutanddry_sign_in
 
-          sleep 3
-        end
-      else
-        navigate_to(LOGIN_URL)
-        wait_for_page_load
-        sleep 2
-        wait_for_spa_load(timeout: 10)
-
-        fill_cutanddry_login_form
-        sleep 1
-        click_cutanddry_sign_in
-
-        sleep 5
-        wait_for_spa_load(timeout: 15)
-      end
+      sleep 5
+      wait_for_spa_load(timeout: 15)
     end
 
     private

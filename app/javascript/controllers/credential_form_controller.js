@@ -41,12 +41,6 @@ export default class extends Controller {
         this.hideWelcomeUrlNotice()
         this.setUsernameMode(code === "usfoods" ? "userid" : "email")
         break
-      case "welcome_url":
-        this.hidePasswordField()
-        this.hideTwoFaNotice()
-        this.showWelcomeUrlNotice()
-        this.setUsernameMode("url")
-        break
       default: // "password"
         this.showPasswordField()
         this.hideTwoFaNotice()
