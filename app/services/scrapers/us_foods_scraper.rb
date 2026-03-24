@@ -1163,6 +1163,32 @@ module Scrapers
     # 4. Repeat for each item
 
     def add_to_cart(items, delivery_date: nil)
+      api_client.ensure_session!
+
+      delivery_date_str = if delivery_date
+                            delivery_date.is_a?(String) ? delivery_date : delivery_date.strftime('%Y-%m-%dT00:00:00.000Z')
+                          end
+
+      # Get or create an order for this delivery date
+      order = api_client.get_or_create_order(delivery_date_str)
+      raise ScrapingError, 'Could not create order on US Foods' unless order
+
+      @last_usf_order = order
+      logger.info "[UsFoods] API order: #{order['orderId']}, delivery: #{order['requestedDeliveryDate']}"
+
+      # Add items via API
+      result = api_client.add_items_to_order(order, items)
+      unless result
+        raise ScrapingError, 'Failed to add items to US Foods order'
+      end
+
+      @last_usf_order = result
+      logger.info "[UsFoods] API added #{items.size} items to order #{order['orderId']}"
+
+      { added: items.size, failed: [] }
+    end
+
+    def add_to_cart_BROWSER(items, delivery_date: nil)
       @target_delivery_date = delivery_date
 
       # Use persistent order browser — keeps same browser across
@@ -2056,6 +2082,100 @@ module Scrapers
     end
 
     def checkout(dry_run: false)
+      logger.info "[UsFoods] API checkout (dry_run=#{dry_run})"
+      api_client.ensure_session!
+
+      order = @last_usf_order
+      unless order
+        # Try to find existing IN_PROGRESS order
+        orders = api_client.get_orders || []
+        order = orders.find { |o| o['orderStatus'] == 'IN_PROGRESS' } if orders.is_a?(Array)
+      end
+
+      raise ScrapingError, 'No active order found — add items first' unless order
+
+      item_count = (order['lineItems'] || []).size
+      total_units = order['totalUnits'].to_i
+      raise ScrapingError, 'Order has no items' if item_count == 0
+
+      # Fetch prices for all items to calculate total
+      product_numbers = (order['lineItems'] || []).map { |li| li['productNumber'] }
+      prices = api_client.fetch_prices(product_numbers)
+      subtotal = (order['lineItems'] || []).sum do |li|
+        price = prices[li['productNumber'].to_s] || prices[li['productNumber'].to_i]
+        qty = li['orderQuantity'].to_i
+        (price.to_f * qty)
+      end
+
+      delivery_date = order['requestedDeliveryDate']
+
+      if subtotal < ORDER_MINIMUM
+        raise OrderMinimumError.new(
+          "Order minimum not met ($#{ORDER_MINIMUM})",
+          minimum: ORDER_MINIMUM,
+          current_total: subtotal
+        )
+      end
+
+      if dry_run
+        logger.info "[UsFoods] API DRY RUN COMPLETE — #{item_count} items, total=$#{subtotal}"
+        return {
+          confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+          total: subtotal,
+          delivery_date: delivery_date,
+          dry_run: true,
+          cart_items: [],
+          checkout_summary: {
+            item_count: item_count,
+            total_units: total_units,
+            subtotal: subtotal,
+            order_id: order['orderId']
+          }
+        }
+      end
+
+      # LIVE ORDER — submit
+      logger.warn '[UsFoods] API PLACING LIVE ORDER'
+      result = api_client.submit_order(order)
+
+      unless result
+        raise ScrapingError, 'Order submission failed'
+      end
+
+      confirmation = result['orderId'] || order['orderId']
+      logger.info "[UsFoods] API order submitted: #{confirmation}"
+
+      {
+        confirmation_number: confirmation,
+        total: subtotal,
+        delivery_date: delivery_date,
+        dry_run: false,
+        cart_items: [],
+        checkout_summary: {
+          order_id: confirmation,
+          item_count: item_count,
+          total_units: total_units
+        }
+      }
+    end
+
+    def clear_cart
+      api_client.ensure_session!
+
+      orders = api_client.get_orders || []
+      if orders.is_a?(Array)
+        in_progress = orders.select { |o| o['orderStatus'] == 'IN_PROGRESS' }
+        in_progress.each do |order|
+          api_client.cancel_order(order)
+          logger.info "[UsFoods] API cancelled order #{order['orderId']}"
+        end
+      end
+
+      @last_usf_order = nil
+      logger.info '[UsFoods] API cart cleared'
+    end
+
+    def checkout_BROWSER(dry_run: false)
       logger.info "[UsFoods] checkout starting (dry_run=#{dry_run})"
 
       # Reuse the persistent browser from add_to_cart (order context is preserved)
@@ -2159,7 +2279,7 @@ module Scrapers
       end
     end
 
-    def clear_cart
+    def clear_cart_BROWSER
       logger.info '[UsFoods] Clearing cart/order...'
 
       # Use persistent order browser (same one add_to_cart and checkout will use)

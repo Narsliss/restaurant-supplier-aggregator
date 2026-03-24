@@ -324,6 +324,126 @@ module Scrapers
       get_json('/order-request-reply-domain-api/v1/nextDeliveryDate')
     end
 
+    # ── Cart / Order Operations ────────────────────────────────
+
+    # Get or create an order for the given delivery date.
+    # Returns the order object (with orderId, items, etc.)
+    def get_or_create_order(delivery_date = nil)
+      orders = get_orders
+      return nil unless orders.is_a?(Array)
+
+      delivery_date_str = if delivery_date
+                            delivery_date.is_a?(String) ? delivery_date : delivery_date.strftime('%Y-%m-%dT00:00:00.000Z')
+                          end
+
+      # Find existing IN_PROGRESS order for this delivery date
+      existing = orders.find do |o|
+        o['orderStatus'] == 'IN_PROGRESS' &&
+          (delivery_date_str.nil? || o['requestedDeliveryDate'] == delivery_date_str)
+      end
+
+      return existing if existing
+
+      # No existing order — create one
+      delivery_date_str ||= begin
+        ndd = get_next_delivery_date
+        ndd&.dig('nextDeliveryDate') || (Date.tomorrow.strftime('%Y-%m-%dT00:00:00.000Z'))
+      end
+
+      new_order = {
+        'divisionNumber' => @auth_context&.dig('division_number'),
+        'customerNumber' => @auth_context&.dig('customer_number'),
+        'departmentNumber' => @auth_context&.dig('department_number', 0) || 0,
+        'purchaseOrderNumber' => '',
+        'requestedDeliveryDate' => delivery_date_str,
+        'confirmedDeliveryDate' => delivery_date_str,
+        'orderType' => 'RT',
+        'orderStatus' => 'IN_PROGRESS',
+        'addOrderSource' => 'MO',
+        'updateOrderSource' => 'MO',
+        'addUserRole' => 'CUST',
+        'updateUserRole' => 'CUST',
+        'orderId' => SecureRandom.uuid,
+        'uniqueOrderId' => SecureRandom.uuid,
+        'addUserId' => @auth_context&.dig('user_id'),
+        'updateUserId' => @auth_context&.dig('user_id'),
+        'addDtm' => Time.current.iso8601(3),
+        'updateDtm' => Time.current.iso8601(3),
+        'totalUnits' => 0,
+        'totalEaches' => 0,
+        'decomposeFlag' => true,
+        'lineItems' => []
+      }
+
+      put_json('/order-domain-api/v1/orders', new_order)
+    end
+
+    # Add items to an existing order. Takes the current order object and
+    # appends new line items, then PUTs the updated order back.
+    def add_items_to_order(order, items)
+      line_items = order['lineItems'] || []
+
+      items.each do |item|
+        line_items << {
+          'productNumber' => item[:sku].to_i,
+          'orderQuantity' => item[:quantity].to_i,
+          'eachQuantity' => 0,
+          'catchWeightFlag' => false,
+          'unitOfMeasure' => 'CS',
+          'addDtm' => Time.current.iso8601(3),
+          'updateDtm' => Time.current.iso8601(3),
+          'addUserId' => @auth_context&.dig('user_id'),
+          'updateUserId' => @auth_context&.dig('user_id'),
+          'addSource' => 'MO',
+          'updateSource' => 'MO'
+        }
+      end
+
+      order['lineItems'] = line_items
+      order['totalUnits'] = line_items.sum { |li| li['orderQuantity'].to_i }
+      order['updateDtm'] = Time.current.iso8601(3)
+
+      put_json('/order-domain-api/v1/orders', order)
+    end
+
+    # Remove items from an order by product number
+    def remove_items_from_order(order, product_numbers)
+      product_numbers = Array(product_numbers).map(&:to_i)
+      line_items = order['lineItems'] || []
+      order['lineItems'] = line_items.reject { |li| product_numbers.include?(li['productNumber'].to_i) }
+      order['totalUnits'] = order['lineItems'].sum { |li| li['orderQuantity'].to_i }
+      order['updateDtm'] = Time.current.iso8601(3)
+
+      put_json('/order-domain-api/v1/orders', order)
+    end
+
+    # Clear all items from the order
+    def clear_order(order)
+      order['lineItems'] = []
+      order['totalUnits'] = 0
+      order['totalEaches'] = 0
+      order['updateDtm'] = Time.current.iso8601(3)
+
+      put_json('/order-domain-api/v1/orders', order)
+    end
+
+    # Submit the order for processing.
+    # Changes status from IN_PROGRESS to SUBMITTED.
+    def submit_order(order)
+      order['orderStatus'] = 'SUBMITTED'
+      order['updateDtm'] = Time.current.iso8601(3)
+
+      put_json('/order-domain-api/v1/orders', order)
+    end
+
+    # Cancel an order
+    def cancel_order(order)
+      order['orderStatus'] = 'CANCELLED'
+      order['updateDtm'] = Time.current.iso8601(3)
+
+      put_json('/order-domain-api/v1/orders', order)
+    end
+
     # ── Search (Coveo) ──────────────────────────────────────────
 
     def get_search_token
@@ -444,6 +564,11 @@ module Scrapers
 
     def post_json(path, body)
       response = request(:post, path, body: body.to_json)
+      parse_response(response)
+    end
+
+    def put_json(path, body)
+      response = request(:put, path, body: body.to_json)
       parse_response(response)
     end
 
