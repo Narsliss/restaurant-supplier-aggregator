@@ -85,8 +85,8 @@ namespace :discover_api do
       end
     end
 
-    # Navigate to supplier site
-    start_url = base_url.presence || "https://#{domain}"
+    # Navigate to supplier site (START_URL env var overrides default)
+    start_url = ENV['START_URL'].presence || supplier.login_url.presence || base_url.presence || "https://#{domain}"
     browser.go_to(start_url)
 
     browse_time.times do |i|

@@ -503,6 +503,59 @@ module Scrapers
       { added: added_items.size, failed: failed_items, order_id: order_id }
     end
 
+    # Remove individual items from the current draft order by setting qty to 0.
+    # Accepts an array of SKU strings, e.g. ['7216861', '6040760']
+    def remove_from_cart(skus)
+      ensure_api_session!
+      tokens = load_api_tokens
+
+      order_id = @last_sysco_order_id
+      sequence_id = @last_sysco_sequence_id
+      raise ScrapingError, 'No draft order — call add_to_cart first' unless order_id
+
+      skus = Array(skus).map(&:to_s)
+      logger.info "[Sysco] Removing #{skus.size} item(s) from order #{order_id}: #{skus.join(', ')}"
+
+      line_items = skus.map do |sku|
+        {
+          qty: 0,
+          soldAs: 'cs',
+          productId: sku,
+          pricingType: 'N',
+          price: 0,
+          totalPrice: 0,
+          commissionBasis: 0,
+          siteId: tokens[:site_id],
+          sellerId: tokens[:seller_id]
+        }
+      end
+
+      updated = graphql_update_order(
+        order_id: order_id,
+        sequence_id: sequence_id,
+        line_items: line_items
+      )
+
+      @last_sysco_sequence_id = updated['sequenceId'] || sequence_id
+
+      remaining = (updated['lineItems'] || []).map { |li| li['productId'].to_s }
+      removed = skus.select { |sku| !remaining.include?(sku) }
+      still_present = skus.select { |sku| remaining.include?(sku) }
+
+      if still_present.any?
+        logger.warn "[Sysco] #{still_present.size} item(s) still on order after removal: #{still_present.join(', ')}"
+      end
+
+      logger.info "[Sysco] Removed #{removed.size}/#{skus.size} items. Order now has #{updated['totalLineItems']} items, total=#{updated['totalPrice']}"
+
+      {
+        removed: removed,
+        still_present: still_present,
+        remaining_items: updated['totalLineItems'],
+        total_price: updated['totalPrice']
+      }
+    end
+
     # Clear the Sysco cart by deleting the draft order.
     def clear_cart
       ensure_api_session!

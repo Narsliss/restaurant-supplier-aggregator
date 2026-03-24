@@ -292,6 +292,33 @@ module Scrapers
       { added: added_items.count, failed: failed_items }
     end
 
+    # Remove individual items from the cart by SKU.
+    # Fetches the cart to find line item IDs, then removes each matching item.
+    def remove_from_cart(skus)
+      api_client.ensure_session!
+      skus = Array(skus).map(&:to_s)
+
+      cart = api_client.get_cart
+      line_items = cart&.dig('items') || cart&.dig('lineItems') || []
+
+      removed = []
+      still_present = []
+
+      skus.each do |sku|
+        item = line_items.find { |li| (li['itemCode'] || li['sku']).to_s == sku }
+        if item && item['id']
+          api_client.remove_cart_item(item['id'])
+          removed << sku
+          logger.info "[ChefsWarehouse] Removed SKU #{sku} (line item #{item['id']})"
+        else
+          still_present << sku
+          logger.warn "[ChefsWarehouse] SKU #{sku} not found in cart"
+        end
+      end
+
+      { removed: removed, still_present: still_present }
+    end
+
     def clear_cart
       api_client.ensure_session!
       api_client.delete_cart

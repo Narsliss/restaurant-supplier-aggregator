@@ -277,6 +277,43 @@ module Scrapers
       { added: cart_items.count, failed: failed_items }
     end
 
+    # Remove individual items from the draft order by SKU.
+    # Sets quantity to 0 for matching items.
+    def remove_from_cart(skus)
+      api_client.ensure_session!
+      skus = Array(skus).map(&:to_s)
+
+      open_orders = api_client.get_open_orders
+      order = (open_orders&.dig('orders') || []).first
+      raise ScrapingError, 'No draft order — call add_to_cart first' unless order
+
+      items = order['orders_items'] || []
+      removed = []
+      still_present = []
+
+      remove_items = []
+      skus.each do |sku|
+        item = items.find { |i| i.dig('variants_pack', 'external_item_id').to_s == sku || i.dig('variants_pack', 'sku').to_s == sku || i['sku'].to_s == sku }
+        if item
+          uuid = item.dig('variants_pack', 'uuid')
+          if uuid
+            remove_items << { variant_pack_id: uuid, quantity: 0, item_name: item['restaurant_display_name'] || '' }
+            removed << sku
+          else
+            still_present << sku
+          end
+        else
+          still_present << sku
+          logger.warn "[PPO] SKU #{sku} not found in order"
+        end
+      end
+
+      api_client.update_cart(order['uuid'], remove_items) if remove_items.any?
+      logger.info "[PPO] Removed #{removed.size}/#{skus.size} items from order"
+
+      { removed: removed, still_present: still_present }
+    end
+
     def clear_cart
       api_client.ensure_session!
 

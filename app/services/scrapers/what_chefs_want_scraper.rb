@@ -2,7 +2,7 @@ module Scrapers
   class WhatChefsWantScraper < BaseScraper
     BASE_URL = 'https://www.whatchefswant.com'.freeze
     PLATFORM_URL = 'https://whatchefswant.cutanddry.com'.freeze
-    LOGIN_URL = "#{BASE_URL}/customer-login/".freeze
+    LOGIN_URL = "#{PLATFORM_URL}/log-in".freeze
     ORDER_MINIMUM = 0.00
     # Checkout is controlled by supplier.checkout_enabled? (database flag)
     # No hardcoded gate — OrderPlacementService passes dry_run: true when checkout is disabled
@@ -22,9 +22,27 @@ module Scrapers
       { name: 'Equipment', filter: 'Equipment' }
     ].freeze
 
+    def api_client
+      @api_client ||= WhatChefsWantApi.new(credential)
+    end
+
+    def soft_refresh
+      if api_client.restore_session
+        credential.mark_active!
+        logger.info '[WhatChefsWant] API soft refresh succeeded'
+        true
+      else
+        logger.info '[WhatChefsWant] API refresh failed, falling back to browser...'
+        login
+      end
+    rescue StandardError => e
+      logger.warn "[WhatChefsWant] Soft refresh error: #{e.message}"
+      false
+    end
+
     def login
       with_browser do
-        navigate_to(BASE_URL)
+        navigate_to(PLATFORM_URL)
 
         if restore_session
           browser.refresh
@@ -40,6 +58,9 @@ module Scrapers
         else
           login_via_credentials
         end
+
+        # After browser login, capture cookies for the API client
+        extract_cookies_for_api
       end
     end
 
@@ -118,16 +139,28 @@ module Scrapers
     end
 
     def login_via_credentials
-      navigate_to(LOGIN_URL)
-      wait_for_selector("input[name='email'], #email, input[type='email']")
-
-      fill_field("input[name='email'], #email", credential.username)
-      fill_field("input[name='password'], #password", credential.password)
-      check_remember_me
-      click("button[type='submit'], .login-button, .btn-login")
-
+      # Login on the Cut+Dry platform directly (not the WordPress site)
+      # so we get session cookies for the API client.
+      cutanddry_login = "#{PLATFORM_URL}/log-in"
+      logger.info "[WhatChefsWant] Logging in via credentials at #{cutanddry_login}"
+      navigate_to(cutanddry_login)
       wait_for_page_load
       sleep 2
+
+      # Wait for the React SPA login form to render
+      wait_for_spa_load(timeout: 10)
+
+      # Fill email and password — Cut+Dry uses React so we need JS-based filling
+      fill_cutanddry_login_form
+
+      sleep 1
+
+      # Click the Sign In button
+      click_cutanddry_sign_in
+
+      # Wait for login to complete and SPA to redirect
+      sleep 5
+      wait_for_spa_load(timeout: 15)
 
       if logged_in?
         save_session
@@ -245,47 +278,14 @@ module Scrapers
     def add_to_cart(items, delivery_date: nil)
       @target_delivery_date = delivery_date
 
-      # On the Cut+Dry platform, cart state does NOT persist across browser
-      # sessions (it uses in-memory draft orders). So we keep the browser open
-      # for checkout to reuse via @order_browser.
-      ensure_order_browser!
-
-      ensure_on_order_page
-      sleep 2
-
-      added_items = []
-      failed_items = []
-
-      items.each do |item|
-        begin
-          add_single_item_to_cart(item)
-          added_items << item
-          logger.info "[WhatChefsWant] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
-        rescue StandardError => e
-          logger.warn "[WhatChefsWant] Failed to add SKU #{item[:sku]}: #{e.message}"
-          failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
-        end
-
-        rate_limit_delay
+      # Try API-based cart first
+      if api_client.restore_session
+        return add_to_cart_via_api(items, delivery_date: delivery_date)
       end
 
-      if failed_items.any?
-        if added_items.empty?
-          # ALL items failed — nothing in the cart, can't proceed
-          close_order_browser!
-          raise ItemUnavailableError.new(
-            "#{failed_items.count} item(s) could not be added",
-            items: failed_items
-          )
-        else
-          # Some items failed but others succeeded — log warning and continue
-          # with the items that were successfully added to the cart
-          logger.warn "[WhatChefsWant] #{failed_items.count} item(s) skipped (unavailable): " \
-                      "#{failed_items.map { |i| i[:sku] }.join(', ')}"
-        end
-      end
-
-      { added: added_items.count, failed: failed_items }
+      # Fall back to browser-based cart
+      logger.info '[WhatChefsWant] API session not available, using browser for add_to_cart'
+      add_to_cart_via_browser(items, delivery_date: delivery_date)
     end
 
     private
@@ -571,10 +571,86 @@ module Scrapers
       end
     end
 
+    # Remove individual items from the draft by SKU.
+    # Gets current draft items, filters out the target SKUs, and updates the draft.
+    def remove_from_cart(skus)
+      skus = Array(skus).map(&:to_s)
+      draft_id = @last_wcw_draft_id
+
+      unless draft_id
+        logger.warn '[WhatChefsWant] No draft ID — cannot remove items'
+        return { removed: [], still_present: skus }
+      end
+
+      # Get current draft contents
+      draft_data = api_client.get_draft(draft_id)
+      draft_detail = draft_data&.dig('data', 'draft')
+      unless draft_detail
+        logger.warn '[WhatChefsWant] Could not fetch draft contents'
+        return { removed: [], still_present: skus }
+      end
+
+      current_products = draft_detail['products'] || []
+      delivery_date = draft_detail['date']
+
+      # Build keep list — all products NOT in the removal list
+      removed = []
+      keep_items = []
+
+      current_products.each do |p|
+        item_code = p['itemCode'].to_s
+        mup_code = p.dig('multiUnitProduct', 'itemCode').to_s
+
+        if skus.include?(item_code) || skus.include?(mup_code)
+          removed << (item_code.presence || mup_code)
+        else
+          # Find price from nested product data
+          product = (p.dig('multiUnitProduct', 'products') || []).first
+          price = product&.dig('canonicalproduct', 'unifiedPrice', 'defaultUnitPrice', 'netTieredPrices', 0, 'price', 'float') || 0
+          product_id = p.dig('multiUnitProduct', 'id') || p['id']
+
+          keep_items << {
+            product_id: product_id,
+            quantity: p['quantity'].to_i,
+            price: price.to_f
+          }
+        end
+      end
+
+      still_present = skus - removed
+
+      # Update draft with only the remaining items
+      if removed.any?
+        api_client.update_draft(draft_id, delivery_date, keep_items)
+        @last_wcw_sequence_id = nil # Reset sequence tracking
+        logger.info "[WhatChefsWant] Removed #{removed.size} items, #{keep_items.size} remaining"
+      end
+
+      { removed: removed, still_present: still_present }
+    end
+
     def clear_cart
-      # WCW uses ephemeral in-memory cart on Cut+Dry platform.
-      # Fresh browser session = empty cart. No action needed.
-      logger.info '[WhatChefsWant] clear_cart: no-op (ephemeral cart on Cut+Dry)'
+      if @last_wcw_draft_id && api_client.vendor_id
+        logger.info "[WhatChefsWant] Clearing draft #{@last_wcw_draft_id} via API"
+        api_client.delete_draft_items(@last_wcw_draft_id)
+        @last_wcw_draft_id = nil
+        return
+      end
+
+      # Check for any existing drafts via API
+      if api_client.restore_session
+        drafts = api_client.get_all_drafts
+        all_drafts = drafts&.dig('data', 'allCompanyDrafts') || []
+        if all_drafts.any?
+          all_drafts.each do |draft|
+            logger.info "[WhatChefsWant] Clearing draft #{draft['id']} (#{draft['itemCount']} items)"
+            api_client.delete_draft_items(draft['id'])
+          end
+          return
+        end
+      end
+
+      logger.info '[WhatChefsWant] clear_cart: no drafts to clear'
     end
 
     # Scrape the order guide from What Chefs Want (Cut+Dry platform).
@@ -640,17 +716,67 @@ module Scrapers
           sleep 3
         end
       else
-        # Password-based login
+        # Password-based login on Cut+Dry React SPA
         navigate_to(LOGIN_URL)
-        wait_for_selector("input[name='email'], #email")
-
-        fill_field("input[name='email'], #email", credential.username)
-        fill_field("input[name='password'], #password", credential.password)
-        click("button[type='submit'], .login-button")
-
         wait_for_page_load
         sleep 2
+        wait_for_spa_load(timeout: 10)
+
+        fill_cutanddry_login_form
+        sleep 1
+        click_cutanddry_sign_in
+
+        sleep 5
+        wait_for_spa_load(timeout: 15)
       end
+    end
+
+    # Fill the Cut+Dry React SPA login form using native setters.
+    # Inputs: text field for email/mobile, password field.
+    def fill_cutanddry_login_form
+      escaped_user = credential.username.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
+      escaped_pass = credential.password.gsub('\\', '\\\\\\\\').gsub("'", "\\\\'")
+
+      browser.evaluate(<<~JS)
+        (function() {
+          var inputs = document.querySelectorAll('input');
+          var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          for (var i = 0; i < inputs.length; i++) {
+            var type = (inputs[i].type || '').toLowerCase();
+            var placeholder = (inputs[i].placeholder || '').toLowerCase();
+            if (type === 'password') {
+              nativeSetter.call(inputs[i], '#{escaped_pass}');
+              inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
+              inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
+            } else if (type === 'text' || type === 'email') {
+              if (placeholder.includes('email') || placeholder.includes('mobile') || placeholder.includes('phone')) {
+                nativeSetter.call(inputs[i], '#{escaped_user}');
+                inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
+                inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }
+          }
+        })()
+      JS
+    end
+
+    # Click the Sign In button on the Cut+Dry login page.
+    def click_cutanddry_sign_in
+      browser.evaluate(<<~JS)
+        (function() {
+          var buttons = document.querySelectorAll('button');
+          for (var i = 0; i < buttons.length; i++) {
+            var text = (buttons[i].innerText || '').trim().toLowerCase();
+            if (text === 'sign in' || text.includes('log in') || text.includes('login')) {
+              buttons[i].click();
+              return true;
+            }
+          }
+          var submit = document.querySelector('button[type="submit"]');
+          if (submit) { submit.click(); return true; }
+          return false;
+        })()
+      JS
     end
 
     private
@@ -692,6 +818,7 @@ module Scrapers
         raise AuthenticationError, 'Could not log in for ordering'
       end
       save_session
+      extract_cookies_for_api
     end
 
     def close_order_browser!
@@ -700,6 +827,132 @@ module Scrapers
     rescue StandardError => e
       logger.debug "[WhatChefsWant] Error closing order browser: #{e.message}"
       @browser = nil
+    end
+
+    # Extract cookies from the browser after login and pass them to the API client.
+    def extract_cookies_for_api
+      return unless @browser
+
+      browser_cookies = {}
+      csrf_token = nil
+
+      begin
+        # Get all cookies from the browser
+        @browser.cookies.all.each do |name, cookie|
+          browser_cookies[name.to_s] = cookie.value.to_s
+        end
+
+        # Also check for CSRF token in cookies
+        csrf_token = browser_cookies['x-csrf-v1']
+
+        if browser_cookies.any?
+          api_client.set_cookies_from_browser(browser_cookies, csrf_token)
+          api_client.discover_context
+          logger.info "[WhatChefsWant] Extracted #{browser_cookies.size} cookies for API client"
+        end
+      rescue StandardError => e
+        logger.warn "[WhatChefsWant] Could not extract cookies for API: #{e.message}"
+      end
+    end
+
+    # ----------------------------------------------------------------
+    # API-based cart operations
+    # ----------------------------------------------------------------
+
+    def add_to_cart_via_api(items, delivery_date: nil)
+      logger.info "[WhatChefsWant] Adding #{items.size} items to cart via API"
+
+      delivery_date_str = if delivery_date
+                            delivery_date.is_a?(String) ? delivery_date : delivery_date.strftime('%Y-%m-%d')
+                          end
+
+      # Map SKUs to Cut+Dry product IDs
+      # We need to search for each SKU to find the product_id
+      added_items = []
+      failed_items = []
+
+      # Build product list by looking up each SKU
+      cart_items = []
+      items.each do |item|
+        product_id = resolve_product_id(item[:sku])
+        if product_id
+          cart_items << {
+            product_id: product_id,
+            quantity: item[:quantity].to_i,
+            price: item[:expected_price].to_f
+          }
+          added_items << item
+          logger.info "[WhatChefsWant] Resolved SKU #{item[:sku]} → product #{product_id}"
+        else
+          logger.warn "[WhatChefsWant] Could not find product for SKU #{item[:sku]}"
+          failed_items << { sku: item[:sku], name: item[:name], error: 'Product not found in catalog' }
+        end
+      end
+
+      if cart_items.empty?
+        raise ItemUnavailableError.new(
+          "#{failed_items.count} item(s) could not be found",
+          items: failed_items
+        )
+      end
+
+      # Create draft order with all items
+      result = api_client.create_draft(delivery_date_str, cart_items)
+      draft = result&.dig('data', 'CreateOrUpdateDraftMutation')
+
+      if draft
+        @last_wcw_draft_id = draft['id']
+        logger.info "[WhatChefsWant] Created draft #{draft['id']}: #{draft['itemCount']} items"
+      else
+        raise ScrapingError, 'Failed to create draft order via API'
+      end
+
+      { added: added_items.size, failed: failed_items, draft_id: @last_wcw_draft_id }
+    end
+
+    def add_to_cart_via_browser(items, delivery_date: nil)
+      ensure_order_browser!
+      ensure_on_order_page
+      sleep 2
+
+      added_items = []
+      failed_items = []
+
+      items.each do |item|
+        begin
+          add_single_item_to_cart(item)
+          added_items << item
+          logger.info "[WhatChefsWant] Added SKU #{item[:sku]} (qty: #{item[:quantity]})"
+        rescue StandardError => e
+          logger.warn "[WhatChefsWant] Failed to add SKU #{item[:sku]}: #{e.message}"
+          failed_items << { sku: item[:sku], error: e.message, name: item[:name] }
+        end
+
+        rate_limit_delay
+      end
+
+      if failed_items.any? && added_items.empty?
+        close_order_browser!
+        raise ItemUnavailableError.new(
+          "#{failed_items.count} item(s) could not be added",
+          items: failed_items
+        )
+      end
+
+      { added: added_items.count, failed: failed_items }
+    end
+
+    # Resolve a supplier SKU (item code) to a Cut+Dry product ID via search.
+    def resolve_product_id(sku)
+      result = api_client.search_products(sku.to_s, limit: 5)
+      contextual = result&.dig('data', 'catalogProductsSearchRootQuery', 'contextualProducts') || []
+      products = contextual.map { |cp| cp['canonicalProduct'] }.compact
+
+      # Find exact SKU match
+      match = products.find { |p| p['itemCode'].to_s == sku.to_s }
+      match ||= products.first if products.size == 1
+
+      match&.dig('id')
     end
 
     # Wait for the Cut+Dry React SPA to fully hydrate.
