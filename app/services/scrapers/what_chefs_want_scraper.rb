@@ -584,7 +584,7 @@ module Scrapers
         supplier_name: [product['description'] || product['nameWithoutBrand'], product['brandName']].compact.join(' ').truncate(255),
         current_price: price&.to_f,
         pack_size: product['packSize'].to_s.strip.presence,
-        in_stock: !product['isOutOfStock'] && !product['unavailable'],
+        in_stock: nil, # Don't set stock from catalog browse — only order guide is authoritative
         category: category || product.dig('l0category', 'name'),
         supplier_url: nil,
         scraped_at: Time.current

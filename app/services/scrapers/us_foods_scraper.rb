@@ -202,7 +202,7 @@ module Scrapers
             supplier_name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - '),
             current_price: price&.dig(:case_price),
             pack_size: summary['salesPackSize'],
-            in_stock: true,
+            in_stock: nil, # Don't set stock from catalog — only order guide is authoritative
             category: summary['classDescription']&.titleize,
             subcategory: summary['categoryDescription']&.titleize,
             supplier_url: "#{BASE_URL}/desktop/product/#{pn}"
