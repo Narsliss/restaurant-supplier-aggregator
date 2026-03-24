@@ -39,7 +39,7 @@ class ValidateCredentialsJob < ApplicationJob
       # Kick off initial imports so the user sees products and lists immediately
       # instead of waiting for the next cron cycle (up to 15 min for products,
       # 24 hours for lists).
-      ImportSupplierProductsJob.perform_later(credential.id)
+      ImportSupplierProductsJob.perform_later(credential.supplier_id, credential.id)
       ImportSupplierListsJob.perform_later(credential.id)
     elsif result[:two_fa_required]
       # For non-polling scrapers, 2FA was requested but handled via exception
