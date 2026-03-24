@@ -350,10 +350,11 @@ module Scrapers
         ndd&.dig('nextDeliveryDate') || (Date.tomorrow.strftime('%Y-%m-%dT00:00:00.000Z'))
       end
 
+      user_id = @auth_context&.dig('user_id')
       new_order = {
         'divisionNumber' => @auth_context&.dig('division_number'),
         'customerNumber' => @auth_context&.dig('customer_number'),
-        'departmentNumber' => @auth_context&.dig('department_number', 0) || 0,
+        'departmentNumber' => @auth_context&.dig('department_number') || 0,
         'purchaseOrderNumber' => '',
         'requestedDeliveryDate' => delivery_date_str,
         'confirmedDeliveryDate' => delivery_date_str,
@@ -365,8 +366,8 @@ module Scrapers
         'updateUserRole' => 'CUST',
         'orderId' => SecureRandom.uuid,
         'uniqueOrderId' => SecureRandom.uuid,
-        'addUserId' => @auth_context&.dig('user_id'),
-        'updateUserId' => @auth_context&.dig('user_id'),
+        'addUserId' => user_id,
+        'updateUserId' => user_id,
         'addDtm' => Time.current.iso8601(3),
         'updateDtm' => Time.current.iso8601(3),
         'totalUnits' => 0,
@@ -383,6 +384,7 @@ module Scrapers
     def add_items_to_order(order, items)
       line_items = order['lineItems'] || []
 
+      user_id = @auth_context&.dig('user_id')
       items.each do |item|
         line_items << {
           'productNumber' => item[:sku].to_i,
@@ -392,8 +394,8 @@ module Scrapers
           'unitOfMeasure' => 'CS',
           'addDtm' => Time.current.iso8601(3),
           'updateDtm' => Time.current.iso8601(3),
-          'addUserId' => @auth_context&.dig('user_id'),
-          'updateUserId' => @auth_context&.dig('user_id'),
+          'addUserId' => user_id,
+          'updateUserId' => user_id,
           'addSource' => 'MO',
           'updateSource' => 'MO'
         }
