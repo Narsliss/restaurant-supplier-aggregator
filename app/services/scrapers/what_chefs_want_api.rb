@@ -884,7 +884,7 @@ module Scrapers
       <<~GQL
         mutation CreateNewOrderMutation(
           $deliveryDate: String, $products: [ProductInput]!, $formId: ID!,
-          $locationId: ID!, $draftId: ID, $instructions: String,
+          $locationId: ID!, $draftId: ID, $instructions: String!,
           $poNumber: String, $memoCode: String, $supplierOrder: Boolean,
           $duplicateIsOk: Boolean, $mergeIsOk: Boolean, $separateOrder: Boolean,
           $fulfilmentType: String!, $customFulfilmentConfigId: ID,
