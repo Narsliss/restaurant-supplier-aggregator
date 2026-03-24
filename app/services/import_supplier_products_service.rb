@@ -142,7 +142,6 @@ class ImportSupplierProductsService
       supplier_sku: existing.supplier_sku,
       supplier_name: item[:supplier_name],
       last_scraped_at: now,
-      updated_at: now,
       current_price: existing.current_price,
       previous_price: existing.previous_price,
       pack_size: item[:pack_size].present? ? item[:pack_size] : existing.pack_size,
@@ -199,7 +198,7 @@ class ImportSupplierProductsService
         supplier_name current_price previous_price pack_size
         supplier_url in_stock price_updated_at last_scraped_at
         piece_price piece_pack_size consecutive_misses
-        discontinued discontinued_at updated_at
+        discontinued discontinued_at
       ]
     )
   end
