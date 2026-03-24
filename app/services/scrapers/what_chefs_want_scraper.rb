@@ -180,20 +180,8 @@ module Scrapers
         return
       end
 
-      # Check for any existing drafts via API
-      if api_client.restore_session
-        drafts = api_client.get_all_drafts
-        all_drafts = drafts&.dig('data', 'allCompanyDrafts') || []
-        if all_drafts.any?
-          all_drafts.each do |draft|
-            logger.info "[WhatChefsWant] Clearing draft #{draft['id']} (#{draft['itemCount']} items)"
-            api_client.delete_draft_items(draft['id'])
-          end
-          return
-        end
-      end
-
-      logger.info '[WhatChefsWant] clear_cart: no drafts to clear'
+      # No known draft to clear — that's fine, add_to_cart creates a fresh one
+      logger.info '[WhatChefsWant] clear_cart: no active draft to clear'
     end
 
     # ── Checkout (API) ────────────────────────────────────────────
@@ -203,14 +191,7 @@ module Scrapers
       api_client.ensure_session!
 
       draft_id = @last_wcw_draft_id
-      unless draft_id
-        drafts = api_client.get_all_drafts
-        all_drafts = drafts&.dig('data', 'allCompanyDrafts') || []
-        draft = all_drafts.find { |d| d['itemCount'].to_i > 0 }
-        draft_id = draft&.dig('id')
-      end
-
-      raise ScrapingError, 'No draft order found — add items to cart first' unless draft_id
+      raise ScrapingError, 'No draft order found — add items to cart first (draft ID not set by add_to_cart)' unless draft_id
 
       draft_data = api_client.get_draft(draft_id)
       draft_detail = draft_data&.dig('data', 'draft')
