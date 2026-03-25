@@ -440,7 +440,8 @@ module Scrapers
       order['orderItems'] = order_items.reject { |oi| product_numbers.include?(oi['productNumber'].to_i) }
       order['updateDtm'] = Time.current.iso8601(3)
 
-      put_json('/order-domain-api/v1/orders', order)
+      result = put_json('/order-domain-api/v1/orders', order)
+      normalize_order_response(result, order['orderId'])
     end
 
     # Clear all items from the order
@@ -450,7 +451,8 @@ module Scrapers
       order['totalEaches'] = 0
       order['updateDtm'] = Time.current.iso8601(3)
 
-      put_json('/order-domain-api/v1/orders', order)
+      result = put_json('/order-domain-api/v1/orders', order)
+      normalize_order_response(result, order['orderId'])
     end
 
     # Submit the order for processing.
@@ -459,7 +461,8 @@ module Scrapers
       order['orderStatus'] = 'SUBMITTED'
       order['updateDtm'] = Time.current.iso8601(3)
 
-      put_json('/order-domain-api/v1/orders', order)
+      result = put_json('/order-domain-api/v1/orders', order)
+      normalize_order_response(result, order['orderId'])
     end
 
     # Cancel an order
@@ -467,8 +470,25 @@ module Scrapers
       order['orderStatus'] = 'CANCELLED'
       order['updateDtm'] = Time.current.iso8601(3)
 
-      put_json('/order-domain-api/v1/orders', order)
+      result = put_json('/order-domain-api/v1/orders', order)
+      normalize_order_response(result, order['orderId'])
     end
+
+    private
+
+    # USF order API always returns an array of all orders.
+    # Extract the specific order we care about.
+    def normalize_order_response(result, order_id = nil)
+      return result unless result.is_a?(Array)
+
+      if order_id
+        result.find { |o| o['orderId'] == order_id } || result.first
+      else
+        result.find { |o| o['orderStatus'] == 'IN_PROGRESS' } || result.first
+      end
+    end
+
+    public
 
     # ── Search (Coveo) ──────────────────────────────────────────
 
