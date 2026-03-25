@@ -330,7 +330,11 @@ module Scrapers
     # Returns the order object (with orderId, items, etc.)
     def get_or_create_order(delivery_date = nil)
       orders = get_orders
+      orders = [orders] if orders.is_a?(Hash) # API sometimes returns single order
       return nil unless orders.is_a?(Array)
+
+      # Filter to only Hash elements — API can include non-Hash entries
+      orders = orders.select { |o| o.is_a?(Hash) }
 
       delivery_date_str = if delivery_date
                             delivery_date.is_a?(String) ? delivery_date : delivery_date.strftime('%Y-%m-%dT00:00:00.000Z')
@@ -353,7 +357,8 @@ module Scrapers
           existing['confirmedDeliveryDate'] = delivery_date_str
           existing['updateDtm'] = Time.current.iso8601(3)
           result = put_json('/order-domain-api/v1/orders', existing)
-          return result || existing
+          result = normalize_order_response(result, existing['orderId']) if result.is_a?(Array)
+          return result.is_a?(Hash) ? result : existing
         end
         return existing
       end
@@ -429,8 +434,14 @@ module Scrapers
       order['updateDtm'] = now
 
       result = put_json('/order-domain-api/v1/orders', order)
-      # Normalize response — may be array or hash
-      result.is_a?(Array) ? (result.find { |o| o['orderId'] == order['orderId'] } || result.first) : result
+      # Normalize response — may be array, hash, or unexpected type (String on reuse)
+      normalized = if result.is_a?(Array)
+                     result.find { |o| o.is_a?(Hash) && o['orderId'] == order['orderId'] } || result.first
+                   elsif result.is_a?(Hash)
+                     result
+                   end
+      # Fall back to the locally-modified order if API returned non-Hash
+      normalized.is_a?(Hash) ? normalized : order
     end
 
     # Remove items from an order by product number
@@ -479,12 +490,16 @@ module Scrapers
     # USF order API always returns an array of all orders.
     # Extract the specific order we care about.
     def normalize_order_response(result, order_id = nil)
+      return result if result.is_a?(Hash)
       return result unless result.is_a?(Array)
 
+      hash_orders = result.select { |o| o.is_a?(Hash) }
+      return result.first if hash_orders.empty?
+
       if order_id
-        result.find { |o| o['orderId'] == order_id } || result.first
+        hash_orders.find { |o| o['orderId'] == order_id } || hash_orders.first
       else
-        result.find { |o| o['orderStatus'] == 'IN_PROGRESS' } || result.first
+        hash_orders.find { |o| o['orderStatus'] == 'IN_PROGRESS' } || hash_orders.first
       end
     end
 

@@ -2112,6 +2112,7 @@ module Scrapers
       end
 
       raise ScrapingError, 'No active order found — add items first' unless order
+      raise ScrapingError, "Unexpected order format: #{order.class} — expected Hash" unless order.is_a?(Hash)
 
       order_items = order['orderItems'] || []
       item_count = order_items.size
@@ -2185,8 +2186,9 @@ module Scrapers
 
       # Find any IN_PROGRESS orders and clear their items (don't cancel/delete)
       orders = api_client.get_orders
+      orders = [orders] if orders.is_a?(Hash) # API sometimes returns single order
       if orders.is_a?(Array)
-        orders.select { |o| o['orderStatus'] == 'IN_PROGRESS' }.each do |order|
+        orders.select { |o| o.is_a?(Hash) && o['orderStatus'] == 'IN_PROGRESS' }.each do |order|
           items = order['orderItems'] || []
           if items.any?
             logger.info "[UsFoods] Clearing #{items.size} items from order #{order['orderId']}"
