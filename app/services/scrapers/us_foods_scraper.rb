@@ -2181,10 +2181,22 @@ module Scrapers
     end
 
     def clear_cart
-      # Don't cancel existing orders — just clear items from the order we're managing.
-      # US Foods orders on the site belong to the user and cancelling them is destructive.
+      api_client.ensure_session!
+
+      # Find any IN_PROGRESS orders and clear their items (don't cancel/delete)
+      orders = api_client.get_orders
+      if orders.is_a?(Array)
+        orders.select { |o| o['orderStatus'] == 'IN_PROGRESS' }.each do |order|
+          items = order['orderItems'] || []
+          if items.any?
+            logger.info "[UsFoods] Clearing #{items.size} items from order #{order['orderId']}"
+            api_client.clear_order(order)
+          end
+        end
+      end
+
       @last_usf_order = nil
-      logger.info '[UsFoods] API cart reference cleared (no orders cancelled)'
+      logger.info '[UsFoods] API cart cleared'
     end
 
     def checkout_BROWSER(dry_run: false)
