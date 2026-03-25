@@ -27,8 +27,7 @@ class PlaceOrderJob < ApplicationJob
         # Dry run — no real order placed, don't send confirmation email
         Rails.logger.info "[PlaceOrderJob] Order #{order.id} DRY RUN complete for #{order.supplier.name} (checkout not enabled)"
       else
-        # Real order placed — send confirmation
-        OrderMailer.order_confirmed(order).deliver_later
+        # Real order placed — notify owner
         notify_owner(order)
         Rails.logger.info "[PlaceOrderJob] Order #{order.id} placed successfully"
       end
@@ -39,8 +38,7 @@ class PlaceOrderJob < ApplicationJob
     Rails.logger.error "[PlaceOrderJob] Order #{order_id} failed: #{e.message}"
     
     order.update!(status: "failed", error_message: e.message)
-    OrderMailer.order_failed(order, e.message).deliver_later
-    
+
     raise # Re-raise for retry logic
   end
 
@@ -58,19 +56,14 @@ class PlaceOrderJob < ApplicationJob
     case result[:error_type]
     when "2fa_required"
       Rails.logger.info "[PlaceOrderJob] Order #{order.id} waiting for 2FA"
-      # User has already been notified via ActionCable
     when "price_changed"
       Rails.logger.info "[PlaceOrderJob] Order #{order.id} requires price review"
-      OrderMailer.price_change_review(order, result[:details][:price_changes]).deliver_later
     when "captcha"
       Rails.logger.warn "[PlaceOrderJob] Order #{order.id} blocked by CAPTCHA"
-      OrderMailer.manual_intervention_required(order, "CAPTCHA detected").deliver_later
     when "account_hold"
       Rails.logger.warn "[PlaceOrderJob] Order #{order.id} blocked by account hold"
-      OrderMailer.account_hold_notification(order).deliver_later
     else
       Rails.logger.error "[PlaceOrderJob] Order #{order.id} failed: #{result[:error]}"
-      OrderMailer.order_failed(order, result[:error]).deliver_later
     end
   end
 end
