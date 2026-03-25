@@ -2122,9 +2122,10 @@ module Scrapers
       product_numbers = order_items.map { |oi| oi['productNumber'] }
       prices = api_client.fetch_prices(product_numbers)
       subtotal = order_items.sum do |oi|
-        price = prices[oi['productNumber'].to_s] || prices[oi['productNumber'].to_i]
+        price_data = prices[oi['productNumber'].to_i]
+        unit_price = price_data.is_a?(Hash) ? (price_data[:case_price] || 0) : price_data.to_f
         qty = oi['unitsOrdered'].to_i
-        (price.to_f * qty)
+        (unit_price.to_f * qty)
       end
 
       delivery_date = order['requestedDeliveryDate']
