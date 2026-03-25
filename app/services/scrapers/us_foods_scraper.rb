@@ -2156,16 +2156,20 @@ module Scrapers
         }
       end
 
-      # LIVE ORDER — submit
-      logger.warn '[UsFoods] API PLACING LIVE ORDER'
+      # LIVE ORDER — submit via order-submission-domain-api
+      logger.warn '[UsFoods] API PLACING LIVE ORDER via submission API'
       result = api_client.submit_order(order)
 
-      unless result
-        raise ScrapingError, 'Order submission failed'
+      unless result.is_a?(Hash)
+        raise ScrapingError, "Order submission failed — unexpected response: #{result.class}"
       end
 
-      confirmation = result['orderId'] || order['orderId']
-      logger.info "[UsFoods] API order submitted: #{confirmation}"
+      # The submission API returns the real order number in tandemOrderNumber
+      confirmation = result['tandemOrderNumber']&.to_s.presence ||
+                     result['orderId'] ||
+                     order['orderId']
+      submitted_status = result['orderStatus']
+      logger.info "[UsFoods] API order submitted: confirmation=#{confirmation}, status=#{submitted_status}"
 
       {
         confirmation_number: confirmation,
@@ -2176,7 +2180,8 @@ module Scrapers
         checkout_summary: {
           order_id: confirmation,
           item_count: item_count,
-          total_units: total_units
+          total_units: total_units,
+          status: submitted_status
         }
       }
     end

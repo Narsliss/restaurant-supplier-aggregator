@@ -466,14 +466,42 @@ module Scrapers
       normalize_order_response(result, order['orderId'])
     end
 
-    # Submit the order for processing.
-    # Changes status from IN_PROGRESS to SUBMITTED.
+    # Submit the order for processing via USF's order-submission-domain-api.
+    #
+    # USF's Ionic SPA POSTs the full order to a SEPARATE submission service
+    # (order-submission-domain-api), NOT a PUT to the order-domain-api.
+    # The submission service assigns a real order number (e.g., 408719)
+    # and routes the order for fulfillment.
+    #
+    # - IN_PROGRESS orders → /submitIpOrder
+    # - Editing already-submitted orders → /updateSubmittedOrder
     def submit_order(order)
-      order['orderStatus'] = 'SUBMITTED'
-      order['updateDtm'] = Time.current.iso8601(3)
+      status = order['orderStatus']
+      endpoint = if status == 'IN_PROGRESS' || order['tandemOrderNumber'].to_i == 0
+                   '/order-submission-domain-api/v1/submitIpOrder'
+                 else
+                   '/order-submission-domain-api/v1/updateSubmittedOrder'
+                 end
 
-      result = put_json('/order-domain-api/v1/orders', order)
-      normalize_order_response(result, order['orderId'])
+      logger.info "[USF-API] Submitting order via #{endpoint} (status=#{status}, orderId=#{order['orderId']})"
+
+      result = post_json(endpoint, order)
+
+      unless result
+        logger.error '[USF-API] Order submission returned nil'
+        return nil
+      end
+
+      # The submission API returns the submitted order (may be array or hash)
+      submitted = result.is_a?(Array) ? result.first : result
+
+      if submitted.is_a?(Hash)
+        order_num = submitted['tandemOrderNumber'] || submitted['orderId']
+        new_status = submitted['orderStatus']
+        logger.info "[USF-API] Order submitted: number=#{order_num}, status=#{new_status}"
+      end
+
+      submitted
     end
 
     # Cancel an order
