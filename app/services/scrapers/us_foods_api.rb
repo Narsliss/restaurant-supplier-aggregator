@@ -376,16 +376,20 @@ module Scrapers
 
       result = put_json('/order-domain-api/v1/orders', new_order)
       if result
-        order_id = result['orderId'] || result.dig('orderId')
+        # API may return a single order hash or an array — normalize
+        order_obj = result.is_a?(Array) ? result.find { |o| o['orderStatus'] == 'IN_PROGRESS' } || result.first : result
+        order_id = order_obj&.dig('orderId')
         logger.info "[USF-API] Created order #{order_id}"
         # Fetch the full order object with server-generated fields
         if order_id
           sleep 0.5
           full_orders = get_orders
-          full_order = full_orders&.find { |o| o['orderId'] == order_id } if full_orders.is_a?(Array)
-          return full_order if full_order
+          if full_orders.is_a?(Array)
+            full_order = full_orders.find { |o| o['orderId'] == order_id }
+            return full_order if full_order
+          end
         end
-        result
+        order_obj || result
       else
         logger.error '[USF-API] Failed to create order'
         raise ScrapingError, 'Could not create order on US Foods'
@@ -424,7 +428,9 @@ module Scrapers
       order['orderItems'] = order_items
       order['updateDtm'] = now
 
-      put_json('/order-domain-api/v1/orders', order)
+      result = put_json('/order-domain-api/v1/orders', order)
+      # Normalize response — may be array or hash
+      result.is_a?(Array) ? (result.find { |o| o['orderId'] == order['orderId'] } || result.first) : result
     end
 
     # Remove items from an order by product number
