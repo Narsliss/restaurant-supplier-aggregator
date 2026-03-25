@@ -1176,8 +1176,27 @@ module Scrapers
       @last_usf_order = order
       logger.info "[UsFoods] API order: #{order['orderId']}, delivery: #{order['requestedDeliveryDate']}"
 
+      # Look up vendor IDs from product details
+      skus = items.map { |i| i[:sku].to_i }
+      details = api_client.fetch_product_details(skus)
+      vendor_map = {}
+      details.each do |d|
+        pn = d['productNumber'].to_i
+        vendor_map[pn] = d['purchasedFromVendor'] || d['vendorNumber'] || d.dig('vendor', 'vendorNumber') || 0
+      end
+
+      # Build items with vendor IDs
+      enriched_items = items.map do |item|
+        sku = item[:sku].to_i
+        {
+          sku: sku,
+          quantity: item[:quantity].to_i,
+          vendor_id: vendor_map[sku].to_i
+        }
+      end
+
       # Add items via API
-      result = api_client.add_items_to_order(order, items)
+      result = api_client.add_items_to_order(order, enriched_items)
       unless result
         raise ScrapingError, 'Failed to add items to US Foods order'
       end
@@ -2094,16 +2113,17 @@ module Scrapers
 
       raise ScrapingError, 'No active order found — add items first' unless order
 
-      item_count = (order['lineItems'] || []).size
+      order_items = order['orderItems'] || []
+      item_count = order_items.size
       total_units = order['totalUnits'].to_i
       raise ScrapingError, 'Order has no items' if item_count == 0
 
       # Fetch prices for all items to calculate total
-      product_numbers = (order['lineItems'] || []).map { |li| li['productNumber'] }
+      product_numbers = order_items.map { |oi| oi['productNumber'] }
       prices = api_client.fetch_prices(product_numbers)
-      subtotal = (order['lineItems'] || []).sum do |li|
-        price = prices[li['productNumber'].to_s] || prices[li['productNumber'].to_i]
-        qty = li['orderQuantity'].to_i
+      subtotal = order_items.sum do |oi|
+        price = prices[oi['productNumber'].to_s] || prices[oi['productNumber'].to_i]
+        qty = oi['unitsOrdered'].to_i
         (price.to_f * qty)
       end
 

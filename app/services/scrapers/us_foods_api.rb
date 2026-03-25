@@ -358,83 +358,71 @@ module Scrapers
         return existing
       end
 
-      # No existing order — create via the next-delivery endpoint which
-      # triggers order creation on USF's side
+      # No existing order — create one via PUT with minimal payload
+      # (matches the exact format the USF Ionic SPA sends)
       logger.info '[USF-API] No existing order found, creating new order via API'
       delivery_date_str ||= begin
         ndd = get_next_delivery_date
         ndd&.dig('nextDeliveryDate') || Date.tomorrow.strftime('%Y-%m-%dT00:00:00.000Z')
       end
 
-      user_id = @auth_context&.dig('user_id')
-      order_id = SecureRandom.uuid
       new_order = {
-        'divisionNumber' => @auth_context&.dig('division_number'),
-        'customerNumber' => @auth_context&.dig('customer_number'),
-        'departmentNumber' => @auth_context&.dig('department_number') || 0,
-        'purchaseOrderNumber' => '',
         'requestedDeliveryDate' => delivery_date_str,
         'confirmedDeliveryDate' => delivery_date_str,
-        'orderType' => 'RT',
-        'orderStatus' => 'IN_PROGRESS',
-        'addOrderSource' => 'MO',
-        'updateOrderSource' => 'MO',
-        'addUserRole' => 'CUST',
-        'updateUserRole' => 'CUST',
-        'orderId' => order_id,
-        'uniqueOrderId' => order_id,
-        'addUserId' => user_id,
-        'updateUserId' => user_id,
-        'orderTakerId' => user_id,
-        'addDtm' => Time.current.iso8601(3),
-        'updateDtm' => Time.current.iso8601(3),
-        'watermarkDtm' => Time.current.iso8601(3),
-        'totalUnits' => 0,
-        'totalEaches' => 0,
-        'decomposeFlag' => true,
-        'errorDetails' => nil,
-        'error' => nil,
-        'lineItems' => []
+        'purchaseOrderNumber' => '',
+        'orderItems' => [],
+        'decomposeFlag' => true
       }
 
       result = put_json('/order-domain-api/v1/orders', new_order)
       if result
+        order_id = result['orderId'] || result.dig('orderId')
         logger.info "[USF-API] Created order #{order_id}"
+        # Fetch the full order object with server-generated fields
+        if order_id
+          sleep 0.5
+          full_orders = get_orders
+          full_order = full_orders&.find { |o| o['orderId'] == order_id } if full_orders.is_a?(Array)
+          return full_order if full_order
+        end
         result
       else
-        logger.error '[USF-API] Failed to create order — will retry by looking for it'
-        # The PUT might have created it even with a non-200 response. Check again.
-        sleep 1
-        orders = get_orders
-        orders&.find { |o| o['orderId'] == order_id } if orders.is_a?(Array)
+        logger.error '[USF-API] Failed to create order'
+        raise ScrapingError, 'Could not create order on US Foods'
       end
     end
 
     # Add items to an existing order. Takes the current order object and
-    # appends new line items, then PUTs the updated order back.
+    # appends new order items, then PUTs the updated order back.
+    # Field names match USF's Ionic SPA exactly: orderItems, unitsOrdered, sequence, etc.
     def add_items_to_order(order, items)
-      line_items = order['lineItems'] || []
+      order_items = order['orderItems'] || []
+      next_sequence = (order_items.map { |oi| oi['sequence'].to_i }.max || 0) + 1
 
-      user_id = @auth_context&.dig('user_id')
-      items.each do |item|
-        line_items << {
+      user_id = @auth_context.is_a?(Hash) ? @auth_context['user_id']&.to_s : nil
+      now = Time.current.iso8601(3)
+
+      items.each_with_index do |item, idx|
+        order_items << {
+          'eachesOrdered' => 0,
+          'sequence' => next_sequence + idx,
+          'unitsOrdered' => item[:quantity].to_i,
           'productNumber' => item[:sku].to_i,
-          'orderQuantity' => item[:quantity].to_i,
-          'eachQuantity' => 0,
-          'catchWeightFlag' => false,
-          'unitOfMeasure' => 'CS',
-          'addDtm' => Time.current.iso8601(3),
-          'updateDtm' => Time.current.iso8601(3),
+          'purchasedFromVendor' => item[:vendor_id].to_i,
+          'specialVendor' => false,
+          'addDtm' => now,
+          'addOrderSource' => 'MO',
           'addUserId' => user_id,
+          'addUserRole' => 'CUST',
+          'updateDtm' => now,
+          'updateOrderSource' => 'MO',
           'updateUserId' => user_id,
-          'addSource' => 'MO',
-          'updateSource' => 'MO'
+          'updateUserRole' => 'CUST'
         }
       end
 
-      order['lineItems'] = line_items
-      order['totalUnits'] = line_items.sum { |li| li['orderQuantity'].to_i }
-      order['updateDtm'] = Time.current.iso8601(3)
+      order['orderItems'] = order_items
+      order['updateDtm'] = now
 
       put_json('/order-domain-api/v1/orders', order)
     end
@@ -442,9 +430,8 @@ module Scrapers
     # Remove items from an order by product number
     def remove_items_from_order(order, product_numbers)
       product_numbers = Array(product_numbers).map(&:to_i)
-      line_items = order['lineItems'] || []
-      order['lineItems'] = line_items.reject { |li| product_numbers.include?(li['productNumber'].to_i) }
-      order['totalUnits'] = order['lineItems'].sum { |li| li['orderQuantity'].to_i }
+      order_items = order['orderItems'] || []
+      order['orderItems'] = order_items.reject { |oi| product_numbers.include?(oi['productNumber'].to_i) }
       order['updateDtm'] = Time.current.iso8601(3)
 
       put_json('/order-domain-api/v1/orders', order)
@@ -452,7 +439,7 @@ module Scrapers
 
     # Clear all items from the order
     def clear_order(order)
-      order['lineItems'] = []
+      order['orderItems'] = []
       order['totalUnits'] = 0
       order['totalEaches'] = 0
       order['updateDtm'] = Time.current.iso8601(3)
