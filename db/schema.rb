@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_03_24_051511) do
+ActiveRecord::Schema[7.1].define(version: 2026_03_26_005258) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -777,6 +777,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_24_051511) do
     t.string "price_unit"
     t.decimal "piece_price", precision: 10, scale: 2
     t.string "piece_pack_size"
+    t.datetime "last_missed_at"
     t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
     t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["in_stock"], name: "index_supplier_products_on_in_stock"

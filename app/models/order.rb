@@ -222,7 +222,7 @@ class Order < ApplicationRecord
   end
 
   def calculated_subtotal
-    order_items.sum(&:line_total)
+    order_items.reload.sum(:line_total)
   end
 
   def recalculate_totals!
