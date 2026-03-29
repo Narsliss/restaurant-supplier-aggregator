@@ -40,6 +40,13 @@ class OrderItemsController < ApplicationController
     @order.recalculate_totals!
     @order.update!(savings_amount: @order.calculate_savings)
 
+    # Re-verify prices with the supplier after adding a new item.
+    # This catches out-of-stock items and price changes for the newly added product.
+    unless @order.supplier.email_supplier?
+      @order.start_verification!
+      PriceVerificationJob.perform_later(@order.id)
+    end
+
     minimum = @order.supplier.order_minimum
     render json: {
       item: {
