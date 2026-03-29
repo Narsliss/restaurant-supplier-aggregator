@@ -165,9 +165,14 @@ class ImportSupplierListsService
     # so SupplierProduct.current_price always represents the full case cost.
     effective_price = item.estimated_total_price
     if effective_price.present? && effective_price != sp.current_price
-      attrs[:previous_price] = sp.current_price
-      attrs[:current_price] = effective_price
-      attrs[:price_updated_at] = Time.current
+      if sp.current_price.present? && sp.current_price > 0 && extreme_price_change?(sp.current_price, effective_price)
+        Rails.logger.warn "[ImportLists] EXTREME price change for #{sp.supplier_name} (SKU: #{sp.supplier_sku}): " \
+                          "$#{sp.current_price} -> $#{effective_price} — skipping update"
+      else
+        attrs[:previous_price] = sp.current_price
+        attrs[:current_price] = effective_price
+        attrs[:price_updated_at] = Time.current
+      end
     end
 
     # Propagate price_unit so order verification can interpret scraped prices
@@ -229,6 +234,14 @@ class ImportSupplierListsService
       Rails.logger.info "[ImportLists] Inferred price_unit=lb for '#{item.name}' " \
                         "($#{item.price}/#{item.pack_size}, implied $#{'%.2f' % implied_per_lb}/lb)"
     end
+  end
+
+  # Guard against extreme price swings from bad supplier API data.
+  # Allows normal fluctuations (up to 5x) but blocks obvious errors.
+  def extreme_price_change?(old_price, new_price)
+    return false if old_price.nil? || old_price <= 0
+    ratio = new_price / old_price
+    ratio > 5.0 || ratio < 0.2
   end
 
   def mark_removed_lists(scraped_remote_ids)

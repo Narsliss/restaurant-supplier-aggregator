@@ -59,7 +59,7 @@ module Scrapers
           price: price&.to_f,
           pack_size: item['packSize'].to_s.strip.presence,
           quantity: 1,
-          in_stock: !item['isOutOfStock'] && !item['unavailable'],
+          in_stock: !item['unavailable'],
           position: idx + 1
         }
       end
@@ -102,7 +102,7 @@ module Scrapers
         results << {
           supplier_sku: sku.to_s,
           current_price: price&.to_f,
-          in_stock: !item['isOutOfStock'] && !item['unavailable'],
+          in_stock: !item['unavailable'],
           supplier_name: [item['description'] || item['nameWithoutBrand'], item['brandName']].compact.join(' ').truncate(255),
           pack_size: item['packSize'].to_s.presence
         }

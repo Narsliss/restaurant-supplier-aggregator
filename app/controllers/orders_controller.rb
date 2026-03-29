@@ -427,6 +427,54 @@ class OrdersController < ApplicationController
     }
   end
 
+  # Search supplier products for the "Forgot Something?" modal on the review page.
+  # Returns products from suppliers that have pending orders in the batch.
+  def search_products
+    query = params[:q].to_s.strip
+    batch_id = params[:batch_id]
+
+    if query.length < 2 || batch_id.blank?
+      render json: { results: [] }
+      return
+    end
+
+    # Find which suppliers have pending orders in this batch
+    supplier_ids = scoped_orders
+      .for_batch(batch_id)
+      .where(status: %w[pending verifying price_changed])
+      .pluck(:supplier_id)
+      .uniq
+
+    # Search supplier products from those suppliers
+    results = SupplierProduct
+      .where(supplier_id: supplier_ids)
+      .available
+      .in_stock
+      .where("supplier_name ILIKE ?", "%#{query}%")
+      .includes(:supplier)
+      .limit(20)
+      .map do |sp|
+        order = scoped_orders
+          .for_batch(batch_id)
+          .where(supplier_id: sp.supplier_id, status: %w[pending verifying price_changed])
+          .first
+
+        {
+          id: sp.id,
+          name: sp.supplier_name,
+          sku: sp.supplier_sku,
+          pack_size: sp.pack_size,
+          price: sp.current_price,
+          supplier_name: sp.supplier.name,
+          supplier_id: sp.supplier_id,
+          order_id: order&.id
+        }
+      end
+      .select { |r| r[:order_id].present? }
+
+    render json: { results: results }
+  end
+
   # Submit all pending orders in a batch.
   # Prices are already verified on the review page — goes straight to PlaceOrderJob.
   # SAFETY: Never calls submit!/scraper directly.

@@ -16,7 +16,9 @@ export default class extends Controller {
     "verifyingIndicator", "verifiedBadge", "priceChangedBadge", "verifyFailedBadge",
     "priceChangeDetails", "priceChangeList", "priceDiff", "unitPriceDisplay",
     "verificationErrorDetails", "verificationErrorText",
-    "suggestionsSection"
+    "suggestionsSection",
+    // Forgot Something modal
+    "forgotModal", "forgotSearchInput", "forgotResults"
   ]
 
   static values = {
@@ -1636,6 +1638,144 @@ export default class extends Controller {
       this._cachedCsrfToken = document.querySelector("meta[name='csrf-token']")?.content
     }
     return this._cachedCsrfToken
+  }
+
+  // --- Forgot Something modal ---
+
+  openForgotSomething() {
+    if (this.hasForgotModalTarget) {
+      this.forgotModalTarget.classList.remove("hidden")
+      if (this.hasForgotSearchInputTarget) {
+        this.forgotSearchInputTarget.value = ""
+        this.forgotSearchInputTarget.focus()
+      }
+      if (this.hasForgotResultsTarget) {
+        this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">Search for a product to add to your order</p>'
+      }
+    }
+  }
+
+  closeForgotSomething() {
+    if (this.hasForgotModalTarget) {
+      this.forgotModalTarget.classList.add("hidden")
+    }
+  }
+
+  searchForgotProducts() {
+    const query = this.forgotSearchInputTarget.value.trim()
+    if (query.length < 2) {
+      this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">Type at least 2 characters to search</p>'
+      return
+    }
+
+    // Debounce
+    if (this._forgotSearchTimer) clearTimeout(this._forgotSearchTimer)
+    this._forgotSearchTimer = setTimeout(() => {
+      this._doForgotSearch(query)
+    }, 300)
+  }
+
+  _doForgotSearch(query) {
+    this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">Searching...</p>'
+
+    fetch(`/orders/search_products?q=${encodeURIComponent(query)}&batch_id=${this.batchIdValue}`, {
+      headers: { "Accept": "application/json" }
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (!data.results || data.results.length === 0) {
+        this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">No products found</p>'
+        return
+      }
+
+      this.forgotResultsTarget.innerHTML = data.results.map(product => `
+        <div class="flex items-center justify-between py-3 border-b last:border-0">
+          <div class="flex-1 min-w-0 mr-3">
+            <p class="text-sm font-medium text-gray-900 truncate">${this._escapeHtml(product.name)}</p>
+            <p class="text-xs text-gray-500">
+              ${this._escapeHtml(product.supplier_name)}
+              ${product.pack_size ? ' &middot; ' + this._escapeHtml(product.pack_size) : ''}
+              ${product.price ? ' &middot; ' + this._formatCurrency(product.price) : ''}
+            </p>
+          </div>
+          <button type="button"
+                  class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark transition-colors"
+                  data-action="order-review#addForgotItem"
+                  data-supplier-product-id="${product.id}"
+                  data-order-id="${product.order_id}"
+                  data-product-name="${this._escapeHtml(product.name)}"
+                  data-product-price="${product.price}">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+            </svg>
+            Add
+          </button>
+        </div>
+      `).join("")
+    })
+    .catch(err => {
+      console.error("Search error:", err)
+      this.forgotResultsTarget.innerHTML = '<p class="text-sm text-red-500 text-center py-8">Search failed. Please try again.</p>'
+    })
+  }
+
+  addForgotItem(event) {
+    const btn = event.currentTarget
+    const orderId = btn.dataset.orderId
+    const supplierProductId = btn.dataset.supplierProductId
+
+    // Disable to prevent double-click
+    btn.disabled = true
+    btn.textContent = "Adding..."
+    btn.classList.add("opacity-50")
+
+    fetch(`/orders/${orderId}/order_items`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": this._csrfToken(),
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({ supplier_product_id: supplierProductId, quantity: 1 })
+    })
+    .then(res => {
+      if (!res.ok) throw new Error("Failed to add item")
+      return res.json()
+    })
+    .then(data => {
+      if (data.is_existing) {
+        this._updateExistingItemRow(data.item)
+      } else {
+        this._insertNewItemRow(orderId, data.item)
+      }
+
+      // Update order totals
+      this._applyServerTotals(orderId, data.order)
+      this._recalculateSummary()
+      this._updateMinimumForOrder(orderId, parseFloat(data.order.subtotal), data.meets_minimum)
+      this._updateSubmitStates()
+
+      // Show success state on button
+      btn.textContent = "Added!"
+      btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark")
+      btn.classList.add("bg-green-600")
+      setTimeout(() => {
+        btn.textContent = "Add"
+        btn.disabled = false
+        btn.classList.remove("opacity-50", "bg-green-600")
+        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark")
+      }, 1500)
+    })
+    .catch(err => {
+      console.error("Error adding item:", err)
+      btn.textContent = "Failed"
+      btn.classList.add("bg-red-500")
+      setTimeout(() => {
+        btn.textContent = "Add"
+        btn.disabled = false
+        btn.classList.remove("opacity-50", "bg-red-500")
+      }, 1500)
+    })
   }
 
   _formatCurrency(amount) {

@@ -236,7 +236,7 @@ class Order < ApplicationRecord
   end
 
   def item_count
-    order_items.sum(:quantity)
+    order_items.sum(:quantity).to_i
   end
 
   def build_from_order_list!(order_list, supplier)

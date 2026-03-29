@@ -458,7 +458,7 @@ module Scrapers
           quantity: 1,
           in_stock: p[:in_stock] != false,
           position: nil,
-          price_unit: price_data&.dig(:primary_uom),
+          price_unit: nil, # CW returns total selling price, not per-unit — don't trigger estimated_total multiplication
           piece_price: piece_data&.dig(:secondary_price) || piece_data&.dig(:primary_price),
           piece_pack_size: 'PC',
           remote_item_id: p[:variant_code]

@@ -69,7 +69,7 @@ module Orders
           order.update!(
             status: 'dry_run_complete',
             confirmation_number: result[:confirmation_number],
-            total_amount: result[:total].presence || order.calculated_subtotal,
+            total_amount: result[:total].to_f > 0 ? result[:total].to_f : order.calculated_subtotal,
             submitted_at: Time.current,
             delivery_date: confirmed_delivery,
             notes: [order.notes, dry_run_summary(result)].compact.join("\n\n")
@@ -82,7 +82,9 @@ module Orders
         else
           # Prefer supplier-reported total (source of truth), fall back to our
           # calculated subtotal only if the supplier didn't return one.
-          best_total = result[:total].presence || order.calculated_subtotal
+          # Note: can't use .presence here — 0.0.presence returns 0.0 (not nil),
+          # so a nil-to-float conversion (nil.to_f = 0.0) would override the fallback.
+          best_total = result[:total].to_f > 0 ? result[:total].to_f : order.calculated_subtotal
 
           order.update!(
             status: 'submitted',

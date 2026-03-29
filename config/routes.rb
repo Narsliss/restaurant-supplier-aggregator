@@ -201,6 +201,7 @@ Rails.application.routes.draw do
       post :split_create
       post :create_from_aggregated_list
       get :review
+      get :search_products
       post :submit_batch
       get :verification_status
       post :accept_price_changes

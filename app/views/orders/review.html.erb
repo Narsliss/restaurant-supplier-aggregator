@@ -533,30 +533,68 @@
 
   <%# Bottom action bar %>
   <div class="bg-white shadow rounded-lg p-4 sm:p-6">
-    <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
-      <% if @aggregated_list_id.present? %>
-        <%= link_to "Back to Order Builder", order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id),
-            class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
-      <% else %>
-        <%= link_to "Back to Order History", orders_path,
-            class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
-      <% end %>
+    <div class="flex flex-col-reverse sm:flex-row sm:justify-between gap-3">
+      <div class="flex flex-col sm:flex-row gap-3">
+        <% if @aggregated_list_id.present? %>
+          <%= link_to "Back to Order Builder", order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id),
+              class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
+        <% else %>
+          <%= link_to "Back to Order History", orders_path,
+              class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-center" %>
+        <% end %>
+        <button type="button"
+                data-action="order-review#openForgotSomething"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-orange bg-brand-orange/5 border border-brand-orange/30 rounded-md hover:bg-brand-orange/10 transition-colors text-center">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"/>
+          </svg>
+          Forgot Something?
+        </button>
+      </div>
 
-      <% submittable = @review_orders.select { |r| r[:has_credentials] && r[:meets_minimum] && r[:meets_case_minimum] && !r[:order].verifying? && r[:verification_status].in?(%w[verified price_changed skipped]) } %>
-      <% skipped_for_creds = @review_orders.count { |r| !r[:has_credentials] } %>
-      <% can_submit_all = submittable.any? %>
-      <%# Include all credentialed order IDs in the form — server-side submit_batch validates status/dates %>
-      <% all_credentialed_ids = @review_orders.select { |r| r[:has_credentials] }.map { |r| r[:order].id } %>
-      <% btn_label = submittable.size == @review_orders.size ? "Submit All Orders" : "Submit #{submittable.size} of #{@review_orders.size} Orders" %>
-      <%= button_to btn_label,
-          submit_batch_orders_path(batch_id: @batch_id, order_ids: all_credentialed_ids, aggregated_list_id: @aggregated_list_id),
-          method: :post,
-          disabled: !can_submit_all,
-          class: "px-6 py-2 text-sm font-semibold rounded-md shadow-sm text-center #{can_submit_all ? 'text-white bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'text-gray-400 bg-gray-600 opacity-50 cursor-not-allowed'}",
-          data: { order_review_target: "submitAllBtn" } %>
-      <% if skipped_for_creds > 0 %>
-        <p class="text-xs text-red-600 text-right"><%= skipped_for_creds %> order<%= skipped_for_creds == 1 ? '' : 's' %> skipped (no credentials)</p>
-      <% end %>
+      <div class="flex flex-col sm:flex-row gap-3 sm:items-center">
+        <% submittable = @review_orders.select { |r| r[:has_credentials] && r[:meets_minimum] && r[:meets_case_minimum] && !r[:order].verifying? && r[:verification_status].in?(%w[verified price_changed skipped]) } %>
+        <% skipped_for_creds = @review_orders.count { |r| !r[:has_credentials] } %>
+        <% can_submit_all = submittable.any? %>
+        <%# Include all credentialed order IDs in the form — server-side submit_batch validates status/dates %>
+        <% all_credentialed_ids = @review_orders.select { |r| r[:has_credentials] }.map { |r| r[:order].id } %>
+        <% btn_label = submittable.size == @review_orders.size ? "Submit All Orders" : "Submit #{submittable.size} of #{@review_orders.size} Orders" %>
+        <%= button_to btn_label,
+            submit_batch_orders_path(batch_id: @batch_id, order_ids: all_credentialed_ids, aggregated_list_id: @aggregated_list_id),
+            method: :post,
+            disabled: !can_submit_all,
+            class: "px-6 py-2 text-sm font-semibold rounded-md shadow-sm text-center #{can_submit_all ? 'text-white bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'text-gray-400 bg-gray-600 opacity-50 cursor-not-allowed'}",
+            data: { order_review_target: "submitAllBtn" } %>
+        <% if skipped_for_creds > 0 %>
+          <p class="text-xs text-red-600 text-right"><%= skipped_for_creds %> order<%= skipped_for_creds == 1 ? '' : 's' %> skipped (no credentials)</p>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <%# "Forgot Something?" search modal %>
+  <div class="hidden fixed inset-0 z-50" data-order-review-target="forgotModal">
+    <div class="fixed inset-0 bg-black/50" data-action="click->order-review#closeForgotSomething"></div>
+    <div class="fixed inset-x-4 top-[10%] sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-lg bg-white rounded-xl shadow-2xl max-h-[75vh] flex flex-col">
+      <div class="p-4 border-b flex items-center justify-between">
+        <h3 class="text-lg font-semibold text-gray-900">Add an Item</h3>
+        <button type="button" data-action="order-review#closeForgotSomething" class="text-gray-400 hover:text-gray-600">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="p-4 border-b">
+        <input type="text"
+               placeholder="Search for a product..."
+               class="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm"
+               data-order-review-target="forgotSearchInput"
+               data-action="input->order-review#searchForgotProducts"
+               autofocus>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4" data-order-review-target="forgotResults">
+        <p class="text-sm text-gray-400 text-center py-8">Search for a product to add to your order</p>
+      </div>
     </div>
   </div>
 </div>
