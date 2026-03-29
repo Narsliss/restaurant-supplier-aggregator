@@ -649,17 +649,20 @@ class OrdersController < ApplicationController
     batch_id = params[:batch_id]
     order_ids = params[:order_ids] || []
 
-    orders = scoped_orders.for_batch(batch_id).where(verification_status: "failed")
+    orders = scoped_orders.for_batch(batch_id)
+      .where(status: %w[pending verifying price_changed])
     orders = orders.where(id: order_ids) if order_ids.present?
 
-    orders.each do |order|
+    # Only re-verify non-email suppliers
+    verifiable = orders.reject { |o| o.supplier.email_supplier? }
+    verifiable.each do |order|
       order.start_verification!
       PriceVerificationJob.perform_later(order.id)
     end
 
     render json: {
       success: true,
-      message: "Retrying verification for #{orders.size} order(s)..."
+      message: "Retrying verification for #{verifiable.size} order(s)..."
     }
   end
 

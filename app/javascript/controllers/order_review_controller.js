@@ -1643,6 +1643,7 @@ export default class extends Controller {
   // --- Forgot Something modal ---
 
   openForgotSomething() {
+    this._forgotItemsAddedToOrders = new Set()
     if (this.hasForgotModalTarget) {
       this.forgotModalTarget.classList.remove("hidden")
       if (this.hasForgotSearchInputTarget) {
@@ -1658,6 +1659,33 @@ export default class extends Controller {
   closeForgotSomething() {
     if (this.hasForgotModalTarget) {
       this.forgotModalTarget.classList.add("hidden")
+    }
+
+    // Re-verify orders that had items added
+    if (this._forgotItemsAddedToOrders && this._forgotItemsAddedToOrders.size > 0) {
+      const orderIds = Array.from(this._forgotItemsAddedToOrders)
+      this._forgotItemsAddedToOrders = new Set()
+
+      fetch("/orders/retry_verification", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": this._csrfToken(),
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ batch_id: this.batchIdValue, order_ids: orderIds })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          // Show verifying state on affected orders
+          orderIds.forEach(id => this._showOrderVerifying(String(id)))
+          this._showVerificationBanner()
+          this._startPolling()
+          this._updateSubmitStates()
+        }
+      })
+      .catch(err => console.error("Error triggering re-verification:", err))
     }
   }
 
@@ -1754,6 +1782,11 @@ export default class extends Controller {
       this._recalculateSummary()
       this._updateMinimumForOrder(orderId, parseFloat(data.order.subtotal), data.meets_minimum)
       this._updateSubmitStates()
+
+      // Track this order for re-verification on modal close
+      if (this._forgotItemsAddedToOrders) {
+        this._forgotItemsAddedToOrders.add(orderId)
+      }
 
       // Show success state on button
       btn.textContent = "Added!"
