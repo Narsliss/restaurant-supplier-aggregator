@@ -327,9 +327,19 @@ class SupplierListItem < ApplicationRecord
   end
 
   # Price is for the whole pack — divide by total normalized quantity.
+  # Exception: "Piece" or standalone "PC" in pack_size means the price is
+  # per-piece (e.g., "12x1 QT Piece" at $2.46 = $2.46 for 1 QT, not 12 QT).
   def per_unit_price_from_case_pricing
     return nil unless parsed_pack_size[:parseable]
     return nil if parsed_pack_size[:normalized_quantity] <= 0
+
+    # Detect per-piece pricing: "Piece" or standalone "PC" (not in parens like "(16 PER Case)")
+    if pack_size.present? && pack_size.match?(/\bPiece\b|\bPC\b(?!\s*\()/i)
+      per_piece = UnitParser.per_piece_normalized(pack_size)
+      if per_piece && per_piece[:quantity] > 0
+        return (effective_price / per_piece[:quantity]).round(4)
+      end
+    end
 
     (effective_price / parsed_pack_size[:normalized_quantity]).round(4)
   end
