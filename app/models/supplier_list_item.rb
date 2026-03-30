@@ -195,6 +195,16 @@ class SupplierListItem < ApplicationRecord
       end
     end
 
+    # Per-piece pricing (Piece/PC suffix): multiply by case count.
+    # "12x1 QT Piece" at $2.46/piece → $2.46 × 12 = $29.52 case total.
+    if pack_size.present? && pack_size.match?(/\bPiece\b|\bPC\b(?!\s*\()/i)
+      per_piece = UnitParser.per_piece_normalized(pack_size)
+      if per_piece && per_piece[:quantity] > 0 && parsed_pack_size[:parseable]
+        case_count = (parsed_pack_size[:normalized_quantity] / per_piece[:quantity]).round
+        return (effective_price * case_count).round(2) if case_count > 1
+      end
+    end
+
     UnitParser.estimated_total(effective_price, effective_unit, pack_size)
   end
 
