@@ -78,11 +78,12 @@ class AggregatedListsController < ApplicationController
         }
       end
 
-      in_stock_prices = prices.select { |p| p[:price].present? && p[:in_stock] }
+      in_stock_prices = prices.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
 
-      # Prefer per-unit comparison: find items with per-unit prices and matching units
-      with_per_unit = in_stock_prices.select { |p| p[:per_unit_price].present? && p[:normalized_unit].present? }
-      unit_groups = with_per_unit.group_by { |p| p[:normalized_unit] }
+      # Prefer per-unit comparison: find items with per-unit prices and matching units.
+      # Treat "oz" and "fl oz" as equivalent for comparison (close enough in food service).
+      with_per_unit = in_stock_prices.select { |p| p[:per_unit_price].present? && p[:per_unit_price] > 0 && p[:normalized_unit].present? }
+      unit_groups = with_per_unit.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
       largest_group = unit_groups.max_by { |_unit, items| items.size }&.last || []
 
       cheapest = most_expensive = nil
@@ -96,11 +97,11 @@ class AggregatedListsController < ApplicationController
         most_expensive = in_stock_prices.max_by { |p| p[:price] }
       end
 
-      with_price = prices.select { |p| p[:price].present? }
+      with_price = prices.select { |p| p[:price].present? && p[:price] > 0 }
       spread = nil
       if with_price.size >= 2
-        per_unit_with_price = with_price.select { |p| p[:per_unit_price].present? && p[:normalized_unit].present? }
-        price_unit_groups = per_unit_with_price.group_by { |p| p[:normalized_unit] }
+        per_unit_with_price = with_price.select { |p| p[:per_unit_price].present? && p[:per_unit_price] > 0 && p[:normalized_unit].present? }
+        price_unit_groups = per_unit_with_price.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
         largest_price_group = price_unit_groups.max_by { |_unit, items| items.size }&.last || []
 
         if largest_price_group.size >= 2
