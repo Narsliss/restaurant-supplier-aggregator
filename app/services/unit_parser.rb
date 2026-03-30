@@ -288,16 +288,18 @@ class UnitParser
         unit = normalize_unit_str($4)
 
         # Detect size RANGES vs case pack MULTIPLIERS:
-        # - Count units: "80/88 CT" or "120-135 CT" → size range (produce sizing)
+        # - Count units: "80/88 CT" or "120-135 CT" → produce size range (apple/pear sizing)
+        #   Only when both numbers ≥ 40 (produce sizing). Smaller counts like "18/20 EA"
+        #   are case packs (18 trays × 20 pieces).
         # - Weight units: "30-40 LB" → weight range (case weighs 30-40 lbs)
-        # Ranges have both numbers close in magnitude (within 2x) and neither is 1.
-        # For weight, also catch when the product is unrealistically large (>100 lbs).
+        #   Only when the product exceeds 100 lbs (unrealistic for a single case).
         is_count_unit = COUNT_TO_EACH.key?(unit)
         is_weight_unit = WEIGHT_TO_OZ.key?(unit)
         close_in_magnitude = num1 > 1 && num2 > 1 && [num1 / num2, num2 / num1].max <= 2.0
+        is_produce_sizing = is_count_unit && num1 >= 40 && num2 >= 40
         unrealistic_weight = is_weight_unit && (num1 * num2) > 100
 
-        is_range = close_in_magnitude && (is_count_unit || unrealistic_weight)
+        is_range = close_in_magnitude && (is_produce_sizing || unrealistic_weight)
         if is_range
           total = ((num1 + num2) / 2.0).round
           build_result(total.to_f, unit)
