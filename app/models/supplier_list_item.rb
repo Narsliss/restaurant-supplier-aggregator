@@ -108,9 +108,9 @@ class SupplierListItem < ApplicationRecord
   def per_unit_price
     return nil unless effective_price
 
-    effective_price_unit = price_unit.presence || inferred_price_unit
-    if effective_price_unit.present?
-      unit_key = UnitParser.normalize_unit_key(effective_price_unit)
+    explicit_unit = price_unit.presence
+    if explicit_unit.present?
+      unit_key = UnitParser.normalize_unit_key(explicit_unit)
 
       # Container types (CS, CASE, BAG, BOX, etc.) mean the price is for the
       # whole pack — treat as case pricing. Exception: variable-weight items
@@ -132,8 +132,12 @@ class SupplierListItem < ApplicationRecord
         return per_unit_price_from_case_pricing
       end
 
-      per_unit_price_from_unit_pricing(effective_price_unit)
+      per_unit_price_from_unit_pricing(explicit_unit)
     else
+      # No explicit price_unit — price is for the whole pack.
+      # Don't use inferred_price_unit here: "AVG" in pack_size just means
+      # approximate weight, not per-lb pricing. Per-lb inference only applies
+      # when overriding an explicit container type (CS, CASE) or EACH above.
       per_unit_price_from_case_pricing
     end
   end
@@ -174,9 +178,9 @@ class SupplierListItem < ApplicationRecord
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.
   def estimated_total_price
-    effective_unit = price_unit.presence || inferred_price_unit
-    if effective_unit.present?
-      unit_key = UnitParser.normalize_unit_key(effective_unit)
+    explicit_unit = price_unit.presence
+    if explicit_unit.present?
+      unit_key = UnitParser.normalize_unit_key(explicit_unit)
 
       # Container types — price IS the total already
       if CONTAINER_PRICE_UNITS.include?(unit_key)
@@ -195,7 +199,7 @@ class SupplierListItem < ApplicationRecord
       end
     end
 
-    UnitParser.estimated_total(effective_price, effective_unit, pack_size)
+    UnitParser.estimated_total(effective_price, explicit_unit, pack_size)
   end
 
   # Price change detection (mirrors SupplierProduct pattern)
@@ -245,14 +249,14 @@ class SupplierListItem < ApplicationRecord
     return 'N/A' unless ep
 
     base = "$#{'%.2f' % ep}"
-    effective_unit = price_unit.presence || inferred_price_unit
-    if effective_unit.present?
-      unit_key = UnitParser.normalize_unit_key(effective_unit)
+    explicit_unit = price_unit.presence
+    if explicit_unit.present?
+      unit_key = UnitParser.normalize_unit_key(explicit_unit)
       # Don't show "/CS", "/CASE", etc. — case pricing is the default display
       # For "each" on weight items with inferred per-lb, show "/LB" instead of "/EACH"
       unless CONTAINER_PRICE_UNITS.include?(unit_key)
         inferred = inferred_price_unit if unit_key == "each"
-        unit_display = (inferred || effective_unit).upcase
+        unit_display = (inferred || explicit_unit).upcase
         "#{base}/#{unit_display}"
       else
         # If pack_size has variable-weight indicators, show the inferred unit
