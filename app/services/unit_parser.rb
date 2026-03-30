@@ -29,7 +29,10 @@ class UnitParser
     "kilogram" => 35.274,
     "gr" => 0.03527,
     "gram" => 0.03527,
-    "grams" => 0.03527
+    "grams" => 0.03527,
+    "bushel" => 25.0 * 16.0,  # ~25 lbs, approximate for produce comparison
+    "bu" => 25.0 * 16.0,
+    "bush" => 25.0 * 16.0
   }.freeze
 
   # Volume conversions to fluid ounces
@@ -70,6 +73,10 @@ class UnitParser
     "dozen" => 12.0
   }.freeze
 
+  # Bushel conversion: ~25 lbs is a reasonable average for produce (peppers,
+  # squash, greens). Approximate but enables cross-supplier price comparison.
+  BUSHEL_TO_OZ = 25.0 * 16.0  # 400 oz
+
   # Produce/specialty units (not convertible to weight/volume/count — compared within their own category)
   PRODUCE_UNITS = {
     "bunch" => "bunch",
@@ -79,8 +86,6 @@ class UnitParser
     "heads" => "head",
     "stalk" => "stalk",
     "stalks" => "stalk",
-    "bushel" => "bushel",
-    "bu" => "bushel",
     "flat" => "flat",
     "flats" => "flat",
     "pint" => "pint"  # pint of berries = count unit in produce
@@ -97,7 +102,6 @@ class UnitParser
     "bunch" => "bunch",
     "head" => "head",
     "stalk" => "stalk",
-    "bushel" => "bushel",
     "flat" => "flat"
   }.freeze
 
@@ -114,7 +118,8 @@ class UnitParser
       text = text.sub(/\b(lb|oz|ct|ea|gal|kg|cs|in|ml|dz|fl)\s+\1\b/, '\1')
 
       # Try each parsing strategy in order
-      result = parse_case_pack(text) ||
+      result = parse_mixed_fraction(text) ||
+               parse_case_pack(text) ||
                parse_multiplied_pack(text) ||
                parse_simple_quantity(text) ||
                parse_pound_sign(text) ||
@@ -220,6 +225,40 @@ class UnitParser
     end
 
     private
+
+    # Parses mixed fractions: "1-1/9 BUSH" → 1 + 1/9 = 1.111 bushels
+    # Common in produce (bushel fractions): "1/2 BUSHEL", "1-1/9 BUSH"
+    # Also handles simple fractions: "1/2 BUSHEL" → 0.5 bushels
+    # Only triggers when there's a slash in the size (digit-digit/digit),
+    # so normal case packs like "1-3#" or "12-6 OZ" are unaffected.
+    def parse_mixed_fraction(text)
+      # Mixed fraction: "1-1/9 BUSH", "2-1/2 BUSHEL" → whole + numerator/denominator
+      if text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*[\-]\s*(\d+)\s*\/\s*(\d+)\s*(#{unit_pattern})/i
+        whole = $1.to_f
+        numerator = $2.to_f
+        denominator = $3.to_f
+        unit = normalize_unit_str($4)
+        return nil if denominator == 0
+
+        quantity = whole + (numerator / denominator)
+        build_result(quantity, unit)
+
+      # Simple fraction: "1/2 BUSHEL", "1/9 BUSH"
+      elsif text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*\/\s*(\d+)\s*(#{unit_pattern})/i
+        numerator = $1.to_f
+        denominator = $2.to_f
+        unit = normalize_unit_str($3)
+        return nil if denominator == 0
+
+        # Only treat as fraction when denominator is a common fraction value,
+        # not a case pack separator (e.g., "12/6 OZ" is 12×6, not 12÷6)
+        return nil unless [2, 3, 4, 5, 8, 9, 10, 16].include?(denominator.to_i) &&
+                          numerator < denominator
+
+        quantity = numerator / denominator
+        build_result(quantity, unit)
+      end
+    end
 
     # Parses "Case - 12-2#" → 12 packs × 2 lb = 24 lb
     # Also: "Case 12/2 LB", "CS 6-5 LB", "12/2 LB", "4 3 LB" (space-separated)
@@ -361,7 +400,7 @@ class UnitParser
       s = "bunch" if s == "bunches" || s == "bundle"
       s = "head" if s == "heads"
       s = "stalk" if s == "stalks"
-      s = "bushel" if s == "bu"
+      s = "bushel" if s == "bu" || s == "bush"
       s = "flat" if s == "flats"
       s
     end
