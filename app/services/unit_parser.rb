@@ -151,7 +151,7 @@ class UnitParser
         count = $1.to_f
         per_piece = $2.to_f
         unit = normalize_unit_str($3)
-        if count > 1 && count <= 24 && count != per_piece
+        if count > 1 && count != per_piece
           result = normalize_to_base(per_piece, unit)
           return { quantity: result[:quantity].round(4), unit: result[:unit] } if result
         end
@@ -255,9 +255,10 @@ class UnitParser
         per_unit = $2.to_f
         unit = normalize_unit_str($3)
 
-        # Only treat as case pack if count is a typical case multiplier (1-24)
-        # and per_unit is different from count (avoid "50 50 LB" misparse)
-        if count >= 1 && count <= 24 && per_unit > 0 && count != per_unit
+        # Treat as case pack when count differs from per_unit (avoids "50 50 LB"
+        # misparse) and per_unit size is positive. Food service cases can have
+        # large counts (36, 60, 100+).
+        if count >= 1 && per_unit > 0 && count != per_unit
           total = count * per_unit
           build_result(total, unit)
         end

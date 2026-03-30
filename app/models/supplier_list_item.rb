@@ -93,6 +93,10 @@ class SupplierListItem < ApplicationRecord
     @parsed_pack_size ||= UnitParser.parse(pack_size)
   end
 
+  # Container-type price_units that mean "price is for the whole pack" —
+  # these should fall through to case pricing, not unit conversion.
+  CONTAINER_PRICE_UNITS = Set.new(%w[cs case bag box unit tray bucket jar]).freeze
+
   # Returns the per-unit price in the normalized base unit (oz, fl oz, each, etc.)
   #
   # When price_unit is set (e.g., "lb"), the stored price IS already per that unit,
@@ -106,6 +110,24 @@ class SupplierListItem < ApplicationRecord
 
     effective_price_unit = price_unit.presence || inferred_price_unit
     if effective_price_unit.present?
+      unit_key = effective_price_unit.to_s.strip.downcase
+
+      # Container types (CS, CASE, BAG, BOX, etc.) mean the price is for the
+      # whole pack — treat as case pricing. Exception: variable-weight items
+      # (pack_size contains AVG, UP, or +) are actually per-lb despite the
+      # container label (common with Sysco meat items).
+      if CONTAINER_PRICE_UNITS.include?(unit_key)
+        inferred = inferred_price_unit
+        return per_unit_price_from_unit_pricing(inferred) if inferred.present?
+        return per_unit_price_from_case_pricing
+      end
+
+      # "each" on a weight/volume item (e.g., $8.50/each for 1qt) means
+      # the price is per pack unit — treat as case pricing.
+      if unit_key == "each" && normalized_unit.present? && normalized_unit != "each"
+        return per_unit_price_from_case_pricing
+      end
+
       per_unit_price_from_unit_pricing(effective_price_unit)
     else
       per_unit_price_from_case_pricing
@@ -191,7 +213,8 @@ class SupplierListItem < ApplicationRecord
     price.presence || supplier_product&.current_price
   end
 
-  # Price display — shows "/lb", "/oz" etc. when price is per-unit
+  # Price display — shows "/lb", "/oz" etc. when price is per-unit.
+  # Container types (CS, CASE, etc.) are suppressed since case pricing is the default.
   def formatted_price
     ep = effective_price
     return 'N/A' unless ep
@@ -199,8 +222,20 @@ class SupplierListItem < ApplicationRecord
     base = "$#{'%.2f' % ep}"
     effective_unit = price_unit.presence || inferred_price_unit
     if effective_unit.present?
-      unit_display = effective_unit.upcase
-      "#{base}/#{unit_display}"
+      unit_key = effective_unit.to_s.strip.downcase
+      # Don't show "/CS", "/CASE", etc. — case pricing is the default display
+      unless CONTAINER_PRICE_UNITS.include?(unit_key)
+        unit_display = effective_unit.upcase
+        "#{base}/#{unit_display}"
+      else
+        # If pack_size has variable-weight indicators, show the inferred unit
+        inferred = inferred_price_unit
+        if inferred.present?
+          "#{base}/#{inferred.upcase}"
+        else
+          base
+        end
+      end
     else
       base
     end
@@ -218,6 +253,8 @@ class SupplierListItem < ApplicationRecord
   # Variable-weight indicators (common for meat/seafood):
   #   "15 LB+"          → + suffix means approximate weight, priced per lb
   #   "12LB AVG"        → AVG means average weight, priced per lb
+  #   "10#avg"          → pound-sign with AVG, same meaning
+  #   "5#UP"            → pound-sign with UP (minimum weight), priced per lb
   #   "4/15 LB CS"      → multi-piece case with LB weight, priced per lb
   def inferred_price_unit
     return nil unless pack_size.present?
@@ -227,9 +264,24 @@ class SupplierListItem < ApplicationRecord
       return $1.downcase
     end
 
+    # "10#+" — pound-sign with plus
+    if pack_size =~ /\d+\.?\d*\s*#\s*\+/i
+      return "lb"
+    end
+
     # "12LB AVG" — average weight means per-unit pricing
     if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s+AVG/i
       return $1.downcase
+    end
+
+    # "10#avg" or "5# AVG" — pound-sign with AVG
+    if pack_size =~ /\d+\.?\d*\s*#\s*AVG/i
+      return "lb"
+    end
+
+    # "5#UP" or "5# UP" — pound-sign with UP (minimum weight)
+    if pack_size =~ /\d+\.?\d*\s*#\s*UP/i
+      return "lb"
     end
 
     # "4/15 LB CS" — multi-piece LB case pattern (N/N LB CS|Case)
