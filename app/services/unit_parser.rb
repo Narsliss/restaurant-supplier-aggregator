@@ -233,7 +233,8 @@ class UnitParser
     # so normal case packs like "1-3#" or "12-6 OZ" are unaffected.
     def parse_mixed_fraction(text)
       # Mixed fraction: "1-1/9 BUSH", "2-1/2 BUSHEL" → whole + numerator/denominator
-      if text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*[\-]\s*(\d+)\s*\/\s*(\d+)\s*(#{unit_pattern})/i
+      # Only for bushel units — other units use digit/digit as case pack multipliers.
+      if text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*[\-]\s*(\d+)\s*\/\s*(\d+)\s*(bushel|bush|bu)\b/i
         whole = $1.to_f
         numerator = $2.to_f
         denominator = $3.to_f
@@ -244,16 +245,12 @@ class UnitParser
         build_result(quantity, unit)
 
       # Simple fraction: "1/2 BUSHEL", "1/9 BUSH"
-      elsif text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*\/\s*(\d+)\s*(#{unit_pattern})/i
+      # Only for bushel units — other units like "4/5 LB" are case packs (4×5), not fractions.
+      elsif text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*\/\s*(\d+)\s*(bushel|bush|bu)\b/i
         numerator = $1.to_f
         denominator = $2.to_f
         unit = normalize_unit_str($3)
-        return nil if denominator == 0
-
-        # Only treat as fraction when denominator is a common fraction value,
-        # not a case pack separator (e.g., "12/6 OZ" is 12×6, not 12÷6)
-        return nil unless [2, 3, 4, 5, 8, 9, 10, 16].include?(denominator.to_i) &&
-                          numerator < denominator
+        return nil if denominator == 0 || numerator >= denominator
 
         quantity = numerator / denominator
         build_result(quantity, unit)
