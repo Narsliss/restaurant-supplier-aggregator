@@ -30,7 +30,7 @@ class SupplierListsController < ApplicationController
     one_per_supplier = credentials.group_by(&:supplier_id).map { |_, creds| creds.first }
 
     one_per_supplier.each_with_index do |credential, index|
-      ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id)
+      ImportSupplierListsJob.set(wait: (index * 10).seconds).perform_later(credential.id, force: true)
     end
 
     redirect_to supplier_credentials_path, notice: "Syncing all supplier order guides..."

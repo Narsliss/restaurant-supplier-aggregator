@@ -433,7 +433,7 @@ class SupplierCredentialsController < ApplicationController
       return
     end
 
-    ImportSupplierListsJob.perform_later(@credential.id)
+    ImportSupplierListsJob.perform_later(@credential.id, force: true)
     Rails.logger.info "[SupplierCredentials] List import queued for credential ##{@credential.id} — #{@credential.supplier.name} (user: #{current_user.id})"
 
     respond_to do |format|
