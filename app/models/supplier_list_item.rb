@@ -110,7 +110,7 @@ class SupplierListItem < ApplicationRecord
 
     effective_price_unit = price_unit.presence || inferred_price_unit
     if effective_price_unit.present?
-      unit_key = effective_price_unit.to_s.strip.downcase
+      unit_key = UnitParser.normalize_unit_key(effective_price_unit)
 
       # Container types (CS, CASE, BAG, BOX, etc.) mean the price is for the
       # whole pack — treat as case pricing. Exception: variable-weight items
@@ -172,7 +172,7 @@ class SupplierListItem < ApplicationRecord
   def estimated_total_price
     effective_unit = price_unit.presence || inferred_price_unit
     if effective_unit.present?
-      unit_key = effective_unit.to_s.strip.downcase
+      unit_key = UnitParser.normalize_unit_key(effective_unit)
 
       # Container types — price IS the total already
       if CONTAINER_PRICE_UNITS.include?(unit_key)
@@ -240,7 +240,7 @@ class SupplierListItem < ApplicationRecord
     base = "$#{'%.2f' % ep}"
     effective_unit = price_unit.presence || inferred_price_unit
     if effective_unit.present?
-      unit_key = effective_unit.to_s.strip.downcase
+      unit_key = UnitParser.normalize_unit_key(effective_unit)
       # Don't show "/CS", "/CASE", etc. — case pricing is the default display
       unless CONTAINER_PRICE_UNITS.include?(unit_key)
         unit_display = effective_unit.upcase
