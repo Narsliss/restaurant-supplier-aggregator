@@ -112,6 +112,13 @@ class UnitParser
 
       text = pack_size_str.to_s.strip.downcase
 
+      # Normalize US Foods weight suffixes: "LBA" → "LB", "OZA" → "OZ" (the A = Average)
+      text = text.gsub(/\blba\b/, 'lb').gsub(/\boza\b/, 'oz')
+
+      # Strip weight qualifiers that interfere with case_pack parsing:
+      # "4 5#UP" → "4 5#", "1 10#avg" → "1 10#", "15 lb+" → "15 lb"
+      text = text.gsub(/(\d\s*(?:#|lb|oz|kg))\s*(?:avg|up|\+)\b/i, '\1')
+
       # Normalize: insert space between digits and letters ("32oz" → "32 oz", "550ct" → "550 ct")
       text = text.gsub(/(\d)(#{unit_pattern})\b/i, '\1 \2')
 
@@ -261,6 +268,18 @@ class UnitParser
     # Parses "Case - 12-2#" → 12 packs × 2 lb = 24 lb
     # Also: "Case 12/2 LB", "CS 6-5 LB", "12/2 LB", "4 3 LB" (space-separated)
     def parse_case_pack(text)
+      # Pattern 0: triple-number — "8/2/1.9 LB" → 8 pieces × 1.9 lb each = 15.2 lb
+      # US Foods uses this for protein: count/pieces-per-sub/weight-each.
+      # The middle number is sub-pack count; total = first × last.
+      if text =~ /(?:case|cs)?\s*[\-\s]*(\d+)\s*[\/\-]\s*(\d+)\s*[\/\-]\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
+        count = $1.to_f
+        _sub_count = $2.to_f
+        per_piece = $3.to_f
+        unit = normalize_unit_str($4)
+        total = count * per_piece
+        return build_result(total, unit)
+      end
+
       # Pattern 1: separator-based — count -/x quantity unit
       if text =~ /(?:case|cs)?\s*[\-\s]*(\d+)\s*([\-\/x])\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
         num1 = $1.to_f
