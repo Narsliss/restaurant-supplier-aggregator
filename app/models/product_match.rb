@@ -71,7 +71,7 @@ class ProductMatch < ApplicationRecord
   # close enough for price comparison in food service (~1:1 for most items).
   def comparable_group
     return @comparable_group if defined?(@comparable_group)
-    items = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] && p[:per_unit_price].present? && p[:normalized_unit].present? }
+    items = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] && p[:per_unit_price].present? && p[:per_unit_price] > 0 && p[:normalized_unit].present? }
     groups = items.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
     @comparable_group = groups.max_by { |_unit, g| g.size }&.last || []
   end
@@ -87,7 +87,7 @@ class ProductMatch < ApplicationRecord
       if per_unit_comparable?
         comparable_group.min_by { |p| p[:per_unit_price] }
       else
-        prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
+        prices = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
         prices.min_by { |p| p[:price] } if prices.any?
       end
     end
@@ -98,7 +98,7 @@ class ProductMatch < ApplicationRecord
       if per_unit_comparable?
         comparable_group.max_by { |p| p[:per_unit_price] }
       else
-        prices = prices_by_supplier.select { |p| p[:price].present? && p[:in_stock] }
+        prices = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
         prices.max_by { |p| p[:price] } if prices.any?
       end
     end
