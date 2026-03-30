@@ -1079,12 +1079,12 @@ module Scrapers
         # Bare format: "CASE", "EACH", etc.
         price_unit = raw_unit.presence
 
-        # Try to build a pack_size from unit_count
-        if unit_count.present? && unit_count.to_i > 0
-          pack_size = "#{raw_unit} - #{unit_count}"
-        # Fall back to description if it contains size info (e.g., "3#", "5 LB", "1 QT")
-        elsif description.match?(/\d+\s*(?:#|lb|oz|qt|gal|ct|ea|kg|bu)/i)
-          pack_size = "#{raw_unit} - #{description}"
+        # Extract "Pack Size: 1-3#" or "Pack Size: 12-6 OZ" from description
+        # Format: "Brand: ... | Pack Size: <size> | ..."
+        pack_size_match = description.match(/Pack Size:\s*([^|]+)/i)
+        if pack_size_match
+          extracted = pack_size_match[1].strip
+          pack_size = "#{raw_unit} - #{extracted}"
         else
           pack_size = raw_unit
         end
