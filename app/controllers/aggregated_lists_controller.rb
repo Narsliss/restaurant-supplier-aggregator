@@ -40,12 +40,14 @@ class AggregatedListsController < ApplicationController
 
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
     @product_matches = @aggregated_list.product_matches
+                                       .where.not(match_status: 'rejected')
                                        .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
-                                       .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 WHEN 'rejected' THEN 4 ELSE 5 END, position ASC"))
+                                       .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     @suppliers = sort_suppliers_for_user(@supplier_lists.map(&:supplier).uniq)
 
     # Pre-compute stats with a single grouped query instead of 3 separate COUNTs
-    status_counts = @aggregated_list.product_matches.group(:match_status).count
+    # Exclude rejected matches — they're hidden from the user (recoverable via Re-match All)
+    status_counts = @aggregated_list.product_matches.where.not(match_status: 'rejected').group(:match_status).count
     @stats = {
       total: status_counts.values.sum,
       matched: (status_counts['confirmed'] || 0) + (status_counts['auto_matched'] || 0) + (status_counts['manual'] || 0),
