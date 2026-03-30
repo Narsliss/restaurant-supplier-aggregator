@@ -1061,6 +1061,15 @@ module Scrapers
       unit_count = pack['unit_count'] || price_info&.dig('unit_count')
       description = item['description'].to_s.strip
 
+      # Log available enrichment data for bare pack units so we can improve parsing
+      if !raw_unit.include?('-') && raw_unit.upcase.in?(%w[CASE EACH BAG BOX UNIT])
+        extras = []
+        extras << "unit_count=#{unit_count}" if unit_count.present?
+        extras << "description=#{description.first(60)}" if description.present?
+        extras << "pack_keys=#{pack.keys.join(',')}" if extras.empty?
+        logger.info "[PPO] Bare pack '#{raw_unit}' for '#{item['display_name'].to_s.first(40)}': #{extras.join(', ')}" if extras.any?
+      end
+
       if raw_unit.include?('-')
         # Detailed format: "Case - 2-2#" → pack_size keeps the detail part
         container, detail = raw_unit.split(/\s*-\s*/, 2)
