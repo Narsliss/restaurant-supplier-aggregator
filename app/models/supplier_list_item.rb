@@ -170,7 +170,25 @@ class SupplierListItem < ApplicationRecord
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.
   def estimated_total_price
-    UnitParser.estimated_total(effective_price, price_unit.presence || inferred_price_unit, pack_size)
+    effective_unit = price_unit.presence || inferred_price_unit
+    if effective_unit.present?
+      unit_key = effective_unit.to_s.strip.downcase
+
+      # Container types — price IS the total already
+      if CONTAINER_PRICE_UNITS.include?(unit_key)
+        inferred = inferred_price_unit
+        return UnitParser.estimated_total(effective_price, inferred, pack_size) if inferred.present?
+        return effective_price
+      end
+
+      # "each" on weight/volume — price is per item, pack describes one item,
+      # so the price IS the total for that item
+      if unit_key == "each" && normalized_unit.present? && normalized_unit != "each"
+        return effective_price
+      end
+    end
+
+    UnitParser.estimated_total(effective_price, effective_unit, pack_size)
   end
 
   # Price change detection (mirrors SupplierProduct pattern)

@@ -77,15 +77,17 @@ module Scrapers
         price_info = prices_by_id[vp['uuid']]
         price = price_info ? (price_info['price_in_micros'] || 0) / 1_000_000.0 : nil
 
+        pack_size, price_unit = parse_ppo_pack(pack, item, price_info)
+
         {
           sku: vp['external_item_id'],
           name: item['display_name'],
           price: price,
-          pack_size: pack['unit'],
+          pack_size: pack_size,
           quantity: 1,
           in_stock: price_info&.dig('availability_status') != 'OUT_OF_STOCK',
           position: idx,
-          price_unit: pack['unit'],
+          price_unit: price_unit,
           piece_price: nil,
           piece_pack_size: nil,
           remote_item_id: vp['uuid']
@@ -178,11 +180,13 @@ module Scrapers
           price_info = prices_by_id[vp['uuid']]
           price = price_info ? (price_info['price_in_micros'] || 0) / 1_000_000.0 : nil
 
+          pack_size, _price_unit = parse_ppo_pack(pack, item, price_info)
+
           {
             supplier_sku: sku,
             supplier_name: item['display_name'],
             current_price: price,
-            pack_size: pack['unit'],
+            pack_size: pack_size,
             in_stock: price_info&.dig('availability_status') != 'OUT_OF_STOCK',
             category: item['category'] || ci['variant_pack_group_display_name'],
             supplier_url: "#{BASE_URL}/item/#{vp['uuid']}"
@@ -1041,6 +1045,43 @@ module Scrapers
       logger.info "[PremiereProduceOne] Cart button after add-to-cart: #{cart_check.inspect}"
 
       { added: added_items.count, failed: failed_items }
+    end
+
+    # Parse PPO pack data into [pack_size, price_unit].
+    #
+    # PPO's API returns pack.unit in two formats:
+    #   Detailed: "Case - 2-2#", "Each - 1-1 G", "Case - 12-6 OZ"
+    #   Bare:     "CASE", "EACH", "BAG", "BOX", "UNIT"
+    #
+    # For detailed formats, pack_size is already parseable. For bare formats,
+    # we enrich with unit_count from the pricing API or item description.
+    # price_unit is always just the container type (Case, Each, etc.).
+    def parse_ppo_pack(pack, item = {}, price_info = nil)
+      raw_unit = pack['unit'].to_s.strip
+      unit_count = pack['unit_count'] || price_info&.dig('unit_count')
+      description = item['description'].to_s.strip
+
+      if raw_unit.include?('-')
+        # Detailed format: "Case - 2-2#" → pack_size keeps the detail part
+        container, detail = raw_unit.split(/\s*-\s*/, 2)
+        price_unit = container.strip
+        pack_size = raw_unit
+      else
+        # Bare format: "CASE", "EACH", etc.
+        price_unit = raw_unit.presence
+
+        # Try to build a pack_size from unit_count
+        if unit_count.present? && unit_count.to_i > 0
+          pack_size = "#{raw_unit} - #{unit_count}"
+        # Fall back to description if it contains size info (e.g., "3#", "5 LB", "1 QT")
+        elsif description.match?(/\d+\s*(?:#|lb|oz|qt|gal|ct|ea|kg|bu)/i)
+          pack_size = "#{raw_unit} - #{description}"
+        else
+          pack_size = raw_unit
+        end
+      end
+
+      [pack_size, price_unit]
     end
 
     private
