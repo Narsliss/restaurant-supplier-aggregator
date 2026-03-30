@@ -54,6 +54,7 @@ class UnitParser
     "ml" => 0.03381,
     "liter" => 33.814,
     "litre" => 33.814,
+    "lt" => 33.814,
     "l" => 33.814
   }.freeze
 
