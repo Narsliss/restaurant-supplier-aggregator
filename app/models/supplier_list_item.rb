@@ -124,7 +124,11 @@ class SupplierListItem < ApplicationRecord
 
       # "each" on a weight/volume item (e.g., $8.50/each for 1qt) means
       # the price is per pack unit — treat as case pricing.
+      # Exception: if inferred_price_unit detects per-lb (e.g., PPO "EACH"
+      # items with # weights), use per-lb pricing instead.
       if unit_key == "each" && normalized_unit.present? && normalized_unit != "each"
+        inferred = inferred_price_unit
+        return per_unit_price_from_unit_pricing(inferred) if inferred.present?
         return per_unit_price_from_case_pricing
       end
 
@@ -182,8 +186,11 @@ class SupplierListItem < ApplicationRecord
       end
 
       # "each" on weight/volume — price is per item, pack describes one item,
-      # so the price IS the total for that item
+      # so the price IS the total for that item.
+      # Exception: if inferred_price_unit detects per-lb, compute the total.
       if unit_key == "each" && normalized_unit.present? && normalized_unit != "each"
+        inferred = inferred_price_unit
+        return UnitParser.estimated_total(effective_price, inferred, pack_size) if inferred.present?
         return effective_price
       end
     end
@@ -242,8 +249,10 @@ class SupplierListItem < ApplicationRecord
     if effective_unit.present?
       unit_key = UnitParser.normalize_unit_key(effective_unit)
       # Don't show "/CS", "/CASE", etc. — case pricing is the default display
+      # For "each" on weight items with inferred per-lb, show "/LB" instead of "/EACH"
       unless CONTAINER_PRICE_UNITS.include?(unit_key)
-        unit_display = effective_unit.upcase
+        inferred = inferred_price_unit if unit_key == "each"
+        unit_display = (inferred || effective_unit).upcase
         "#{base}/#{unit_display}"
       else
         # If pack_size has variable-weight indicators, show the inferred unit
@@ -306,6 +315,16 @@ class SupplierListItem < ApplicationRecord
     # The N/N with LB + case suffix indicates per-lb pricing for portioned meat
     if pack_size =~ /\d+\s*\/\s*\d+\s*(LB)\s*(CS|Case)/i
       return $1.downcase
+    end
+
+    # PPO "EACH" items with pound weights (# or LB) are priced per-lb,
+    # not per-piece. E.g., "EACH - 1-5#" at $7.60 = $7.60/lb for a ~5 lb piece.
+    # Volume/count items (QT, KG, CT) are genuine per-each pricing.
+    effective_unit = price_unit.presence
+    if effective_unit.present? && UnitParser.normalize_unit_key(effective_unit) == "each"
+      if pack_size =~ /\d+\s*(?:#|lb\b)/i
+        return "lb"
+      end
     end
 
     nil
