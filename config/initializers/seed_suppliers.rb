@@ -10,7 +10,8 @@ Rails.application.config.after_initialize do
   begin
     ready = Timeout.timeout(10) do
       ActiveRecord::Base.connection.table_exists?('suppliers') &&
-        ActiveRecord::Base.connection.column_exists?(:suppliers, :auth_type)
+        ActiveRecord::Base.connection.column_exists?(:suppliers, :auth_type) &&
+        ActiveRecord::Base.connection.column_exists?(:suppliers, :case_pricing)
     end
     next unless ready
   rescue ActiveRecord::ConnectionNotEstablished, Timeout::Error => e
@@ -25,7 +26,8 @@ Rails.application.config.after_initialize do
       base_url: 'https://order.usfoods.com',
       login_url: 'https://order.usfoods.com',
       scraper_class: 'Scrapers::UsFoodsScraper',
-      auth_type: 'two_fa'
+      auth_type: 'two_fa',
+      case_pricing: false # USF returns per-unit prices for variable-weight items
     },
     {
       code: 'chefswarehouse',

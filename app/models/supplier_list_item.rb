@@ -296,6 +296,14 @@ class SupplierListItem < ApplicationRecord
   def inferred_price_unit
     return nil unless pack_size.present?
 
+    # When the list item has no own price and falls back to the supplier
+    # product's current_price (a case/catalog price), skip variable-weight
+    # inference for suppliers that return case prices. The fallback price
+    # is the total case cost, not a per-unit price.
+    # Suppliers with case_pricing=false (e.g., US Foods) store per-unit
+    # prices even in the catalog, so inference still applies for them.
+    return nil if price.blank? && supplier&.case_pricing?
+
     # "15 LB+" or "5 OZ+" — plus sign means variable weight
     if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s*\+/i
       return $1.downcase

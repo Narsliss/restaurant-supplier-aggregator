@@ -117,7 +117,13 @@ module Orders
         unit_price = if uom == "PC" && supplier_list_item.piece_price.present?
                        supplier_list_item.piece_price
                      else
-                       supplier_list_item.price || supplier_product.current_price
+                       # Use estimated_total_price to convert per-unit prices
+                       # (e.g., $18.92/LB) into the full case cost (~$189 for a
+                       # 10 LB case). Quantity is in cases, so unit_price must
+                       # reflect the cost per case for line_total to be accurate.
+                       supplier_list_item.estimated_total_price ||
+                         supplier_list_item.price ||
+                         supplier_product.current_price
                      end
 
         selected << {
