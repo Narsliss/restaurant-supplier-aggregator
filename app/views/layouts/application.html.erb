@@ -28,7 +28,13 @@
         Demo Environment &mdash; Sample data resets nightly at midnight
       </div>
     <% end %>
-    <div class="min-h-full flex flex-col">
+    <div class="min-h-full flex flex-col"
+         <% if user_signed_in? && current_user.current_organization && current_location && defined?(operator?) && operator? %>
+           data-controller="price-check"
+           data-price-check-search-url-value="<%= catalog_search_path %>"
+           data-price-check-add-url-value="<%= add_to_list_catalog_search_path %>"
+           data-price-check-lists-url-value="<%= for_select_order_lists_path(format: :json) %>"
+         <% end %>>
       <% if user_signed_in? %>
         <% if controller.class.module_parent_name == 'Admin' %>
           <%= render "admin/shared/navigation" %>
@@ -59,6 +65,10 @@
 
       <% if user_signed_in? %>
         <%= render "shared/footer" %>
+      <% end %>
+
+      <% if user_signed_in? && current_user.current_organization && current_location && defined?(operator?) && operator? %>
+        <%= render "shared/price_check_modal" %>
       <% end %>
     </div>
 

@@ -170,8 +170,16 @@ Rails.application.routes.draw do
     end
   end
 
+  # Global Price Check (catalog search from nav bar)
+  resource :catalog_search, only: [:show], controller: 'catalog_searches' do
+    post :add_to_list
+  end
+
   # Order Lists
   resources :order_lists do
+    collection do
+      get :for_select
+    end
     member do
       post :duplicate
       get :price_comparison

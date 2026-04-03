@@ -102,6 +102,19 @@
                 class: "inline-flex items-center border-b-2 #{controller_name == 'reports' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
+          <%# — Price Check (global catalog search) %>
+          <% unless ops_disabled %>
+            <% if operator? %>
+              <button data-action="price-check#open"
+                      class="inline-flex items-center gap-1 ml-2 px-2 py-1.5 rounded-full text-gray-300 hover:text-white hover:bg-white/10 transition-colors duration-150"
+                      title="Price Check">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+              </button>
+            <% end %>
+          <% end %>
+
           <%# — New Order CTA (end of left nav, distinctive button style) %>
           <% if ops_disabled %>
             <% unless chef? || current_role == 'manager' %>
@@ -229,6 +242,19 @@
       <% elsif operator? %>
         <%= link_to "New Order", select_list_orders_path,
             class: "block rounded-md px-3 py-2.5 text-base font-semibold #{new_order_active ? 'bg-brand-orange text-white' : 'bg-brand-orange/80 text-white'}" %>
+      <% end %>
+
+      <%# — Price Check (mobile) %>
+      <% unless ops_disabled %>
+        <% if operator? %>
+          <button data-action="price-check#open"
+                  class="flex items-center gap-2 w-full rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+            </svg>
+            Price Check
+          </button>
+        <% end %>
       <% end %>
 
       <%# — Supplier Info (collapsed section for mobile) %>

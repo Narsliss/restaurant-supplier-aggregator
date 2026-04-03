@@ -120,6 +120,12 @@ class OrderListsController < ApplicationController
     redirect_to @order_list, notice: "Item removed from list."
   end
 
+  # GET /order_lists/for_select.json — lightweight list for dropdowns
+  def for_select
+    lists = scoped_order_lists.order(:name).select(:id, :name)
+    render json: lists.map { |l| { id: l.id, name: l.name } }
+  end
+
   private
 
   def set_order_list
