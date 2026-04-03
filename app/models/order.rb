@@ -270,16 +270,17 @@ class Order < ApplicationRecord
   def calculate_savings
     return 0 if order_items.empty?
 
+    product_ids = order_items.filter_map { |item| item.supplier_product&.product_id }
+    worst_prices = SupplierProduct
+      .where(product_id: product_ids, discontinued: false)
+      .where.not(current_price: nil)
+      .group(:product_id)
+      .maximum(:current_price)
+
     worst_total = order_items.sum do |item|
-      product = item.supplier_product&.product
-      next item.line_total unless product
-
-      worst_price = product.supplier_products
-        .where.not(discontinued: true)
-        .where.not(current_price: nil)
-        .maximum(:current_price)
-
-      (worst_price || item.unit_price) * item.quantity
+      product_id = item.supplier_product&.product_id
+      worst_price = product_id ? worst_prices[product_id] : nil
+      ((worst_price || item.unit_price) * item.quantity)
     end
 
     [worst_total - (total_amount || calculated_subtotal), 0].max.round(2)

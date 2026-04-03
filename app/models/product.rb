@@ -38,7 +38,7 @@ class Product < ApplicationRecord
   end
 
   def available_at?(supplier)
-    sp = supplier_products.find_by(supplier: supplier)
+    sp = supplier_product_for(supplier)
     sp&.in_stock?
   end
 
@@ -50,13 +50,6 @@ class Product < ApplicationRecord
       .order(:current_price)
       .first
       &.supplier
-  end
-
-  def price_range
-    prices = supplier_products.available.where.not(current_price: nil).pluck(:current_price)
-    return nil if prices.empty?
-
-    { min: prices.min, max: prices.max, spread: prices.max - prices.min }
   end
 
   def price_range

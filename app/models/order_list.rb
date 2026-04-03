@@ -36,16 +36,21 @@ class OrderList < ApplicationRecord
   end
 
   def totals_by_supplier
-    suppliers = Supplier.active.includes(:supplier_products)
-    
+    items = order_list_items.includes(product: { supplier_products: :supplier })
+    all_supplier_ids = items.flat_map { |i| i.product.supplier_products.map(&:supplier_id) }.uniq
+    suppliers = Supplier.active.where(id: all_supplier_ids)
+
     suppliers.each_with_object({}) do |supplier, totals|
-      total = estimated_total_for(supplier)
-      available_count = order_list_items.count { |item| item.product.available_at?(supplier) }
-      
+      total = items.sum do |item|
+        sp = item.product.supplier_product_for(supplier)
+        sp&.current_price ? sp.current_price * item.quantity : 0
+      end
+      available_count = items.count { |item| item.product.available_at?(supplier) }
+
       totals[supplier] = {
         total: total,
         available_items: available_count,
-        missing_items: order_list_items.count - available_count
+        missing_items: items.size - available_count
       }
     end
   end
