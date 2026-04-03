@@ -9,13 +9,13 @@ module Webhooks
       webhook_secret = Rails.application.config.stripe_webhook_secret
 
       begin
-        event = if webhook_secret.present?
-                  Stripe::Webhook.construct_event(payload, sig_header, webhook_secret)
-                else
-                  # For development without webhook signing
-                  Rails.logger.warn "[Stripe Webhook] No webhook secret configured, skipping signature verification"
-                  Stripe::Event.construct_from(JSON.parse(payload, symbolize_names: true))
-                end
+        unless webhook_secret.present?
+          Rails.logger.error "[Stripe Webhook] No webhook secret configured — rejecting request"
+          render json: { error: "Webhook secret not configured" }, status: :forbidden
+          return
+        end
+
+        event = Stripe::Webhook.construct_event(payload, sig_header, webhook_secret)
       rescue JSON::ParserError => e
         Rails.logger.error "[Stripe Webhook] JSON parse error: #{e.message}"
         render json: { error: "Invalid payload" }, status: :bad_request
