@@ -573,26 +573,33 @@
   </div>
 
   <%# "Forgot Something?" search modal %>
-  <div class="hidden fixed inset-0 z-50" data-order-review-target="forgotModal">
-    <div class="fixed inset-0 bg-black/50" data-action="click->order-review#closeForgotSomething"></div>
-    <div class="fixed inset-x-4 top-[10%] sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full sm:max-w-lg bg-white rounded-xl shadow-2xl max-h-[75vh] flex flex-col">
-      <div class="p-4 border-b flex items-center justify-between">
-        <h3 class="text-lg font-semibold text-gray-900">Add an Item</h3>
-        <button type="button" data-action="order-review#closeForgotSomething" class="text-gray-400 hover:text-gray-600">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </button>
+  <div class="hidden fixed inset-0 z-50 flex items-start justify-center pt-[12vh]" data-order-review-target="forgotModal">
+    <div class="fixed inset-0 bg-black/60" data-action="click->order-review#closeForgotSomething"></div>
+    <div class="relative w-full max-w-lg mx-4 flex flex-col bg-white rounded-lg shadow-2xl overflow-hidden border border-gray-300 ring-1 ring-white/10" style="max-height: 28rem; margin-top: 6vh;">
+      <div class="px-4 pt-4 pb-3">
+        <div class="flex items-center gap-3">
+          <div class="relative flex-1">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input type="text"
+                   placeholder="Search products..."
+                   class="w-full pl-10 pr-4 py-2 text-sm bg-gray-100 border-0 rounded-md focus:ring-2 focus:ring-brand-orange/40 focus:bg-white outline-none"
+                   data-order-review-target="forgotSearchInput"
+                   data-action="input->order-review#searchForgotProducts"
+                   autocomplete="off">
+          </div>
+          <button type="button" data-action="order-review#closeForgotSomething" class="text-gray-400 hover:text-gray-600 transition-colors p-1">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="mt-1.5 px-1">
+          <span class="text-xs text-gray-400">Type at least 2 characters</span>
+        </div>
       </div>
-      <div class="p-4 border-b">
-        <input type="text"
-               placeholder="Search for a product..."
-               class="w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm"
-               data-order-review-target="forgotSearchInput"
-               data-action="input->order-review#searchForgotProducts"
-               autofocus>
-      </div>
-      <div class="flex-1 overflow-y-auto p-4" data-order-review-target="forgotResults">
+      <div class="flex-1 overflow-y-auto border-t border-gray-200" data-order-review-target="forgotResults">
         <p class="text-sm text-gray-400 text-center py-8">Search for a product to add to your order</p>
       </div>
     </div>

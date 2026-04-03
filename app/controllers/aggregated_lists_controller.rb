@@ -1,9 +1,9 @@
 class AggregatedListsController < ApplicationController
   before_action :require_location_context!
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search catalog_browse add_product]
   before_action :require_owner!, only: %i[promote demote]
-  before_action :require_not_promoted!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide]
-  before_action :require_list_location_access!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide]
+  before_action :require_not_promoted!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide add_product]
+  before_action :require_list_location_access!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide catalog_browse add_product]
 
   def index
     @aggregated_lists = current_organization_aggregated_lists
@@ -541,6 +541,84 @@ class AggregatedListsController < ApplicationController
       @grouped_matches["Frequently Ordered"] = frequent_matches
       @sorted_categories.insert(insert_pos, "Frequently Ordered")
     end
+  end
+
+  def catalog_browse
+    query = params[:q].to_s.strip
+    return render json: [] if query.length < 2
+
+    connected_supplier_ids = @aggregated_list.supplier_lists.pluck(:supplier_id)
+
+    results = SupplierProduct
+      .where(supplier_id: connected_supplier_ids, discontinued: false)
+      .where.not(current_price: nil)
+      .where("LOWER(supplier_name) LIKE ?", "%#{query.downcase}%")
+      .includes(:supplier)
+      .order(:supplier_name)
+      .limit(20)
+
+    json = results.map do |sp|
+      {
+        id: sp.id,
+        name: sp.supplier_name.truncate(60),
+        price: sp.current_price ? "$#{'%.2f' % sp.current_price}" : "N/A",
+        pack_size: sp.pack_size,
+        supplier_name: sp.supplier.name,
+        supplier_id: sp.supplier_id,
+        in_stock: sp.in_stock
+      }
+    end
+
+    render json: json
+  end
+
+  def add_product
+    sp = SupplierProduct.find(params[:supplier_product_id])
+
+    supplier_list = @aggregated_list.supplier_lists
+                                    .where(supplier_id: sp.supplier_id)
+                                    .first
+
+    unless supplier_list
+      redirect_to @aggregated_list, alert: "Supplier not connected to this list."
+      return
+    end
+
+    item = supplier_list.supplier_list_items.find_or_create_by!(supplier_product_id: sp.id) do |sli|
+      sli.name = sp.supplier_name
+      sli.sku = sp.supplier_sku
+      sli.price = sp.current_price
+      sli.pack_size = sp.pack_size
+      sli.in_stock = sp.in_stock
+      sli.source = 'catalog'
+    end
+
+    existing_pmi = ProductMatchItem.joins(:product_match)
+      .where(product_matches: { aggregated_list_id: @aggregated_list.id })
+      .where(supplier_list_item_id: item.id)
+      .first
+
+    if existing_pmi
+      redirect_to @aggregated_list, notice: "#{sp.supplier_name.truncate(40)} is already on this list."
+      return
+    end
+
+    @aggregated_list.product_matches.update_all("position = position + 1")
+    match = @aggregated_list.product_matches.create!(
+      canonical_name: sp.supplier_name,
+      match_status: 'manual',
+      confidence_score: 0,
+      position: 0
+    )
+    match.product_match_items.create!(
+      supplier_list_item: item,
+      supplier_id: sp.supplier_id
+    )
+
+    # Search catalog for matches from other connected suppliers
+    CatalogSearchJob.perform_later(@aggregated_list.id, match_ids: [match.id])
+
+    redirect_to @aggregated_list, notice: "Added #{sp.supplier_name.truncate(40)} to list. Searching for matches..."
   end
 
   private

@@ -20,16 +20,24 @@ class CatalogSearchService
 
   attr_reader :aggregated_list, :results
 
-  def initialize(aggregated_list)
+  def initialize(aggregated_list, match_ids: nil)
     @aggregated_list = aggregated_list
+    @match_ids = match_ids
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
     @results = { found: 0, searched: 0, created_sli_ids: [], errors: [] }
     @ai_disabled = false
   end
 
   def call
-    unmatched = aggregated_list.product_matches.unmatched
-                  .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+    # When match_ids provided, search those specific matches (any status).
+    # Otherwise, search all unmatched items (default behavior).
+    unmatched = if @match_ids
+                  aggregated_list.product_matches.where(id: @match_ids)
+                    .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+                else
+                  aggregated_list.product_matches.unmatched
+                    .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+                end
     return results if unmatched.empty?
 
     # Build lookup: supplier_id -> SupplierList (mapped to this aggregated list)

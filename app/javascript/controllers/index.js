@@ -32,6 +32,7 @@ import DemoLoginController from "./demo_login_controller"
 import SpendingTrendController from "./spending_trend_controller"
 import DatePresetController from "./date_preset_controller"
 import RequirementGridController from "./requirement_grid_controller"
+import CatalogModalController from "./catalog_modal_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -65,3 +66,4 @@ application.register("demo-login", DemoLoginController)
 application.register("spending-trend", SpendingTrendController)
 application.register("date-preset", DatePresetController)
 application.register("requirement-grid", RequirementGridController)
+application.register("catalog-modal", CatalogModalController)

@@ -1,0 +1,39 @@
+<div data-catalog-modal-target="modal" class="hidden fixed inset-0 z-50 flex items-start justify-center pt-[12vh]">
+  <%# Backdrop %>
+  <div data-action="click->catalog-modal#close" class="fixed inset-0 bg-black/60"></div>
+
+  <%# Modal panel — fixed size, centered %>
+  <div class="relative w-full max-w-lg mx-4 flex flex-col bg-white rounded-lg shadow-2xl overflow-hidden border border-gray-300 ring-1 ring-white/10" style="max-height: 28rem; margin-top: 6vh;">
+    <%# Search header %>
+    <div class="px-4 pt-4 pb-3">
+      <div class="flex items-center gap-3">
+        <div class="relative flex-1">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          <input
+            type="text"
+            data-catalog-modal-target="input"
+            data-action="input->catalog-modal#search"
+            placeholder="Search products..."
+            class="w-full pl-10 pr-4 py-2 text-sm bg-gray-100 border-0 rounded-md focus:ring-2 focus:ring-brand-orange/40 focus:bg-white outline-none"
+            autocomplete="off"
+          >
+        </div>
+        <button data-action="catalog-modal#close" class="text-gray-400 hover:text-gray-600 transition-colors p-1">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div class="mt-1.5 flex items-center justify-between px-1">
+        <span class="text-xs text-gray-400">Type at least 2 characters</span>
+        <span data-catalog-modal-target="count" class="text-xs text-gray-500"></span>
+      </div>
+    </div>
+
+    <%# Results %>
+    <div data-catalog-modal-target="results" class="flex-1 overflow-y-auto border-t border-gray-200">
+    </div>
+  </div>
+</div>

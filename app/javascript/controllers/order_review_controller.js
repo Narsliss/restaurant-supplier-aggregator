@@ -1692,7 +1692,7 @@ export default class extends Controller {
   searchForgotProducts() {
     const query = this.forgotSearchInputTarget.value.trim()
     if (query.length < 2) {
-      this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">Type at least 2 characters to search</p>'
+      this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-12">Type at least 2 characters to search</p>'
       return
     }
 
@@ -1704,7 +1704,7 @@ export default class extends Controller {
   }
 
   _doForgotSearch(query) {
-    this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">Searching...</p>'
+    this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-12">Searching...</p>'
 
     fetch(`/orders/search_products?q=${encodeURIComponent(query)}&batch_id=${this.batchIdValue}`, {
       headers: { "Accept": "application/json" }
@@ -1712,34 +1712,44 @@ export default class extends Controller {
     .then(res => res.json())
     .then(data => {
       if (!data.results || data.results.length === 0) {
-        this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">No products found</p>'
+        this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-12">No products found</p>'
         return
       }
 
-      this.forgotResultsTarget.innerHTML = data.results.map(product => `
-        <div class="flex items-center justify-between py-3 border-b last:border-0">
-          <div class="flex-1 min-w-0 mr-3">
-            <p class="text-sm font-medium text-gray-900 truncate">${this._escapeHtml(product.name)}</p>
-            <p class="text-xs text-gray-500">
-              ${this._escapeHtml(product.supplier_name)}
-              ${product.pack_size ? ' &middot; ' + this._escapeHtml(product.pack_size) : ''}
-              ${product.price ? ' &middot; ' + this._formatCurrency(product.price) : ''}
-            </p>
+      this.forgotResultsTarget.innerHTML = data.results.map((product, i) => {
+        const border = i > 0 ? 'border-t border-gray-100' : ''
+        const stockDot = product.in_stock !== false
+          ? '<span class="inline-block w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>'
+          : '<span class="inline-block w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0"></span>'
+        const packInfo = product.pack_size ? `<span class="text-gray-400">&middot;</span> <span>${this._escapeHtml(product.pack_size)}</span>` : ''
+
+        return `
+          <div class="flex items-center justify-between px-4 py-3 ${border} hover:bg-gray-50 transition-colors">
+            <div class="flex-1 min-w-0 mr-4">
+              <div class="flex items-center gap-2">
+                ${stockDot}
+                <span class="text-sm font-medium text-gray-900 truncate">${this._escapeHtml(product.name)}</span>
+              </div>
+              <div class="flex items-center gap-1.5 mt-0.5 ml-3.5 text-xs text-gray-500">
+                <span>${this._escapeHtml(product.supplier_name)}</span>
+                ${packInfo}
+              </div>
+            </div>
+            <div class="flex items-center gap-3 flex-shrink-0">
+              <span class="text-sm font-semibold text-gray-900 tabular-nums">${product.price ? this._formatCurrency(product.price) : 'N/A'}</span>
+              <button type="button"
+                      class="px-2.5 py-1 text-xs font-medium rounded-md text-brand-orange border border-brand-orange/40 hover:bg-brand-orange hover:text-white transition-colors"
+                      data-action="order-review#addForgotItem"
+                      data-supplier-product-id="${product.id}"
+                      data-order-id="${product.order_id}"
+                      data-product-name="${this._escapeHtml(product.name)}"
+                      data-product-price="${product.price}">
+                Add
+              </button>
+            </div>
           </div>
-          <button type="button"
-                  class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark transition-colors"
-                  data-action="order-review#addForgotItem"
-                  data-supplier-product-id="${product.id}"
-                  data-order-id="${product.order_id}"
-                  data-product-name="${this._escapeHtml(product.name)}"
-                  data-product-price="${product.price}">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
-            </svg>
-            Add
-          </button>
-        </div>
-      `).join("")
+        `
+      }).join("")
     })
     .catch(err => {
       console.error("Search error:", err)
