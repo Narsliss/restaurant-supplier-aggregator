@@ -57,6 +57,7 @@ module Scrapers
           sku: item['itemCode'].to_s,
           name: [item['description'] || item['nameWithoutBrand'], item['brandName']].compact.join(' ').truncate(255),
           price: price&.to_f,
+          price_unit: wcw_price_unit(item),
           pack_size: item['packSize'].to_s.strip.presence,
           quantity: 1,
           in_stock: !item['unavailable'],
@@ -659,12 +660,32 @@ module Scrapers
         supplier_sku: product['itemCode'].to_s,
         supplier_name: [product['description'] || product['nameWithoutBrand'], product['brandName']].compact.join(' ').truncate(255),
         current_price: price&.to_f,
+        price_unit: wcw_price_unit(product),
         pack_size: product['packSize'].to_s.strip.presence,
         in_stock: nil, # Don't set stock from catalog browse — only order guide is authoritative
         category: category || product.dig('l0category', 'name'),
         supplier_url: nil,
         scraped_at: Time.current
       }
+    end
+
+    # Extract the pricing unit from the WCW API response.
+    # The API's `unifiedPrice.defaultUnitPrice.unit` tells us what the price
+    # is for (e.g., "lb", "each", "case"). We only set price_unit for
+    # weight-based units — these trigger the per-unit display chain
+    # ($X.XX/LB with ~$Y.YY estimated total). For "each"/"case"/unknown,
+    # we return nil to preserve default case-pricing behavior.
+    def wcw_price_unit(item)
+      raw = item.dig('unifiedPrice', 'defaultUnitPrice', 'unit')
+      return nil unless raw.present?
+
+      unit = raw.to_s.downcase.strip
+      case unit
+      when 'lb' then 'lb'
+      when 'oz' then 'oz'
+      when 'kg' then 'kg'
+      else nil
+      end
     end
   end
 end
