@@ -45,11 +45,20 @@
     </div>
 
     <%# Price — 14px bold %>
-    <div class="<%= is_cheapest ? 'text-green-600' : 'text-gray-900' %>" style="font-size:14px; font-weight:700; margin-top:4px;">
-      <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
-    </div>
-    <% if item.price_unit.present? && item.estimated_total_price != item.price %>
-      <span class="text-gray-500" style="font-size:10px;">~$<%= '%.2f' % item.estimated_total_price %></span>
+    <% derived_lb = item.derived_per_lb_price %>
+    <% if derived_lb %>
+      <%# Case-priced weight item — show computed per-lb as headline %>
+      <div class="<%= is_cheapest ? 'text-green-600' : 'text-gray-900' %>" style="font-size:14px; font-weight:700; margin-top:4px;">
+        $<%= '%.2f' % derived_lb %>/LB<%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
+      </div>
+      <span class="text-gray-500" style="font-size:10px;">~$<%= '%.2f' % item.effective_price %></span>
+    <% else %>
+      <div class="<%= is_cheapest ? 'text-green-600' : 'text-gray-900' %>" style="font-size:14px; font-weight:700; margin-top:4px;">
+        <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
+      </div>
+      <% if item.price_unit.present? && item.estimated_total_price != item.price %>
+        <span class="text-gray-500" style="font-size:10px;">~$<%= '%.2f' % item.estimated_total_price %></span>
+      <% end %>
     <% end %>
 
     <%# Per-unit price — 10px %>

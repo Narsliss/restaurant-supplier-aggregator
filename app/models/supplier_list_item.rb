@@ -152,6 +152,22 @@ class SupplierListItem < ApplicationRecord
     UnitParser.format_per_unit(per_unit_price, normalized_unit)
   end
 
+  # Compute per-lb price from a case price when the pack is weight-based.
+  # Used in the view to show "$22.58/LB ~$135.48" for case-priced items
+  # that have a parseable lb quantity (e.g., "6LB AVG" at $135.48 → $22.58/lb).
+  # Returns nil when price_unit is already set (explicit per-unit pricing) or
+  # when inferred_price_unit fires (inference already handles it), or when the
+  # pack isn't in lbs.
+  def derived_per_lb_price
+    return nil if price_unit.present? || inferred_price_unit.present?
+    return nil unless effective_price && effective_price > 0
+
+    parsed = parsed_pack_size
+    return nil unless parsed[:parseable] && parsed[:unit] == 'lb' && parsed[:quantity] > 0
+
+    (effective_price / parsed[:quantity]).round(2)
+  end
+
   # Per-unit price for a single PIECE within a case pack.
   # Uses the per-piece quantity extracted from the case pack size.
   # Example: "12x10.5 Oz BC" at piece_price=$7.98 → $7.98 / 10.5 oz = $0.76/oz
