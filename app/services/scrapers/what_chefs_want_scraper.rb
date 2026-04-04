@@ -635,8 +635,13 @@ module Scrapers
         data = api_client.get_order_guide_items(limit: 100, offset: offset)
         sections = data&.dig('data', 'formProducts', 'sectionsWithCount', 'sections') || []
         page_items = sections.flat_map do |s|
-          (s['multiUnitProducts'] || []).flat_map do |mup|
-            (mup['products'] || []).map { |p| p['canonicalproduct'] }
+          (s['multiUnitProducts'] || []).map do |mup|
+            products = mup['products'] || []
+            # Prefer the per-lb variant — its canonicalproduct has the per-lb
+            # price, which enables the per-unit display chain ($X.XX/LB ~$Y.YY).
+            # Falls back to first variant if no lb variant exists.
+            preferred = products.find { |p| p['unit'].to_s.downcase == 'lb' } || products.first
+            preferred&.dig('canonicalproduct')
           end
         end.compact
 
