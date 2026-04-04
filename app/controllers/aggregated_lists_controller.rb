@@ -163,6 +163,37 @@ class AggregatedListsController < ApplicationController
 
     @teaser_map ||= {}
 
+    # --- Category grouping for show page ---
+    sp_ids = @product_matches.flat_map { |pm|
+      pm.product_match_items.filter_map { |pmi| pmi.supplier_list_item.supplier_product_id }
+    }
+    categories_by_sp_id = Product.joins(:supplier_products)
+                                 .where(supplier_products: { id: sp_ids })
+                                 .where.not(category: [nil, ""])
+                                 .pluck("supplier_products.id", "products.category")
+                                 .to_h
+
+    @match_category = {}
+    @product_matches.each do |pm|
+      raw = pm.product_match_items.filter_map { |pmi|
+        categories_by_sp_id[pmi.supplier_list_item.supplier_product_id]
+      }.first
+      normalized = ::CategoryNormalizable.normalize(raw)
+
+      if normalized.blank?
+        name = pm.canonical_name.presence || pm.product_match_items.first&.supplier_list_item&.name
+        if name.present?
+          result = AiProductCategorizer.rule_based_categorize(name)
+          normalized = result[:category] if result[:confidence] >= 0.7
+        end
+      end
+
+      @match_category[pm.id] = normalized
+    end
+
+    @grouped_matches = @product_matches.group_by { |pm| @match_category[pm.id] || "Other" }
+    @sorted_categories = @grouped_matches.keys.sort_by { |c| c == "Other" ? "zzz" : c.downcase }
+
     # Available guides for "Add Supplier Guide" section (matched lists only)
     if @aggregated_list.matched_list? && @aggregated_list.matched?
       @available_guides = available_supplier_lists.where.not(id: @aggregated_list.supplier_list_ids)

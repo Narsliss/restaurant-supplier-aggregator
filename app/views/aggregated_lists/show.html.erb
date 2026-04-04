@@ -190,58 +190,69 @@
     </div>
   <% end %>
 
-  <!-- Product match cards -->
+  <!-- Product match cards grouped by category -->
   <% if @product_matches.any? %>
-    <div id="match-cards-container" class="space-y-3">
-      <% @product_matches.each do |match| %>
-        <div id="<%= dom_id(match) %>" class="bg-white shadow rounded-lg <%= match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
-          <div class="flex flex-col sm:flex-row">
-            <%= render "aggregated_lists/match_row_left", match: match, aggregated_list: @aggregated_list %>
+    <div id="match-cards-container" class="space-y-6">
+      <% @sorted_categories.each do |category| %>
+        <div>
+          <div class="flex items-center gap-3 mb-3">
+            <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider border-l-4 border-brand-orange pl-3"><%= category %></h3>
+            <span class="text-xs text-gray-400"><%= @grouped_matches[category].size %></span>
+            <div class="flex-1 border-t border-gray-200"></div>
+          </div>
+          <div class="space-y-3">
+            <% @grouped_matches[category].each do |match| %>
+              <div id="<%= dom_id(match) %>" class="bg-white shadow rounded-lg <%= match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
+                <div class="flex flex-col sm:flex-row">
+                  <%= render "aggregated_lists/match_row_left", match: match, aggregated_list: @aggregated_list %>
 
-            <%# Right: Grid of supplier cells %>
-            <div class="flex-1" style="padding:10px;">
-              <% total_supplier_cols = @suppliers.size + (@unconnected_suppliers&.size || 0) %>
-              <div class="grid" style="grid-template-columns: repeat(<%= total_supplier_cols %>, 1fr); gap: 6px;">
-                <% price_info = @price_data[match.id] %>
-                <% @suppliers.each do |supplier| %>
-                  <% lookup = @match_supplier_map.dig(match.id, supplier.id) %>
-                  <% item = lookup&.dig(:item) %>
-                  <% pmi = lookup&.dig(:pmi) %>
-                  <% is_cheapest = item && price_info[:cheapest_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
-                  <% is_most_expensive = item && price_info[:most_expensive_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
-                  <%= render "aggregated_lists/supplier_cell_card",
-                             product_match: match,
-                             supplier: supplier,
-                             item: item,
-                             pmi: pmi,
-                             search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
-                             supplier_id: supplier.id,
-                             is_cheapest: is_cheapest,
-                             is_most_expensive: is_most_expensive,
-                             readonly: @aggregated_list.promoted? %>
-                <% end %>
+                  <%# Right: Grid of supplier cells %>
+                  <div class="flex-1" style="padding:10px;">
+                    <% total_supplier_cols = @suppliers.size + (@unconnected_suppliers&.size || 0) %>
+                    <div class="grid" style="grid-template-columns: repeat(<%= total_supplier_cols %>, 1fr); gap: 6px;">
+                      <% price_info = @price_data[match.id] %>
+                      <% @suppliers.each do |supplier| %>
+                        <% lookup = @match_supplier_map.dig(match.id, supplier.id) %>
+                        <% item = lookup&.dig(:item) %>
+                        <% pmi = lookup&.dig(:pmi) %>
+                        <% is_cheapest = item && price_info[:cheapest_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
+                        <% is_most_expensive = item && price_info[:most_expensive_supplier] == supplier && price_info[:spread] && price_info[:spread] > 0 %>
+                        <%= render "aggregated_lists/supplier_cell_card",
+                                   product_match: match,
+                                   supplier: supplier,
+                                   item: item,
+                                   pmi: pmi,
+                                   search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
+                                   supplier_id: supplier.id,
+                                   is_cheapest: is_cheapest,
+                                   is_most_expensive: is_most_expensive,
+                                   readonly: @aggregated_list.promoted? %>
+                      <% end %>
 
-                <%# Teaser cells for unconnected suppliers %>
-                <% @unconnected_suppliers.each do |supplier| %>
-                  <% teaser_product = @teaser_map.dig(match.id, supplier.id) %>
-                  <% if teaser_product %>
-                    <div class="border border-dashed border-gray-300 bg-gray-50 min-w-0" style="padding:10px; border-radius:8px;">
-                      <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
-                        <svg class="text-gray-400 flex-shrink-0" style="width:12px; height:12px;" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                        </svg>
-                        <span class="text-gray-500" style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;"><%= supplier.short_name %></span>
-                      </div>
-                      <div class="text-gray-500" style="font-size:11px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;"><%= teaser_product.supplier_name.to_s.truncate(80) %></div>
-                      <div class="text-gray-400" style="font-size:10px; margin-top:2px;"><%= teaser_product.pack_size %></div>
-                      <% if teaser_product.current_price %>
-                        <div class="text-gray-500 font-bold" style="font-size:14px; margin-top:4px;"><%= number_to_currency(teaser_product.current_price) %></div>
+                      <%# Teaser cells for unconnected suppliers %>
+                      <% @unconnected_suppliers.each do |supplier| %>
+                        <% teaser_product = @teaser_map.dig(match.id, supplier.id) %>
+                        <% if teaser_product %>
+                          <div class="border border-dashed border-gray-300 bg-gray-50 min-w-0" style="padding:10px; border-radius:8px;">
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                              <svg class="text-gray-400 flex-shrink-0" style="width:12px; height:12px;" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                              </svg>
+                              <span class="text-gray-500" style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;"><%= supplier.short_name %></span>
+                            </div>
+                            <div class="text-gray-500" style="font-size:11px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;"><%= teaser_product.supplier_name.to_s.truncate(80) %></div>
+                            <div class="text-gray-400" style="font-size:10px; margin-top:2px;"><%= teaser_product.pack_size %></div>
+                            <% if teaser_product.current_price %>
+                              <div class="text-gray-500 font-bold" style="font-size:14px; margin-top:4px;"><%= number_to_currency(teaser_product.current_price) %></div>
+                            <% end %>
+                          </div>
+                        <% end %>
                       <% end %>
                     </div>
-                  <% end %>
-                <% end %>
+                  </div>
+                </div>
               </div>
-            </div>
+            <% end %>
           </div>
         </div>
       <% end %>
