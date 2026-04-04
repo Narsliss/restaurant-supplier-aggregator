@@ -115,6 +115,10 @@ class ImportSupplierProductsService
     # BULK path: upsert all existing product updates in one SQL statement
     bulk_upsert_existing(update_rows) if update_rows.any?
 
+    # Reverse sync: propagate updated catalog prices to linked SupplierListItems
+    # so matched list prices stay fresh between order guide syncs.
+    sync_prices_to_list_items(update_rows) if update_rows.any?
+
     # INDIVIDUAL path: new products need find_or_create_product matching
     new_items.each do |item|
       import_new_item(item)
@@ -218,6 +222,44 @@ class ImportSupplierProductsService
         discontinued discontinued_at
       ]
     )
+  end
+
+  # Propagate updated catalog prices to linked SupplierListItems so matched
+  # list prices stay current between order guide syncs. Uses update_columns
+  # to avoid callbacks and prevent loops with the forward sync in
+  # ImportSupplierListsService#refresh_linked_product.
+  def sync_prices_to_list_items(update_rows)
+    sp_ids = update_rows.map { |r| r[:id] }.compact
+    return if sp_ids.empty?
+
+    updated_count = 0
+
+    SupplierProduct.where(id: sp_ids).includes(:supplier_list_items).find_each do |sp|
+      sp.supplier_list_items.each do |sli|
+        next if sli.price == sp.current_price && sli.read_attribute(:in_stock) == sp.in_stock
+
+        attrs = {}
+
+        if sli.price != sp.current_price && sp.current_price.present?
+          attrs[:previous_price] = sli.price
+          attrs[:price] = sp.current_price
+          attrs[:price_updated_at] = sp.price_updated_at || Time.current
+        end
+
+        if sli.read_attribute(:in_stock) != sp.in_stock
+          attrs[:in_stock] = sp.in_stock
+        end
+
+        next if attrs.empty?
+
+        sli.update_columns(attrs)
+        updated_count += 1
+      end
+    end
+
+    if updated_count > 0
+      Rails.logger.info "[ImportProducts] Reverse sync: updated #{updated_count} list items from catalog prices"
+    end
   end
 
   # Import a single new product (needs product matching).
