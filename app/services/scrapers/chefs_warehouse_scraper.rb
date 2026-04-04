@@ -152,10 +152,30 @@ module Scrapers
       end
 
       prices = api_client.fetch_prices(variants)
-
-      # Map back by variant_code (not index) to avoid misattribution if API
-      # reorders or omits results.
       price_map = prices.index_by { |p| p[:variant_code] }
+
+      # Also fetch piece prices for items sold by the piece.
+      # The CS price for Piece items is the full-case price (e.g., $1,924
+      # for 80 pieces) — we need the PC price ($23.82) instead.
+      piece_skus = product_skus.select do |sku|
+        sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
+        sp&.pack_size.to_s.match?(/\bPiece\b/i)
+      end
+
+      piece_price_map = {}
+      if piece_skus.any?
+        piece_variants = piece_skus.map do |sku|
+          {
+            code: "JDE_#{sku}-800001",
+            uom: 'PC',
+            stocking_type: 'P',
+            vendor_id: nil,
+            business_unit_id: '800001'
+          }
+        end
+        piece_prices = api_client.fetch_prices(piece_variants)
+        piece_prices.each { |p| piece_price_map[p[:variant_code]] = p }
+      end
 
       product_skus.each do |sku|
         variant_code = "JDE_#{sku}-800001"
@@ -164,9 +184,17 @@ module Scrapers
 
         sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
 
+        # For Piece items, prefer the PC price over the inflated CS price
+        current_price = price_data[:primary_price]
+        if sp&.pack_size.to_s.match?(/\bPiece\b/i)
+          piece_data = piece_price_map[variant_code]
+          piece_price = piece_data&.dig(:secondary_price) || piece_data&.dig(:primary_price)
+          current_price = piece_price if piece_price.present? && piece_price > 0
+        end
+
         results << {
           supplier_sku: sku,
-          current_price: price_data[:primary_price],
+          current_price: current_price,
           in_stock: true,
           supplier_name: sp&.supplier_name || sp&.product&.name || sku
         }
