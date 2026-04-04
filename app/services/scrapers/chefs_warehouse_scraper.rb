@@ -450,16 +450,29 @@ module Scrapers
         price_data = price_map[p[:variant_code]]
         piece_data = piece_price_map[p[:variant_code]]
 
+        case_price = price_data&.dig(:primary_price)
+        piece_price = piece_data&.dig(:secondary_price) || piece_data&.dig(:primary_price)
+
+        # For items sold by the piece (pack_size contains "Piece"), the CS API
+        # returns the full-case price (e.g., $1,924 for 80 pieces) but the order
+        # guide lists them individually (e.g., "1x5 LB Piece"). Use the piece
+        # price as the main price so the display matches what the chef actually pays.
+        main_price = if p[:pack_size].to_s.match?(/\bPiece\b/i) && piece_price.present? && piece_price > 0
+                       piece_price
+                     else
+                       case_price
+                     end
+
         {
           sku: p[:sku],
           name: p[:name],
-          price: price_data&.dig(:primary_price),
+          price: main_price,
           pack_size: p[:pack_size],
           quantity: 1,
           in_stock: p[:in_stock] != false,
           position: nil,
           price_unit: nil, # CW returns total selling price, not per-unit — don't trigger estimated_total multiplication
-          piece_price: piece_data&.dig(:secondary_price) || piece_data&.dig(:primary_price),
+          piece_price: piece_price,
           piece_pack_size: 'PC',
           remote_item_id: p[:variant_code]
         }
