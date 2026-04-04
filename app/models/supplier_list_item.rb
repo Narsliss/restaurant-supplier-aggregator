@@ -296,18 +296,44 @@ class SupplierListItem < ApplicationRecord
   def inferred_price_unit
     return nil unless pack_size.present?
 
-    # When the list item has no own price and falls back to the supplier
-    # product's current_price (a case/catalog price), skip variable-weight
-    # inference for suppliers that return case prices. The fallback price
-    # is the total case cost, not a per-unit price.
+    # For case-pricing suppliers (e.g., WCW, Chef's WH, Sysco, PPO):
+    #   - When the SLI has no own price and falls back to the supplier
+    #     product's current_price, that IS the case price — skip inference.
+    #   - When the SLI was created from a catalog search, the price was
+    #     copied from SupplierProduct.current_price (the case/catalog price),
+    #     so it's also a case price — skip inference.
     # Suppliers with case_pricing=false (e.g., US Foods) store per-unit
     # prices even in the catalog, so inference still applies for them.
-    return nil if price.blank? && supplier&.case_pricing?
+    if supplier&.case_pricing?
+      return nil if price.blank?
+      return nil if source == 'catalog_search'
+    end
 
     # PPO "Case - 75# AVG" — the "Case -" prefix means the price is for
     # the whole case, not per-lb. Without this guard the # AVG regex below
     # would incorrectly treat $560 as $560/lb.
     return nil if pack_size =~ /\ACase\s*-/i
+
+    # WCW "- Case" suffix (e.g., "15 LB AVG | CATELLI BROS - Case",
+    # "60 LB AVG - Case") — indicates the price is for the whole case.
+    return nil if pack_size =~ /-\s*Case\b/i
+
+    # For case-pricing suppliers using LB-based variable-weight patterns
+    # (LB AVG, LB UP AVG, LB+), require a "- Each" suffix to confirm the
+    # price is per-lb. Without it, the price is assumed case-priced.
+    #
+    # This targets WCW which uses two formats:
+    #   "6LB AVG | Packer - Each" → per-lb ✓ (has - Each)
+    #   "6LB AVG"                 → case price (no suffix, from accounts
+    #                                that return case prices in order guide)
+    #
+    # Does NOT affect:
+    #   - Sysco: uses "#" notation (#avg, #UP) — handled by separate regexes
+    #     below that match before the LB-based patterns
+    #   - US Foods: case_pricing=false, bypasses this guard entirely
+    if supplier&.case_pricing? && pack_size =~ /\d+\.?\d*\s*LB/i && pack_size !~ /-\s*Each\b/i
+      return nil
+    end
 
     # "15 LB+" or "5 OZ+" — plus sign means variable weight
     if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s*\+/i
