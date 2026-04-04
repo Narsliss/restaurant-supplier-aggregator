@@ -290,9 +290,9 @@ class SupplierListItem < ApplicationRecord
   # Variable-weight indicators (common for meat/seafood):
   #   "15 LB+"          → + suffix means approximate weight, priced per lb
   #   "12LB AVG"        → AVG means average weight, priced per lb
+  #   "5LB UP AVG"      → UP + AVG also indicates per-lb
   #   "10#avg"          → pound-sign with AVG, same meaning
   #   "5#UP"            → pound-sign with UP (minimum weight), priced per lb
-  #   "4/15 LB CS"      → multi-piece case with LB weight, priced per lb
   def inferred_price_unit
     return nil unless pack_size.present?
 
@@ -304,6 +304,11 @@ class SupplierListItem < ApplicationRecord
     # prices even in the catalog, so inference still applies for them.
     return nil if price.blank? && supplier&.case_pricing?
 
+    # PPO "Case - 75# AVG" — the "Case -" prefix means the price is for
+    # the whole case, not per-lb. Without this guard the # AVG regex below
+    # would incorrectly treat $560 as $560/lb.
+    return nil if pack_size =~ /\ACase\s*-/i
+
     # "15 LB+" or "5 OZ+" — plus sign means variable weight
     if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s*\+/i
       return $1.downcase
@@ -314,8 +319,9 @@ class SupplierListItem < ApplicationRecord
       return "lb"
     end
 
-    # "12LB AVG" — average weight means per-unit pricing
-    if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s+AVG/i
+    # "12LB AVG" or "5LB UP AVG" — average weight means per-unit pricing
+    # Allow optional words (UP, etc.) between the unit and AVG.
+    if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s+(?:\w+\s+)?AVG/i
       return $1.downcase
     end
 
@@ -327,12 +333,6 @@ class SupplierListItem < ApplicationRecord
     # "5#UP" or "5# UP" — pound-sign with UP (minimum weight)
     if pack_size =~ /\d+\.?\d*\s*#\s*UP/i
       return "lb"
-    end
-
-    # "4/15 LB CS" — multi-piece LB case pattern (N/N LB CS|Case)
-    # The N/N with LB + case suffix indicates per-lb pricing for portioned meat
-    if pack_size =~ /\d+\s*\/\s*\d+\s*(LB)\s*(CS|Case)/i
-      return $1.downcase
     end
 
     # PPO "EACH" items with pound weights (# or LB) are priced per-lb,
