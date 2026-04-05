@@ -6,7 +6,7 @@ class OrderItemsController < ApplicationController
   # Adds a product to a pending order (e.g., from suggestion quick-add).
   # Expects JSON: { supplier_product_id: Integer, quantity: Integer }
   def create
-    unless @order.pending? || @order.price_changed?
+    unless @order.editable?
       render json: { error: "Cannot add items to this order" }, status: :unprocessable_entity
       return
     end
@@ -40,6 +40,13 @@ class OrderItemsController < ApplicationController
     @order.recalculate_totals!
     @order.update!(savings_amount: @order.calculate_savings)
 
+    # Queue background price verification for newly added items (not qty bumps)
+    verification_pending = false
+    unless is_existing
+      VerifyItemPriceJob.perform_later(@order_item.id)
+      verification_pending = true
+    end
+
     minimum = @order.supplier.order_minimum
     render json: {
       item: {
@@ -50,7 +57,8 @@ class OrderItemsController < ApplicationController
         pack_size: @order_item.supplier_product.pack_size,
         quantity: @order_item.quantity.to_i,
         unit_price: @order_item.unit_price,
-        line_total: @order_item.line_total
+        line_total: @order_item.line_total,
+        verification_pending: verification_pending
       },
       order: order_json,
       minimum: minimum,
@@ -63,8 +71,8 @@ class OrderItemsController < ApplicationController
   # Updates quantity on a single item, recalculates order totals.
   # Returns JSON with updated item + order totals + minimum status.
   def update
-    unless @order.pending?
-      render json: { error: "Cannot edit non-pending orders" }, status: :unprocessable_entity
+    unless @order.editable?
+      render json: { error: "Cannot edit this order" }, status: :unprocessable_entity
       return
     end
 
@@ -79,8 +87,6 @@ class OrderItemsController < ApplicationController
       line_total: @order_item.unit_price * new_qty
     )
     @order.recalculate_totals!
-    # Skip calculate_savings here — it does N+1 queries (one per item)
-    # and the client uses optimistic UI. Savings recalculated at submission.
 
     render json: order_item_json
   end
@@ -88,8 +94,8 @@ class OrderItemsController < ApplicationController
   # DELETE /orders/:order_id/order_items/:id
   # Removes an item. If order has no items left, destroys the empty order.
   def destroy
-    unless @order.pending?
-      render json: { error: "Cannot edit non-pending orders" }, status: :unprocessable_entity
+    unless @order.editable?
+      render json: { error: "Cannot edit this order" }, status: :unprocessable_entity
       return
     end
 

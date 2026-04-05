@@ -95,6 +95,23 @@
     </div>
   </div>
 
+  <%# Draft saved notification (shown by JS when verification completes) %>
+  <div class="mb-6 hidden" data-order-review-target="draftBanner">
+    <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+      <div class="flex items-center gap-3">
+        <svg class="h-5 w-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <div>
+          <p class="text-green-800 font-medium text-sm">Order saved as draft</p>
+          <p class="text-green-600 text-xs mt-0.5">
+            Your order has been saved to Order History. You can leave this page and resume anytime.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <%# Order minimum errors (blocking) %>
   <% unmet = @review_orders.reject { |r| r[:meets_minimum] } %>
   <% if unmet.any? %>

@@ -63,13 +63,26 @@ class OrdersController < ApplicationController
     # Group orders by order_list_id or batch_id for split/batch order display
     all_orders = orders_scope.to_a
 
+    # Include draft orders (not filtered by submitted_at since they haven't been submitted)
+    draft_scope = scoped_orders.where(status: "draft")
+    draft_scope = draft_scope.where(supplier_id: params[:supplier_id]) if params[:supplier_id].present?
+    if params[:search].present?
+      search_term = "%#{params[:search]}%"
+      draft_scope = draft_scope.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
+    end
+    draft_orders = draft_scope
+      .includes(:supplier, :location, :order_items, :order_list, :user)
+      .where.not(id: all_orders.map(&:id))
+      .to_a
+    all_orders.concat(draft_orders)
+
     # Include pending/failed siblings from the same batch so incomplete batches
     # are visible in Order History with action links to resume submission.
     batch_ids = all_orders.filter_map(&:batch_id).uniq
     if batch_ids.any?
       pending_siblings = scoped_orders
         .where(batch_id: batch_ids)
-        .where(status: %w[pending verifying price_changed failed])
+        .where(status: %w[pending verifying price_changed failed draft])
         .where.not(id: all_orders.map(&:id))
         .includes(:supplier, :location, :order_items, :order_list, :user)
         .to_a
@@ -78,7 +91,7 @@ class OrdersController < ApplicationController
 
     @order_groups = all_orders.group_by { |o| o.order_list_id || o.batch_id || "standalone_#{o.id}" }
       .values
-      .sort_by { |group| group.map(&:submitted_at).compact.max || Time.at(0) }
+      .sort_by { |group| group.map { |o| o.submitted_at || o.draft_saved_at || o.created_at }.compact.max || Time.at(0) }
       .reverse
 
     @suppliers = Supplier.joins(:orders)
@@ -338,7 +351,7 @@ class OrdersController < ApplicationController
     @aggregated_list_id = params[:aggregated_list_id]
     @orders = scoped_orders
       .for_batch(@batch_id)
-      .where(status: %w[pending verifying price_changed])
+      .where(status: %w[pending verifying price_changed draft])
       .includes(:supplier, order_items: { supplier_product: :product })
 
     if @orders.empty?
@@ -352,6 +365,23 @@ class OrdersController < ApplicationController
       return
     end
 
+    # Re-verify draft orders only if prices are stale (verified > 1 hour ago)
+    draft_orders_to_reverify = @orders.select { |o| o.draft? && (o.price_verified_at.nil? || o.price_verified_at < 1.hour.ago) }
+    draft_orders_to_reverify.each do |order|
+      # Clear stale delivery dates so the chef must pick a new one
+      if order.delivery_date.present? && order.delivery_date <= Date.current
+        order.update!(delivery_date: nil)
+      end
+
+      if order.supplier.email_supplier?
+        order.update!(verification_status: 'skipped')
+        order.mark_as_draft!
+      else
+        order.start_verification!
+        PriceVerificationJob.perform_later(order.id)
+      end
+    end
+
     # Auto-start verification for any pending orders that haven't been verified yet
     orders_needing_verification = @orders.select { |o| o.pending? && o.verification_status.nil? }
     if orders_needing_verification.any?
@@ -359,6 +389,7 @@ class OrdersController < ApplicationController
         if order.supplier.email_supplier?
           # Email suppliers use saved prices — skip verification, mark as ready
           order.update!(verification_status: 'skipped')
+          order.mark_as_draft!
         else
           order.start_verification!
           PriceVerificationJob.perform_later(order.id)
@@ -438,10 +469,10 @@ class OrdersController < ApplicationController
       return
     end
 
-    # Find which suppliers have pending orders in this batch
+    # Find which suppliers have pending/draft orders in this batch
     supplier_ids = scoped_orders
       .for_batch(batch_id)
-      .where(status: %w[pending verifying price_changed])
+      .where(status: %w[pending verifying price_changed draft])
       .pluck(:supplier_id)
       .uniq
 
@@ -456,7 +487,7 @@ class OrdersController < ApplicationController
       .map do |sp|
         order = scoped_orders
           .for_batch(batch_id)
-          .where(supplier_id: sp.supplier_id, status: %w[pending verifying price_changed])
+          .where(supplier_id: sp.supplier_id, status: %w[pending verifying price_changed draft])
           .first
 
         {
@@ -482,8 +513,8 @@ class OrdersController < ApplicationController
     batch_id = params[:batch_id]
     order_ids = params[:order_ids] # optional: submit specific orders only
 
-    # Accept orders that are pending (verified) or have accepted price changes
-    orders = scoped_orders.for_batch(batch_id).where(status: %w[pending price_changed])
+    # Accept orders that are draft (verified), pending, or have accepted price changes
+    orders = scoped_orders.for_batch(batch_id).where(status: %w[pending price_changed draft])
 
     if order_ids.present?
       orders = orders.where(id: order_ids)
@@ -576,6 +607,21 @@ class OrdersController < ApplicationController
         }
       end
 
+      # Items added after verification that are still being verified (verified_price is nil)
+      unverified_items = order.order_items.select { |item| item.verified_price.nil? }.map do |item|
+        {
+          id: item.id,
+          name: item.supplier_product&.supplier_name,
+          sku: item.supplier_sku
+        }
+      end
+
+      # Items that just completed verification (verified_price was set by VerifyItemPriceJob)
+      newly_verified_items = order.order_items
+        .select { |item| item.verified_price.present? && !items_with_changes.any? { |c| c[:id] == item.id } }
+        .select { |item| item.verified_price == item.unit_price }
+        .map { |item| { id: item.id } }
+
       {
         id: order.id,
         supplier_name: order.supplier.name,
@@ -589,6 +635,8 @@ class OrdersController < ApplicationController
         price_verified_at: order.price_verified_at&.iso8601,
         items_with_changes: items_with_changes,
         unavailable_items: unavailable_items,
+        unverified_items: unverified_items,
+        newly_verified_items: newly_verified_items,
         supplier_delivery_address: order.supplier_delivery_address
       }
     end
@@ -606,6 +654,7 @@ class OrdersController < ApplicationController
         failed: orders.count(&:verification_failed?),
         processing: orders.count(&:processing?),
         all_complete: all_complete,
+        saved_as_draft: all_complete && orders.any?(&:draft?),
         any_price_changed: orders.any?(&:has_price_changes?),
         any_failed: orders.any?(&:verification_failed?),
         skipped: orders.count { |o| o.verification_status == "skipped" },
@@ -650,7 +699,7 @@ class OrdersController < ApplicationController
     order_ids = params[:order_ids] || []
 
     orders = scoped_orders.for_batch(batch_id)
-      .where(status: %w[pending verifying price_changed])
+      .where(status: %w[pending verifying price_changed draft])
     orders = orders.where(id: order_ids) if order_ids.present?
 
     # Only re-verify non-email suppliers
@@ -672,13 +721,13 @@ class OrdersController < ApplicationController
     order_ids = params[:order_ids] || []
 
     orders = scoped_orders.for_batch(batch_id)
-      .where(status: %w[verifying price_changed])
+      .where(status: %w[verifying price_changed draft])
       .or(scoped_orders.for_batch(batch_id).where(verification_status: "failed"))
     orders = orders.where(id: order_ids) if order_ids.present?
 
     orders.each do |order|
       order.skip_verification!
-      order.update!(status: "pending") unless order.pending?
+      order.mark_as_draft!
     end
 
     render json: {

@@ -16,7 +16,7 @@ export default class extends Controller {
     "verifyingIndicator", "verifiedBadge", "priceChangedBadge", "verifyFailedBadge",
     "priceChangeDetails", "priceChangeList", "priceDiff", "unitPriceDisplay",
     "verificationErrorDetails", "verificationErrorText",
-    "suggestionsSection",
+    "suggestionsSection", "draftBanner",
     // Forgot Something modal
     "forgotModal", "forgotSearchInput", "forgotResults"
   ]
@@ -32,6 +32,8 @@ export default class extends Controller {
     this._pollingInterval = null
     this._recalcRAF = null
     this._cachedCsrfToken = null
+    this._draftNotificationShown = false
+    this._verifyingLocked = false
     this._updateSubmitStates()
 
     // Always start polling — verification may complete before the page finishes
@@ -48,6 +50,7 @@ export default class extends Controller {
   // --- Quantity adjustments ---
 
   incrementItem(event) {
+    if (this._verifyingLocked) return
     const btn = event.currentTarget
     const itemId = btn.dataset.itemId
     const input = this._inputForItem(itemId)
@@ -58,6 +61,7 @@ export default class extends Controller {
   }
 
   decrementItem(event) {
+    if (this._verifyingLocked) return
     const btn = event.currentTarget
     const itemId = btn.dataset.itemId
     const input = this._inputForItem(itemId)
@@ -70,6 +74,7 @@ export default class extends Controller {
   }
 
   updateQuantity(event) {
+    if (this._verifyingLocked) return
     const input = event.currentTarget
     const newQty = parseInt(input.value) || 1
     if (newQty < 1) {
@@ -121,6 +126,7 @@ export default class extends Controller {
   // --- Remove item ---
 
   removeItem(event) {
+    if (this._verifyingLocked) return
     const btn = event.currentTarget
     const itemId = btn.dataset.itemId
     const orderId = btn.dataset.orderId
@@ -173,6 +179,7 @@ export default class extends Controller {
   // --- Quick-add suggestions ---
 
   addSuggestion(event) {
+    if (this._verifyingLocked) return
     const btn = event.currentTarget
     const orderId = String(btn.dataset.orderId)
     const supplierProductId = btn.dataset.supplierProductId
@@ -198,7 +205,7 @@ export default class extends Controller {
       if (data.is_existing) {
         this._updateExistingItemRow(data.item)
       } else {
-        this._insertNewItemRow(orderId, data.item)
+        this._insertNewItemRow(orderId, data.item, data.item.verification_pending)
       }
 
       // Remove the suggestion pill
@@ -215,6 +222,12 @@ export default class extends Controller {
 
       // Update submit button states
       this._updateSubmitStates()
+
+      // Restart polling to pick up item verification results
+      if (data.item.verification_pending) {
+        if (!this._pollingInterval) this._startPolling()
+        setTimeout(() => this._pollVerificationStatus(), 1000)
+      }
     })
     .catch(err => {
       console.error("Error adding suggestion:", err)
@@ -224,7 +237,7 @@ export default class extends Controller {
     })
   }
 
-  _insertNewItemRow(orderId, item) {
+  _insertNewItemRow(orderId, item, verificationPending = false) {
     const card = this._cardForOrder(orderId)
     if (!card) {
       console.warn("[_insertNewItemRow] Card not found for orderId:", orderId)
@@ -233,6 +246,9 @@ export default class extends Controller {
 
     const name = item.name || ""
     const sku = item.sku || ""
+    const verifyIndicator = verificationPending
+      ? `<span class="item-verify-spinner inline-flex items-center ml-1" data-item-verify-id="${item.id}" title="Verifying price..."><svg class="animate-spin h-3 w-3 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></span>`
+      : ''
 
     // Desktop table row
     const tbody = card.querySelector("table tbody")
@@ -273,7 +289,7 @@ export default class extends Controller {
           </div>
         </td>
         <td class="px-4 py-2 text-sm text-right">
-          <span class="text-gray-900" data-order-review-target="unitPriceDisplay" data-item-id="${item.id}">${this._formatCurrency(item.unit_price)}</span>
+          <span class="text-gray-900" data-order-review-target="unitPriceDisplay" data-item-id="${item.id}">${this._formatCurrency(item.unit_price)}${verifyIndicator}</span>
           <span class="hidden block text-xs mt-0.5" data-order-review-target="priceDiff" data-item-id="${item.id}"></span>
         </td>
         <td class="px-4 py-2 text-sm font-medium text-gray-900 text-right" data-order-review-target="lineTotal" data-item-id="${item.id}">
@@ -331,7 +347,7 @@ export default class extends Controller {
         </div>
         <div class="flex items-center justify-between">
           <div>
-            <span class="text-xs text-gray-500" data-order-review-target="unitPriceDisplay" data-item-id="${item.id}">${this._formatCurrency(item.unit_price)} each</span>
+            <span class="text-xs text-gray-500" data-order-review-target="unitPriceDisplay" data-item-id="${item.id}">${this._formatCurrency(item.unit_price)} each${verificationPending ? verifyIndicator : ''}</span>
             <span class="hidden text-xs" data-order-review-target="priceDiff" data-item-id="${item.id}"></span>
           </div>
           <div class="inline-flex items-center gap-1">
@@ -362,6 +378,18 @@ export default class extends Controller {
       `
       mobileContainer.appendChild(div)
       setTimeout(() => div.classList.remove("bg-green-50"), 2000)
+    }
+
+    // Timeout: if verification hasn't completed in 30s, stop the spinner
+    if (verificationPending) {
+      setTimeout(() => {
+        const spinner = document.querySelector(`[data-item-verify-id="${item.id}"]`)
+        if (spinner && spinner.classList.contains("item-verify-spinner")) {
+          spinner.innerHTML = `<svg class="h-3 w-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01"/></svg>`
+          spinner.classList.remove("item-verify-spinner")
+          spinner.title = "Price not yet verified — using last known price"
+        }
+      }, 30000)
     }
   }
 
@@ -673,7 +701,9 @@ export default class extends Controller {
     .then(res => res.json())
     .then(data => {
       this._updateVerificationUI(data)
-      if (data.summary.all_complete) {
+      // Keep polling if order-level verification is still running OR individual items are being verified
+      const hasUnverifiedItems = data.orders.some(o => o.unverified_items && o.unverified_items.length > 0)
+      if (data.summary.all_complete && !hasUnverifiedItems) {
         this._stopPolling()
       }
     })
@@ -733,6 +763,18 @@ export default class extends Controller {
         // Clear unavailable banner + data-in-stock flags if no items are out of stock
         this._clearUnavailableState(orderId)
       }
+
+      // Per-item verification: swap spinners for checkmarks or price changes
+      if (order.newly_verified_items) {
+        order.newly_verified_items.forEach(item => {
+          this._markItemVerified(item.id)
+        })
+      }
+      if (order.items_with_changes) {
+        order.items_with_changes.forEach(item => {
+          this._markItemPriceChanged(item)
+        })
+      }
     })
 
     // Update top-level banners
@@ -751,6 +793,17 @@ export default class extends Controller {
     }
     // else: all verified — banners hidden, submit buttons enabled
 
+    // Show "Saved as draft" notification when verification completes
+    if (summary.saved_as_draft && !this._draftNotificationShown) {
+      this._draftNotificationShown = true
+      if (this.hasDraftBannerTarget) {
+        this.draftBannerTarget.classList.remove("hidden")
+        setTimeout(() => {
+          this.draftBannerTarget.classList.add("hidden")
+        }, 8000)
+      }
+    }
+
     // If no more orders on page (all submitted), redirect
     if (this.orderCardTargets.length === 0) {
       window.location.href = "/orders"
@@ -758,6 +811,48 @@ export default class extends Controller {
 
     // Update submit button states based on verification results
     this._updateSubmitStates()
+  }
+
+  // --- Per-item verification UI updates ---
+
+  _markItemVerified(itemId) {
+    const spinner = document.querySelector(`[data-item-verify-id="${itemId}"]`)
+    if (spinner) {
+      spinner.innerHTML = `<svg class="h-3 w-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>`
+      spinner.classList.remove("item-verify-spinner")
+      spinner.title = "Price verified"
+      // Fade out checkmark after 3 seconds
+      setTimeout(() => { if (spinner.parentNode) spinner.remove() }, 3000)
+    }
+  }
+
+  _markItemPriceChanged(item) {
+    const itemId = String(item.id)
+
+    // First remove any spinner
+    const spinner = document.querySelector(`[data-item-verify-id="${itemId}"]`)
+    if (spinner) spinner.remove()
+
+    // Update the unit price display with the new price and diff
+    const direction = item.difference > 0 ? "+" : ""
+    const color = item.difference > 0 ? "text-red-600" : "text-green-600"
+    this.unitPriceDisplayTargets.forEach(el => {
+      if (el.dataset.itemId === itemId) {
+        el.innerHTML = `${this._formatCurrency(item.verified_price)} <span class="${color} text-xs">(${direction}${this._formatCurrency(item.difference)})</span>`
+      }
+    })
+
+    // Update data-unit-price on ALL rows (desktop + mobile) and recalculate
+    let qty = 1
+    this.itemRowTargets.forEach(row => {
+      if (row.dataset.itemId === itemId) {
+        row.setAttribute("data-unit-price", item.verified_price)
+        const input = row.querySelector('[data-order-review-target="quantityInput"]')
+        if (input) qty = parseInt(input.value) || 1
+      }
+    })
+    this._updateLineTotal(itemId, qty)
+    this._scheduleRecalculation()
   }
 
   // --- Per-order verification UI updates ---
@@ -984,6 +1079,7 @@ export default class extends Controller {
     if (this.hasVerificationBannerTarget) {
       this.verificationBannerTarget.classList.remove("hidden")
     }
+    this._setVerifyingLock(true)
   }
 
   _showPriceChangeBanner() {
@@ -1008,6 +1104,30 @@ export default class extends Controller {
     if (this.hasVerificationFailedBannerTarget) {
       this.verificationFailedBannerTarget.classList.add("hidden")
     }
+    this._setVerifyingLock(false)
+  }
+
+  // Lock/unlock all interactive controls during verification to prevent impatient clicks
+  _setVerifyingLock(locked) {
+    this._verifyingLocked = locked
+    const selector = [
+      'button[data-action*="incrementItem"]',
+      'button[data-action*="decrementItem"]',
+      'button[data-action*="removeItem"]',
+      'button[data-action*="addSuggestion"]',
+      'button[data-action*="openForgotSomething"]',
+      'input[data-order-review-target="quantityInput"]',
+      'input[data-order-review-target="deliveryDate"]'
+    ].join(", ")
+
+    this.element.querySelectorAll(selector).forEach(el => {
+      el.disabled = locked
+      if (locked) {
+        el.classList.add("opacity-50", "cursor-not-allowed")
+      } else {
+        el.classList.remove("opacity-50", "cursor-not-allowed")
+      }
+    })
   }
 
   // --- Recalculation helpers ---
@@ -1784,7 +1904,7 @@ export default class extends Controller {
       if (data.is_existing) {
         this._updateExistingItemRow(data.item)
       } else {
-        this._insertNewItemRow(orderId, data.item)
+        this._insertNewItemRow(orderId, data.item, data.item.verification_pending)
       }
 
       // Update order totals
@@ -1792,6 +1912,13 @@ export default class extends Controller {
       this._recalculateSummary()
       this._updateMinimumForOrder(orderId, parseFloat(data.order.subtotal), data.meets_minimum)
       this._updateSubmitStates()
+
+      // Restart polling to pick up item verification results
+      if (data.item.verification_pending) {
+        if (!this._pollingInterval) this._startPolling()
+        // Also fire an immediate poll after a short delay to catch fast completions
+        setTimeout(() => this._pollVerificationStatus(), 1000)
+      }
 
       // Track this order for re-verification on modal close
       if (this._forgotItemsAddedToOrders) {

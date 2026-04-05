@@ -45,11 +45,9 @@ class PriceVerificationJob < ApplicationJob
     if result[:success]
       case result[:verification_status]
       when "verified", "skipped"
-        # Prices match (or scraper doesn't support verification) — ready for user to submit
-        Rails.logger.info "[PriceVerificationJob] Order ##{order_id} verified. Ready for user review."
-        # Order stays in "pending" status with verification_status = "verified"
-        # The mark_verified! method in the service already set verification_status
-        order.update!(status: "pending") unless order.pending?
+        # Prices match (or scraper doesn't support verification) — save as draft
+        Rails.logger.info "[PriceVerificationJob] Order ##{order_id} verified. Saved as draft."
+        order.mark_as_draft!
       when "price_changed"
         # Price changes detected — user needs to review on the review page
         Rails.logger.info "[PriceVerificationJob] Order ##{order_id} has price changes. Holding for user review."

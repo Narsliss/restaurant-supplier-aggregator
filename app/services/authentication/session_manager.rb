@@ -47,8 +47,10 @@ module Authentication
         Rails.logger.info "[SessionManager] 2FA required for #{credential.supplier.name}"
         raise e
       rescue StandardError => e
-        Rails.logger.error "[SessionManager] Session refresh failed: #{e.message}"
-        credential.mark_failed!(e.message)
+        Rails.logger.error "[SessionManager] Session refresh failed for #{credential.supplier.name}: #{e.message}"
+        # Only mark failed for 2FA suppliers that can't auto-retry.
+        # Password-based suppliers (CW, WCW) will re-login on next use.
+        credential.mark_failed!(e.message) unless credential.supplier.password_auth?
         false
       end
     end

@@ -10,7 +10,7 @@ class Order < ApplicationRecord
 
   # Validations
   validates :status, presence: true, inclusion: {
-    in: %w[pending verifying price_changed processing pending_review pending_manual submitted confirmed failed cancelled dry_run_complete]
+    in: %w[pending verifying price_changed processing pending_review pending_manual submitted confirmed failed cancelled dry_run_complete draft]
   }
   validates :verification_status, inclusion: {
     in: %w[pending verifying verified price_changed failed skipped],
@@ -34,6 +34,7 @@ class Order < ApplicationRecord
   scope :submitted, -> { where(status: "submitted") }
   scope :confirmed, -> { where(status: "confirmed") }
   scope :failed, -> { where(status: "failed") }
+  scope :draft, -> { where(status: "draft") }
   scope :completed, -> { where(status: %w[submitted confirmed]) }
   scope :recent, -> { order(created_at: :desc) }
   scope :by_date, ->(date) { where(submitted_at: date.all_day) }
@@ -53,7 +54,8 @@ class Order < ApplicationRecord
     confirmed: "confirmed",
     failed: "failed",
     cancelled: "cancelled",
-    dry_run_complete: "dry_run_complete"
+    dry_run_complete: "dry_run_complete",
+    draft: "draft"
   }.freeze
 
   VERIFICATION_STATUSES = %w[pending verifying verified price_changed failed skipped].freeze
@@ -103,24 +105,28 @@ class Order < ApplicationRecord
     status == "dry_run_complete"
   end
 
+  def draft?
+    status == "draft"
+  end
+
   def completed?
     submitted? || confirmed? || dry_run_complete?
   end
 
   def editable?
-    status.in?(%w[pending verifying price_changed pending_review])
+    status.in?(%w[pending verifying price_changed pending_review draft])
   end
 
   def can_submit?
-    pending? || status == "pending_review" || price_changed?
+    pending? || status == "pending_review" || price_changed? || draft?
   end
 
   def can_cancel?
-    pending? || processing? || verifying? || price_changed? || status == "pending_review"
+    pending? || processing? || verifying? || price_changed? || status == "pending_review" || draft?
   end
 
   def can_delete?
-    status.in?(%w[pending verifying price_changed failed cancelled dry_run_complete])
+    status.in?(%w[pending verifying price_changed failed cancelled dry_run_complete draft])
   end
 
   # --- Price verification ---
@@ -160,6 +166,13 @@ class Order < ApplicationRecord
     )
   end
 
+  def mark_as_draft!
+    update!(
+      status: "draft",
+      draft_saved_at: Time.current
+    )
+  end
+
   def skip_verification!(reason = nil)
     update!(
       verification_status: "skipped",
@@ -181,9 +194,10 @@ class Order < ApplicationRecord
 
     recalculate_totals!
     update!(
-      status: "pending",
+      status: "draft",
       verification_status: "verified",
-      price_change_amount: 0
+      price_change_amount: 0,
+      draft_saved_at: Time.current
     )
   end
 
