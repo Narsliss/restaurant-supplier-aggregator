@@ -44,6 +44,8 @@ Rails.application.routes.draw do
     end
   end
 
+  resource :feedback, only: [:create], controller: 'feedbacks'
+
   root 'dashboard#index'
   post 'onboarding/dismiss', to: 'dashboard#dismiss_onboarding', as: :dismiss_onboarding
 

@@ -34,6 +34,7 @@ import DatePresetController from "./date_preset_controller"
 import RequirementGridController from "./requirement_grid_controller"
 import CatalogModalController from "./catalog_modal_controller"
 import PriceCheckController from "./price_check_controller"
+import FeedbackController from "./feedback_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -69,3 +70,4 @@ application.register("date-preset", DatePresetController)
 application.register("requirement-grid", RequirementGridController)
 application.register("catalog-modal", CatalogModalController)
 application.register("price-check", PriceCheckController)
+application.register("feedback", FeedbackController)
