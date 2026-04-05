@@ -303,91 +303,10 @@ class SupplierListItem < ApplicationRecord
   private
 
   # Detect per-unit pricing from pack_size patterns.
-  # Variable-weight indicators (common for meat/seafood):
-  #   "15 LB+"          → + suffix means approximate weight, priced per lb
-  #   "12LB AVG"        → AVG means average weight, priced per lb
-  #   "5LB UP AVG"      → UP + AVG also indicates per-lb
-  #   "10#avg"          → pound-sign with AVG, same meaning
-  #   "5#UP"            → pound-sign with UP (minimum weight), priced per lb
+  # Delegates to per-supplier PriceClassifiers for supplier-aware inference.
   def inferred_price_unit
-    return nil unless pack_size.present?
-
-    # For case-pricing suppliers (e.g., WCW, Chef's WH, Sysco, PPO):
-    #   - When the SLI has no own price and falls back to the supplier
-    #     product's current_price, that IS the case price — skip inference.
-    #   - When the SLI was created from a catalog search, the price was
-    #     copied from SupplierProduct.current_price (the case/catalog price),
-    #     so it's also a case price — skip inference.
-    # Suppliers with case_pricing=false (e.g., US Foods) store per-unit
-    # prices even in the catalog, so inference still applies for them.
-    if supplier&.case_pricing?
-      return nil if price.blank?
-      return nil if source == 'catalog_search'
-    end
-
-    # PPO "Case - 75# AVG" — the "Case -" prefix means the price is for
-    # the whole case, not per-lb. Without this guard the # AVG regex below
-    # would incorrectly treat $560 as $560/lb.
-    return nil if pack_size =~ /\ACase\s*-/i
-
-    # WCW "- Case" suffix (e.g., "15 LB AVG | CATELLI BROS - Case",
-    # "60 LB AVG - Case") — indicates the price is for the whole case.
-    return nil if pack_size =~ /-\s*Case\b/i
-
-    # For case-pricing suppliers using LB-based variable-weight patterns
-    # (LB AVG, LB UP AVG, LB+), require a "- Each" suffix to confirm the
-    # price is per-lb. Without it, the price is assumed case-priced.
-    #
-    # This targets WCW which uses two formats:
-    #   "6LB AVG | Packer - Each" → per-lb ✓ (has - Each)
-    #   "6LB AVG"                 → case price (no suffix, from accounts
-    #                                that return case prices in order guide)
-    #
-    # Does NOT affect:
-    #   - Sysco: uses "#" notation (#avg, #UP) — handled by separate regexes
-    #     below that match before the LB-based patterns
-    #   - US Foods: case_pricing=false, bypasses this guard entirely
-    if supplier&.case_pricing? && pack_size =~ /\d+\.?\d*\s*LB/i && pack_size !~ /-\s*Each\b/i
-      return nil
-    end
-
-    # "15 LB+" or "5 OZ+" — plus sign means variable weight
-    if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s*\+/i
-      return $1.downcase
-    end
-
-    # "10#+" — pound-sign with plus
-    if pack_size =~ /\d+\.?\d*\s*#\s*\+/i
-      return "lb"
-    end
-
-    # "12LB AVG" or "5LB UP AVG" — average weight means per-unit pricing
-    # Allow optional words (UP, etc.) between the unit and AVG.
-    if pack_size =~ /\d+\.?\d*\s*(LB|OZ|KG)\s+(?:\w+\s+)?AVG/i
-      return $1.downcase
-    end
-
-    # "10#avg" or "5# AVG" — pound-sign with AVG
-    if pack_size =~ /\d+\.?\d*\s*#\s*AVG/i
-      return "lb"
-    end
-
-    # "5#UP" or "5# UP" — pound-sign with UP (minimum weight)
-    if pack_size =~ /\d+\.?\d*\s*#\s*UP/i
-      return "lb"
-    end
-
-    # PPO "EACH" items with pound weights (# or LB) are priced per-lb,
-    # not per-piece. E.g., "EACH - 1-5#" at $7.60 = $7.60/lb for a ~5 lb piece.
-    # Volume/count items (QT, KG, CT) are genuine per-each pricing.
-    effective_unit = price_unit.presence
-    if effective_unit.present? && UnitParser.normalize_unit_key(effective_unit) == "each"
-      if pack_size =~ /\d+\s*(?:#|lb\b)/i
-        return "lb"
-      end
-    end
-
-    nil
+    return @inferred_price_unit if defined?(@inferred_price_unit)
+    @inferred_price_unit = PriceClassifiers::Base.for(self).inferred_price_unit
   end
 
   # Price is already per the stored price_unit (e.g., $12.50/lb).

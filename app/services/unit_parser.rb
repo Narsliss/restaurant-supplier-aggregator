@@ -292,12 +292,14 @@ class UnitParser
         #   Only when both numbers ≥ 40 (produce sizing). Smaller counts like "18/20 EA"
         #   are case packs (18 trays × 20 pieces).
         # - Weight units: "30-40 LB" → weight range (case weighs 30-40 lbs)
-        #   Only when the product exceeds 100 lbs (unrealistic for a single case).
+        #   Normalize to lbs before checking — 100 oz (6 lbs) is a normal case,
+        #   but 100 lbs as a single case is unrealistic for most products.
         is_count_unit = COUNT_TO_EACH.key?(unit)
         is_weight_unit = WEIGHT_TO_OZ.key?(unit)
         close_in_magnitude = num1 > 1 && num2 > 1 && [num1 / num2, num2 / num1].max <= 2.0
         is_produce_sizing = is_count_unit && num1 >= 40 && num2 >= 40
-        unrealistic_weight = is_weight_unit && (num1 * num2) > 100
+        product_in_lbs = is_weight_unit ? (num1 * num2 * (WEIGHT_TO_OZ[unit] || 1.0)) / 16.0 : 0
+        unrealistic_weight = is_weight_unit && product_in_lbs > 100
 
         is_range = close_in_magnitude && (is_produce_sizing || unrealistic_weight)
         if is_range

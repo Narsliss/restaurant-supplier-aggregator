@@ -627,6 +627,8 @@ module Scrapers
     end
 
     # Fetch all order guide items, paginating through the API.
+    # Returns canonicalproduct hashes with an injected '_variant_unit' key
+    # when a per-lb variant was selected (so callers can set price_unit).
     def fetch_all_order_guide_items
       all_items = []
       offset = 0
@@ -641,7 +643,12 @@ module Scrapers
             # price, which enables the per-unit display chain ($X.XX/LB ~$Y.YY).
             # Falls back to first variant if no lb variant exists.
             preferred = products.find { |p| p['unit'].to_s.downcase == 'lb' } || products.first
-            preferred&.dig('canonicalproduct')
+            variant_unit = preferred&.dig('unit')
+            canonical = preferred&.dig('canonicalproduct')
+            # Carry the variant's pricing unit through so scrape_lists/scrape_prices
+            # can set price_unit correctly when a per-lb variant was selected.
+            canonical['_variant_unit'] = variant_unit if canonical && variant_unit.present?
+            canonical
           end
         end.compact
 
@@ -681,7 +688,9 @@ module Scrapers
     # ($X.XX/LB with ~$Y.YY estimated total). For "each"/"case"/unknown,
     # we return nil to preserve default case-pricing behavior.
     def wcw_price_unit(item)
-      raw = item.dig('unifiedPrice', 'defaultUnitPrice', 'unit')
+      # Check the canonical product's own unit first, then fall back to
+      # the variant unit injected by fetch_all_order_guide_items.
+      raw = item.dig('unifiedPrice', 'defaultUnitPrice', 'unit') || item['_variant_unit']
       return nil unless raw.present?
 
       unit = raw.to_s.downcase.strip
