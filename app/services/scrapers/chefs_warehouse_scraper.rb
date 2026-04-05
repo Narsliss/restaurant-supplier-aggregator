@@ -491,6 +491,12 @@ module Scrapers
                        case_price
                      end
 
+        # Only store piece_price when it's a genuinely different price from the
+        # case price — the CW API returns the same price for both UOMs when
+        # piece ordering isn't actually available for a product.
+        has_real_piece_price = piece_price.present? && piece_price > 0 &&
+                               piece_price != case_price && piece_price != main_price
+
         {
           sku: p[:sku],
           name: p[:name],
@@ -500,8 +506,8 @@ module Scrapers
           in_stock: p[:in_stock] != false,
           position: nil,
           price_unit: nil, # CW returns total selling price, not per-unit — don't trigger estimated_total multiplication
-          piece_price: piece_price,
-          piece_pack_size: 'PC',
+          piece_price: has_real_piece_price ? piece_price : nil,
+          piece_pack_size: has_real_piece_price ? 'PC' : nil,
           remote_item_id: p[:variant_code]
         }
       end

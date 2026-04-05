@@ -333,21 +333,25 @@ module Scrapers
     # businessUnitId, quantity.
     def add_to_cart(items)
       payload = items.map do |item|
+        meta = item[:metadata] || {
+          productKey: nil,
+          productClassificationCode: nil,
+          chefItemFlag: false,
+          bto: false,
+          supermarket: false,
+          stockingType: item[:stocking_type] || 'P',
+          lineType: 'S',
+          vendorId: item[:vendor_id],
+          productionItem: false,
+          orderCutoffOverride: nil
+        }
+        # Always apply the requested UOM — the pre-built order guide metadata
+        # defaults to CS, but the user may have toggled to PC (piece ordering).
+        meta = meta.merge('unitOfMeasure' => item[:uom] || 'CS') if meta.is_a?(Hash)
+
         {
           code: item[:code] || item[:variant_code],
-          metadata: item[:metadata] || {
-            unitOfMeasure: item[:uom] || 'CS',
-            productKey: nil,
-            productClassificationCode: nil,
-            chefItemFlag: false,
-            bto: false,
-            supermarket: false,
-            stockingType: item[:stocking_type] || 'P',
-            lineType: 'S',
-            vendorId: item[:vendor_id],
-            productionItem: false,
-            orderCutoffOverride: nil
-          },
+          metadata: meta,
           isReserve: false,
           businessUnitId: item[:business_unit_id] || '800001',
           quantity: item[:quantity] || 1,
