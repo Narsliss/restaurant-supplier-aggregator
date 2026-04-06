@@ -1,0 +1,326 @@
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <%# Breadcrumb %>
+  <nav class="mb-6">
+    <%= link_to "Pipeline", crm_leads_path, class: "text-sm text-gray-500 hover:text-gray-700" %>
+    <span class="text-gray-400 mx-1">/</span>
+    <span class="text-sm text-gray-900"><%= @lead.restaurant_name %></span>
+  </nav>
+
+  <div class="lg:grid lg:grid-cols-3 lg:gap-8">
+    <%# LEFT COLUMN %>
+    <div class="lg:col-span-2 space-y-6">
+
+      <%# Lead Header Card %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <h1 class="text-2xl font-bold text-gray-900"><%= @lead.restaurant_name %></h1>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <%= @lead.stage_color %>">
+                <%= @lead.stage_label %>
+              </span>
+            </div>
+            <div class="text-sm text-gray-600">
+              <span class="font-medium"><%= @lead.contact_name %></span>
+              <% if @lead.contact_role.present? %>
+                <span class="text-gray-400">&middot;</span> <%= @lead.contact_role %>
+              <% end %>
+            </div>
+            <div class="flex flex-wrap gap-4 mt-2 text-sm text-gray-500">
+              <% if @lead.email.present? %>
+                <span><%= @lead.email %></span>
+              <% end %>
+              <% if @lead.phone.present? %>
+                <span><%= @lead.phone %></span>
+              <% end %>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <%= link_to "Edit", edit_crm_lead_path(@lead), class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition" %>
+            <%= button_to "Delete", crm_lead_path(@lead), method: :delete,
+                  data: { turbo_confirm: "Are you sure you want to delete this lead?" },
+                  class: "px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-lg hover:bg-red-50 transition" %>
+          </div>
+        </div>
+      </div>
+
+      <%# Next Action Card %>
+      <% if @lead.next_action.present? %>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl shadow-sm p-6">
+          <h3 class="text-sm font-semibold text-amber-800 uppercase tracking-wider mb-2">Next Action Required</h3>
+          <p class="text-sm text-amber-900"><%= @lead.next_action %></p>
+        </div>
+      <% end %>
+
+      <%# Activity Timeline %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-gray-900">Activity</h2>
+          <details class="relative">
+            <summary class="px-4 py-2 text-sm font-medium text-white bg-brand-green hover:bg-brand-green-dark rounded-lg cursor-pointer transition list-none">
+              Log Activity
+            </summary>
+            <div class="mt-4 border-t border-gray-200 pt-4">
+              <%= form_with model: [@lead, Crm::Activity.new], url: crm_lead_activities_path(@lead), class: "space-y-4" do |f| %>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <%= f.label :activity_type, "Type", class: "block text-sm font-medium text-gray-700" %>
+                    <%= f.select :activity_type,
+                          Crm::Activity::TYPES.map { |t| [t.capitalize, t] },
+                          {},
+                          class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+                  </div>
+                  <div>
+                    <%= f.label :subject, class: "block text-sm font-medium text-gray-700" %>
+                    <%= f.text_field :subject,
+                          class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+                  </div>
+                </div>
+                <div>
+                  <%= f.label :body, "Notes", class: "block text-sm font-medium text-gray-700" %>
+                  <%= f.text_area :body, rows: 3,
+                        class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+                </div>
+                <div class="flex justify-end">
+                  <%= f.submit "Save Activity", class: "px-4 py-2 bg-brand-green hover:bg-brand-green-dark text-white text-sm font-medium rounded-lg shadow-sm transition cursor-pointer" %>
+                </div>
+              <% end %>
+            </div>
+          </details>
+        </div>
+
+        <% if @lead.activities.any? %>
+          <div class="flow-root">
+            <ul class="-mb-4">
+              <% @lead.activities.recent.each_with_index do |activity, idx| %>
+                <li class="relative pb-4 <%= idx < @lead.activities.size - 1 ? '' : '' %>">
+                  <div class="flex gap-3">
+                    <div class="flex-shrink-0">
+                      <span class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-gray-100">
+                        <% case activity.activity_type %>
+                        <% when "call" %>
+                          <svg class="h-4 w-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+                        <% when "email" %>
+                          <svg class="h-4 w-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        <% when "meeting" %>
+                          <svg class="h-4 w-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        <% else %>
+                          <svg class="h-4 w-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        <% end %>
+                      </span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700"><%= activity.type_label %></span>
+                        <% if activity.subject.present? %>
+                          <span class="text-sm font-medium text-gray-900"><%= activity.subject %></span>
+                        <% end %>
+                      </div>
+                      <% if activity.body.present? %>
+                        <p class="mt-1 text-sm text-gray-600"><%= activity.body %></p>
+                      <% end %>
+                      <div class="mt-1 text-xs text-gray-400">
+                        <span><%= activity.user&.full_name || activity.user&.email %></span>
+                        <span class="mx-1">&middot;</span>
+                        <span><%= time_ago_in_words(activity.occurred_at) %> ago</span>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+        <% else %>
+          <p class="text-sm text-gray-500 text-center py-4">No activities logged yet.</p>
+        <% end %>
+      </div>
+
+      <%# Tasks Section %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-gray-900">Tasks</h2>
+          <details class="relative">
+            <summary class="px-4 py-2 text-sm font-medium text-white bg-brand-green hover:bg-brand-green-dark rounded-lg cursor-pointer transition list-none">
+              Add Task
+            </summary>
+            <div class="mt-4 border-t border-gray-200 pt-4">
+              <%= form_with model: [@lead, Crm::Task.new], url: crm_lead_tasks_path(@lead), class: "space-y-4" do |f| %>
+                <div>
+                  <%= f.label :title, class: "block text-sm font-medium text-gray-700" %>
+                  <%= f.text_field :title,
+                        class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <%= f.label :due_date, class: "block text-sm font-medium text-gray-700" %>
+                    <%= f.date_field :due_date,
+                          class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+                  </div>
+                  <div>
+                    <%= f.label :priority, class: "block text-sm font-medium text-gray-700" %>
+                    <%= f.select :priority,
+                          Crm::Task::PRIORITIES.map { |p| [p.capitalize, p] },
+                          {},
+                          class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+                  </div>
+                </div>
+                <div class="flex justify-end">
+                  <%= f.submit "Save Task", class: "px-4 py-2 bg-brand-green hover:bg-brand-green-dark text-white text-sm font-medium rounded-lg shadow-sm transition cursor-pointer" %>
+                </div>
+              <% end %>
+            </div>
+          </details>
+        </div>
+
+        <% pending_tasks = @lead.tasks.pending.order(:due_date) %>
+        <% completed_tasks = @lead.tasks.where.not(completed_at: nil).order(completed_at: :desc) %>
+
+        <% if pending_tasks.any? %>
+          <ul class="divide-y divide-gray-100 mb-4">
+            <% pending_tasks.each do |task| %>
+              <li class="flex items-center gap-3 py-3">
+                <%= button_to complete_crm_lead_task_path(@lead, task), method: :post, class: "flex-shrink-0" do %>
+                  <span class="block h-5 w-5 rounded border-2 border-gray-300 hover:border-brand-green transition cursor-pointer"></span>
+                <% end %>
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-900"><%= task.title %></div>
+                  <div class="text-xs text-gray-500">
+                    Due <%= task.due_date.strftime("%b %-d, %Y") %>
+                    <% if task.overdue? %>
+                      <span class="text-red-600 font-medium ml-1">Overdue</span>
+                    <% end %>
+                  </div>
+                </div>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                  <%= case task.priority
+                      when 'high' then 'bg-red-100 text-red-700'
+                      when 'normal' then 'bg-blue-100 text-blue-700'
+                      else 'bg-gray-100 text-gray-600'
+                      end %>">
+                  <%= task.priority.capitalize %>
+                </span>
+              </li>
+            <% end %>
+          </ul>
+        <% else %>
+          <p class="text-sm text-gray-500 text-center py-4">No pending tasks.</p>
+        <% end %>
+
+        <% if completed_tasks.any? %>
+          <details class="mt-2">
+            <summary class="text-sm text-gray-500 cursor-pointer hover:text-gray-700">
+              <%= completed_tasks.size %> completed task<%= completed_tasks.size == 1 ? '' : 's' %>
+            </summary>
+            <ul class="divide-y divide-gray-100 mt-2">
+              <% completed_tasks.each do |task| %>
+                <li class="flex items-center gap-3 py-3">
+                  <span class="block h-5 w-5 rounded border-2 border-brand-green bg-brand-green flex-shrink-0">
+                    <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                  </span>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm text-gray-400 line-through"><%= task.title %></div>
+                    <div class="text-xs text-gray-400">Completed <%= time_ago_in_words(task.completed_at) %> ago</div>
+                  </div>
+                </li>
+              <% end %>
+            </ul>
+          </details>
+        <% end %>
+      </div>
+    </div>
+
+    <%# RIGHT COLUMN %>
+    <div class="lg:col-span-1 space-y-6 mt-6 lg:mt-0">
+
+      <%# Details Card %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Details</h3>
+        <dl class="space-y-3">
+          <% if @lead.phone.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Phone</dt>
+              <dd class="text-sm text-gray-900"><%= @lead.phone %></dd>
+            </div>
+          <% end %>
+          <% if @lead.email.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Email</dt>
+              <dd class="text-sm text-gray-900"><%= @lead.email %></dd>
+            </div>
+          <% end %>
+          <% if @lead.city.present? || @lead.state.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Location</dt>
+              <dd class="text-sm text-gray-900"><%= [@lead.city, @lead.state].compact_blank.join(", ") %></dd>
+            </div>
+          <% end %>
+          <% if @lead.estimated_volume.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Estimated Volume</dt>
+              <dd class="text-sm text-gray-900"><%= @lead.estimated_volume.capitalize %></dd>
+            </div>
+          <% end %>
+          <% if @lead.deal_value_cents.to_i > 0 %>
+            <div>
+              <dt class="text-xs text-gray-500">Deal Value</dt>
+              <dd class="text-sm font-medium text-gray-900">$<%= number_with_delimiter(@lead.deal_value_dollars, precision: 0) %>/mo</dd>
+            </div>
+          <% end %>
+          <% if @lead.pain_point.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Pain Point</dt>
+              <dd class="text-sm text-gray-900"><%= @lead.pain_point %></dd>
+            </div>
+          <% end %>
+          <% if @lead.current_suppliers.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Current Suppliers</dt>
+              <dd class="text-sm text-gray-900"><%= @lead.current_suppliers %></dd>
+            </div>
+          <% end %>
+        </dl>
+      </div>
+
+      <%# Tags Card %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Tags</h3>
+        <% if @lead.tags.any? %>
+          <div class="flex flex-wrap gap-2">
+            <% @lead.tags.each do |tag| %>
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-green-light text-brand-green-dark">
+                <%= tag.name %>
+              </span>
+            <% end %>
+          </div>
+        <% else %>
+          <p class="text-sm text-gray-400">No tags</p>
+        <% end %>
+      </div>
+
+      <%# Quick Actions Card %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4">Quick Actions</h3>
+
+        <%# Move to Stage %>
+        <%= form_with url: move_stage_crm_lead_path(@lead), method: :patch, local: true, class: "mb-4" do |f| %>
+          <label for="pipeline_stage" class="block text-sm font-medium text-gray-700 mb-1">Move to Stage</label>
+          <select name="pipeline_stage" id="pipeline_stage" onchange="this.form.submit()"
+                  class="block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm">
+            <% Crm::Lead::PIPELINE_STAGES.each do |stage| %>
+              <option value="<%= stage %>" <%= 'selected' if @lead.pipeline_stage == stage %>><%= Crm::Lead::STAGE_LABELS[stage] %></option>
+            <% end %>
+          </select>
+        <% end %>
+
+        <%# Convert to Organization %>
+        <% if @lead.won? && @lead.organization.blank? %>
+          <%= button_to "Convert to Organization",
+                convert_crm_lead_path(@lead),
+                method: :post,
+                data: { turbo_confirm: "This will create an organization from this lead. Continue?" },
+                class: "w-full px-4 py-2 bg-brand-orange hover:bg-brand-orange-dark text-white text-sm font-medium rounded-lg shadow-sm transition" %>
+        <% end %>
+      </div>
+    </div>
+  </div>
+</div>

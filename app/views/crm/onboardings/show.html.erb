@@ -1,0 +1,165 @@
+<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+  <!-- Breadcrumb -->
+  <nav class="mb-6">
+    <%= link_to "Onboarding Tracker", crm_onboardings_path, class: "text-sm text-brand-green hover:text-brand-green-dark" %>
+    <span class="text-sm text-gray-400 mx-1">/</span>
+    <span class="text-sm text-gray-500"><%= @onboarding.lead.restaurant_name %></span>
+  </nav>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- LEFT COLUMN -->
+    <div class="lg:col-span-2 space-y-6">
+      <!-- Header -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <h1 class="text-2xl font-bold text-gray-900"><%= @onboarding.lead.restaurant_name %></h1>
+          <div class="flex items-center space-x-2">
+            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium <%= @onboarding.health_color %>">
+              <%= @onboarding.health_score.capitalize %>
+            </span>
+            <span class="inline-flex items-center rounded-full bg-gray-100 text-gray-800 px-2.5 py-0.5 text-xs font-medium">
+              <%= @onboarding.stage_label %>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Milestone Timeline -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-6">Onboarding Milestones</h2>
+
+        <div class="space-y-0">
+          <% current_stage_index = Crm::Onboarding::STAGES.index(@onboarding.stage) %>
+          <% @onboarding.milestone_timestamps.each_with_index do |(stage, timestamp), index| %>
+            <div class="relative flex items-start pb-6 <%= index < Crm::Onboarding::STAGES.size - 1 ? '' : '' %>">
+              <!-- Connector line -->
+              <% if index < Crm::Onboarding::STAGES.size - 1 %>
+                <div class="absolute left-4 top-8 w-0.5 h-full -ml-px <%= timestamp.present? ? 'bg-green-300' : 'bg-gray-200' %>"></div>
+              <% end %>
+
+              <!-- Circle -->
+              <div class="relative flex-shrink-0">
+                <% if timestamp.present? %>
+                  <div class="flex h-8 w-8 items-center justify-center rounded-full bg-green-500">
+                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                  </div>
+                <% elsif index == current_stage_index %>
+                  <div class="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green ring-4 ring-brand-green/20">
+                    <div class="h-2.5 w-2.5 rounded-full bg-white"></div>
+                  </div>
+                <% else %>
+                  <div class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 bg-white">
+                    <div class="h-2.5 w-2.5 rounded-full bg-gray-300"></div>
+                  </div>
+                <% end %>
+              </div>
+
+              <!-- Content -->
+              <div class="ml-4 min-w-0 flex-1 pt-0.5">
+                <p class="text-sm font-medium <%= index == current_stage_index ? 'text-brand-green' : (timestamp.present? ? 'text-gray-900' : 'text-gray-500') %>">
+                  <%= Crm::Onboarding::STAGE_LABELS[stage] %>
+                </p>
+                <% if timestamp.present? %>
+                  <p class="mt-0.5 text-xs text-gray-500"><%= timestamp.strftime("%b %-d, %Y at %-I:%M %p") %></p>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-gray-900">Notes</h2>
+          <%= link_to "Edit", edit_crm_onboarding_path(@onboarding), class: "text-sm text-brand-green hover:text-brand-green-dark font-medium" %>
+        </div>
+        <% if @onboarding.notes.present? %>
+          <div class="prose prose-sm max-w-none text-gray-700">
+            <%= simple_format(@onboarding.notes) %>
+          </div>
+        <% else %>
+          <p class="text-sm text-gray-500">No notes yet.</p>
+        <% end %>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="lg:col-span-1 space-y-6">
+      <!-- Lead Details -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-semibold text-gray-900 mb-4">Lead Details</h3>
+        <dl class="space-y-3">
+          <div>
+            <dt class="text-xs text-gray-500">Contact</dt>
+            <dd class="text-sm text-gray-900"><%= @lead.contact_name %></dd>
+          </div>
+          <% if @lead.contact_role.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Role</dt>
+              <dd class="text-sm text-gray-900"><%= @lead.contact_role %></dd>
+            </div>
+          <% end %>
+          <% if @lead.contact_phone.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Phone</dt>
+              <dd class="text-sm text-gray-900"><%= @lead.contact_phone %></dd>
+            </div>
+          <% end %>
+          <% if @lead.contact_email.present? %>
+            <div>
+              <dt class="text-xs text-gray-500">Email</dt>
+              <dd class="text-sm text-gray-900"><%= mail_to @lead.contact_email, @lead.contact_email, class: "text-brand-green hover:text-brand-green-dark" %></dd>
+            </div>
+          <% end %>
+          <% if @lead.deal_value_cents.to_i > 0 %>
+            <div>
+              <dt class="text-xs text-gray-500">Deal Value</dt>
+              <dd class="text-sm font-medium text-gray-900"><%= number_to_currency(@lead.deal_value_dollars) %></dd>
+            </div>
+          <% end %>
+        </dl>
+      </div>
+
+      <!-- Organization Info -->
+      <% if @organization.present? %>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 class="text-sm font-semibold text-gray-900 mb-4">Organization</h3>
+          <dl class="space-y-3">
+            <div>
+              <dt class="text-xs text-gray-500">Name</dt>
+              <dd class="text-sm text-gray-900"><%= @organization.name %></dd>
+            </div>
+            <% if @organization.respond_to?(:city) && @organization.city.present? %>
+              <div>
+                <dt class="text-xs text-gray-500">Location</dt>
+                <dd class="text-sm text-gray-900"><%= [@organization.city, @organization.state].compact.join(", ") %></dd>
+              </div>
+            <% end %>
+          </dl>
+        </div>
+      <% end %>
+
+      <!-- Quick Actions -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h3 class="text-sm font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div class="space-y-2">
+          <%= link_to edit_crm_onboarding_path(@onboarding), class: "flex w-full items-center justify-center rounded-md bg-brand-orange px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 transition-colors duration-150" do %>
+            <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+            </svg>
+            Edit Onboarding
+          <% end %>
+          <%= link_to crm_lead_path(@lead), class: "flex w-full items-center justify-center rounded-md bg-brand-green px-4 py-2 text-sm font-medium text-white hover:bg-brand-green-dark transition-colors duration-150" do %>
+            <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+            View Lead
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

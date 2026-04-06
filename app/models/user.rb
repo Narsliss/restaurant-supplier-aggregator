@@ -25,13 +25,16 @@ class User < ApplicationRecord
   # Invitations sent by this user
   has_many :sent_invitations, class_name: 'OrganizationInvitation', foreign_key: :invited_by_id
 
+  # CRM
+  has_many :crm_leads, class_name: 'Crm::Lead', foreign_key: :salesperson_id, dependent: :destroy
+
   # Aggregated lists created by this user
   has_many :created_aggregated_lists, class_name: 'AggregatedList', foreign_key: :created_by_id, dependent: :destroy
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :first_name, :last_name, presence: true
-  validates :role, inclusion: { in: %w[user super_admin] }
+  validates :role, inclusion: { in: %w[user super_admin salesperson] }
   validate :only_one_super_admin, if: :super_admin?
 
   # Callbacks
@@ -53,6 +56,10 @@ class User < ApplicationRecord
   # Alias for backwards compatibility and clarity
   def platform_admin?
     super_admin?
+  end
+
+  def salesperson?
+    role == 'salesperson'
   end
 
   def full_name

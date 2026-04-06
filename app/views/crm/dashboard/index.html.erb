@@ -1,0 +1,55 @@
+<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-2xl font-bold text-gray-900">CRM Dashboard</h1>
+    <%= link_to new_crm_lead_path, class: "inline-flex items-center rounded-md bg-brand-green px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-green-dark transition-colors duration-150" do %>
+      <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+      </svg>
+      New Lead
+    <% end %>
+  </div>
+
+  <!-- Stats Row -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <!-- Active Leads -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm font-medium text-gray-500">Active Leads</p>
+      <p class="mt-1 text-2xl font-bold text-gray-900"><%= @active_leads %></p>
+    </div>
+
+    <!-- Pipeline Value -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm font-medium text-gray-500">Pipeline Value</p>
+      <p class="mt-1 text-2xl font-bold text-gray-900"><%= number_to_currency(@pipeline_value / 100.0) %></p>
+    </div>
+
+    <!-- Tasks Due Today -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm font-medium text-gray-500">Tasks Due Today</p>
+      <p class="mt-1 text-2xl font-bold text-gray-900">
+        <%= @tasks_due_today %>
+        <% if @overdue_tasks > 0 %>
+          <span class="text-sm font-medium text-red-600">(<%= @overdue_tasks %> overdue)</span>
+        <% end %>
+      </p>
+    </div>
+
+    <!-- Closed This Month -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <p class="text-sm font-medium text-gray-500">Closed This Month</p>
+      <p class="mt-1 text-2xl font-bold text-gray-900">
+        <span class="text-green-600"><%= @won_this_month %> won</span>
+        /
+        <span class="text-red-600"><%= @lost_this_month %> lost</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- Kanban Pipeline Board -->
+  <div class="mb-4">
+    <h2 class="text-lg font-semibold text-gray-900">Pipeline</h2>
+  </div>
+
+  <%= render "crm/leads/kanban", leads_by_stage: @leads_by_stage %>
+</div>

@@ -1,0 +1,81 @@
+<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-2xl font-bold text-gray-900">Onboarding Tracker</h1>
+  </div>
+
+  <!-- Filters -->
+  <div class="mb-6 space-y-4">
+    <!-- Stage Filters -->
+    <div class="flex flex-wrap gap-2">
+      <span class="text-sm font-medium text-gray-500 self-center mr-1">Stage:</span>
+      <%= link_to "All", crm_onboardings_path, class: "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150 #{params[:stage].blank? ? 'bg-brand-green text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}" %>
+      <% Crm::Onboarding::STAGES.each do |stage| %>
+        <%= link_to Crm::Onboarding::STAGE_LABELS[stage], crm_onboardings_path(stage: stage, health: params[:health]), class: "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150 #{params[:stage] == stage ? 'bg-brand-green text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}" %>
+      <% end %>
+    </div>
+
+    <!-- Health Score Filters -->
+    <div class="flex flex-wrap gap-2">
+      <span class="text-sm font-medium text-gray-500 self-center mr-1">Health:</span>
+      <%= link_to "All", crm_onboardings_path(stage: params[:stage]), class: "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150 #{params[:health].blank? ? 'bg-brand-green text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}" %>
+      <%= link_to "Green", crm_onboardings_path(stage: params[:stage], health: "green"), class: "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150 #{params[:health] == 'green' ? 'bg-green-600 text-white' : 'bg-green-100 text-green-800 hover:bg-green-200'}" %>
+      <%= link_to "Yellow", crm_onboardings_path(stage: params[:stage], health: "yellow"), class: "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150 #{params[:health] == 'yellow' ? 'bg-yellow-500 text-white' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'}" %>
+      <%= link_to "Red", crm_onboardings_path(stage: params[:stage], health: "red"), class: "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors duration-150 #{params[:health] == 'red' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-800 hover:bg-red-200'}" %>
+    </div>
+  </div>
+
+  <!-- Onboardings Grid -->
+  <% if @onboardings.any? %>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <% @onboardings.each do |onboarding| %>
+        <%= link_to crm_onboarding_path(onboarding), class: "block bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow duration-150" do %>
+          <div class="flex items-start justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-900 truncate"><%= onboarding.lead.restaurant_name %></h3>
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium <%= onboarding.health_color %> ml-2 flex-shrink-0">
+              <%= onboarding.health_score.capitalize %>
+            </span>
+          </div>
+
+          <!-- Stage Badge -->
+          <div class="mb-3">
+            <span class="inline-flex items-center rounded-full bg-gray-100 text-gray-800 px-2.5 py-0.5 text-xs font-medium">
+              <%= onboarding.stage_label %>
+            </span>
+          </div>
+
+          <!-- Time Since Signed Up -->
+          <% if onboarding.signed_up_at.present? %>
+            <p class="text-xs text-gray-500 mb-3">
+              Signed up <%= time_ago_in_words(onboarding.signed_up_at) %> ago
+            </p>
+          <% end %>
+
+          <!-- Milestone Progress -->
+          <div class="flex items-center space-x-1">
+            <% onboarding.milestone_timestamps.each do |stage, timestamp| %>
+              <% if timestamp.present? %>
+                <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" />
+                </svg>
+              <% else %>
+                <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              <% end %>
+            <% end %>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
+    <!-- Empty State -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+      <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+      </svg>
+      <h3 class="mt-2 text-sm font-semibold text-gray-900">No onboardings found</h3>
+      <p class="mt-1 text-sm text-gray-500">Onboardings are created when a lead is converted to a customer.</p>
+    </div>
+  <% end %>
+</div>

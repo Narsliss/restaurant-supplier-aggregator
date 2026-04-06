@@ -35,6 +35,9 @@ import RequirementGridController from "./requirement_grid_controller"
 import CatalogModalController from "./catalog_modal_controller"
 import PriceCheckController from "./price_check_controller"
 import FeedbackController from "./feedback_controller"
+import CrmKanbanController from "./crm_kanban_controller"
+import CrmTaskController from "./crm_task_controller"
+import CrmStageSelectController from "./crm_stage_select_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -71,3 +74,6 @@ application.register("requirement-grid", RequirementGridController)
 application.register("catalog-modal", CatalogModalController)
 application.register("price-check", PriceCheckController)
 application.register("feedback", FeedbackController)
+application.register("crm-kanban", CrmKanbanController)
+application.register("crm-task", CrmTaskController)
+application.register("crm-stage-select", CrmStageSelectController)

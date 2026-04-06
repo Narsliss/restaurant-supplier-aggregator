@@ -1,0 +1,215 @@
+<div class="space-y-6">
+  <%# Stage + Contact %>
+  <div>
+    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium <%= @lead.stage_color %>">
+      <%= @lead.stage_label %>
+    </span>
+    <div class="mt-3 space-y-1">
+      <% if @lead.contact_name.present? %>
+        <p class="text-sm text-gray-700">
+          <span class="font-medium"><%= @lead.contact_name %></span>
+          <% if @lead.contact_role.present? %>
+            <span class="text-gray-400">&middot; <%= @lead.contact_role %></span>
+          <% end %>
+        </p>
+      <% end %>
+      <% if @lead.email.present? %>
+        <p class="text-sm text-gray-500"><%= @lead.email %></p>
+      <% end %>
+      <% if @lead.phone.present? %>
+        <p class="text-sm text-gray-500"><%= @lead.phone %></p>
+      <% end %>
+      <% if @lead.city.present? || @lead.state.present? %>
+        <p class="text-sm text-gray-500"><%= [@lead.city, @lead.state].compact.join(", ") %></p>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Owner %>
+  <div class="text-sm">
+    <span class="text-gray-500">Owned by</span>
+    <span class="ml-1 font-medium text-gray-900"><%= @lead.salesperson.full_name %></span>
+  </div>
+
+  <%# Deal Info %>
+  <div class="flex items-center gap-6 text-sm">
+    <% if @lead.deal_value_cents.to_i > 0 %>
+      <div>
+        <span class="text-gray-500">MRR</span>
+        <span class="ml-1 font-semibold text-gray-900"><%= number_to_currency(@lead.deal_value_dollars) %></span>
+      </div>
+    <% end %>
+    <% if @lead.estimated_volume.present? %>
+      <div>
+        <span class="text-gray-500">Volume</span>
+        <span class="ml-1 font-medium text-gray-900"><%= @lead.estimated_volume.capitalize %></span>
+      </div>
+    <% end %>
+    <div>
+      <span class="text-gray-500">Days in stage</span>
+      <span class="ml-1 font-medium text-gray-900"><%= @lead.days_in_stage %></span>
+    </div>
+  </div>
+
+  <%# Next Action — Interactive %>
+  <div class="bg-amber-50 border border-amber-200 rounded-lg p-3" data-controller="inline-form">
+    <div class="flex items-center justify-between mb-1">
+      <p class="text-xs font-semibold text-amber-800 uppercase tracking-wide">Next Action Required</p>
+      <% if @lead.next_action.present? %>
+        <button data-action="click->inline-form#toggle"
+                class="text-xs text-amber-700 hover:text-amber-900 font-medium">Edit</button>
+      <% end %>
+    </div>
+
+    <% if @lead.next_action.present? %>
+      <%# Current action display %>
+      <div data-inline-form-target="display">
+        <p class="text-sm text-amber-900 mb-2"><%= @lead.next_action %></p>
+        <div class="flex gap-2">
+          <button onclick="completeNextAction(<%= @lead.id %>, this)"
+                  class="inline-flex items-center px-2.5 py-1 rounded-md bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition">
+            <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            Complete
+          </button>
+        </div>
+      </div>
+
+      <%# Edit form (hidden) %>
+      <div data-inline-form-target="form" class="hidden mt-2">
+        <textarea id="next-action-edit-<%= @lead.id %>"
+                  class="block w-full rounded-md border-amber-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm bg-white"
+                  rows="2"><%= @lead.next_action %></textarea>
+        <div class="flex gap-2 mt-2">
+          <button onclick="saveNextAction(<%= @lead.id %>, false)"
+                  class="px-2.5 py-1 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition">Save</button>
+          <button data-action="click->inline-form#toggle"
+                  class="px-2.5 py-1 rounded-md bg-white text-gray-700 text-xs font-medium border border-gray-300 hover:bg-gray-50 transition">Cancel</button>
+        </div>
+      </div>
+    <% else %>
+      <%# No action set — show form directly %>
+      <textarea id="next-action-new-<%= @lead.id %>"
+                placeholder="What needs to happen next?"
+                class="block w-full rounded-md border-amber-300 shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm bg-white"
+                rows="2"></textarea>
+      <button onclick="saveNextAction(<%= @lead.id %>, false, true)"
+              class="mt-2 px-2.5 py-1 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 transition">Set Next Action</button>
+    <% end %>
+  </div>
+
+  <script>
+    function completeNextAction(leadId, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Completing...';
+      var token = document.querySelector('meta[name="csrf-token"]').content;
+      fetch('/crm/leads/' + leadId + '/update_next_action', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token, 'Accept': 'application/json' },
+        body: JSON.stringify({ completed: 'true', next_action: '' })
+      }).then(function() {
+        // Re-fetch the panel to show updated state
+        fetch('/crm/leads/' + leadId + '/detail_panel', { headers: { 'Accept': 'text/html' } })
+          .then(function(r) { return r.text(); })
+          .then(function(html) {
+            btn.closest('[data-crm-kanban-target="panelContent"]')
+              ? btn.closest('[data-crm-kanban-target="panelContent"]').innerHTML = html
+              : window.location.reload();
+          });
+      });
+    }
+
+    function saveNextAction(leadId, completed, isNew) {
+      var el = document.getElementById(isNew ? 'next-action-new-' + leadId : 'next-action-edit-' + leadId);
+      var value = el ? el.value.trim() : '';
+      if (!value) return;
+      var token = document.querySelector('meta[name="csrf-token"]').content;
+      fetch('/crm/leads/' + leadId + '/update_next_action', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token, 'Accept': 'application/json' },
+        body: JSON.stringify({ next_action: value, completed: completed ? 'true' : 'false' })
+      }).then(function() {
+        fetch('/crm/leads/' + leadId + '/detail_panel', { headers: { 'Accept': 'text/html' } })
+          .then(function(r) { return r.text(); })
+          .then(function(html) {
+            var panel = el.closest('[data-crm-kanban-target="panelContent"]');
+            if (panel) { panel.innerHTML = html; }
+            else { window.location.reload(); }
+          });
+      });
+    }
+  </script>
+
+  <%# Pain Point %>
+  <% if @lead.pain_point.present? %>
+    <div>
+      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Pain Point</h4>
+      <p class="text-sm text-gray-700"><%= @lead.pain_point %></p>
+    </div>
+  <% end %>
+
+  <%# Current Suppliers %>
+  <% if @lead.current_suppliers.present? %>
+    <div>
+      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Current Suppliers</h4>
+      <p class="text-sm text-gray-700"><%= @lead.current_suppliers %></p>
+    </div>
+  <% end %>
+
+  <%# Pending Tasks %>
+  <% if @tasks.any? %>
+    <div>
+      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Upcoming Tasks</h4>
+      <div class="space-y-2">
+        <% @tasks.each do |task| %>
+          <div class="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
+            <span class="text-gray-800"><%= task.title %></span>
+            <span class="text-xs <%= task.overdue? ? 'text-red-600 font-medium' : 'text-gray-500' %>">
+              <%= task.due_date.strftime("%b %-d") %>
+            </span>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+
+  <%# Recent Activity %>
+  <% if @activities.any? %>
+    <div>
+      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Activity</h4>
+      <div class="space-y-3">
+        <% @activities.each do |activity| %>
+          <div class="text-sm">
+            <div class="flex items-center gap-2">
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-700">
+                <%= activity.type_label %>
+              </span>
+              <span class="text-xs text-gray-400"><%= time_ago_in_words(activity.occurred_at) %> ago</span>
+            </div>
+            <% if activity.subject.present? %>
+              <p class="text-gray-800 mt-1 font-medium"><%= activity.subject %></p>
+            <% end %>
+            <% if activity.body.present? %>
+              <p class="text-gray-600 mt-0.5 line-clamp-2"><%= activity.body %></p>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+
+  <%# Tags %>
+  <% if @lead.tags.any? %>
+    <div>
+      <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tags</h4>
+      <div class="flex flex-wrap gap-1.5">
+        <% @lead.tags.each do |tag| %>
+          <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-<%= tag.color %>-100 text-<%= tag.color %>-800">
+            <%= tag.name %>
+          </span>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+</div>

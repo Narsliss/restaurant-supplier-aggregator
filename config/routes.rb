@@ -245,12 +245,39 @@ Rails.application.routes.draw do
     post 'stop_impersonating', to: 'users#stop_impersonating'
   end
 
+  # CRM (Sales Pipeline) — salesperson + super_admin access
+  authenticate :user, ->(u) { u.salesperson? || u.super_admin? } do
+    namespace :crm do
+      root to: "dashboard#index"
+
+      resources :leads do
+        member do
+          patch :move_stage
+          patch :update_next_action
+          post :convert
+          get :detail_panel
+        end
+        resources :activities, only: [:create, :edit, :update, :destroy]
+        resources :tasks, only: [:create, :edit, :update, :destroy] do
+          member do
+            post :complete
+          end
+        end
+      end
+
+      resources :tasks, only: [:index]
+      resources :onboardings, only: [:index, :show, :edit, :update]
+      resources :customers, only: [:index, :show]
+      resources :tags, only: [:index, :create, :destroy]
+    end
+  end
+
   # Super Admin Dashboard & Tools
   authenticate :user, ->(u) { u.super_admin? } do
     namespace :admin do
       root to: 'dashboard#index'
 
-      resources :users, only: [:index, :show] do
+      resources :users, only: [:index, :show, :new, :create] do
         member do
           post :unlock
           post :reset_password

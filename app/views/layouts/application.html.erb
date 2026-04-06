@@ -38,6 +38,8 @@
       <% if user_signed_in? %>
         <% if controller.class.module_parent_name == 'Admin' %>
           <%= render "admin/shared/navigation" %>
+        <% elsif controller.class.module_parent_name == 'Crm' %>
+          <%= render "crm/shared/navigation" %>
         <% else %>
           <%= render "shared/navigation" %>
         <% end %>

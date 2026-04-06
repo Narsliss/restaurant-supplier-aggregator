@@ -1,0 +1,92 @@
+<div class="overflow-x-auto" data-controller="crm-kanban" data-crm-kanban-move-url-value="/crm/leads">
+  <div class="flex gap-4 pb-4" style="min-width: max-content;">
+    <% Crm::Lead::PIPELINE_STAGES.each do |stage| %>
+      <% stage_leads = leads_by_stage[stage] || [] %>
+      <div class="flex-shrink-0 w-72 bg-gray-50 rounded-lg p-3"
+           data-crm-kanban-target="column"
+           data-stage="<%= stage %>"
+           data-action="dragenter->crm-kanban#columnDragEnter dragover->crm-kanban#columnDragOver dragleave->crm-kanban#columnDragLeave drop->crm-kanban#columnDrop">
+        <%# Column Header %>
+        <div class="flex items-center justify-between mb-3">
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <%= Crm::Lead::STAGE_COLORS[stage] %>">
+            <%= Crm::Lead::STAGE_LABELS[stage] %>
+          </span>
+          <span class="text-xs text-gray-500 font-medium" data-count><%= stage_leads.size %></span>
+        </div>
+
+        <%# Cards Container %>
+        <div class="space-y-2 min-h-[2rem]" data-cards>
+          <% stage_leads.each do |lead| %>
+            <div class="bg-white rounded-lg shadow-sm p-3 hover:shadow-md transition cursor-grab"
+                 draggable="true"
+                 data-crm-kanban-target="card"
+                 data-lead-id="<%= lead.id %>"
+                 data-action="dragstart->crm-kanban#cardDragStart dragend->crm-kanban#cardDragEnd click->crm-kanban#openDetail"
+                 data-lead-url="<%= crm_lead_path(lead, format: :json) %>"
+                 data-lead-show-url="<%= crm_lead_path(lead) %>">
+              <div class="text-sm font-medium text-gray-900 mb-1"><%= lead.restaurant_name %></div>
+
+              <% if lead.contact_name.present? %>
+                <div class="text-xs text-gray-600">
+                  <%= lead.contact_name %>
+                  <% if lead.contact_role.present? %>
+                    <span class="text-gray-400">&middot; <%= lead.contact_role %></span>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <% if lead.deal_value_cents.to_i > 0 %>
+                <div class="text-xs font-medium text-gray-700 mt-1.5">
+                  <%= number_to_currency(lead.deal_value_dollars) %>/mo
+                </div>
+              <% end %>
+
+              <% if lead.next_action.present? %>
+                <div class="text-xs text-gray-500 mt-1.5 truncate"><%= lead.next_action %></div>
+              <% end %>
+
+              <div class="flex items-center justify-between text-xs text-gray-400 mt-2">
+                <span><%= lead.days_in_stage %> day<%= lead.days_in_stage == 1 ? '' : 's' %> in stage</span>
+                <span class="font-medium text-gray-500"><%= lead.salesperson.first_name %></span>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <%# Slide-over Panel %>
+  <div data-crm-kanban-target="panel" class="hidden fixed inset-0 z-50">
+    <%# Backdrop %>
+    <div data-action="click->crm-kanban#closeDetail" class="fixed inset-0 bg-black/40 transition-opacity"></div>
+
+    <%# Panel %>
+    <div class="fixed inset-y-0 right-0 w-full max-w-lg flex">
+      <div class="relative w-full bg-white shadow-2xl overflow-y-auto">
+        <%# Close button %>
+        <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10">
+          <h2 data-crm-kanban-target="panelTitle" class="text-lg font-semibold text-gray-900"></h2>
+          <div class="flex items-center gap-2">
+            <a data-crm-kanban-target="panelLink" href="#" class="text-sm text-brand-green hover:text-brand-green-dark font-medium">
+              Full Details &rarr;
+            </a>
+            <button data-action="click->crm-kanban#closeDetail" class="text-gray-400 hover:text-gray-600 ml-2">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <%# Content loaded dynamically %>
+        <div data-crm-kanban-target="panelContent" class="p-6">
+          <div class="animate-pulse space-y-4">
+            <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+            <div class="h-4 bg-gray-200 rounded w-1/2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

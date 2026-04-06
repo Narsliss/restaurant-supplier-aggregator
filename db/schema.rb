@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_04_05_201224) do
+ActiveRecord::Schema[7.1].define(version: 2026_04_06_134220) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -88,6 +88,100 @@ ActiveRecord::Schema[7.1].define(version: 2026_04_05_201224) do
     t.index ["stripe_event_id"], name: "index_billing_events_on_stripe_event_id", unique: true
     t.index ["subscription_id"], name: "index_billing_events_on_subscription_id"
     t.index ["user_id"], name: "index_billing_events_on_user_id"
+  end
+
+  create_table "crm_activities", force: :cascade do |t|
+    t.bigint "lead_id", null: false
+    t.bigint "user_id", null: false
+    t.string "activity_type", null: false
+    t.string "subject"
+    t.text "body"
+    t.datetime "occurred_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["lead_id", "occurred_at"], name: "index_crm_activities_on_lead_id_and_occurred_at"
+    t.index ["lead_id"], name: "index_crm_activities_on_lead_id"
+    t.index ["user_id"], name: "index_crm_activities_on_user_id"
+  end
+
+  create_table "crm_lead_tags", force: :cascade do |t|
+    t.bigint "lead_id", null: false
+    t.bigint "tag_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["lead_id", "tag_id"], name: "index_crm_lead_tags_on_lead_id_and_tag_id", unique: true
+    t.index ["lead_id"], name: "index_crm_lead_tags_on_lead_id"
+    t.index ["tag_id"], name: "index_crm_lead_tags_on_tag_id"
+  end
+
+  create_table "crm_leads", force: :cascade do |t|
+    t.bigint "salesperson_id", null: false
+    t.bigint "organization_id"
+    t.string "restaurant_name", null: false
+    t.string "contact_name", null: false
+    t.string "contact_role"
+    t.string "phone"
+    t.string "email"
+    t.string "city"
+    t.string "state"
+    t.string "estimated_volume"
+    t.text "pain_point"
+    t.text "current_suppliers"
+    t.integer "deal_value_cents", default: 0
+    t.string "pipeline_stage", default: "lead", null: false
+    t.text "next_action"
+    t.text "lost_reason"
+    t.datetime "closed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id"], name: "index_crm_leads_on_organization_id"
+    t.index ["pipeline_stage"], name: "index_crm_leads_on_pipeline_stage"
+    t.index ["salesperson_id", "pipeline_stage"], name: "index_crm_leads_on_salesperson_id_and_pipeline_stage"
+    t.index ["salesperson_id"], name: "index_crm_leads_on_salesperson_id"
+  end
+
+  create_table "crm_onboardings", force: :cascade do |t|
+    t.bigint "lead_id", null: false
+    t.bigint "organization_id", null: false
+    t.string "stage", default: "signed_up", null: false
+    t.string "health_score", default: "green"
+    t.datetime "signed_up_at"
+    t.datetime "account_setup_at"
+    t.datetime "suppliers_connected_at"
+    t.datetime "first_order_at"
+    t.datetime "check_in_14_at"
+    t.datetime "check_in_30_at"
+    t.datetime "check_in_60_at"
+    t.datetime "check_in_90_at"
+    t.text "notes"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["lead_id"], name: "index_crm_onboardings_on_lead_id", unique: true
+    t.index ["organization_id"], name: "index_crm_onboardings_on_organization_id", unique: true
+  end
+
+  create_table "crm_tags", force: :cascade do |t|
+    t.string "name", null: false
+    t.string "color", default: "gray"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["name"], name: "index_crm_tags_on_name", unique: true
+  end
+
+  create_table "crm_tasks", force: :cascade do |t|
+    t.bigint "lead_id", null: false
+    t.bigint "assigned_to_id", null: false
+    t.string "title", null: false
+    t.text "description"
+    t.date "due_date", null: false
+    t.datetime "completed_at"
+    t.string "priority", default: "normal"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["assigned_to_id", "due_date", "completed_at"], name: "idx_on_assigned_to_id_due_date_completed_at_ecc6eff038"
+    t.index ["assigned_to_id"], name: "index_crm_tasks_on_assigned_to_id"
+    t.index ["lead_id", "due_date"], name: "index_crm_tasks_on_lead_id_and_due_date"
+    t.index ["lead_id"], name: "index_crm_tasks_on_lead_id"
   end
 
   create_table "event_plan_messages", force: :cascade do |t|
@@ -903,6 +997,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_04_05_201224) do
   add_foreign_key "aggregated_lists", "users", column: "created_by_id"
   add_foreign_key "billing_events", "subscriptions"
   add_foreign_key "billing_events", "users"
+  add_foreign_key "crm_activities", "crm_leads", column: "lead_id"
+  add_foreign_key "crm_activities", "users"
+  add_foreign_key "crm_lead_tags", "crm_leads", column: "lead_id"
+  add_foreign_key "crm_lead_tags", "crm_tags", column: "tag_id"
+  add_foreign_key "crm_leads", "organizations"
+  add_foreign_key "crm_leads", "users", column: "salesperson_id"
+  add_foreign_key "crm_onboardings", "crm_leads", column: "lead_id"
+  add_foreign_key "crm_onboardings", "organizations"
+  add_foreign_key "crm_tasks", "crm_leads", column: "lead_id"
+  add_foreign_key "crm_tasks", "users", column: "assigned_to_id"
   add_foreign_key "event_plan_messages", "event_plans"
   add_foreign_key "event_plans", "organizations"
   add_foreign_key "event_plans", "users"

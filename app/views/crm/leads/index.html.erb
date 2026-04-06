@@ -1,0 +1,155 @@
+<% content_for(:head) do %>
+  <meta name="turbo-cache-control" content="no-cache">
+<% end %>
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" data-turbo="false">
+  <%# Header Row %>
+  <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Pipeline</h1>
+
+    <div class="flex items-center gap-3">
+      <div class="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+        <%= link_to "List",
+              crm_leads_path(view: "list", stage: params[:stage], q: params[:q]),
+              class: "px-4 py-2 text-sm font-medium #{@view == 'list' ? 'bg-brand-green text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}" %>
+        <%= link_to "Kanban",
+              crm_leads_path(view: "kanban", stage: params[:stage], q: params[:q]),
+              class: "px-4 py-2 text-sm font-medium #{@view == 'kanban' ? 'bg-brand-green text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}" %>
+      </div>
+
+      <%= link_to new_crm_lead_path, class: "inline-flex items-center px-4 py-2 bg-brand-orange hover:bg-brand-orange-dark text-white text-sm font-medium rounded-lg shadow-sm transition" do %>
+        <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Lead
+      <% end %>
+    </div>
+  </div>
+
+  <%# Search Bar %>
+  <%= form_with url: crm_leads_path, method: :get, local: true, class: "mb-6" do %>
+    <input type="hidden" name="view" value="<%= @view %>">
+    <input type="hidden" name="stage" value="<%= params[:stage] %>">
+    <div class="relative">
+      <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      </div>
+      <input type="text" name="q" value="<%= params[:q] %>"
+             placeholder="Search leads by restaurant, contact, or email..."
+             class="block w-full pl-10 pr-4 py-2.5 rounded-lg border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm">
+    </div>
+  <% end %>
+
+  <%# Filter Pills %>
+  <div class="flex flex-wrap gap-2 mb-6">
+    <%= link_to "All",
+          crm_leads_path(view: @view, q: params[:q]),
+          class: "px-3 py-1.5 text-sm font-medium rounded-full transition #{params[:stage].blank? ? 'bg-brand-green-dark text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}" %>
+    <% Crm::Lead::PIPELINE_STAGES.each do |stage| %>
+      <%= link_to Crm::Lead::STAGE_LABELS[stage],
+            crm_leads_path(view: @view, stage: stage, q: params[:q]),
+            class: "px-3 py-1.5 text-sm font-medium rounded-full transition #{params[:stage] == stage ? 'bg-brand-green-dark text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}" %>
+    <% end %>
+  </div>
+
+  <% if @view == "kanban" %>
+    <%= render "kanban", leads_by_stage: @leads_by_stage %>
+  <% else %>
+    <% if @leads.any? %>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Restaurant</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deal Value</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Next Action</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Activity</th>
+                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              <% @leads.each do |lead| %>
+                <tr class="hover:bg-gray-50 transition">
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900"><%= lead.restaurant_name %></div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm text-gray-900"><%= lead.contact_name %></div>
+                    <% if lead.contact_role.present? %>
+                      <div class="text-xs text-gray-500"><%= lead.contact_role %></div>
+                    <% end %>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium <%= lead.stage_color %>">
+                      <%= lead.stage_label %>
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <% if lead.deal_value_cents.to_i > 0 %>
+                      $<%= number_with_delimiter(lead.deal_value_dollars, precision: 0) %>/mo
+                    <% else %>
+                      <span class="text-gray-400">&mdash;</span>
+                    <% end %>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                    <%= lead.salesperson.first_name %>
+                  </td>
+                  <td class="px-6 py-4">
+                    <div class="text-sm text-gray-700 max-w-xs truncate"><%= lead.next_action %></div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <% if lead.last_activity_at.present? %>
+                      <%= time_ago_in_words(lead.last_activity_at) %> ago
+                    <% else %>
+                      <span class="text-gray-400">None</span>
+                    <% end %>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                    <%= link_to "View", crm_lead_path(lead), class: "text-brand-green hover:text-brand-green-dark font-medium" %>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <%# Pagination %>
+      <% total_pages = (@total_count.to_f / @per_page).ceil %>
+      <% if total_pages > 1 %>
+        <div class="flex items-center justify-between mt-6">
+          <div class="text-sm text-gray-500">
+            Showing <%= (@page - 1) * @per_page + 1 %>&ndash;<%= [(@page * @per_page), @total_count].min %> of <%= @total_count %> leads
+          </div>
+          <div class="flex gap-2">
+            <% if @page > 1 %>
+              <%= link_to "Previous",
+                    crm_leads_path(view: @view, stage: params[:stage], q: params[:q], page: @page - 1),
+                    class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50" %>
+            <% end %>
+            <% if @page < total_pages %>
+              <%= link_to "Next",
+                    crm_leads_path(view: @view, stage: params[:stage], q: params[:q], page: @page + 1),
+                    class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50" %>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+
+    <% else %>
+      <%# Empty State %>
+      <div class="text-center py-16">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <h3 class="mt-4 text-lg font-medium text-gray-900">No leads found</h3>
+        <p class="mt-1 text-sm text-gray-500">Get started by adding your first lead to the pipeline.</p>
+        <div class="mt-6">
+          <%= link_to new_crm_lead_path, class: "inline-flex items-center px-4 py-2 bg-brand-orange hover:bg-brand-orange-dark text-white text-sm font-medium rounded-lg shadow-sm transition" do %>
+            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            New Lead
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  <% end %>
+</div>

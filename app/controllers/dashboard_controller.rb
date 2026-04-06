@@ -3,6 +3,9 @@ class DashboardController < ApplicationController
     # Super admin has no use for the regular dashboard — send to admin panel
     redirect_to admin_root_path and return if current_user.super_admin?
 
+    # Salesperson goes straight to CRM dashboard
+    redirect_to crm_root_path and return if current_user.salesperson?
+
     # Onboarding takes priority — show setup wizard instead of dashboard
     if onboarding_incomplete?
       if chef?

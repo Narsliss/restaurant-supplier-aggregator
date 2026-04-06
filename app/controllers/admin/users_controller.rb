@@ -13,6 +13,21 @@ class Admin::UsersController < Admin::BaseController
     @recent_orders = @user.orders.includes(:supplier, :organization).order(created_at: :desc).limit(10)
   end
 
+  def new
+    @user = User.new(role: "salesperson")
+  end
+
+  def create
+    @user = User.new(salesperson_params)
+    @user.role = "salesperson"
+
+    if @user.save
+      redirect_to admin_user_path(@user), notice: "Salesperson #{@user.full_name} created successfully."
+    else
+      render :new, status: :unprocessable_entity
+    end
+  end
+
   def unlock
     user = User.find(params[:id])
     user.unlock_access!
@@ -57,6 +72,10 @@ class Admin::UsersController < Admin::BaseController
 
   def sort_direction
     params[:direction] == 'asc' ? :asc : :desc
+  end
+
+  def salesperson_params
+    params.require(:user).permit(:first_name, :last_name, :email, :phone, :password, :password_confirmation)
   end
 
   def require_impersonation_session

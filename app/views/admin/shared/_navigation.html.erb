@@ -26,6 +26,8 @@
       </div>
 
       <div class="hidden sm:ml-6 sm:flex sm:items-center sm:space-x-4">
+        <%= link_to "CRM", crm_root_path,
+            class: "text-sm font-medium text-gray-300 hover:text-white transition-colors duration-150" %>
         <%= link_to "Jobs", mission_control_jobs.root_path,
             class: "text-sm font-medium text-gray-300 hover:text-white transition-colors duration-150" %>
         <%= link_to "Exit to App", root_path,
@@ -105,6 +107,7 @@
     </div>
     <div class="border-t border-white/10 px-4 pb-3 pt-4">
       <div class="space-y-1">
+        <%= link_to "CRM", crm_root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
         <%= link_to "Jobs", mission_control_jobs.root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
         <%= link_to "Exit to App", root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-brand-orange hover:bg-brand-green/80", data: { turbo: false } %>
         <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left rounded-md px-3 py-2 text-base font-medium text-brand-orange hover:bg-brand-green/80" %>

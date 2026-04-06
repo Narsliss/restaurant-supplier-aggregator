@@ -16,6 +16,12 @@
       <h1 class="text-3xl font-bold text-gray-900">Organizations</h1>
       <p class="text-gray-500 mt-1"><%= @total_count %> total organizations</p>
     </div>
+    <%= link_to new_admin_user_path, class: "inline-flex items-center rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors" do %>
+      <svg class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+      </svg>
+      New Salesperson
+    <% end %>
   </div>
 
   <%# Search & Filters %>

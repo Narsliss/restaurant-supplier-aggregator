@@ -3,6 +3,7 @@ class ApplicationController < ActionController::Base
   include ImpersonationGuard
 
   before_action :authenticate_user!
+  before_action :redirect_salesperson_to_crm
   before_action :ensure_onboarding_complete, unless: :skip_onboarding_check?
   before_action :require_subscription, unless: :skip_subscription_check?
   before_action :configure_permitted_parameters, if: :devise_controller?
@@ -55,6 +56,16 @@ class ApplicationController < ActionController::Base
     @current_location = location
   end
 
+  # Salesperson users have no business in the regular app — bounce to CRM
+  def redirect_salesperson_to_crm
+    return unless current_user&.salesperson?
+    return if controller_path.start_with?("crm")
+    return if devise_controller?
+    return if controller_name == "health"
+
+    redirect_to crm_root_path
+  end
+
   def require_super_admin
     unless current_user&.super_admin?
       redirect_to root_path
@@ -82,6 +93,7 @@ class ApplicationController < ActionController::Base
       controller_name == "dashboard" ||         # onboarding landing page
       controller_path.start_with?("webhooks") ||
       controller_path.start_with?("admin") ||  # super admin panel
+      controller_path.start_with?("crm") ||    # CRM sales pipeline
       controller_path.start_with?("supplier_portal") || # supplier portal
       controller_name == "health"
   end
@@ -138,6 +150,7 @@ class ApplicationController < ActionController::Base
       controller_name == "subscriptions" ||
       controller_name == "invitations" ||
       controller_path.start_with?("webhooks") ||
+      controller_path.start_with?("crm") ||            # CRM sales pipeline
       controller_path.start_with?("supplier_portal") || # supplier portal
       controller_name == "health"
   end
