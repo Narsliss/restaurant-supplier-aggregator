@@ -1,0 +1,78 @@
+<% content_for(:title) { "New Salesperson — CRM — SupplierHub" } %>
+
+<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+  <div class="mb-6">
+    <%= link_to crm_team_index_path, class: "inline-flex items-center text-sm text-gray-500 hover:text-gray-700 transition-colors duration-150" do %>
+      <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+      </svg>
+      Back to Team
+    <% end %>
+  </div>
+
+  <h1 class="text-2xl font-bold text-gray-900 mb-6">New Salesperson</h1>
+
+  <%= form_with model: @user, url: crm_team_index_path, class: "space-y-6" do |f| %>
+    <% if @user.errors.any? %>
+      <div class="rounded-md bg-red-50 border border-red-200 p-4">
+        <div class="flex">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-medium text-red-800">Please fix the following errors:</h3>
+            <ul class="mt-2 list-disc list-inside text-sm text-red-700">
+              <% @user.errors.full_messages.each do |msg| %>
+                <li><%= msg %></li>
+              <% end %>
+            </ul>
+          </div>
+        </div>
+      </div>
+    <% end %>
+
+    <div class="bg-white shadow rounded-lg p-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Account Details</h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div>
+          <%= f.label :first_name, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.text_field :first_name, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm", required: true %>
+        </div>
+
+        <div>
+          <%= f.label :last_name, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.text_field :last_name, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm", required: true %>
+        </div>
+
+        <div>
+          <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.email_field :email, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm", required: true %>
+        </div>
+
+        <div>
+          <%= f.label :phone, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.phone_field :phone, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm" %>
+        </div>
+
+        <div>
+          <%= f.label :password, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.password_field :password, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm", required: true, autocomplete: "new-password" %>
+          <p class="mt-1 text-xs text-gray-500">Minimum 6 characters</p>
+        </div>
+
+        <div>
+          <%= f.label :password_confirmation, class: "block text-sm font-medium text-gray-700" %>
+          <%= f.password_field :password_confirmation, class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green sm:text-sm", required: true, autocomplete: "new-password" %>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-3">
+      <%= link_to "Cancel", crm_team_index_path, class: "rounded-md bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50" %>
+      <%= f.submit "Create Salesperson", class: "rounded-md bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-light transition-colors cursor-pointer" %>
+    </div>
+  <% end %>
+</div>

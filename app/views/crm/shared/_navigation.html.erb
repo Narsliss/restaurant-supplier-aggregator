@@ -18,6 +18,10 @@
               class: "inline-flex items-center border-b-2 #{current_crm_section == 'onboardings' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <%= link_to "Customers", crm_customers_path,
               class: "inline-flex items-center border-b-2 #{current_crm_section == 'customers' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% if current_user.super_admin? %>
+            <%= link_to "Team", crm_team_index_path,
+                class: "inline-flex items-center border-b-2 #{current_crm_section == 'team' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
+          <% end %>
         </div>
       </div>
 
@@ -94,6 +98,10 @@
           class: "block rounded-md px-3 py-2 text-base font-medium #{current_crm_section == 'onboardings' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
       <%= link_to "Customers", crm_customers_path,
           class: "block rounded-md px-3 py-2 text-base font-medium #{current_crm_section == 'customers' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <% if current_user.super_admin? %>
+        <%= link_to "Team", crm_team_index_path,
+            class: "block rounded-md px-3 py-2 text-base font-medium #{current_crm_section == 'team' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+      <% end %>
     </div>
     <div class="border-t border-white/10 px-4 pb-3 pt-4">
       <div class="space-y-1">

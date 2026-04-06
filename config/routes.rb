@@ -269,6 +269,7 @@ Rails.application.routes.draw do
       resources :onboardings, only: [:index, :show, :edit, :update]
       resources :customers, only: [:index, :show]
       resources :tags, only: [:index, :create, :destroy]
+      resources :team, only: [:index, :new, :create], controller: "team"
     end
   end
 
