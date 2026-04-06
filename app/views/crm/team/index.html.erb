@@ -36,9 +36,16 @@
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><%= person.email %></td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><%= person.phone.present? ? person.phone : "—" %></td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><%= person.created_at.strftime("%b %d, %Y") %></td>
-            <td class="px-6 py-4 whitespace-nowrap text-right text-sm space-x-3">
-              <%= button_to "Resend Invite", resend_welcome_crm_team_path(person), method: :post, class: "text-brand-orange hover:text-brand-orange-light font-medium", data: { turbo_confirm: "This will reset #{person.first_name}'s password and send a new welcome email. Continue?" } %>
-              <%= link_to "Edit", edit_crm_team_path(person), class: "text-brand-green hover:text-brand-green-dark font-medium" %>
+            <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+              <div class="inline-flex items-center gap-2">
+                <%= link_to "Edit", edit_crm_team_path(person), class: "inline-flex items-center rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors" %>
+                <%= button_to resend_welcome_crm_team_path(person), method: :post, form: { class: "inline" }, class: "inline-flex items-center rounded-md bg-brand-orange px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-brand-orange-light transition-colors", data: { turbo_confirm: "This will reset #{person.first_name}'s password and send a new welcome email. Continue?" } do %>
+                  <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                  </svg>
+                  Resend Invite
+                <% end %>
+              </div>
             </td>
           </tr>
         <% end %>
