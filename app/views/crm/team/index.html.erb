@@ -19,6 +19,7 @@
           <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
           <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
           <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Added</th>
+          <th scope="col" class="relative px-6 py-3"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody class="bg-white divide-y divide-gray-200">
@@ -35,11 +36,15 @@
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><%= person.email %></td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><%= person.phone.present? ? person.phone : "—" %></td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><%= person.created_at.strftime("%b %d, %Y") %></td>
+            <td class="px-6 py-4 whitespace-nowrap text-right text-sm space-x-3">
+              <%= button_to "Resend Invite", resend_welcome_crm_team_path(person), method: :post, class: "text-brand-orange hover:text-brand-orange-light font-medium", data: { turbo_confirm: "This will reset #{person.first_name}'s password and send a new welcome email. Continue?" } %>
+              <%= link_to "Edit", edit_crm_team_path(person), class: "text-brand-green hover:text-brand-green-dark font-medium" %>
+            </td>
           </tr>
         <% end %>
         <% if @salespeople.empty? %>
           <tr>
-            <td colspan="4" class="px-6 py-12 text-center text-sm text-gray-500">
+            <td colspan="5" class="px-6 py-12 text-center text-sm text-gray-500">
               No salespeople yet. Click "New Salesperson" to add one.
             </td>
           </tr>
