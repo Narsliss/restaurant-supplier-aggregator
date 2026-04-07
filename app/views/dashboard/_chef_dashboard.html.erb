@@ -125,7 +125,7 @@
     </dd>
   </div>
 
-  <%# Pending Verifications %>
+  <%# Needs Price Review %>
   <div class="relative overflow-hidden rounded-lg bg-white px-4 pb-4 pt-5 shadow sm:px-6 sm:pt-6">
     <dt>
       <div class="absolute rounded-md <%= @stats[:pending_verifications] > 0 ? 'bg-yellow-500' : 'bg-brand-green' %> p-3">
@@ -133,7 +133,7 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
         </svg>
       </div>
-      <p class="ml-16 text-sm font-medium text-gray-500">Pending Verifications</p>
+      <p class="ml-16 text-sm font-medium text-gray-500">Needs Price Review</p>
     </dt>
     <dd class="ml-16 flex items-baseline">
       <p class="text-2xl font-semibold <%= @stats[:pending_verifications] > 0 ? 'text-yellow-600' : 'text-gray-900' %>"><%= @stats[:pending_verifications] %></p>

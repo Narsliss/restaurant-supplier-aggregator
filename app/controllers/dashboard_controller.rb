@@ -247,7 +247,7 @@ class DashboardController < ApplicationController
       .first
 
     pending_verification_count = base_orders
-      .where(status: %w[verifying price_changed])
+      .where(status: "price_changed")
       .count
 
     @stats = {
