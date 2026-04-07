@@ -241,7 +241,7 @@ class DashboardController < ApplicationController
 
     next_delivery_order = base_orders
       .where("delivery_date >= ?", Date.current)
-      .where.not(status: %w[cancelled failed])
+      .where(status: %w[submitted confirmed])
       .order(delivery_date: :asc)
       .includes(:supplier)
       .first
@@ -259,7 +259,7 @@ class DashboardController < ApplicationController
     # Upcoming deliveries — orders with future delivery dates, grouped by date
     @upcoming_deliveries = base_orders
       .where("delivery_date >= ?", Date.current)
-      .where.not(status: %w[cancelled failed])
+      .where(status: %w[submitted confirmed])
       .includes(:supplier, :order_items)
       .order(delivery_date: :asc)
       .limit(10)
