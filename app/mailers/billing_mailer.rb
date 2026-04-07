@@ -10,7 +10,7 @@ class BillingMailer < ApplicationMailer
 
     mail(
       to: @owner.email,
-      subject: "Your SupplierHub trial ends in #{@days_remaining} days"
+      subject: "Your EnPlace Pro trial ends in #{@days_remaining} days"
     )
   end
 
@@ -25,7 +25,7 @@ class BillingMailer < ApplicationMailer
 
     mail(
       to: @owner.email,
-      subject: "Payment failed for your SupplierHub subscription"
+      subject: "Payment failed for your EnPlace Pro subscription"
     )
   end
 
@@ -39,7 +39,7 @@ class BillingMailer < ApplicationMailer
 
     mail(
       to: @owner.email,
-      subject: "Your SupplierHub subscription has been canceled"
+      subject: "Your EnPlace Pro subscription has been canceled"
     )
   end
 
@@ -52,7 +52,7 @@ class BillingMailer < ApplicationMailer
 
     mail(
       to: @owner.email,
-      subject: "Welcome to SupplierHub Pro!"
+      subject: "Welcome to EnPlace Pro!"
     )
   end
 end

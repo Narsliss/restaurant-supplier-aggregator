@@ -7,7 +7,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  /* SupplierHub "Market Fresh" Brand Colors */
+  /* EnPlace Pro "Market Fresh" Brand Colors */
 
   /* Sage Green — primary (nav, buttons, links) */
   --color-brand-green: #4A7C59;

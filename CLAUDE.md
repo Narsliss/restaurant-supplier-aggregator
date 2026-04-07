@@ -1,7 +1,7 @@
-# Claude Code Context for SupplierHub
+# Claude Code Context for EnPlace Pro
 
 ## Project Overview
-SupplierHub is a restaurant supplier aggregation platform that helps restaurants compare prices and order from multiple food suppliers (US Foods, Chef's Warehouse, What Chefs Want, Premiere Produce One).
+EnPlace Pro is a restaurant supplier aggregation platform that helps restaurants compare prices and order from multiple food suppliers (US Foods, Chef's Warehouse, What Chefs Want, Premiere Produce One).
 
 ## Tech Stack
 - **Backend**: Ruby on Rails 7.1.6, Ruby 3.3.6

@@ -53,7 +53,7 @@ class ScrapingErrorMailer < ApplicationMailer
 
     return unless admin_email
 
-    @app_name = 'SupplierHub'
+    @app_name = 'EnPlace Pro'
 
     mail(
       to: admin_email,

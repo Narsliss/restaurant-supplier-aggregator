@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-SupplierHub currently supports four web-scraped suppliers (US Foods, Chef's Warehouse, What Chefs Want, Premiere Produce One). Many restaurants also buy from small, local suppliers who don't have websites — they send weekly PDF price lists via email, and orders are placed by replying with an email.
+EnPlace Pro currently supports four web-scraped suppliers (US Foods, Chef's Warehouse, What Chefs Want, Premiere Produce One). Many restaurants also buy from small, local suppliers who don't have websites — they send weekly PDF price lists via email, and orders are placed by replying with an email.
 
 This PRD covers the database and model changes needed to support a new `email` auth type for suppliers, plus a new `InboundPriceList` model that stores parsed PDF price list data. These are the foundational data structures that all subsequent Email Supplier features build on.
 

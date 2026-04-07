@@ -24,7 +24,7 @@ Rails.application.config.stripe_config = {
   trial_days: ENV.fetch("STRIPE_TRIAL_DAYS", 14).to_i,
 
   # Product name
-  product_name: "SupplierHub Pro",
+  product_name: "EnPlace Pro",
 
   # Success and cancel URLs for checkout
   success_url: ENV.fetch("STRIPE_SUCCESS_URL", "/subscription/success"),

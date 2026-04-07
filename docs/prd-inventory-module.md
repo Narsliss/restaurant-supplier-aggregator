@@ -9,11 +9,11 @@
 
 ## 1. Executive Summary
 
-SupplierHub currently helps restaurants order from multiple suppliers in one place. The Inventory Module extends the platform backward in the workflow — from *"what do I need to order?"* to *"what do I have on hand right now?"*
+EnPlace Pro currently helps restaurants order from multiple suppliers in one place. The Inventory Module extends the platform backward in the workflow — from *"what do I need to order?"* to *"what do I have on hand right now?"*
 
-Chefs will be able to count stock on their phone, set par levels for every item, and generate orders automatically when stock drops below par. The module connects directly to the existing ordering workflow: count stock → see what's low → build an order → place it through SupplierHub.
+Chefs will be able to count stock on their phone, set par levels for every item, and generate orders automatically when stock drops below par. The module connects directly to the existing ordering workflow: count stock → see what's low → build an order → place it through EnPlace Pro.
 
-This closes the loop between **inventory → ordering → receiving** and makes SupplierHub the single tool a kitchen uses to manage its supply chain.
+This closes the loop between **inventory → ordering → receiving** and makes EnPlace Pro the single tool a kitchen uses to manage its supply chain.
 
 ---
 
@@ -40,16 +40,16 @@ The result:
 
 ## 3. Proposed Solution
 
-A mobile-first inventory system built into SupplierHub that:
+A mobile-first inventory system built into EnPlace Pro that:
 
 - Mirrors the physical kitchen layout (walk-in, dry storage, freezer, etc.)
 - Lets chefs count stock by tapping +/− buttons — no spreadsheets, no typing
 - Shows at a glance what's low, what's fine, and what needs ordering
 - Auto-generates order lists from below-par items with one tap
-- Feeds directly into the existing SupplierHub ordering workflow
+- Feeds directly into the existing EnPlace Pro ordering workflow
 - Tracks stock movements over time (counts, deliveries received, waste)
 
-**The key insight**: SupplierHub already knows what products the restaurant buys (from order lists and supplier order guides). The inventory module reuses this product data so chefs don't have to set up a product catalog from scratch.
+**The key insight**: EnPlace Pro already knows what products the restaurant buys (from order lists and supplier order guides). The inventory module reuses this product data so chefs don't have to set up a product catalog from scratch.
 
 ---
 
@@ -78,7 +78,7 @@ A mobile-first inventory system built into SupplierHub that:
 | Objective | Metric | Target |
 |-----------|--------|--------|
 | Increase platform stickiness | Daily active users (inventory creates a daily habit) | 3x daily opens per chef vs. current |
-| Drive order volume through SupplierHub | Orders originating from "Build Order" in inventory | 40% of orders within 6 months |
+| Drive order volume through EnPlace Pro | Orders originating from "Build Order" in inventory | 40% of orders within 6 months |
 | Reduce food waste | Self-reported waste value tracked in the module | Visible trend data within 3 months |
 | Differentiate from competitors | No competitor connects inventory counting to live supplier ordering at our price point | Unique feature at launch |
 | Expand to owner persona | Owner dashboard engagement with inventory data | Owners check inventory stats 2x/week |
@@ -145,7 +145,7 @@ The primary interaction — a chef walks through a storage area counting items.
 
 #### 6.5 Build Order from Inventory
 
-The feature that connects inventory to SupplierHub's existing ordering.
+The feature that connects inventory to EnPlace Pro's existing ordering.
 
 | Requirement | Details |
 |-------------|---------|
@@ -459,7 +459,7 @@ Inventory item → "Adjust" → "Record Waste"
 | **Craftable (formerly Bevager)** | Yes | Manual | $300-500/mo |
 | **xtraCHEF (Toast)** | Invoice-based | Toast POS only | Bundled w/ Toast |
 | **Simple Order** | Basic | Own marketplace | $200/mo |
-| **SupplierHub** | **Planned** | **Direct to supplier portals** | **Current pricing** |
+| **EnPlace Pro** | **Planned** | **Direct to supplier portals** | **Current pricing** |
 
 **Our advantage**: We're the only platform where inventory counting directly triggers orders through the restaurant's own supplier accounts at their negotiated prices. Every competitor either has their own marketplace (different prices), requires manual order entry after counting, or locks you into a single POS ecosystem.
 

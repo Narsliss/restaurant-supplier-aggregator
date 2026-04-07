@@ -41,7 +41,7 @@ A single dismissable card on the manager dashboard that welcomes them and explai
 
 **Card content:**
 
-> **Welcome to SupplierHub, [Name]!**
+> **Welcome to EnPlace Pro, [Name]!**
 >
 > As a manager, you have a bird's-eye view of your organization's ordering activity. Here's what you can do:
 >
@@ -78,7 +78,7 @@ For new organizations where the manager logs in before any orders have been plac
 
 - KPI cards should show "$0.00" with a note: "Orders placed by your team will appear here"
 - The weekly trend chart should show empty bars with a label: "Spending data will populate as your team places orders"
-- The order history table should show an empty state: "No orders yet — your chefs will start placing orders through SupplierHub soon"
+- The order history table should show an empty state: "No orders yet — your chefs will start placing orders through EnPlace Pro soon"
 
 This is separate from the Getting Started card but equally important. A manager seeing all zeros with no explanation will think the app is broken.
 

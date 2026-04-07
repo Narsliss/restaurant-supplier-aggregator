@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-SupplierHub currently helps restaurants compare prices and order from multiple food suppliers. The AI Event Menu Planner extends this by allowing chefs to plan event menus through a conversational AI interface that generates wine-paired menus, sources ingredients from their connected suppliers at real prices, and builds purchase orders — all from a single natural-language prompt.
+EnPlace Pro currently helps restaurants compare prices and order from multiple food suppliers. The AI Event Menu Planner extends this by allowing chefs to plan event menus through a conversational AI interface that generates wine-paired menus, sources ingredients from their connected suppliers at real prices, and builds purchase orders — all from a single natural-language prompt.
 
 ---
 
@@ -30,7 +30,7 @@ This process takes hours and involves multiple tools, websites, and spreadsheets
 
 ## 3. Proposed Solution
 
-A conversational AI interface within SupplierHub where a chef can describe an event and receive a complete, costed menu plan tied to their real supplier catalog.
+A conversational AI interface within EnPlace Pro where a chef can describe an event and receive a complete, costed menu plan tied to their real supplier catalog.
 
 **Example interaction:**
 
@@ -65,7 +65,7 @@ A conversational AI interface within SupplierHub where a chef can describe an ev
 - Plans special events (wine dinners, holiday menus, private parties)
 - Deep food knowledge but limited time for sourcing and cost calculations
 - Wants creative menu suggestions that respect budget constraints
-- Already has supplier credentials connected in SupplierHub
+- Already has supplier credentials connected in EnPlace Pro
 
 ### Secondary: Sous Chef / Kitchen Manager
 - Responsible for ordering based on a menu the head chef designed

@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-A hosted demo instance of SupplierHub pre-loaded with realistic restaurant data that resets every night at midnight. No supplier connections, no Chromium, no Stripe. Same codebase — just a fat seed script, two order-flow guards, and a lighter Docker image.
+A hosted demo instance of EnPlace Pro pre-loaded with realistic restaurant data that resets every night at midnight. No supplier connections, no Chromium, no Stripe. Same codebase — just a fat seed script, two order-flow guards, and a lighter Docker image.
 
 ---
 

@@ -12,7 +12,7 @@ class FeedbackMailer < ApplicationMailer
 
     mail(
       to: "carmin@las-noches.com",
-      subject: "SupplierHub Feedback: #{@category} from #{@user.email}"
+      subject: "EnPlace Pro Feedback: #{@category} from #{@user.email}"
     )
   end
 end

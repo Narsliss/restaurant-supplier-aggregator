@@ -7,7 +7,7 @@ class OrganizationInvitationMailer < ApplicationMailer
 
     mail(
       to: invitation.email,
-      subject: "You've been invited to join #{@organization.name} on SupplierHub"
+      subject: "You've been invited to join #{@organization.name} on EnPlace Pro"
     )
   end
 end

@@ -9,11 +9,11 @@
 
 ## 1. Executive Summary
 
-SupplierHub currently serves one side of the marketplace — restaurants. The Supplier Portal opens the platform to the other side by giving suppliers (US Foods, Chef's Warehouse, What Chefs Want, Premiere Produce One) their own login and dashboard where they can see how their products and customers are performing on the platform.
+EnPlace Pro currently serves one side of the marketplace — restaurants. The Supplier Portal opens the platform to the other side by giving suppliers (US Foods, Chef's Warehouse, What Chefs Want, Premiere Produce One) their own login and dashboard where they can see how their products and customers are performing on the platform.
 
-Supplier reps will be able to review their imported product catalog for accuracy, track total order revenue from all their SupplierHub customers, identify best-selling and under-performing products, see which items chefs added to shopping lists but never ordered (cart abandonment), and understand their top-performing customer relationships.
+Supplier reps will be able to review their imported product catalog for accuracy, track total order revenue from all their EnPlace Pro customers, identify best-selling and under-performing products, see which items chefs added to shopping lists but never ordered (cart abandonment), and understand their top-performing customer relationships.
 
-This transforms SupplierHub from a restaurant tool into a **two-sided platform** — creating value for suppliers that deepens their engagement, opens a future revenue channel, and gives restaurants better service from suppliers who now have visibility into ordering patterns.
+This transforms EnPlace Pro from a restaurant tool into a **two-sided platform** — creating value for suppliers that deepens their engagement, opens a future revenue channel, and gives restaurants better service from suppliers who now have visibility into ordering patterns.
 
 ---
 
@@ -32,7 +32,7 @@ Food suppliers currently have limited visibility into how their restaurant custo
 | No visibility into shopping list activity | Suppliers miss signals about what chefs are considering but not buying |
 | No product performance trends | Can't proactively adjust pricing, availability, or promotions |
 | Manual customer tracking | Reps spend time on data gathering instead of relationship building |
-| No view across SupplierHub customers | Can't identify growth opportunities or at-risk accounts |
+| No view across EnPlace Pro customers | Can't identify growth opportunities or at-risk accounts |
 | No catalog accuracy feedback loop | Product data errors (wrong name, pack size, price) go undetected |
 
 ---
@@ -43,12 +43,12 @@ A dedicated portal at `/supplier` where supplier company representatives log in 
 
 **How it works:**
 
-1. A SupplierHub admin invites the first supplier rep (e.g., a US Foods account manager)
+1. A EnPlace Pro admin invites the first supplier rep (e.g., a US Foods account manager)
 2. That rep logs in and sees a dashboard with KPIs, recent orders, and top products — all scoped to their supplier's data only
 3. They can drill into product performance, customer rankings, and cart abandonment insights
 4. Supplier admins can invite additional team members and assign them to specific customer accounts
 
-**Key principle:** The portal is **read-only analytics**. Suppliers cannot modify orders, change prices, or access other suppliers' data. All data is derived from existing SupplierHub activity — no new data entry required from anyone.
+**Key principle:** The portal is **read-only analytics**. Suppliers cannot modify orders, change prices, or access other suppliers' data. All data is derived from existing EnPlace Pro activity — no new data entry required from anyone.
 
 ---
 
@@ -76,7 +76,7 @@ A dedicated portal at `/supplier` where supplier company representatives log in 
 | Create a two-sided platform | Supplier portal logins per week | 2+ logins/week per active supplier within 3 months |
 | Open future revenue channel | Supplier portal as a monetizable feature | Demonstrate value before pricing discussions |
 | Improve catalog accuracy | Product inaccuracy flags submitted by suppliers | Reduce catalog errors by 50% |
-| Deepen supplier relationships | Supplier engagement with SupplierHub team | All 4 suppliers actively using the portal |
+| Deepen supplier relationships | Supplier engagement with EnPlace Pro team | All 4 suppliers actively using the portal |
 | Surface actionable data for suppliers | Cart abandonment insights acted on (price change, promotion, outreach) | Measurable follow-up actions |
 | Increase platform stickiness | Restaurants benefit from better supplier service driven by portal insights | Indirect — tracked via supplier NPS |
 
@@ -86,7 +86,7 @@ A dedicated portal at `/supplier` where supplier company representatives log in 
 
 ### Phase 1: Foundation — Authentication, Dashboard, Product Catalog
 
-> **Goal**: Supplier reps can log in and see a useful overview of their business on SupplierHub, plus review their product catalog.
+> **Goal**: Supplier reps can log in and see a useful overview of their business on EnPlace Pro, plus review their product catalog.
 
 #### 6.1 Authentication & Access
 
@@ -95,15 +95,15 @@ Supplier users are **completely separate** from restaurant users. They have thei
 | Requirement | Details |
 |-------------|---------|
 | Separate login | `/supplier/sign_in` — distinct from the restaurant login at `/users/sign_in` |
-| Invitation-only | No self-registration. SupplierHub admin creates the first supplier admin; supplier admins invite their team |
+| Invitation-only | No self-registration. EnPlace Pro admin creates the first supplier admin; supplier admins invite their team |
 | Password requirements | Same as restaurant users: 8+ characters, lockout after 5 failed attempts |
 | Session management | Standard Devise sessions with "Remember me" option |
 | Password reset | Self-service via email |
-| Account deactivation | Supplier admins or SupplierHub admins can deactivate accounts |
+| Account deactivation | Supplier admins or EnPlace Pro admins can deactivate accounts |
 
 #### 6.2 Dashboard
 
-The landing page after login. Shows a high-level snapshot of the supplier's business on SupplierHub.
+The landing page after login. Shows a high-level snapshot of the supplier's business on EnPlace Pro.
 
 | Component | Details |
 |-----------|---------|
@@ -144,7 +144,7 @@ Suppliers can browse their imported product catalog, verify accuracy, and see pr
 | Filters | All · In Stock · Out of Stock · Discontinued · Price Changed |
 | Search | By product name or SKU |
 | Product detail | Name, SKU, current price, previous price, pack size, per-unit price, stock status, last scraped date |
-| Flag inaccuracy | Button on any product to report incorrect data (name, price, pack size). Creates a notification for SupplierHub admin |
+| Flag inaccuracy | Button on any product to report incorrect data (name, price, pack size). Creates a notification for EnPlace Pro admin |
 | Pagination | 50 items per page with total count |
 
 #### 6.4 Product Health Page
@@ -231,7 +231,7 @@ Dedicated analytics page with date range filtering and multiple views.
 
 #### 6.8 Cart Abandonment Insights
 
-This is data unique to SupplierHub — no supplier has this visibility today. It surfaces products that chefs added to their shopping lists but never converted into orders.
+This is data unique to EnPlace Pro — no supplier has this visibility today. It surfaces products that chefs added to their shopping lists but never converted into orders.
 
 | Requirement | Details |
 |-------------|---------|
@@ -450,7 +450,7 @@ Deep dive into how individual products perform over time.
 ### 9.1 First Supplier Onboarding
 
 ```
-SupplierHub admin (super_admin) → Admin panel → Supplier Users
+EnPlace Pro admin (super_admin) → Admin panel → Supplier Users
   │
   ▼
   "Invite Supplier User" → Enter email, select supplier, set role = admin
@@ -544,7 +544,7 @@ To avoid slow page loads from real-time aggregation queries, a background job pr
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  SupplierHub  │ Dashboard │ Products │ Customers │  │
+│  EnPlace Pro  │ Dashboard │ Products │ Customers │  │
 │  [Supplier]   │ Analytics │ Cart Insights │ Team  │  │
 │               │                                     │
 │                                    [Avatar ▾]       │
@@ -573,9 +573,9 @@ To avoid slow page loads from real-time aggregation queries, a background job pr
 | **Sysco Shop** | Internal only | No | Sysco orders only | N/A (internal) |
 | **US Foods MO-Biz** | Internal only | No | US Foods orders only | N/A (internal) |
 | **Arrowstream** | Supply chain analytics | No | EDI integration | Enterprise pricing |
-| **SupplierHub** | **Cross-platform, multi-customer** | **Yes** | **Direct supplier portal orders** | **TBD** |
+| **EnPlace Pro** | **Cross-platform, multi-customer** | **Yes** | **Direct supplier portal orders** | **TBD** |
 
-**Our advantage:** We're the only platform that gives suppliers visibility across *all* their SupplierHub customers in one place, including the unique cart abandonment data that no supplier has access to today. Their own portals only show what was ordered — we show what was *considered*.
+**Our advantage:** We're the only platform that gives suppliers visibility across *all* their EnPlace Pro customers in one place, including the unique cart abandonment data that no supplier has access to today. Their own portals only show what was ordered — we show what was *considered*.
 
 ---
 

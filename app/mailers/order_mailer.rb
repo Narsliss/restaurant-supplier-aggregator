@@ -30,7 +30,7 @@ class OrderMailer < ApplicationMailer
 
     mail(
       to: owner_emails,
-      subject: "[SupplierHub] New order from #{@chef.full_name} — #{@supplier&.name} — $#{'%.2f' % order.total_amount}"
+      subject: "[EnPlace Pro] New order from #{@chef.full_name} — #{@supplier&.name} — $#{'%.2f' % order.total_amount}"
     )
   end
 end

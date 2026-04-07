@@ -1,6 +1,6 @@
 # Demo Environment Setup Guide
 
-Step-by-step instructions to set up the SupplierHub demo environment on Railway.
+Step-by-step instructions to set up the EnPlace Pro demo environment on Railway.
 
 ---
 
@@ -168,7 +168,7 @@ git push origin main
 ### Step 1: Create the demo project
 
 ```bash
-railway init --name "SupplierHub Demo"
+railway init --name "EnPlace Pro Demo"
 ```
 
 This creates a new empty project. Note the project ID from the output.
@@ -177,7 +177,7 @@ This creates a new empty project. Note the project ID from the output.
 
 In the Railway dashboard (https://railway.com/dashboard):
 
-1. Open the "SupplierHub Demo" project
+1. Open the "EnPlace Pro Demo" project
 2. Click **+ New** → **Database** → **PostgreSQL**
 3. Wait for it to provision (~30 seconds)
 4. The `DATABASE_URL` variable is automatically available to other services
@@ -294,7 +294,7 @@ curl https://demo-web-xxxx.up.railway.app/up
 
 ### Check demo-worker logs
 ```bash
-railway link -p "SupplierHub Demo" -s demo-worker
+railway link -p "EnPlace Pro Demo" -s demo-worker
 railway logs
 # Should see Solid Queue starting, DemoResetJob scheduled
 ```
@@ -334,12 +334,12 @@ rails runner "DemoResetJob.perform_now"
 ```
 GitHub (main branch)
   │
-  ├── Auto-deploy ──→ Railway: "SupplierHub Demo"
+  ├── Auto-deploy ──→ Railway: "EnPlace Pro Demo"
   │                     ├── demo-web     (DEMO_MODE=true, no Chromium)
   │                     ├── demo-worker  (DEMO_MODE=true, no Chromium)
   │                     └── demo-postgres
   │
-  └── Manual deploy ──→ Railway: "SupplierHub" (existing)
+  └── Manual deploy ──→ Railway: "EnPlace Pro" (existing)
                           ├── pretty-friendship  (production web)
                           ├── worker             (production worker)
                           └── PostgreSQL         (production DB)

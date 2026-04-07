@@ -13,7 +13,7 @@
       <div class="space-y-6">
         <h2 class="text-2xl text-white font-heading leading-relaxed">You've been invited!</h2>
         <p style="color: #9ca3af;" class="leading-relaxed">
-          Set up your account to access the <%= @invitation.supplier.name %> Supplier Portal on SupplierHub.
+          Set up your account to access the <%= @invitation.supplier.name %> Supplier Portal on EnPlace Pro.
         </p>
         <div class="rounded-lg p-4" style="background-color: rgba(74,124,89,0.2);">
           <p class="text-sm" style="color: #d1d5db;">
@@ -22,7 +22,7 @@
           </p>
         </div>
       </div>
-      <p class="text-xs" style="color: #6b7280;">&copy; <%= Date.current.year %> SupplierHub</p>
+      <p class="text-xs" style="color: #6b7280;">&copy; <%= Date.current.year %> EnPlace Pro</p>
     </div>
   </div>
 
@@ -36,7 +36,7 @@
       <%# Mobile invitation context %>
       <div class="lg:hidden mb-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
         <p class="text-sm text-blue-800">
-          You've been invited to join <strong><%= @invitation.supplier.name %></strong> on the SupplierHub Supplier Portal
+          You've been invited to join <strong><%= @invitation.supplier.name %></strong> on the EnPlace Pro Supplier Portal
           as <strong class="capitalize"><%= @invitation.role %></strong>.
         </p>
       </div>

@@ -9,13 +9,13 @@
     </p>
 
     <p style="font-size: 16px; line-height: 1.6; color: #4b5563; margin-bottom: 16px;">
-      Your SupplierHub Pro subscription for <strong><%= @org&.name %></strong> has been canceled.
+      Your EnPlace Pro subscription for <strong><%= @org&.name %></strong> has been canceled.
     </p>
 
     <% if @access_until&.future? %>
       <p style="font-size: 16px; line-height: 1.6; color: #4b5563; margin-bottom: 16px;">
         You'll continue to have access until <strong><%= @access_until.strftime("%B %-d, %Y") %></strong>.
-        After that, you'll need to resubscribe to continue using SupplierHub.
+        After that, you'll need to resubscribe to continue using EnPlace Pro.
       </p>
     <% end %>
 

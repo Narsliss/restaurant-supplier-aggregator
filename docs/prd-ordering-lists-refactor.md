@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-SupplierHub currently requires users to create a "Comparison List" every time they want to match products across suppliers — selecting which supplier order guides to compare, waiting for AI matching, and reviewing results. If a new supplier is added, all that work starts over.
+EnPlace Pro currently requires users to create a "Comparison List" every time they want to match products across suppliers — selecting which supplier order guides to compare, waiting for AI matching, and reviewing results. If a new supplier is added, all that work starts over.
 
 This refactor flips the model: **match all products from all suppliers once** at the location level, with a human confirming every match. Then let chefs create lightweight **Ordering Lists** — simple subsets of confirmed products — that they can reorder from with one click. No re-matching, no setup friction, no lost work when suppliers change.
 

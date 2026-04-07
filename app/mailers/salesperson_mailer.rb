@@ -6,7 +6,7 @@ class SalespersonMailer < ApplicationMailer
 
     mail(
       to: user.email,
-      subject: "Welcome to SupplierHub CRM — Your Login Details"
+      subject: "Welcome to EnPlace Pro CRM — Your Login Details"
     )
   end
 end

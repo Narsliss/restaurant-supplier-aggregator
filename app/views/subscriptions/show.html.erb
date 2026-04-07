@@ -13,7 +13,7 @@
           <% if @subscription %>
             <div class="flex items-start justify-between mb-6">
               <div>
-                <h3 class="text-2xl font-bold text-gray-900">SupplierHub Pro</h3>
+                <h3 class="text-2xl font-bold text-gray-900">EnPlace Pro</h3>
                 <p class="text-gray-600"><%= @subscription.formatted_amount %></p>
               </div>
               <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
@@ -88,7 +88,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
               </svg>
               <h3 class="mt-4 text-lg font-medium text-gray-900">No Active Subscription</h3>
-              <p class="mt-2 text-gray-600">Subscribe to access all SupplierHub features.</p>
+              <p class="mt-2 text-gray-600">Subscribe to access all EnPlace Pro features.</p>
               <%= link_to "Subscribe Now", new_subscription_path, class: "mt-4 inline-block px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors" %>
             </div>
           <% end %>
