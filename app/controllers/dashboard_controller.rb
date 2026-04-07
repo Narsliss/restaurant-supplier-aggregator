@@ -265,8 +265,10 @@ class DashboardController < ApplicationController
       .limit(10)
       .group_by(&:delivery_date)
 
-    # Daily order totals for the current week (bar chart)
-    daily_data = base_orders.where("orders.created_at >= ?", week_start)
+    # Daily order totals for the current week (bar chart) — only count
+    # actually-placed orders so the chart reflects real spend, not drafts.
+    daily_data = base_orders.kpi_eligible
+      .where("orders.created_at >= ?", week_start)
       .group(Arel.sql("DATE(orders.created_at)"))
       .pluck(
         Arel.sql("DATE(orders.created_at)"),

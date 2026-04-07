@@ -190,7 +190,8 @@
   <!-- This Week's Orders (Bar Chart) -->
   <div class="bg-white shadow rounded-lg">
     <div class="px-4 py-5 sm:px-6 border-b border-gray-100">
-      <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">This Week</h3>
+      <h3 class="text-lg font-heading font-medium leading-6 text-gray-900">Order Spend This Week</h3>
+      <p class="mt-1 text-sm text-gray-500">Submitted orders at your location</p>
     </div>
     <div class="p-6">
       <% max_total = [@daily_orders.map { |d| d[:total] }.max.to_f, 1].max %>
