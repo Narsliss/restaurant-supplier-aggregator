@@ -1,4 +1,4 @@
 class ApplicationMailer < ActionMailer::Base
-  default from: "carmin@las-noches.com"
+  default from: "EnPlace Pro <noreply@enplacepro.app>"
   layout "mailer"
 end

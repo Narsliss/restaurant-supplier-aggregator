@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 Devise.setup do |config|
-  config.mailer_sender = "carmin@las-noches.com"
+  config.mailer_sender = "EnPlace Pro <noreply@enplacepro.app>"
 
   require "devise/orm/active_record"
 
