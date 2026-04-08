@@ -39,7 +39,7 @@ export default class extends Controller {
 
     if (this.timeout) clearTimeout(this.timeout)
 
-    if (query.length < 2) {
+    if (query.length < 3) {
       this.resultsTarget.innerHTML = ""
       this.countTarget.textContent = ""
       return

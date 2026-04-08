@@ -360,21 +360,16 @@ class AggregatedListsController < ApplicationController
     # Deduplicate across multiple supplier lists — pick the most recently updated entry per product
     guide_results = guide_items.select("DISTINCT ON (COALESCE(supplier_product_id, id)) id, name, price, pack_size, supplier_product_id")
                                .order(Arel.sql("COALESCE(supplier_product_id, id), updated_at DESC"))
-                               .limit(50)
 
     # Track which catalog products are already covered by order guide items
     covered_product_ids = guide_results.filter_map(&:supplier_product_id).to_set
 
     # 2. Full catalog items (not on any order guide) — these use supplier_product: prefix
-    remaining = 50 - guide_results.size
-    catalog_results = []
-    if remaining > 0
-      catalog = SupplierProduct.where(supplier_id: supplier_id, discontinued: false)
-      catalog = catalog.where("LOWER(supplier_name) LIKE ?", "%#{query}%") if query.present?
-      catalog = catalog.where.not(id: covered_product_ids.to_a) if covered_product_ids.any?
-      catalog_results = catalog.select(:id, :supplier_name, :current_price, :pack_size)
-                               .order(:supplier_name).limit(remaining)
-    end
+    catalog = SupplierProduct.where(supplier_id: supplier_id, discontinued: false)
+    catalog = catalog.where("LOWER(supplier_name) LIKE ?", "%#{query}%") if query.present?
+    catalog = catalog.where.not(id: covered_product_ids.to_a) if covered_product_ids.any?
+    catalog_results = catalog.select(:id, :supplier_name, :current_price, :pack_size)
+                             .order(:supplier_name)
 
     json = guide_results.map { |i|
       { id: i.id, name: i.name.truncate(60), price: i.price ? "$#{'%.2f' % i.price}" : "N/A", pack_size: i.pack_size, source: "guide" }
