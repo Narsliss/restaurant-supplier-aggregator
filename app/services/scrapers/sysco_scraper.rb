@@ -2723,6 +2723,12 @@ module Scrapers
         item
       end
 
+      # submitOrderV2 advances the order version, so sequenceId must be the
+      # NEXT version (cached_seq + 1), not the current one. Sending the
+      # current value yields "failed to update the order since the given
+      # order version is obsolete" (code 5022).
+      next_sequence_id = sequence_id.to_i + 1
+
       # submitOrderV2 also requires top-level name, shippingCondition, and
       # invoiceSeparate (same fields we sent at create time).
       data = graphql_request('SubmitOrder', submit_order_mutation, {
@@ -2731,7 +2737,7 @@ module Scrapers
           name: @last_sysco_order_name || Time.current.strftime('%b %d %Y %I:%M %p'),
           orderSource: 'WEB',
           originatedOrderSource: 'WEB',
-          sequenceId: sequence_id,
+          sequenceId: next_sequence_id,
           shippingCondition: 'GROUND',
           invoiceSeparate: false,
           deliveryInstructions: '',
