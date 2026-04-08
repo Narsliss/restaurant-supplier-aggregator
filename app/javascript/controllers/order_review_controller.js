@@ -1913,6 +1913,10 @@ export default class extends Controller {
       this._updateMinimumForOrder(orderId, parseFloat(data.order.subtotal), data.meets_minimum)
       this._updateSubmitStates()
 
+      // Recalculate everything (case-minimum banner/badge, per-order submit
+      // button, KPI summary) — the legacy helpers above don't touch these.
+      this._scheduleRecalculation()
+
       // Restart polling to pick up item verification results
       if (data.item.verification_pending) {
         if (!this._pollingInterval) this._startPolling()
