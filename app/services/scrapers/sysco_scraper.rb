@@ -597,11 +597,24 @@ module Scrapers
 
       order_total = current_order&.dig('totalPrice')
       item_count = current_order&.dig('totalLineItems')
-      delivery_date_ms = current_order&.dig('deliveryDate') # epoch ms
+      delivery_date_raw = current_order&.dig('deliveryDate') # epoch ms (int) OR ISO string
 
-      # Convert epoch ms to date string
-      delivery_str = if delivery_date_ms
-                       Time.at(delivery_date_ms / 1000).strftime('%b %d, %Y')
+      # Convert to date string — handle both epoch-ms integer and ISO string
+      delivery_str = if delivery_date_raw.nil? || delivery_date_raw == ''
+                       nil
+                     elsif delivery_date_raw.is_a?(Numeric)
+                       Time.at(delivery_date_raw / 1000).strftime('%b %d, %Y')
+                     elsif delivery_date_raw.is_a?(String) && delivery_date_raw.match?(/\A\d+\z/)
+                       # Numeric string — treat as epoch ms
+                       Time.at(delivery_date_raw.to_i / 1000).strftime('%b %d, %Y')
+                     else
+                       # ISO date string like "2026-04-13"
+                       begin
+                         Date.parse(delivery_date_raw.to_s).strftime('%b %d, %Y')
+                       rescue ArgumentError
+                         logger.warn "[Sysco] Could not parse deliveryDate=#{delivery_date_raw.inspect}"
+                         nil
+                       end
                      end
 
       logger.info "[Sysco] Order #{order_id}: #{item_count} items, total=#{order_total}, delivery=#{delivery_str}"
