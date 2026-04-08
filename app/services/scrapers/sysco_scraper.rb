@@ -482,16 +482,24 @@ module Scrapers
 
         @last_sysco_order_id = order_id
         @last_sysco_sequence_id = updated['sequenceId'] || sequence_id
-        # Cache the input line items we sent so we can re-send them to
-        # submitOrderV2 (which requires order.lineItems in its input).
-        # Enrich each with the server-assigned line item id from the response
-        # so Sysco can match them to the draft.
-        response_lines_by_sku = (updated['lineItems'] || []).each_with_object({}) do |li, h|
-          h[li['productId'].to_s] = li
+        # Cache the server-authoritative line items from updateOrderV2.
+        # submitOrderV2 needs us to echo back Sysco's own price + pricingType
+        # — if we re-send our DB price with a hardcoded "N" pricingType,
+        # items with contract/deal pricing get rejected with
+        # "pricingType [N] is not compatible with price [X]".
+        @last_sysco_line_items = (updated['lineItems'] || []).map do |li|
+          unit_price = li['price'] || li['netUnitPrice']
+          {
+            qty: li['qty'],
+            soldAs: li['soldAs'] || 'cs',
+            productId: li['productId'].to_s,
+            pricingType: li['pricingType'] || 'N',
+            price: unit_price,
+            totalPrice: li['totalPrice'] || (unit_price.to_f * li['qty'].to_i),
+            siteId: li['siteId'] || tokens[:site_id],
+            sellerId: li['sellerId'] || tokens[:seller_id]
+          }
         end
-        # NOTE: do NOT enrich with server-side line item id — submitOrderV2
-        # requires lineItems[].id to be null. Just keep the original input.
-        @last_sysco_line_items = line_items.map(&:dup)
       rescue StandardError => e
         logger.error "[Sysco] Failed to add items to order: #{e.message}"
         # Clean up the empty draft order
@@ -2842,6 +2850,12 @@ module Scrapers
               qty
               soldAs
               netUnitPrice
+              price
+              pricingType
+              totalPrice
+              commissionBasis
+              siteId
+              sellerId
             }
           }
         }
