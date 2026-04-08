@@ -437,6 +437,12 @@ module Scrapers
       sequence_id = order['sequenceId'] || 1
       logger.info "[Sysco] Created draft order: #{order_id} (#{order_name})"
 
+      # Cache the order metadata we need to echo back to submitOrderV2
+      @last_sysco_order_name = order_name
+      @last_sysco_delivery_ms = if delivery_date
+                                  (delivery_date.to_time.to_f * 1000).to_i
+                                end
+
       # Step 2: Add items in a single UpdateOrder call
       line_items = items.map do |item|
         {
@@ -483,12 +489,9 @@ module Scrapers
         response_lines_by_sku = (updated['lineItems'] || []).each_with_object({}) do |li, h|
           h[li['productId'].to_s] = li
         end
-        @last_sysco_line_items = line_items.map do |li|
-          enriched = li.dup
-          server_li = response_lines_by_sku[li[:productId].to_s]
-          enriched[:id] = server_li['id'] if server_li && server_li['id']
-          enriched
-        end
+        # NOTE: do NOT enrich with server-side line item id — submitOrderV2
+        # requires lineItems[].id to be null. Just keep the original input.
+        @last_sysco_line_items = line_items.map(&:dup)
       rescue StandardError => e
         logger.error "[Sysco] Failed to add items to order: #{e.message}"
         # Clean up the empty draft order
@@ -2708,20 +2711,32 @@ module Scrapers
       # submitOrderV2 has stricter validation than updateOrderV2:
       #   - lineItems[].lineNumber is required (sequential, 1-indexed)
       #   - lineItems[].commissionBasis must NOT be sent (must be null)
+      #   - lineItems[].id must NOT be sent (must be null)
       # Transform the cached items accordingly.
       submit_line_items = cached.each_with_index.map do |li, idx|
         item = li.dup
         item.delete(:commissionBasis)
         item.delete('commissionBasis')
+        item.delete(:id)
+        item.delete('id')
         item[:lineNumber] = idx + 1
         item
       end
 
+      # submitOrderV2 also requires top-level name, shippingCondition, and
+      # invoiceSeparate (same fields we sent at create time).
       data = graphql_request('SubmitOrder', submit_order_mutation, {
         order: {
           id: order_id,
+          name: @last_sysco_order_name || Time.current.strftime('%b %d %Y %I:%M %p'),
           orderSource: 'WEB',
+          originatedOrderSource: 'WEB',
           sequenceId: sequence_id,
+          shippingCondition: 'GROUND',
+          invoiceSeparate: false,
+          deliveryInstructions: '',
+          poNumber: '',
+          deliveryDate: @last_sysco_delivery_ms,
           lineItems: submit_line_items
         }
       })
