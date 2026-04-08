@@ -476,6 +476,19 @@ module Scrapers
 
         @last_sysco_order_id = order_id
         @last_sysco_sequence_id = updated['sequenceId'] || sequence_id
+        # Cache the input line items we sent so we can re-send them to
+        # submitOrderV2 (which requires order.lineItems in its input).
+        # Enrich each with the server-assigned line item id from the response
+        # so Sysco can match them to the draft.
+        response_lines_by_sku = (updated['lineItems'] || []).each_with_object({}) do |li, h|
+          h[li['productId'].to_s] = li
+        end
+        @last_sysco_line_items = line_items.map do |li|
+          enriched = li.dup
+          server_li = response_lines_by_sku[li[:productId].to_s]
+          enriched[:id] = server_li['id'] if server_li && server_li['id']
+          enriched
+        end
       rescue StandardError => e
         logger.error "[Sysco] Failed to add items to order: #{e.message}"
         # Clean up the empty draft order
@@ -2687,11 +2700,17 @@ module Scrapers
     end
 
     def graphql_submit_order(order_id:, sequence_id:)
+      line_items = @last_sysco_line_items || []
+      if line_items.empty?
+        raise ScrapingError, 'Cannot submit: no cached line items (add_to_cart must run first)'
+      end
+
       data = graphql_request('SubmitOrder', submit_order_mutation, {
         order: {
           id: order_id,
           orderSource: 'WEB',
-          sequenceId: sequence_id
+          sequenceId: sequence_id,
+          lineItems: line_items
         }
       })
 
