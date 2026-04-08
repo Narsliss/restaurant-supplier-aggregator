@@ -41,7 +41,15 @@
             Submit Order
           <% end %>
         <% else %>
-          <%= button_to reorder_order_path(@order), method: :post, class: "inline-flex items-center gap-1.5 bg-brand-orange text-white px-3 py-1.5 rounded-lg hover:bg-brand-orange-dark text-sm font-medium" do %>
+          <% if @order.failed? %>
+            <%= button_to retry_order_order_path(@order), method: :post, class: "inline-flex items-center gap-1.5 bg-brand-orange text-white px-3 py-1.5 rounded-lg hover:bg-brand-orange-dark text-sm font-medium" do %>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Retry
+            <% end %>
+          <% end %>
+          <%= button_to reorder_order_path(@order), method: :post, class: "inline-flex items-center gap-1.5 bg-gray-700 text-white px-3 py-1.5 rounded-lg hover:bg-gray-600 text-sm font-medium" do %>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
