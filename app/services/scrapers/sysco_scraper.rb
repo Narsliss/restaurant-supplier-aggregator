@@ -640,6 +640,10 @@ module Scrapers
       logger.warn "[Sysco] PLACING LIVE ORDER — submitting order #{order_id}"
       result = graphql_submit_order(order_id: order_id, sequence_id: sequence_id)
 
+      # First live order ever — log the full raw response so we can verify
+      # the confirmation shape and refine parsing next time if needed.
+      logger.warn "[Sysco] RAW submitOrderV2 response: #{result.inspect}"
+
       confirmation = result['confirmationNumber'] || result['id'] || "SYSCO-#{Time.current.strftime('%Y%m%d%H%M%S')}"
       submitted_total = result['totalPrice'] || order_total
 
