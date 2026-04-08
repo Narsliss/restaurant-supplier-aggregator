@@ -2378,8 +2378,16 @@ module Scrapers
         clear_api_token_cache!
         raise AuthenticationError, "Sysco API auth failed: #{error_msg}"
       else
-        logger.error "[Sysco] GraphQL error (#{response.code}): #{response.body[0..200]}"
-        raise ScrapingError, "Sysco API error #{response.code}"
+        body_snippet = response.body.to_s[0..1500]
+        logger.error "[Sysco] GraphQL #{operation_name} error (#{response.code}): #{body_snippet}"
+        # Try to extract a clean GraphQL error message for the exception
+        clean_msg = begin
+          parsed = JSON.parse(response.body.to_s)
+          Array(parsed['errors']).map { |e| e['message'] }.compact.join('; ').presence || body_snippet[0..300]
+        rescue StandardError
+          body_snippet[0..300]
+        end
+        raise ScrapingError, "Sysco API error #{response.code} on #{operation_name}: #{clean_msg}"
       end
     end
 
