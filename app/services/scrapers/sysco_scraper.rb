@@ -2700,9 +2700,21 @@ module Scrapers
     end
 
     def graphql_submit_order(order_id:, sequence_id:)
-      line_items = @last_sysco_line_items || []
-      if line_items.empty?
+      cached = @last_sysco_line_items || []
+      if cached.empty?
         raise ScrapingError, 'Cannot submit: no cached line items (add_to_cart must run first)'
+      end
+
+      # submitOrderV2 has stricter validation than updateOrderV2:
+      #   - lineItems[].lineNumber is required (sequential, 1-indexed)
+      #   - lineItems[].commissionBasis must NOT be sent (must be null)
+      # Transform the cached items accordingly.
+      submit_line_items = cached.each_with_index.map do |li, idx|
+        item = li.dup
+        item.delete(:commissionBasis)
+        item.delete('commissionBasis')
+        item[:lineNumber] = idx + 1
+        item
       end
 
       data = graphql_request('SubmitOrder', submit_order_mutation, {
@@ -2710,16 +2722,28 @@ module Scrapers
           id: order_id,
           orderSource: 'WEB',
           sequenceId: sequence_id,
-          lineItems: line_items
+          lineItems: submit_line_items
         }
       })
 
       submitted = data.dig('data', 'submitOrderV2')
       unless submitted
-        errors = data.dig('errors')&.map { |e| e['message'] }&.join(', ') || 'unknown error'
-        logger.error "[Sysco] submitOrderV2 failed: #{errors}"
-        logger.error "[Sysco] Full response: #{data.to_json[0..500]}"
-        raise ScrapingError, "submitOrderV2 failed: #{errors}"
+        errors_arr = data.dig('errors') || []
+        # Surface nested serviceResponse errors (Sysco wraps backend validation
+        # errors inside extensions.serviceResponse.errors).
+        detailed = errors_arr.flat_map do |err|
+          outer = err['message']
+          svc = err.dig('extensions', 'serviceResponse', 'errors')
+          if svc.is_a?(Array)
+            svc.map { |s| "#{s['message']} (code=#{s['code']})" }
+          else
+            [outer]
+          end
+        end
+        msg = detailed.join('; ').presence || 'unknown error'
+        logger.error "[Sysco] submitOrderV2 failed: #{msg}"
+        logger.error "[Sysco] Full response: #{data.to_json[0..3000]}"
+        raise ScrapingError, "submitOrderV2 failed: #{msg}"
       end
       submitted
     end
