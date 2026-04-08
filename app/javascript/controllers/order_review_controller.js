@@ -1811,8 +1811,8 @@ export default class extends Controller {
 
   searchForgotProducts() {
     const query = this.forgotSearchInputTarget.value.trim()
-    if (query.length < 2) {
-      this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-12">Type at least 2 characters to search</p>'
+    if (query.length < 3) {
+      this.forgotResultsTarget.innerHTML = '<p class="text-sm text-gray-400 text-center py-12">Type at least 3 characters to search</p>'
       return
     }
 

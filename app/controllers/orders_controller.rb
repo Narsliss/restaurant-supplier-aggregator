@@ -464,7 +464,7 @@ class OrdersController < ApplicationController
     query = params[:q].to_s.strip
     batch_id = params[:batch_id]
 
-    if query.length < 2 || batch_id.blank?
+    if query.length < 3 || batch_id.blank?
       render json: { results: [] }
       return
     end
@@ -483,7 +483,7 @@ class OrdersController < ApplicationController
       .in_stock
       .where("supplier_name ILIKE ?", "%#{query}%")
       .includes(:supplier)
-      .limit(20)
+      .order(:supplier_name)
       .map do |sp|
         order = scoped_orders
           .for_batch(batch_id)
