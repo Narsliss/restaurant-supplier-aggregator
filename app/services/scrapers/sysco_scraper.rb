@@ -483,21 +483,23 @@ module Scrapers
         @last_sysco_order_id = order_id
         @last_sysco_sequence_id = updated['sequenceId'] || sequence_id
         # Cache the server-authoritative line items from updateOrderV2.
-        # submitOrderV2 needs us to echo back Sysco's own price + pricingType
-        # — if we re-send our DB price with a hardcoded "N" pricingType,
-        # items with contract/deal pricing get rejected with
-        # "pricingType [N] is not compatible with price [X]".
+        # Key quirks discovered:
+        #   - soldAs is an ASYMMETRIC enum: input accepts "cs" (lowercase),
+        #     response returns "CASE". We MUST send "cs" on submit — echoing
+        #     back "CASE" fails the enum validation.
+        #   - price/pricingType we take from the server response so items
+        #     with contract/deal pricing use Sysco's authoritative values.
         @last_sysco_line_items = (updated['lineItems'] || []).map do |li|
           unit_price = li['price'] || li['netUnitPrice']
           {
             qty: li['qty'],
-            soldAs: li['soldAs'] || 'cs',
+            soldAs: 'cs', # input enum is lowercase, DO NOT use li['soldAs']
             productId: li['productId'].to_s,
             pricingType: li['pricingType'] || 'N',
             price: unit_price,
             totalPrice: li['totalPrice'] || (unit_price.to_f * li['qty'].to_i),
-            siteId: li['siteId'] || tokens[:site_id],
-            sellerId: li['sellerId'] || tokens[:seller_id]
+            siteId: tokens[:site_id],
+            sellerId: tokens[:seller_id]
           }
         end
       rescue StandardError => e
