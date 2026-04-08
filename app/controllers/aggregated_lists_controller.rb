@@ -360,13 +360,13 @@ class AggregatedListsController < ApplicationController
     # Deduplicate across multiple supplier lists — pick the most recently updated entry per product
     guide_results = guide_items.select("DISTINCT ON (COALESCE(supplier_product_id, id)) id, name, price, pack_size, supplier_product_id")
                                .order(Arel.sql("COALESCE(supplier_product_id, id), updated_at DESC"))
-                               .limit(15)
+                               .limit(50)
 
     # Track which catalog products are already covered by order guide items
     covered_product_ids = guide_results.filter_map(&:supplier_product_id).to_set
 
     # 2. Full catalog items (not on any order guide) — these use supplier_product: prefix
-    remaining = 15 - guide_results.size
+    remaining = 50 - guide_results.size
     catalog_results = []
     if remaining > 0
       catalog = SupplierProduct.where(supplier_id: supplier_id, discontinued: false)
