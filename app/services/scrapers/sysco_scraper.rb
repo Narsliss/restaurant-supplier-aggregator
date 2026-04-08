@@ -653,12 +653,25 @@ module Scrapers
       logger.warn "[Sysco] PLACING LIVE ORDER — submitting order #{order_id}"
       result = graphql_submit_order(order_id: order_id, sequence_id: sequence_id)
 
-      # First live order ever — log the full raw response so we can verify
-      # the confirmation shape and refine parsing next time if needed.
       logger.warn "[Sysco] RAW submitOrderV2 response: #{result.inspect}"
 
-      confirmation = result['confirmationNumber'] || result['id'] || "SYSCO-#{Time.current.strftime('%Y%m%d%H%M%S')}"
-      submitted_total = result['totalPrice'] || order_total
+      # submitOrderV2 only returns __typename (see submit_order_mutation comment).
+      # Look up the submitted order via getOrderHeadersForAccounts to get the
+      # confirmation number and final total.
+      submitted_order = nil
+      begin
+        all_orders = graphql_get_open_orders
+        submitted_order = all_orders.find { |o| o['id'] == order_id }
+        logger.info "[Sysco] Post-submit order lookup: #{submitted_order.inspect}"
+      rescue StandardError => e
+        logger.warn "[Sysco] Could not look up submitted order details: #{e.message}"
+      end
+
+      confirmation = submitted_order&.dig('name') ||
+                     submitted_order&.dig('id') ||
+                     order_id ||
+                     "SYSCO-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      submitted_total = submitted_order&.dig('totalPrice') || order_total
 
       logger.info "[Sysco] Order submitted: #{confirmation}"
 
@@ -2803,17 +2816,15 @@ module Scrapers
     end
 
     def submit_order_mutation
+      # OrderSubmitResponseV2 is a wrapper type — the fields available on it
+      # are not documented and introspection is disabled in prod. Use the
+      # universally-valid __typename selector so the mutation validates and
+      # executes. After submission we look up the order's status/confirmation
+      # via getOrderHeadersForAccounts.
       <<~GQL
         mutation SubmitOrder($order: OrderInputV2!) {
           submitOrderV2(order: $order) {
-            id
-            name
-            status
-            sequenceId
-            totalPrice
-            totalLineItems
-            deliveryDate
-            confirmationNumber
+            __typename
           }
         }
       GQL
