@@ -2748,20 +2748,24 @@ module Scrapers
 
       # submitOrderV2 also requires top-level name, shippingCondition, and
       # invoiceSeparate (same fields we sent at create time).
+      # deliveryDate is stored on the draft at create time; re-sending our
+      # epoch-ms value causes "The given delivery date is invalid"
+      # (possibly due to timezone math). Omit it and let Sysco use the
+      # draft's stored value.
+      submit_payload = {
+        id: order_id,
+        name: @last_sysco_order_name || Time.current.strftime('%b %d %Y %I:%M %p'),
+        orderSource: 'WEB',
+        originatedOrderSource: 'WEB',
+        sequenceId: next_sequence_id,
+        shippingCondition: 'GROUND',
+        invoiceSeparate: false,
+        deliveryInstructions: '',
+        poNumber: '',
+        lineItems: submit_line_items
+      }
       data = graphql_request('SubmitOrder', submit_order_mutation, {
-        order: {
-          id: order_id,
-          name: @last_sysco_order_name || Time.current.strftime('%b %d %Y %I:%M %p'),
-          orderSource: 'WEB',
-          originatedOrderSource: 'WEB',
-          sequenceId: next_sequence_id,
-          shippingCondition: 'GROUND',
-          invoiceSeparate: false,
-          deliveryInstructions: '',
-          poNumber: '',
-          deliveryDate: @last_sysco_delivery_ms,
-          lineItems: submit_line_items
-        }
+        order: submit_payload
       })
 
       submitted = data.dig('data', 'submitOrderV2')
