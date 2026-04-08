@@ -2722,15 +2722,22 @@ module Scrapers
       #   - lineItems[].lineNumber is required (sequential, 1-indexed)
       #   - lineItems[].commissionBasis must NOT be sent (must be null)
       #   - lineItems[].id must NOT be sent (must be null)
-      # Transform the cached items accordingly.
+      #   - lineItems[].price + pricingType is re-validated against Sysco's
+      #     live pricing engine. updateOrderV2 accepts any price we send,
+      #     but submitOrderV2 rejects "pricingType [N] is not compatible
+      #     with price [X]" when the item has deal/contract pricing that
+      #     differs from the list price. Strip price/pricingType/totalPrice
+      #     so Sysco applies fresh live pricing server-side.
       submit_line_items = cached.each_with_index.map do |li, idx|
-        item = li.dup
-        item.delete(:commissionBasis)
-        item.delete('commissionBasis')
-        item.delete(:id)
-        item.delete('id')
-        item[:lineNumber] = idx + 1
-        item
+        tokens = load_api_tokens
+        {
+          lineNumber: idx + 1,
+          qty: li[:qty] || li['qty'],
+          soldAs: 'cs',
+          productId: (li[:productId] || li['productId']).to_s,
+          siteId: tokens[:site_id],
+          sellerId: tokens[:seller_id]
+        }
       end
 
       # submitOrderV2 advances the order version, so sequenceId must be the
