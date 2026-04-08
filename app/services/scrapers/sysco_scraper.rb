@@ -2853,9 +2853,6 @@ module Scrapers
               price
               pricingType
               totalPrice
-              commissionBasis
-              siteId
-              sellerId
             }
           }
         }
