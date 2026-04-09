@@ -91,7 +91,10 @@
         var overlay = document.getElementById('turbo-loading-overlay');
         if (!overlay) return;
         var timer, safety;
-        document.addEventListener('turbo:before-fetch-request', function() {
+        document.addEventListener('turbo:before-fetch-request', function(e) {
+          // Only show overlay for full-page navigation, not JSON/API fetches
+          var accept = (e.detail && e.detail.fetchOptions && e.detail.fetchOptions.headers && e.detail.fetchOptions.headers.Accept) || '';
+          if (accept.indexOf('text/html') === -1) return;
           clearTimeout(timer);
           clearTimeout(safety);
           // Small delay so instant navigations don't flash

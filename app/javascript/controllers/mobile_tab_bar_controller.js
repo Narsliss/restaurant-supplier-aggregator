@@ -23,9 +23,19 @@ export default class extends Controller {
   }
 
   _showLoading(event) {
-    // Only react to navigation requests (not form submissions or fetch APIs)
+    // Only react to full-page navigation, not JSON/API fetches (e.g., order-status polling)
+    const accept = event.detail?.fetchOptions?.headers?.Accept || ""
+    if (!accept.includes("text/html")) return
+
     const url = event.detail?.url
     if (!url) return
+
+    // Clean up any existing spinners first (prevents doubles)
+    this.element.querySelectorAll("[data-loading-spinner]").forEach(s => s.remove())
+    this.tabTargets.forEach(tab => {
+      const icon = tab.querySelector("svg")
+      if (icon) icon.style.display = ""
+    })
 
     const targetPath = new URL(url).pathname
     this.tabTargets.forEach(tab => {
