@@ -44,7 +44,7 @@
 </div>
 
 <!-- Order Groups -->
-<section class="mt-5">
+<section class="mt-5" data-turbo="false">
   <% if @order_groups.any? %>
     <% @order_groups.each do |orders| %>
       <% is_split = orders.size > 1 %>
