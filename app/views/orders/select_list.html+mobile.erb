@@ -38,6 +38,7 @@
           <% matched_list = @promoted_list || @aggregated_lists.first %>
           <% if matched_list %>
             <%= link_to order_builder_aggregated_list_path(matched_list, order_list_id: list.id),
+                data: { turbo: false },
                 class: "block bg-white rounded-xl border border-gray-200 shadow-sm p-4 active:border-brand-green active:bg-green-50/30 transition-colors" do %>
               <div class="flex items-center justify-between mb-1.5">
                 <div class="flex items-center gap-2">
@@ -71,6 +72,7 @@
     <% if @promoted_list %>
       <%= link_to order_builder_aggregated_list_path(@promoted_list),
           data: { turbo: false },
+          onclick: "document.getElementById('turbo-loading-overlay').style.display='flex'",
           class: "block bg-white rounded-xl border-2 border-purple-200 shadow-sm p-4 mb-2 relative overflow-hidden active:bg-purple-50/30 transition-colors" do %>
         <div class="absolute top-0 right-0 bg-purple-500 text-white text-[8px] font-bold px-3 py-0.5 rounded-bl-lg uppercase tracking-wider">Org-Wide</div>
         <div class="flex items-center justify-between mb-1.5">
@@ -91,6 +93,7 @@
         <% @aggregated_lists.each do |list| %>
           <%= link_to order_builder_aggregated_list_path(list),
               data: { turbo: false },
+              onclick: "document.getElementById('turbo-loading-overlay').style.display='flex'",
               class: "block bg-white rounded-xl border border-gray-200 shadow-sm p-4 active:border-brand-green transition-colors" do %>
             <div class="flex items-center justify-between mb-1.5">
               <p class="text-sm font-semibold text-gray-900"><%= list.name %></p>

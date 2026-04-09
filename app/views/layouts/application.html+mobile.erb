@@ -114,7 +114,9 @@
         document.addEventListener('turbo:load', hide);
         document.addEventListener('turbo:before-render', hide);
 
-        // Non-Turbo links (data-turbo="false") and regular link clicks
+        // Non-Turbo links (data-turbo="false") — show overlay immediately
+        // (no 150ms delay, because the browser may suspend JS timers
+        //  during full-page navigation before the timeout fires)
         document.addEventListener('click', function(e) {
           var link = e.target.closest('a[href]');
           if (!link) return;
@@ -125,7 +127,7 @@
           if (link.target === '_blank' || e.metaKey || e.ctrlKey) return;
           // Skip Turbo links (handled by turbo:before-fetch-request above)
           if (link.dataset.turbo !== 'false' && !link.closest('[data-turbo="false"]')) return;
-          show();
+          overlay.style.display = 'flex';
         });
       })();
     </script>
