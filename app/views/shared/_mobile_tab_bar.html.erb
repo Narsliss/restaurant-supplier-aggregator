@@ -71,3 +71,13 @@
     <% end %>
   </div>
 </nav>
+
+<%# Fallback: ensure mobile-tab-bar controller is registered even if importmap cache is stale %>
+<script type="module">
+  import { Application } from "@hotwired/stimulus"
+  const app = window.Stimulus || Application.start()
+  if (!app.router.modulesByIdentifier.has("mobile-tab-bar")) {
+    const mod = await import("controllers/mobile_tab_bar_controller")
+    app.register("mobile-tab-bar", mod.default)
+  }
+</script>

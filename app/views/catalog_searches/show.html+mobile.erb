@@ -41,3 +41,13 @@
     <p class="text-xs text-gray-400 mt-1">Searches across all connected suppliers</p>
   </div>
 </div>
+
+<%# Fallback: ensure mobile-search controller is registered even if importmap cache is stale %>
+<script type="module">
+  import { Application } from "@hotwired/stimulus"
+  const app = window.Stimulus || Application.start()
+  if (!app.router.modulesByIdentifier.has("mobile-search")) {
+    const mod = await import("controllers/mobile_search_controller")
+    app.register("mobile-search", mod.default)
+  }
+</script>
