@@ -76,5 +76,30 @@
 
     <%= render "shared/two_factor_modal" if user_signed_in? %>
     <%= render "shared/feedback_modal" if user_signed_in? %>
+
+    <%# Back to top button — appears after scrolling 2 viewport heights %>
+    <% if user_signed_in? %>
+      <button type="button" id="mobile-back-to-top"
+              onclick="window.scrollTo({top:0,behavior:'smooth'})"
+              style="position:fixed;right:1rem;bottom:7rem;z-index:49;width:2.75rem;height:2.75rem;border-radius:9999px;background:#3A6147;color:white;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.25);opacity:0;pointer-events:none;transition:opacity 0.2s;">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>
+      </button>
+      <script>
+        (function() {
+          var btn = document.getElementById('mobile-back-to-top');
+          if (!btn) return;
+          var threshold = window.innerHeight * 1.5;
+          window.addEventListener('scroll', function() {
+            if (window.scrollY > threshold) {
+              btn.style.opacity = '1';
+              btn.style.pointerEvents = 'auto';
+            } else {
+              btn.style.opacity = '0';
+              btn.style.pointerEvents = 'none';
+            }
+          }, { passive: true });
+        })();
+      </script>
+    <% end %>
   </body>
 </html>

@@ -167,8 +167,8 @@
       <%# ═══ ORDER LIST SECTION ═══ %>
       <% if order_list_categories.any? %>
         <div class="mb-6">
-          <div class="border-t-4 border-brand-green rounded-lg bg-white shadow overflow-hidden">
-            <div class="px-4 py-3 bg-brand-green/10 flex items-center gap-2">
+          <div class="sm:border-t-4 sm:border-brand-green sm:rounded-lg sm:bg-white sm:shadow overflow-hidden">
+            <div class="px-4 py-3 bg-brand-green/10 rounded-lg sm:rounded-none flex items-center gap-2">
               <span class="inline-flex items-center px-2 py-0.5 rounded bg-brand-green text-white text-[10px] font-bold uppercase tracking-wider">Order List</span>
               <span class="text-sm font-bold text-brand-green-dark"><%= @order_list&.name %></span>
               <% ol_matches = @grouped_matches[order_list_categories.first] %>
@@ -198,7 +198,7 @@
             </div>
 
             <%# Mobile %>
-            <div class="sm:hidden p-2 space-y-2">
+            <div class="sm:hidden space-y-2">
               <% order_list_categories.each do |category| %>
                 <% matches = @grouped_matches[category] %>
                 <% display_category = @order_list.name %>
@@ -230,7 +230,7 @@
             </div>
           <% end %>
 
-          <div class="bg-white shadow rounded-lg overflow-hidden">
+          <div class="sm:bg-white sm:shadow sm:rounded-lg overflow-hidden">
             <%# Desktop %>
             <div class="hidden sm:block space-y-2 p-3" <%= 'id="order-builder-table"' unless order_list_categories.any? %>>
               <% other_categories.each do |category| %>
@@ -257,13 +257,16 @@
             </div>
 
             <%# Mobile %>
-            <div class="sm:hidden p-2 space-y-2">
+            <div class="sm:hidden space-y-2">
               <% other_categories.each_with_index do |category, cat_idx| %>
                 <% matches = @grouped_matches[category] %>
                 <div data-order-builder-target="categorySection" data-category="<%= category %>">
-                  <div class="<%= cat_idx > 0 ? 'border-t border-gray-200 mt-3 pt-3' : '' %> px-1 pb-2 sticky top-16 z-10 bg-white">
-                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-500"><%= category %></span>
-                    <span class="ml-1 text-xs text-gray-400">(<%= matches.size %>)</span>
+                  <div class="<%= cat_idx > 0 ? 'mt-4' : '' %> px-1 pb-2">
+                    <div class="flex items-center gap-2">
+                      <div class="w-1.5 h-4 bg-brand-green rounded-full"></div>
+                      <span class="text-xs font-bold uppercase tracking-wider text-gray-500"><%= category %></span>
+                      <span class="text-[10px] text-gray-400">(<%= matches.size %>)</span>
+                    </div>
                   </div>
                   <div class="space-y-3">
                     <% matches.each_with_index do |match, idx| %>

@@ -366,7 +366,8 @@ class OrdersController < ApplicationController
     end
 
     # Re-verify draft orders only if prices are stale (verified > 1 hour ago)
-    draft_orders_to_reverify = @orders.select { |o| o.draft? && (o.price_verified_at.nil? || o.price_verified_at < 1.hour.ago) }
+    # Skip orders where verification already failed — those need manual retry, not auto-retry loops
+    draft_orders_to_reverify = @orders.select { |o| o.draft? && o.verification_status != "failed" && (o.price_verified_at.nil? || o.price_verified_at < 1.hour.ago) }
     draft_orders_to_reverify.each do |order|
       # Clear stale delivery dates so the chef must pick a new one
       if order.delivery_date.present? && order.delivery_date <= Date.current

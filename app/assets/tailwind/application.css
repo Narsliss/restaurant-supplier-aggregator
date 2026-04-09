@@ -74,6 +74,22 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* "BEST" price badge for order builder supplier pills */
+.best-price { position: relative; }
+.best-price::before {
+  content: 'BEST';
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  background: #4A7C59;
+  color: white;
+  font-size: 7px;
+  font-weight: 800;
+  padding: 1px 4px;
+  border-radius: 0 6px 0 4px;
+  letter-spacing: 0.5px;
+}
+
 /* Hide scrollbar for horizontal scroll areas (mobile stat pills, etc.) */
 @utility hide-scrollbar {
   -ms-overflow-style: none;
