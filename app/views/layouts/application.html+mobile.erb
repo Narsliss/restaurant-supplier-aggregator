@@ -101,5 +101,19 @@
         })();
       </script>
     <% end %>
+
+    <%# iOS Safari fix: when the keyboard closes, fixed elements (tab bar) can get
+        stuck off-screen. Force a tiny scroll nudge on blur to trigger repositioning. %>
+    <script>
+      (function() {
+        document.addEventListener('focusout', function(e) {
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+            setTimeout(function() {
+              window.scrollTo(0, window.scrollY);
+            }, 100);
+          }
+        });
+      })();
+    </script>
   </body>
 </html>
