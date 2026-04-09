@@ -443,16 +443,20 @@ module Scrapers
                                   (delivery_date.to_time.to_f * 1000).to_i
                                 end
 
-      # Step 2: Add items in a single UpdateOrder call
+      # Step 2: Add items in a single UpdateOrder call.
+      # Send ONLY the identifying fields — no pricingType, no price, no
+      # totalPrice, no commissionBasis. Sysco's updateOrderV2 computes
+      # the authoritative values server-side based on the account's
+      # current pricing tier (list, contract, deal, promo, etc.) and
+      # returns them on the response. Hardcoding pricingType: "N" here
+      # was silently overridden by the server for contract items but
+      # also prevented submit from validating properly. Matches the
+      # shape Sysco's own web frontend sends for contract-priced items.
       line_items = items.map do |item|
         {
           qty: item[:quantity].to_i,
           soldAs: 'cs',
           productId: item[:sku].to_s,
-          pricingType: 'N',
-          price: item[:expected_price].to_f,
-          totalPrice: (item[:expected_price].to_f * item[:quantity].to_i),
-          commissionBasis: 0,
           siteId: tokens[:site_id],
           sellerId: tokens[:seller_id]
         }
@@ -482,22 +486,17 @@ module Scrapers
 
         @last_sysco_order_id = order_id
         @last_sysco_sequence_id = updated['sequenceId'] || sequence_id
-        # Cache the server-authoritative line items from updateOrderV2.
-        # Key quirks discovered:
-        #   - soldAs is an ASYMMETRIC enum: input accepts "cs" (lowercase),
-        #     response returns "CASE". We MUST send "cs" on submit — echoing
-        #     back "CASE" fails the enum validation.
-        #   - price/pricingType we take from the server response so items
-        #     with contract/deal pricing use Sysco's authoritative values.
+        # Cache minimal line items for submit. We intentionally DO NOT
+        # cache price/pricingType/totalPrice — submit has stricter
+        # validation than update and rejects our echoed values
+        # ("pricingType [N] is not compatible with price [X]"). Let
+        # Sysco's submit validator pull authoritative pricing from the
+        # stored draft state instead.
         @last_sysco_line_items = (updated['lineItems'] || []).map do |li|
-          unit_price = li['price'] || li['netUnitPrice']
           {
             qty: li['qty'],
-            soldAs: 'cs', # input enum is lowercase, DO NOT use li['soldAs']
+            soldAs: 'cs', # input enum is lowercase, response is "CASE"
             productId: li['productId'].to_s,
-            pricingType: li['pricingType'] || 'N',
-            price: unit_price,
-            totalPrice: li['totalPrice'] || (unit_price.to_f * li['qty'].to_i),
             siteId: tokens[:site_id],
             sellerId: tokens[:seller_id]
           }
