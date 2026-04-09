@@ -91,24 +91,42 @@
         var overlay = document.getElementById('turbo-loading-overlay');
         if (!overlay) return;
         var timer, safety;
-        document.addEventListener('turbo:before-fetch-request', function(e) {
-          // Only show overlay for full-page navigation, not JSON/API fetches
-          var accept = (e.detail && e.detail.fetchOptions && e.detail.fetchOptions.headers && e.detail.fetchOptions.headers.Accept) || '';
-          if (accept.indexOf('text/html') === -1) return;
+
+        function show() {
           clearTimeout(timer);
           clearTimeout(safety);
-          // Small delay so instant navigations don't flash
           timer = setTimeout(function() { overlay.style.display = 'flex'; }, 150);
-          // Safety: never stay visible more than 10s
           safety = setTimeout(hide, 10000);
-        });
+        }
+
         function hide() {
           clearTimeout(timer);
           clearTimeout(safety);
           overlay.style.display = 'none';
         }
+
+        // Turbo-driven navigation
+        document.addEventListener('turbo:before-fetch-request', function(e) {
+          var accept = (e.detail && e.detail.fetchOptions && e.detail.fetchOptions.headers && e.detail.fetchOptions.headers.Accept) || '';
+          if (accept.indexOf('text/html') === -1) return;
+          show();
+        });
         document.addEventListener('turbo:load', hide);
         document.addEventListener('turbo:before-render', hide);
+
+        // Non-Turbo links (data-turbo="false") and regular link clicks
+        document.addEventListener('click', function(e) {
+          var link = e.target.closest('a[href]');
+          if (!link) return;
+          // Skip non-navigating links
+          var href = link.getAttribute('href');
+          if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+          // Skip links that open in new tabs
+          if (link.target === '_blank' || e.metaKey || e.ctrlKey) return;
+          // Skip Turbo links (handled by turbo:before-fetch-request above)
+          if (link.dataset.turbo !== 'false' && !link.closest('[data-turbo="false"]')) return;
+          show();
+        });
       })();
     </script>
 
