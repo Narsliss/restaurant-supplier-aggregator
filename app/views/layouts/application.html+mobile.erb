@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-brand-stone" data-controller="theme">
+<html lang="en" class="h-full bg-brand-stone" data-controller="theme" style="overflow-x: hidden;">
   <head>
     <title><%= content_for(:title) || "EnPlace Pro — Mise en place for your kitchen orders" %></title>
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -24,7 +24,7 @@
     <%= yield :head %>
   </head>
 
-  <body class="h-full" style="overflow-x: hidden; max-width: 100vw;">
+  <body class="h-full" style="overflow-x: hidden; width: 100%; position: relative;">
     <% if ENV['DEMO_MODE'] == 'true' %>
       <div class="bg-amber-500 text-center text-sm py-1.5 font-semibold text-white tracking-wide">
         Demo Environment &mdash; Sample data resets nightly at midnight
