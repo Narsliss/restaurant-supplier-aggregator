@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chef Dashboard — Option A: App-Style Tabs</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; max-width: 430px; margin: 0 auto; background: #FAFAF8; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .tab-active { color: #4A7C59; border-bottom: 2px solid #4A7C59; }
+    .tab-inactive { color: #9CA3AF; }
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+  </style>
+</head>
+<body class="bg-brand-cream pb-20">
+
+  <!-- Status Bar Spacer -->
+  <div class="h-2 bg-brand-green-dark"></div>
+
+  <!-- Compact Header -->
+  <header class="bg-brand-green-dark px-4 pb-3 pt-2">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-green-200 text-xs font-body">Good morning,</p>
+        <h1 class="text-white text-lg font-heading font-semibold tracking-wide">Chef Marco</h1>
+      </div>
+      <a href="profile.html" class="w-8 h-8 bg-brand-orange rounded-full flex items-center justify-center text-white text-sm font-bold">M</a>
+    </div>
+    <!-- Location badge -->
+    <div class="mt-2 inline-flex items-center gap-1.5 bg-brand-green/60 rounded-full px-3 py-1">
+      <svg class="w-3 h-3 text-green-200" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+      <span class="text-green-100 text-xs font-medium">Las Noches — Downtown</span>
+    </div>
+  </header>
+
+  <!-- 2FA Alert Banner -->
+  <div class="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
+    <div class="bg-amber-100 rounded-full p-1.5 flex-shrink-0 mt-0.5">
+      <svg class="w-4 h-4 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+    </div>
+    <div class="flex-1 min-w-0">
+      <p class="text-amber-800 text-xs font-semibold">US Foods needs verification</p>
+      <p class="text-amber-600 text-[11px] mt-0.5">Code expires in 8 min</p>
+    </div>
+    <a href="suppliers.html" class="bg-amber-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0">Verify</a>
+  </div>
+
+  <!-- Stat Cards Row (Horizontal Scroll) -->
+  <div class="mt-4 px-4 flex gap-3 overflow-x-auto hide-scrollbar">
+    <a href="order-history.html" class="bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100">
+      <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">This Week</p>
+      <p class="text-2xl font-heading font-bold text-brand-navy mt-1">4</p>
+      <p class="text-gray-500 text-xs">orders placed</p>
+    </a>
+    <a href="order-history.html" class="bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100">
+      <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Next Delivery</p>
+      <p class="text-lg font-heading font-bold text-brand-navy mt-1">Tomorrow</p>
+      <p class="text-green-600 text-xs font-medium">US Foods</p>
+    </a>
+    <a href="suppliers.html" class="bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100">
+      <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Pending</p>
+      <p class="text-2xl font-heading font-bold text-amber-500 mt-1">1</p>
+      <p class="text-gray-500 text-xs">verification</p>
+    </a>
+  </div>
+
+  <!-- Upcoming Deliveries -->
+  <section class="mt-6 px-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide">Upcoming Deliveries</h2>
+      <a href="order-history.html" class="text-brand-green text-xs font-semibold">See all</a>
+    </div>
+
+    <!-- Today -->
+    <div class="mb-3">
+      <p class="text-[10px] uppercase tracking-wider font-bold text-brand-orange mb-1.5">Today</p>
+      <a href="order-detail.html" class="block bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="p-3 flex items-center gap-3">
+          <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5 text-brand-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-gray-900">Chef's Warehouse</p>
+            <p class="text-xs text-gray-500">12 items &middot; $847.30</p>
+          </div>
+          <span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">In Transit</span>
+        </div>
+      </a>
+    </div>
+
+    <!-- Tomorrow -->
+    <div class="mb-3">
+      <p class="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-1.5">Tomorrow</p>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
+        <a href="order-detail.html" class="p-3 flex items-center gap-3 block">
+          <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5 text-brand-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-gray-900">US Foods</p>
+            <p class="text-xs text-gray-500">23 items &middot; $1,240.50</p>
+          </div>
+          <span class="bg-green-50 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Confirmed</span>
+        </a>
+        <a href="order-detail.html" class="p-3 flex items-center gap-3 block">
+          <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5 text-brand-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-gray-900">Premiere Produce One</p>
+            <p class="text-xs text-gray-500">8 items &middot; $312.75</p>
+          </div>
+          <span class="bg-green-50 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Confirmed</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Weekly Activity Chart -->
+  <section class="mt-4 px-4">
+    <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide mb-3">This Week's Orders</h2>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <div class="flex items-end justify-between gap-2 h-28">
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/20 rounded-t-md" style="height: 40%"></div>
+          <span class="text-[10px] text-gray-400">Mon</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/20 rounded-t-md" style="height: 65%"></div>
+          <span class="text-[10px] text-gray-400">Tue</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/30 rounded-t-md" style="height: 85%"></div>
+          <span class="text-[10px] text-gray-400">Wed</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-orange rounded-t-md" style="height: 100%"></div>
+          <span class="text-[10px] text-brand-orange font-bold">Thu</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-gray-100 rounded-t-md" style="height: 0%"></div>
+          <span class="text-[10px] text-gray-300">Fri</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-gray-100 rounded-t-md" style="height: 0%"></div>
+          <span class="text-[10px] text-gray-300">Sat</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-gray-100 rounded-t-md" style="height: 0%"></div>
+          <span class="text-[10px] text-gray-300">Sun</span>
+        </div>
+      </div>
+      <div class="mt-2 pt-2 border-t border-gray-100 flex justify-between text-xs">
+        <span class="text-gray-500">Week total</span>
+        <span class="font-semibold text-brand-navy">$3,412.80</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Recent Orders -->
+  <section class="mt-6 px-4 mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide">Recent Orders</h2>
+      <a href="order-history.html" class="text-brand-green text-xs font-semibold">View all</a>
+    </div>
+
+    <div class="space-y-2">
+      <a href="order-detail.html" class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center gap-3 block">
+        <div class="w-2 h-10 bg-green-400 rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-900">US Foods</p>
+          <p class="text-xs text-gray-400">23 items &middot; 2 hours ago</p>
+        </div>
+        <div class="text-right">
+          <p class="text-sm font-bold text-brand-navy">$1,240.50</p>
+          <p class="text-[10px] text-green-600 font-medium">Confirmed</p>
+        </div>
+      </a>
+      <a href="order-detail.html" class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center gap-3 block">
+        <div class="w-2 h-10 bg-green-400 rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-900">Chef's Warehouse</p>
+          <p class="text-xs text-gray-400">12 items &middot; 1 day ago</p>
+        </div>
+        <div class="text-right">
+          <p class="text-sm font-bold text-brand-navy">$847.30</p>
+          <p class="text-[10px] text-green-600 font-medium">Confirmed</p>
+        </div>
+      </a>
+      <a href="order-detail.html" class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center gap-3 block">
+        <div class="w-2 h-10 bg-brand-orange rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-900">Premiere Produce One</p>
+          <p class="text-xs text-gray-400">8 items &middot; 2 days ago</p>
+        </div>
+        <div class="text-right">
+          <p class="text-sm font-bold text-brand-navy">$312.75</p>
+          <p class="text-[10px] text-amber-600 font-medium">Pending</p>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <!-- Bottom Tab Bar -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50" style="max-width: 430px; margin: 0 auto;">
+    <div class="flex items-center justify-around py-2 px-2">
+      <a href="chef-dashboard-a.html" class="flex flex-col items-center gap-0.5 tab-active px-3 pb-1">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span class="text-[10px] font-semibold">Home</span>
+      </a>
+      <a href="order-history.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span class="text-[10px] font-medium">Orders</span>
+      </a>
+      <a href="select-list.html" class="flex flex-col items-center gap-0.5 px-3 pb-1 relative -top-3">
+        <div class="bg-brand-green rounded-full p-3 shadow-lg">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        </div>
+        <span class="text-[10px] font-semibold text-brand-green">Order</span>
+      </a>
+      <a href="suppliers.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        <span class="text-[10px] font-medium">Suppliers</span>
+      </a>
+      <a href="planner.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+        <span class="text-[10px] font-medium">Planner</span>
+      </a>
+    </div>
+  </nav>
+
+</body>
+</html>

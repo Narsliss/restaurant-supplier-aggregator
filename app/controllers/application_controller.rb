@@ -2,13 +2,14 @@ class ApplicationController < ActionController::Base
   include OrganizationAuthorization
   include ImpersonationGuard
 
+  before_action :set_mobile_variant
   before_action :authenticate_user!
   before_action :redirect_salesperson_to_crm
   before_action :ensure_onboarding_complete, unless: :skip_onboarding_check?
   before_action :require_subscription, unless: :skip_subscription_check?
   before_action :configure_permitted_parameters, if: :devise_controller?
 
-  helper_method :current_location, :subscription_required?, :onboarding_incomplete?, :viewing_all_locations?, :impersonating?
+  helper_method :current_location, :subscription_required?, :onboarding_incomplete?, :viewing_all_locations?, :impersonating?, :mobile?
 
   # Show a helpful message when CSRF token is stale (e.g. after server restart or long idle)
   rescue_from ActionController::InvalidAuthenticityToken do
@@ -137,6 +138,18 @@ class ApplicationController < ActionController::Base
     return unless onboarding_incomplete?
 
     redirect_to root_path
+  end
+
+  def set_mobile_variant
+    if Rails.env.development? && params[:mobile] == "1"
+      request.variant = :mobile
+    elsif request.user_agent =~ /Mobile|Android|webOS|iPhone|iPod|BlackBerry|Opera Mini|IEMobile/i
+      request.variant = :mobile
+    end
+  end
+
+  def mobile?
+    request.variant&.include?(:mobile)
   end
 
   def skip_onboarding_check?

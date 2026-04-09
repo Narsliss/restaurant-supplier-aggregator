@@ -1,0 +1,200 @@
+<%# ============================================================= %>
+<%# OWNER DASHBOARD MOBILE — wired from mockups/mobile/owner-dashboard-a.html %>
+<%# ============================================================= %>
+
+<!-- Header with savings hero -->
+<header class="bg-brand-green-dark px-4 pt-3 pb-5 relative overflow-hidden -mx-4 -mt-2">
+  <div class="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -mr-16 -mt-16"></div>
+  <div class="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-8 -mb-8"></div>
+
+  <div class="flex items-center justify-between mb-4 relative z-10">
+    <div>
+      <p class="text-green-200 text-xs"><%= current_user.current_organization&.name || "Your Organization" %></p>
+      <h1 class="text-white text-lg font-heading font-semibold tracking-wide">Dashboard</h1>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="relative" data-controller="dropdown">
+        <button type="button" class="w-8 h-8 bg-brand-orange rounded-full flex items-center justify-center text-white text-sm font-bold"
+                data-action="click->dropdown#toggle">
+          <%= current_user.full_name.split.map(&:first).join.first(2).upcase %>
+        </button>
+        <div class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-xl bg-white py-1 shadow-lg ring-1 ring-black/5"
+             data-dropdown-target="menu">
+          <div class="px-4 py-2 text-sm text-brand-green-dark font-medium border-b border-gray-100"><%= current_user.full_name %></div>
+          <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50" %>
+          <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50" %>
+          <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50" %>
+          <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50" %>
+          <div class="border-t border-gray-100 mt-1">
+            <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-brand-orange hover:bg-red-50" %>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Savings hero -->
+  <div class="bg-white/10 backdrop-blur-sm rounded-2xl p-4 relative z-10">
+    <p class="text-green-200 text-[10px] uppercase tracking-wider font-semibold">All-Time Savings</p>
+    <div class="flex items-end gap-2 mt-1">
+      <p class="text-3xl font-heading font-bold text-white"><%= number_to_currency(@stats[:total_savings], precision: 0) %></p>
+      <% if @stats[:savings_this_month].to_f > 0 %>
+        <span class="text-green-300 text-xs font-medium mb-1">+<%= number_to_currency(@stats[:savings_this_month], precision: 0) %> this month</span>
+      <% end %>
+    </div>
+    <div class="flex gap-3 mt-3">
+      <%= link_to select_list_orders_path, class: "bg-white text-brand-green text-xs font-bold px-4 py-2 rounded-lg flex-1 text-center" do %>
+        New Order
+      <% end %>
+      <%= link_to reports_path, class: "bg-white/20 text-white text-xs font-bold px-4 py-2 rounded-lg flex-1 text-center" do %>
+        View Reports
+      <% end %>
+    </div>
+  </div>
+</header>
+
+<!-- Location Selector -->
+<div class="mt-4 mb-3" data-controller="location-selector">
+  <% locations = current_user.accessible_locations %>
+  <% if locations.size > 1 %>
+    <select class="w-full flex items-center justify-between bg-white rounded-xl border border-gray-200 px-3 py-2.5 shadow-sm text-sm font-medium text-brand-navy"
+            data-action="change->location-selector#change">
+      <option value="all" <%= 'selected' if viewing_all_locations? %>>All Locations</option>
+      <% locations.each do |location| %>
+        <option value="<%= location.id %>" <%= 'selected' if location == current_location %>><%= location.name %></option>
+      <% end %>
+    </select>
+  <% end %>
+</div>
+
+<!-- 2FA Alerts -->
+<% if @pending_2fa_requests.any? %>
+  <% @pending_2fa_requests.each do |request| %>
+    <div class="mb-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
+      <div class="bg-amber-100 rounded-full p-1.5 flex-shrink-0 mt-0.5">
+        <svg class="w-4 h-4 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="text-amber-800 text-xs font-semibold"><%= request.supplier.name %> needs verification</p>
+        <p class="text-amber-600 text-[11px] mt-0.5">Expires in <%= distance_of_time_in_words(Time.current, request.expires_at) %></p>
+      </div>
+      <button type="button" class="bg-amber-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0"
+              data-action="click->two-factor#open" data-two-factor-credential-id-param="<%= request.supplier_credential_id %>">Verify</button>
+    </div>
+  <% end %>
+<% end %>
+
+<!-- Setup Wizard (if incomplete) -->
+<% if @onboarding_steps.present? && !@onboarding_complete %>
+  <div class="mb-3 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+      <h3 class="text-xs font-heading font-semibold text-white">Finish Setting Up</h3>
+      <span class="text-[10px] font-medium text-white/80"><%= @onboarding_steps.count { |s| s[:done] } %>/<%= @onboarding_steps.size %></span>
+    </div>
+    <ol class="divide-y divide-gray-50">
+      <% @onboarding_steps.each_with_index do |step, i| %>
+        <li class="flex items-center gap-2.5 px-3 py-2.5 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
+          <% if step[:done] %>
+            <div class="flex h-6 w-6 items-center justify-center rounded-full bg-brand-green flex-shrink-0">
+              <svg class="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
+            </div>
+          <% else %>
+            <div class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-brand-orange text-[10px] font-semibold text-brand-orange flex-shrink-0"><%= i + 1 %></div>
+          <% end %>
+          <p class="flex-1 text-xs font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>"><%= step[:title] %></p>
+          <% if !step[:done] && step[:cta] %>
+            <%= link_to step[:cta], step[:path], class: "flex-shrink-0 bg-brand-orange text-white text-[10px] font-semibold px-2.5 py-1 rounded-lg" %>
+          <% end %>
+        </li>
+      <% end %>
+    </ol>
+    <% if @required_steps_complete %>
+      <div class="px-3 py-2 border-t border-gray-100 bg-gray-50">
+        <%= button_to "Exit Wizard →", dismiss_onboarding_path, method: :post, class: "w-full bg-brand-green text-white text-xs font-bold px-4 py-2 rounded-lg" %>
+      </div>
+    <% end %>
+  </div>
+<% end %>
+
+<!-- KPI Grid -->
+<div class="grid grid-cols-2 gap-2">
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Spend this month</p>
+    <p class="text-xl font-heading font-bold text-brand-navy mt-1"><%= number_to_currency(@stats[:spend_this_month], precision: 0) %></p>
+    <% if @stats[:spend_change] %>
+      <div class="flex items-center gap-1 mt-1">
+        <span class="text-[10px] <%= @stats[:spend_change] > 0 ? 'text-red-500' : 'text-green-600' %> font-medium">
+          <%= @stats[:spend_change] > 0 ? "+#{@stats[:spend_change]}%" : "#{@stats[:spend_change]}%" %> vs last month
+        </span>
+      </div>
+    <% end %>
+  </div>
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Savings this month</p>
+    <p class="text-xl font-heading font-bold text-brand-green mt-1"><%= number_to_currency(@stats[:savings_this_month], precision: 0) %></p>
+    <% if @stats[:savings_change] %>
+      <div class="flex items-center gap-1 mt-1">
+        <span class="text-[10px] <%= @stats[:savings_change] > 0 ? 'text-green-600' : 'text-red-500' %> font-medium">
+          <%= @stats[:savings_change] > 0 ? "+#{@stats[:savings_change]}%" : "#{@stats[:savings_change]}%" %> vs last month
+        </span>
+      </div>
+    <% end %>
+  </div>
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Team Members</p>
+    <p class="text-xl font-heading font-bold text-brand-navy mt-1"><%= @stats[:team_members] %></p>
+  </div>
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Restaurants</p>
+    <p class="text-xl font-heading font-bold text-brand-navy mt-1"><%= @stats[:restaurants] || current_user.accessible_locations.count %></p>
+  </div>
+</div>
+
+<!-- Restaurant Performance -->
+<% if @location_stats.present? && @location_stats.any? %>
+  <section class="mt-5">
+    <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">By Restaurant</h2>
+    <div class="space-y-2">
+      <% @location_stats.each do |loc| %>
+        <%= link_to location_reports_path(location_id: loc[:location_id] || loc[:id], **filter_params), class: "block bg-white rounded-xl border border-gray-100 shadow-sm p-3" do %>
+          <div class="flex items-center justify-between mb-1.5">
+            <p class="text-sm font-semibold text-gray-900"><%= loc[:name] %></p>
+            <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(loc[:spend]) %></p>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <span class="text-[10px] text-gray-400"><%= loc[:orders] %> orders</span>
+              <% if loc[:savings].to_f > 0 %>
+                <span class="text-[10px] text-green-600 font-medium">Saved <%= number_to_currency(loc[:savings]) %></span>
+              <% end %>
+            </div>
+            <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  </section>
+<% end %>
+
+<!-- Team Activity -->
+<% if @team_activity.present? && @team_activity.any? %>
+  <section class="mt-5 mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider">Team Activity</h2>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
+      <% @team_activity.first(5).each do |member| %>
+        <div class="p-3 flex items-center gap-3">
+          <div class="w-8 h-8 bg-brand-orange rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            <%= member[:user].full_name.split.map(&:first).join.first(2).upcase %>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs font-semibold text-gray-900"><%= member[:user].full_name %></p>
+            <p class="text-[10px] text-gray-400"><%= member[:location_name] %></p>
+          </div>
+          <span class="text-xs font-bold text-brand-navy"><%= member[:order_count] %></span>
+        </div>
+      <% end %>
+    </div>
+  </section>
+<% end %>

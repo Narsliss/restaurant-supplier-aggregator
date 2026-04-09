@@ -38,6 +38,7 @@ import FeedbackController from "./feedback_controller"
 import CrmKanbanController from "./crm_kanban_controller"
 import CrmTaskController from "./crm_task_controller"
 import CrmStageSelectController from "./crm_stage_select_controller"
+import MobileTabBarController from "./mobile_tab_bar_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -77,3 +78,4 @@ application.register("feedback", FeedbackController)
 application.register("crm-kanban", CrmKanbanController)
 application.register("crm-task", CrmTaskController)
 application.register("crm-stage-select", CrmStageSelectController)
+application.register("mobile-tab-bar", MobileTabBarController)

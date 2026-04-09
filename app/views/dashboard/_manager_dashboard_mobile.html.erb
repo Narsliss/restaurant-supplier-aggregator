@@ -1,0 +1,108 @@
+<%# ============================================================= %>
+<%# MANAGER DASHBOARD MOBILE — "The Numbers"                     %>
+<%# Simplified: savings hero, stat pills, recent orders           %>
+<%# ============================================================= %>
+
+<%
+  hour = Time.current.hour
+  greeting = if hour < 12 then "Good morning"
+             elsif hour < 17 then "Good afternoon"
+             else "Good evening"
+             end
+%>
+
+<!-- Green Greeting Header with Savings -->
+<div class="-mx-4 -mt-2 mb-5">
+  <div class="px-5 pt-6 pb-5" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+    <div class="flex items-start justify-between">
+      <div>
+        <p class="text-sm text-white/70 font-body"><%= greeting %>,</p>
+        <h1 class="text-xl font-heading font-bold text-white tracking-wide">
+          <%= current_user.first_name || current_user.email.split('@').first %>
+        </h1>
+      </div>
+    </div>
+    <div class="mt-4 rounded-lg bg-white/10 backdrop-blur border border-white/20 px-4 py-3">
+      <p class="text-xs font-medium text-white/70">Savings This Month</p>
+      <p class="text-2xl font-bold text-white tracking-tight"><%= number_to_currency(@stats[:savings_this_month]) %></p>
+      <% if @stats[:savings_change] %>
+        <p class="text-xs <%= @stats[:savings_change] > 0 ? 'text-green-300' : @stats[:savings_change] < 0 ? 'text-red-300' : 'text-white/60' %>">
+          <%= @stats[:savings_change] > 0 ? "+#{@stats[:savings_change]}%" : "#{@stats[:savings_change]}%" %> vs last month
+        </p>
+      <% end %>
+    </div>
+  </div>
+</div>
+
+<!-- Stat Pills -->
+<div class="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 mb-5 snap-x">
+  <div class="min-w-[130px] flex-shrink-0 bg-white rounded-xl p-4 shadow-sm border border-gray-100 snap-start">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Spend</p>
+    <p class="mt-1 text-lg font-bold text-gray-900"><%= number_to_currency(@stats[:spend_this_month], precision: 0) %></p>
+    <p class="text-xs text-gray-500">this month</p>
+  </div>
+  <div class="min-w-[130px] flex-shrink-0 bg-white rounded-xl p-4 shadow-sm border border-gray-100 snap-start">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Savings</p>
+    <p class="mt-1 text-lg font-bold text-green-600"><%= number_to_currency(@stats[:savings_this_month], precision: 0) %></p>
+    <p class="text-xs text-gray-500">this month</p>
+  </div>
+  <div class="min-w-[130px] flex-shrink-0 bg-white rounded-xl p-4 shadow-sm border border-gray-100 snap-start">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Orders</p>
+    <p class="mt-1 text-2xl font-bold text-gray-900"><%= @stats[:orders_this_month] %></p>
+    <p class="text-xs text-gray-500">this month</p>
+  </div>
+  <div class="min-w-[130px] flex-shrink-0 bg-white rounded-xl p-4 shadow-sm border border-gray-100 snap-start">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Avg Order</p>
+    <p class="mt-1 text-lg font-bold text-gray-900"><%= number_to_currency(@stats[:avg_order_value], precision: 0) %></p>
+    <p class="text-xs text-gray-500">value</p>
+  </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="flex gap-3 mb-5">
+  <%= link_to reports_path, class: "flex-1 flex items-center justify-center gap-2 bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-200" do %>
+    <svg class="w-5 h-5 text-brand-green" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+    </svg>
+    <span class="text-sm font-semibold text-gray-900">View Reports</span>
+  <% end %>
+</div>
+
+<!-- Recent Orders -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+  <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h3 class="text-base font-heading font-semibold text-gray-900">Recent Orders</h3>
+    <%= link_to "See all", orders_path, class: "text-sm font-medium text-brand-green" %>
+  </div>
+  <% if @recent_orders.present? && @recent_orders.any? %>
+    <div class="divide-y divide-gray-100">
+      <% @recent_orders.first(5).each do |order| %>
+        <%= link_to order, class: "block px-4 py-3" do %>
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-gray-900"><%= order.display_supplier_name %></p>
+              <p class="text-xs text-gray-500"><%= time_ago_in_words(order.created_at) %> ago</p>
+            </div>
+            <div class="text-right">
+              <p class="text-sm font-semibold text-gray-900"><%= number_to_currency(order.total_amount) %></p>
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
+                <%= case order.status
+                    when 'submitted', 'confirmed' then 'bg-green-100 text-green-800'
+                    when 'processing', 'verifying' then 'bg-blue-100 text-blue-800'
+                    when 'failed' then 'bg-red-100 text-red-800'
+                    when 'price_changed' then 'bg-yellow-100 text-yellow-800'
+                    else 'bg-gray-100 text-gray-800'
+                    end %>">
+                <%= order.status.titleize %>
+              </span>
+            </div>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="px-4 py-8 text-center text-gray-500">
+      <p class="text-sm">No orders yet.</p>
+    </div>
+  <% end %>
+</div>

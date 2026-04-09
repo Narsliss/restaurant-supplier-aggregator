@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Order — SupplierHub Mobile</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; max-width: 430px; margin: 0 auto; background: #FAFAF8; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+    .tab-active { color: #4A7C59; border-bottom: 2px solid #4A7C59; }
+    .tab-inactive { color: #9CA3AF; }
+  </style>
+</head>
+<body class="bg-brand-cream pb-20">
+
+  <div class="h-2 bg-brand-green-dark"></div>
+
+  <!-- Header -->
+  <header class="bg-brand-green-dark px-4 pb-3 pt-2">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-white text-lg font-heading font-semibold tracking-wide">New Order</h1>
+        <p class="text-green-200 text-xs">Choose a list to start building</p>
+      </div>
+      <a href="chef-dashboard-a.html" class="text-white/80">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </a>
+    </div>
+  </header>
+
+  <!-- Your Order Lists -->
+  <section class="px-4 mt-5">
+    <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">Your Order Lists</h2>
+    <div class="space-y-2">
+      <a href="order-builder-a.html" class="block bg-white rounded-xl border border-gray-200 shadow-sm p-4 active:border-brand-green active:bg-green-50/30 transition-colors">
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-brand-orange" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+            <p class="text-sm font-semibold text-gray-900">Weekly Order Guide</p>
+          </div>
+          <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <p class="text-xs text-gray-500 mb-2">Your regular weekly order across all suppliers</p>
+        <div class="flex items-center gap-3">
+          <span class="text-[10px] text-gray-400">47 products</span>
+          <span class="text-[10px] text-gray-400">Last used 3 days ago</span>
+        </div>
+        <div class="flex gap-1.5 mt-2">
+          <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">USF</span>
+          <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">CW</span>
+          <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">PPO</span>
+          <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">WCW</span>
+        </div>
+      </a>
+
+      <a href="order-builder-a.html" class="block bg-white rounded-xl border border-gray-200 shadow-sm p-4 active:border-brand-green active:bg-green-50/30 transition-colors">
+        <div class="flex items-center justify-between mb-1.5">
+          <p class="text-sm font-semibold text-gray-900">Produce Only</p>
+          <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <p class="text-xs text-gray-500 mb-2">Fresh produce order for the week</p>
+        <div class="flex items-center gap-3">
+          <span class="text-[10px] text-gray-400">18 products</span>
+          <span class="text-[10px] text-gray-400">Last used 5 days ago</span>
+        </div>
+        <div class="flex gap-1.5 mt-2">
+          <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">PPO</span>
+          <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">USF</span>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <!-- Matched Lists -->
+  <section class="px-4 mt-6">
+    <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">Full Matched List</h2>
+
+    <!-- Promoted list -->
+    <a href="order-builder-a.html" class="block bg-white rounded-xl border-2 border-purple-200 shadow-sm p-4 mb-2 relative overflow-hidden active:bg-purple-50/30 transition-colors">
+      <div class="absolute top-0 right-0 bg-purple-500 text-white text-[8px] font-bold px-3 py-0.5 rounded-bl-lg uppercase tracking-wider">Org-Wide</div>
+      <div class="flex items-center justify-between mb-1.5">
+        <p class="text-sm font-semibold text-gray-900">Las Noches Master List</p>
+        <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+      <p class="text-xs text-gray-500 mb-2">Complete product catalog with best-price matching</p>
+      <div class="flex items-center gap-3">
+        <span class="text-[10px] text-gray-400">142 products</span>
+        <span class="text-[10px] text-green-600 font-medium">94% matched</span>
+      </div>
+      <div class="flex gap-1.5 mt-2">
+        <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">USF</span>
+        <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">CW</span>
+        <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">PPO</span>
+        <span class="bg-green-50 text-brand-green text-[9px] font-bold px-2 py-0.5 rounded-full">WCW</span>
+      </div>
+    </a>
+  </section>
+
+  <!-- Recent Orders (Quick Reorder) -->
+  <section class="px-4 mt-6 mb-6">
+    <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">Quick Reorder</h2>
+    <div class="space-y-2">
+      <a href="order-builder-a.html" class="block bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex items-center gap-3 active:bg-green-50/30 transition-colors">
+        <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <svg class="w-5 h-5 text-brand-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-900">US Foods — Mar 24</p>
+          <p class="text-xs text-gray-400">23 items &middot; $1,240.50</p>
+        </div>
+        <span class="text-xs text-brand-green font-semibold">Reorder</span>
+      </a>
+      <a href="order-builder-a.html" class="block bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex items-center gap-3 active:bg-green-50/30 transition-colors">
+        <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <svg class="w-5 h-5 text-brand-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-900">Chef's Warehouse — Mar 22</p>
+          <p class="text-xs text-gray-400">12 items &middot; $847.30</p>
+        </div>
+        <span class="text-xs text-brand-green font-semibold">Reorder</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- Bottom Tab Bar -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50" style="max-width: 430px; margin: 0 auto;">
+    <div class="flex items-center justify-around py-2 px-2">
+      <a href="chef-dashboard-a.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span class="text-[10px] font-medium">Home</span>
+      </a>
+      <a href="order-history.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span class="text-[10px] font-medium">Orders</span>
+      </a>
+      <a href="select-list.html" class="flex flex-col items-center gap-0.5 px-3 pb-1 relative -top-3">
+        <div class="bg-brand-orange rounded-full p-3 shadow-lg">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        </div>
+        <span class="text-[10px] font-semibold text-brand-orange">Order</span>
+      </a>
+      <a href="suppliers.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        <span class="text-[10px] font-medium">Suppliers</span>
+      </a>
+      <a href="planner.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+        <span class="text-[10px] font-medium">Planner</span>
+      </a>
+    </div>
+  </nav>
+
+</body>
+</html>

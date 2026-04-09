@@ -1,0 +1,135 @@
+<% content_for :title, "Dashboard" %>
+
+<% if @chef_onboarding_steps.present? && !@chef_onboarding_complete %>
+  <%# Chef onboarding — same as desktop, already single-column friendly %>
+  <div class="-mx-4 -mt-2 mb-6">
+    <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+      <div class="relative px-5 py-8">
+        <h1 class="text-2xl font-heading font-bold text-white tracking-wide">
+          Welcome, <%= current_user.first_name || current_user.email.split('@').first %>!
+        </h1>
+        <p class="mt-1 text-sm text-gray-300 font-body">Connect your supplier accounts to get started<%= " at #{current_location.name}" if current_location %>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-4 py-4 border-b border-gray-100">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-heading font-semibold text-gray-900">Get Started</h2>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-500">
+            <%= @chef_onboarding_steps.count { |s| s[:done] } %> / <%= @chef_onboarding_steps.size %>
+          </span>
+          <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div class="h-full bg-brand-green rounded-full transition-all duration-500"
+                 style="width: <%= (@chef_onboarding_steps.count { |s| s[:done] }.to_f / @chef_onboarding_steps.size * 100).round %>%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <ol class="divide-y divide-gray-100">
+      <% @chef_onboarding_steps.each_with_index do |step, i| %>
+        <li class="flex items-center gap-3 px-4 py-4 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
+          <div class="flex-shrink-0">
+            <% if step[:done] %>
+              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green">
+                <svg class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                </svg>
+              </div>
+            <% else %>
+              <div class="flex h-8 w-8 items-center justify-center rounded-full border-2 border-brand-orange text-xs font-semibold text-brand-orange"><%= i + 1 %></div>
+            <% end %>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>"><%= step[:title] %></p>
+            <p class="mt-0.5 text-xs text-gray-500"><%= step[:description] %></p>
+          </div>
+          <% prior_required_incomplete = @chef_onboarding_steps[0...i].any? { |s| s[:required] && !s[:done] } %>
+          <% if !step[:done] && step[:cta] && !prior_required_incomplete %>
+            <%= link_to step[:cta], step[:path],
+                class: "flex-shrink-0 rounded-md bg-brand-orange px-3 py-1.5 text-sm font-semibold text-white shadow-sm" %>
+          <% end %>
+        </li>
+      <% end %>
+    </ol>
+  </div>
+
+<% elsif @onboarding_steps.present? && !@onboarding_complete && @onboarding_hard_gate %>
+  <%# Owner onboarding hard gate %>
+  <div class="-mx-4 -mt-2 mb-6">
+    <div class="relative overflow-hidden" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+      <div class="relative px-5 py-8">
+        <h1 class="text-2xl font-heading font-bold text-white tracking-wide">
+          Welcome, <%= current_user.first_name || current_user.email.split('@').first %>!
+        </h1>
+        <p class="mt-1 text-sm text-gray-300 font-body">Let's get your account set up.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-4 py-4 border-b border-gray-100">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-heading font-semibold text-gray-900">Account Setup</h2>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-500">
+            <%= @onboarding_steps.count { |s| s[:done] } %> / <%= @onboarding_steps.size %>
+          </span>
+          <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div class="h-full bg-brand-green rounded-full transition-all duration-500"
+                 style="width: <%= (@onboarding_steps.count { |s| s[:done] }.to_f / @onboarding_steps.size * 100).round %>%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <ol class="divide-y divide-gray-100">
+      <% @onboarding_steps.each_with_index do |step, i| %>
+        <li class="flex items-center gap-3 px-4 py-4 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
+          <div class="flex-shrink-0">
+            <% if step[:done] %>
+              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-brand-green">
+                <svg class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                </svg>
+              </div>
+            <% else %>
+              <div class="flex h-8 w-8 items-center justify-center rounded-full border-2 <%= step[:required] ? 'border-brand-orange' : 'border-gray-300' %> text-xs font-semibold <%= step[:required] ? 'text-brand-orange' : 'text-gray-500' %>"><%= i + 1 %></div>
+            <% end %>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>"><%= step[:title] %></p>
+            <p class="mt-0.5 text-xs text-gray-500"><%= step[:description] %></p>
+          </div>
+          <% prior_required_incomplete = @onboarding_steps[0...i].any? { |s| s[:required] && !s[:done] } %>
+          <% if !step[:done] && step[:cta] && !prior_required_incomplete %>
+            <%= link_to step[:cta], step[:path],
+                class: "flex-shrink-0 rounded-md bg-brand-orange px-3 py-1.5 text-sm font-semibold text-white shadow-sm" %>
+          <% end %>
+        </li>
+      <% end %>
+    </ol>
+    <% if @required_steps_complete %>
+      <div class="px-4 py-3 border-t border-gray-100 bg-gray-50">
+        <%= button_to "Exit Wizard →", dismiss_onboarding_path, method: :post,
+            class: "w-full rounded-md bg-brand-green px-4 py-2.5 text-sm font-semibold text-white shadow-sm" %>
+      </div>
+    <% end %>
+  </div>
+
+<% else %>
+  <% if params[:context] == "location_required" %>
+    <div class="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+      Please select a specific restaurant to access that page.
+    </div>
+  <% end %>
+
+  <% if owner? %>
+    <%= render "dashboard/owner_dashboard_mobile" %>
+  <% elsif current_role == 'manager' %>
+    <%= render "dashboard/manager_dashboard_mobile" %>
+  <% else %>
+    <%= render "dashboard/chef_dashboard_mobile" %>
+  <% end %>
+<% end %>

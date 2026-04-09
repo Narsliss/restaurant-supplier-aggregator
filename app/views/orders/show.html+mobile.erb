@@ -1,0 +1,189 @@
+<% content_for :title, "Order ##{@order.id}" %>
+
+<%# Wired from mockups/mobile/order-detail.html %>
+
+<div class="-mx-4 -mt-2"
+     data-controller="order-status<%= ' order-edit' if @order.pending? %>"
+     data-order-status-url-value="<%= placement_status_order_path(@order) %>"
+     data-order-status-processing-value="<%= @order.processing? %>"
+     <% if @order.pending? %>
+       data-order-edit-order-id-value="<%= @order.id %>"
+       data-order-edit-minimum-value="<%= @minimum || 0 %>"
+       data-order-edit-case-minimum-value="<%= @case_minimum || 0 %>"
+     <% end %>>
+
+  <div class="h-2 bg-brand-green-dark"></div>
+
+  <!-- Header -->
+  <header class="bg-brand-green-dark px-4 pb-4 pt-2">
+    <div class="flex items-center gap-3 mb-3">
+      <%= link_to orders_path, class: "text-white/80" do %>
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      <% end %>
+      <div class="flex-1">
+        <h1 class="text-white text-base font-heading font-semibold tracking-wide">Order #<%= @order.id %></h1>
+      </div>
+      <span class="text-[10px] font-bold px-2.5 py-1 rounded-full
+        <%= case @order.status
+            when 'submitted', 'confirmed' then 'bg-green-400/20 text-green-200'
+            when 'processing', 'verifying' then 'bg-blue-400/20 text-blue-200'
+            when 'pending', 'draft' then 'bg-amber-400/20 text-amber-200'
+            when 'failed' then 'bg-red-400/20 text-red-200'
+            when 'dry_run_complete' then 'bg-purple-400/20 text-purple-200'
+            else 'bg-white/10 text-white/70'
+            end %>"><%= @order.status.titleize %></span>
+    </div>
+    <!-- Order meta -->
+    <div class="bg-white/10 rounded-xl p-3 flex items-center justify-between">
+      <div>
+        <p class="text-green-200 text-[10px] uppercase tracking-wider font-semibold">Supplier</p>
+        <p class="text-white text-sm font-semibold"><%= @order.display_supplier_name %></p>
+      </div>
+      <div class="text-right">
+        <p class="text-green-200 text-[10px] uppercase tracking-wider font-semibold">
+          <%= @order.delivery_date.present? ? "Delivery" : "Created" %>
+        </p>
+        <p class="text-white text-sm font-semibold">
+          <%= @order.delivery_date&.strftime("%a, %b %-d") || @order.created_at.strftime("%b %-d, %Y") %>
+        </p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Processing Banner -->
+  <% if @order.processing? %>
+    <div class="mx-4 mt-4 bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-3">
+      <svg class="animate-spin h-5 w-5 text-blue-600 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      <div class="flex-1">
+        <p class="text-xs font-semibold text-blue-800">Submitting to <%= @order.display_supplier_name %></p>
+        <p class="text-[10px] text-blue-600">This page will update automatically.</p>
+      </div>
+    </div>
+  <% end %>
+
+  <!-- Confirmation info -->
+  <% if @order.confirmation_number.present? %>
+    <div class="mx-4 mt-4 bg-green-50 border border-green-200 rounded-xl p-3 flex items-center gap-3">
+      <svg class="w-5 h-5 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+      <div class="flex-1">
+        <p class="text-xs font-semibold text-green-800">Confirmed by <%= @order.display_supplier_name %></p>
+        <p class="text-[10px] text-green-600">Confirmation #<%= @order.confirmation_number %></p>
+      </div>
+    </div>
+  <% end %>
+
+  <!-- Minimum Warning -->
+  <% if @order.pending? && !@meets_minimum %>
+    <div class="mx-4 mt-4 bg-red-50 border border-red-200 rounded-xl p-3" data-order-edit-target="minimumWarning">
+      <p class="text-xs text-red-800">
+        <span class="font-semibold">Minimum not met.</span>
+        Need <%= number_to_currency(@minimum) %>, have <span data-order-edit-target="minimumShortfall"><%= number_to_currency(@order.calculated_subtotal) %></span>.
+      </p>
+    </div>
+  <% end %>
+
+  <!-- Failure reason -->
+  <% if @order.failure_reason.present? %>
+    <div class="mx-4 mt-4 bg-red-50 border border-red-200 rounded-xl p-3">
+      <p class="text-xs font-semibold text-red-800">Order failed</p>
+      <p class="text-[10px] text-red-600 mt-0.5"><%= @order.failure_reason %></p>
+    </div>
+  <% end %>
+
+  <!-- Order Summary -->
+  <section class="mx-4 mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div class="p-4 border-b border-gray-100">
+      <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider">Order Summary</h2>
+    </div>
+    <div class="divide-y divide-gray-50">
+      <div class="px-4 py-2.5 flex items-center justify-between">
+        <span class="text-xs text-gray-500">Items</span>
+        <span class="text-xs font-semibold text-brand-navy"><%= @order.order_items.size %></span>
+      </div>
+      <div class="px-4 py-2.5 flex items-center justify-between">
+        <span class="text-xs text-gray-500">Subtotal</span>
+        <span class="text-xs font-semibold text-brand-navy" data-order-edit-target="subtotalDisplay"><%= number_to_currency(@order.calculated_subtotal) %></span>
+      </div>
+      <div class="px-4 py-3 flex items-center justify-between bg-gray-50">
+        <span class="text-sm font-bold text-brand-navy">Total</span>
+        <span class="text-sm font-bold text-brand-navy"><%= number_to_currency(@order.total_amount || @order.calculated_subtotal) %></span>
+      </div>
+      <% if @order.savings_amount.to_f > 0 %>
+        <div class="px-4 py-2.5 flex items-center justify-between">
+          <span class="text-xs text-green-600 font-medium">Savings on this order</span>
+          <span class="text-xs font-bold text-green-600">-<%= number_to_currency(@order.savings_amount) %></span>
+        </div>
+      <% end %>
+    </div>
+  </section>
+
+  <!-- Action Buttons -->
+  <% if operator? %>
+    <div class="mx-4 mt-4 space-y-2">
+      <% if @order.pending? %>
+        <%= button_to submit_order_path(@order), method: :post,
+            class: "w-full text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-sm #{@meets_minimum ? 'bg-brand-green' : 'bg-gray-300 cursor-not-allowed'}",
+            disabled: !@meets_minimum,
+            data: { order_edit_target: "submitButton" } do %>
+          Submit Order
+        <% end %>
+        <%= button_to cancel_order_path(@order), method: :post,
+            class: "w-full text-gray-600 text-xs font-medium px-4 py-2.5 rounded-xl border border-gray-200 bg-white",
+            data: { turbo_confirm: "Cancel this order?" } do %>
+          Cancel Order
+        <% end %>
+      <% else %>
+        <% if @order.failed? %>
+          <%= button_to retry_order_order_path(@order), method: :post,
+              class: "w-full bg-brand-orange text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-sm" do %>
+            Retry Order
+          <% end %>
+        <% end %>
+        <%= button_to reorder_order_path(@order), method: :post,
+            class: "w-full bg-gray-700 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-sm" do %>
+          Reorder
+        <% end %>
+      <% end %>
+    </div>
+  <% end %>
+
+  <!-- Items List -->
+  <section class="mx-4 mt-4 mb-6">
+    <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">Items (<%= @order.order_items.size %>)</h2>
+
+    <div class="space-y-2">
+      <% @order.order_items.includes(:supplier_product).each do |item| %>
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+          <div class="flex items-center justify-between">
+            <div class="flex-1 min-w-0 pr-3">
+              <p class="text-sm font-semibold text-gray-900 truncate"><%= item.product_name %></p>
+              <div class="flex items-center gap-2 mt-0.5">
+                <% if item.supplier_product&.supplier_item_code.present? %>
+                  <span class="text-[10px] text-gray-400">SKU: <%= item.supplier_product.supplier_item_code %></span>
+                <% end %>
+                <span class="text-[10px] text-gray-400">Qty: <%= item.quantity %> <%= item.pack_size %></span>
+              </div>
+            </div>
+            <div class="text-right flex-shrink-0">
+              <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(item.line_total) %></p>
+            </div>
+          </div>
+          <% if @order.pending? %>
+            <div class="mt-2 flex items-center justify-end gap-2" data-order-edit-target="quantityRow" data-item-id="<%= item.id %>">
+              <button type="button" class="w-7 h-7 rounded-lg border border-gray-300 flex items-center justify-center text-gray-500 text-sm"
+                      data-action="click->order-edit#decrementQuantity" data-item-id="<%= item.id %>">−</button>
+              <input type="number" value="<%= item.quantity %>" min="0"
+                     class="w-12 text-center text-sm border-gray-300 rounded-lg"
+                     data-action="change->order-edit#updateQuantity" data-item-id="<%= item.id %>">
+              <button type="button" class="w-7 h-7 rounded-lg border border-gray-300 flex items-center justify-center text-gray-500 text-sm"
+                      data-action="click->order-edit#incrementQuantity" data-item-id="<%= item.id %>">+</button>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  </section>
+</div>
