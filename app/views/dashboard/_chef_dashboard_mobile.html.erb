@@ -1,0 +1,240 @@
+<%# ============================================================= %>
+<%# CHEF DASHBOARD MOBILE — wired from mockups/mobile/chef-dashboard-a.html %>
+<%# ============================================================= %>
+
+<%
+  hour = Time.current.hour
+  greeting = if hour < 12 then "Good morning"
+             elsif hour < 17 then "Good afternoon"
+             else "Good evening"
+             end
+%>
+
+<!-- Status Bar Spacer -->
+<div class="h-2 bg-brand-green-dark -mx-4 -mt-2"></div>
+
+<!-- Compact Header -->
+<header class="bg-brand-green-dark px-4 pb-3 pt-2 -mx-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <p class="text-green-200 text-xs font-body"><%= greeting %>,</p>
+      <h1 class="text-white text-lg font-heading font-semibold tracking-wide">Chef <%= current_user.first_name || current_user.email.split('@').first %></h1>
+    </div>
+    <div class="relative" data-controller="dropdown">
+      <button type="button" class="w-8 h-8 bg-brand-orange rounded-full flex items-center justify-center text-white text-sm font-bold"
+              data-action="click->dropdown#toggle">
+        <%= current_user.full_name.first.upcase %>
+      </button>
+      <div class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-xl bg-white py-1 shadow-lg ring-1 ring-black/5"
+           data-dropdown-target="menu">
+        <div class="px-4 py-2 text-sm text-brand-green-dark font-medium border-b border-gray-100">
+          <%= current_user.full_name %>
+        </div>
+        <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50" %>
+        <button type="button" onclick="window.dispatchEvent(new Event('feedback:open'))"
+                class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50">Feedback</button>
+        <button type="button" data-action="click->theme#cycle"
+                class="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50">
+          <svg data-theme-target="lightIcon" class="w-4 h-4 mr-2 hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" /></svg>
+          <svg data-theme-target="darkIcon" class="w-4 h-4 mr-2 hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" /></svg>
+          <svg data-theme-target="systemIcon" class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25z" /></svg>
+          <span data-theme-target="label">System</span>
+        </button>
+        <div class="border-t border-gray-100 mt-1">
+          <%= button_to "Sign out", destroy_user_session_path, method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-brand-orange hover:bg-red-50" %>
+        </div>
+      </div>
+    </div>
+  </div>
+  <% if current_location %>
+    <div class="mt-2 inline-flex items-center gap-1.5 bg-brand-green/60 rounded-full px-3 py-1">
+      <svg class="w-3 h-3 text-green-200" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+      <span class="text-green-100 text-xs font-medium"><%= current_location.name %></span>
+    </div>
+  <% end %>
+</header>
+
+<!-- 2FA Alert Banners -->
+<% if @pending_2fa_requests.any? %>
+  <% @pending_2fa_requests.each do |request| %>
+    <div class="mx-0 mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-3">
+      <div class="bg-amber-100 rounded-full p-1.5 flex-shrink-0 mt-0.5">
+        <svg class="w-4 h-4 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="text-amber-800 text-xs font-semibold"><%= request.supplier.name %> needs verification</p>
+        <p class="text-amber-600 text-[11px] mt-0.5">Code expires in <%= distance_of_time_in_words(Time.current, request.expires_at) %></p>
+      </div>
+      <button type="button"
+              class="bg-amber-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex-shrink-0"
+              data-action="click->two-factor#open"
+              data-two-factor-credential-id-param="<%= request.supplier_credential_id %>">
+        Verify
+      </button>
+    </div>
+  <% end %>
+<% end %>
+
+<!-- Getting Started (if applicable) -->
+<% if @getting_started.present? %>
+  <div class="mt-3 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-3 py-2 border-b border-gray-100" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
+      <h3 class="text-xs font-heading font-semibold text-white">Get Started</h3>
+    </div>
+    <ol class="divide-y divide-gray-50">
+      <% @getting_started.each_with_index do |step, i| %>
+        <li class="flex items-center gap-2.5 px-3 py-2.5 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
+          <% if step[:done] %>
+            <div class="flex h-6 w-6 items-center justify-center rounded-full bg-brand-green flex-shrink-0">
+              <svg class="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
+            </div>
+          <% else %>
+            <div class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-brand-orange text-[10px] font-semibold text-brand-orange flex-shrink-0"><%= i + 1 %></div>
+          <% end %>
+          <p class="flex-1 text-xs font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>"><%= step[:title] %></p>
+          <% if !step[:done] && step[:cta] %>
+            <%= link_to step[:cta], step[:path], class: "flex-shrink-0 bg-brand-orange text-white text-[10px] font-semibold px-2.5 py-1 rounded-lg" %>
+          <% end %>
+        </li>
+      <% end %>
+    </ol>
+  </div>
+<% end %>
+
+<!-- Stat Cards Row (Horizontal Scroll) -->
+<div class="mt-4 flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4">
+  <%= link_to orders_path, class: "bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100" do %>
+    <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">This Week</p>
+    <p class="text-2xl font-heading font-bold text-brand-navy mt-1"><%= @stats[:orders_this_week] %></p>
+    <p class="text-gray-500 text-xs">orders placed</p>
+  <% end %>
+  <%= link_to orders_path, class: "bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100" do %>
+    <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Next Delivery</p>
+    <% if @stats[:next_delivery] %>
+      <% delivery_date = @stats[:next_delivery].delivery_date %>
+      <p class="text-lg font-heading font-bold text-brand-navy mt-1"><%= delivery_date == Date.current ? "Today" : delivery_date == Date.tomorrow ? "Tomorrow" : delivery_date.strftime("%a, %b %-d") %></p>
+      <p class="text-green-600 text-xs font-medium"><%= @stats[:next_delivery].supplier.name %></p>
+    <% else %>
+      <p class="text-sm font-heading font-bold text-gray-400 mt-1">None scheduled</p>
+    <% end %>
+  <% end %>
+  <%= link_to supplier_credentials_path, class: "bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100" do %>
+    <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Pending</p>
+    <p class="text-2xl font-heading font-bold <%= @stats[:pending_verifications] > 0 ? 'text-amber-500' : 'text-brand-navy' %> mt-1"><%= @stats[:pending_verifications] %></p>
+    <p class="text-gray-500 text-xs">verification<%= @stats[:pending_verifications] == 1 ? '' : 's' %></p>
+  <% end %>
+</div>
+
+<!-- Upcoming Deliveries -->
+<section class="mt-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide">Upcoming Deliveries</h2>
+    <%= link_to "See all", orders_path, class: "text-brand-green text-xs font-semibold" %>
+  </div>
+
+  <% if @upcoming_deliveries.any? %>
+    <% @upcoming_deliveries.each do |date, orders| %>
+      <div class="mb-3">
+        <p class="text-[10px] uppercase tracking-wider font-bold <%= date == Date.current ? 'text-brand-orange' : 'text-gray-400' %> mb-1.5">
+          <%= date == Date.current ? "Today" : date == Date.tomorrow ? "Tomorrow" : date.strftime("%A, %B %-d") %>
+        </p>
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
+          <% orders.each do |order| %>
+            <%= link_to order, class: "p-3 flex items-center gap-3 block" do %>
+              <div class="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-brand-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-gray-900"><%= order.display_supplier_name %></p>
+                <p class="text-xs text-gray-500"><%= pluralize(order.item_count, "item") %> &middot; <%= number_to_currency(order.total_amount) %></p>
+              </div>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full
+                <%= case order.status
+                    when 'submitted', 'confirmed' then 'bg-green-50 text-green-700'
+                    when 'processing', 'verifying' then 'bg-blue-50 text-blue-700'
+                    when 'price_changed' then 'bg-amber-50 text-amber-700'
+                    else 'bg-gray-50 text-gray-700'
+                    end %>">
+                <%= order.status.titleize %>
+              </span>
+            <% end %>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  <% else %>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 text-center">
+      <p class="text-sm text-gray-500">No upcoming deliveries.</p>
+      <p class="mt-1"><%= link_to "Place an order", select_list_orders_path, class: "text-brand-orange text-xs font-semibold" %></p>
+    </div>
+  <% end %>
+</section>
+
+<!-- This Week's Orders (Bar Chart) -->
+<section class="mt-4">
+  <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide mb-3">This Week's Orders</h2>
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+    <% max_total = [@daily_orders.map { |d| d[:total] }.max.to_f, 1].max %>
+    <% if @daily_orders.any? { |d| d[:total] > 0 } %>
+      <div class="flex items-end justify-between gap-2 h-28">
+        <% @daily_orders.each do |day| %>
+          <div class="flex flex-col items-center gap-1 flex-1">
+            <div class="w-full rounded-t-md <%= day[:date] == Date.current ? 'bg-brand-orange' : 'bg-brand-green/20' %>"
+                 style="height: <%= day[:total] > 0 ? [(day[:total] / max_total * 100).round, 4].max : 0 %>%"></div>
+            <span class="text-[10px] <%= day[:date] == Date.current ? 'text-brand-orange font-bold' : 'text-gray-400' %>"><%= day[:label] %></span>
+          </div>
+        <% end %>
+      </div>
+      <div class="mt-2 pt-2 border-t border-gray-100 flex justify-between text-xs">
+        <span class="text-gray-500">Week total</span>
+        <span class="font-semibold text-brand-navy"><%= number_to_currency(@daily_orders.sum { |d| d[:total] }) %></span>
+      </div>
+    <% else %>
+      <div class="flex items-center justify-center h-28 text-xs text-gray-400">No orders this week yet</div>
+    <% end %>
+  </div>
+</section>
+
+<!-- Recent Orders -->
+<section class="mt-6 mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide">Recent Orders</h2>
+    <%= link_to "View all", orders_path, class: "text-brand-green text-xs font-semibold" %>
+  </div>
+
+  <% if @recent_orders.any? %>
+    <div class="space-y-2">
+      <% @recent_orders.each do |order| %>
+        <%= link_to order, class: "bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center gap-3 block" do %>
+          <div class="w-2 h-10 rounded-full flex-shrink-0
+            <%= case order.status
+                when 'submitted', 'confirmed' then 'bg-green-400'
+                when 'processing', 'verifying' then 'bg-blue-400'
+                when 'failed' then 'bg-red-400'
+                when 'price_changed' then 'bg-amber-400'
+                else 'bg-brand-orange'
+                end %>"></div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-gray-900"><%= order.display_supplier_name %></p>
+            <p class="text-xs text-gray-400"><%= pluralize(order.item_count, "item") %> &middot; <%= time_ago_in_words(order.created_at) %> ago</p>
+          </div>
+          <div class="text-right">
+            <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(order.total_amount) %></p>
+            <p class="text-[10px] font-medium
+              <%= case order.status
+                  when 'submitted', 'confirmed' then 'text-green-600'
+                  when 'failed' then 'text-red-600'
+                  when 'price_changed' then 'text-amber-600'
+                  else 'text-gray-500'
+                  end %>"><%= order.status.titleize %></p>
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 text-center">
+      <p class="text-sm text-gray-500">No orders yet.</p>
+      <p class="mt-1"><%= link_to "Create your first order", select_list_orders_path, class: "text-brand-orange text-xs font-semibold" %></p>
+    </div>
+  <% end %>
+</section>

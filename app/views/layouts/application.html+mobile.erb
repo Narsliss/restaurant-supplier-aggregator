@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-brand-stone" data-controller="theme">
+  <head>
+    <title><%= content_for(:title) || "EnPlace Pro — Mise en place for your kitchen orders" %></title>
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="turbo-cache-control" content="no-preview">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <script>
+      (function() {
+        var t = localStorage.getItem('supplierhub-theme');
+        if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.classList.add('dark');
+      })();
+    </script>
+    <%= favicon_link_tag "logo.svg", type: "image/svg+xml" %>
+    <%= csrf_meta_tags %>
+    <%= csp_meta_tag %>
+    <%= action_cable_meta_tag %>
+
+    <%= stylesheet_link_tag "tailwind", "inter-font", "data-turbo-track": "reload" %>
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+    <%= javascript_importmap_tags %>
+    <%= yield :head %>
+  </head>
+
+  <body class="h-full">
+    <% if ENV['DEMO_MODE'] == 'true' %>
+      <div class="bg-amber-500 text-center text-sm py-1.5 font-semibold text-white tracking-wide">
+        Demo Environment &mdash; Sample data resets nightly at midnight
+      </div>
+    <% end %>
+    <div class="min-h-full flex flex-col"
+         <% if user_signed_in? && current_user.current_organization && current_location && defined?(operator?) && operator? %>
+           data-controller="price-check"
+           data-price-check-search-url-value="<%= catalog_search_path %>"
+           data-price-check-add-url-value="<%= add_to_list_catalog_search_path %>"
+           data-price-check-lists-url-value="<%= for_select_order_lists_path(format: :json) %>"
+         <% end %>>
+      <% if user_signed_in? %>
+        <% if controller.class.module_parent_name == 'Admin' %>
+          <%= render "admin/shared/navigation" %>
+        <% elsif controller.class.module_parent_name == 'Crm' %>
+          <%= render "crm/shared/navigation" %>
+        <% end %>
+        <%# No header for regular mobile pages — each view handles its own top area.
+            Navigation lives in the bottom tab bar. %>
+      <% end %>
+
+      <main class="<%= user_signed_in? ? 'flex-1 pt-2 pb-24 px-4' : 'flex-1' %>">
+        <%= render "shared/flash_messages" unless devise_controller? %>
+        <% if user_signed_in? && impersonating? %>
+          <%= render "admin/shared/impersonation_banner" %>
+        <% end %>
+        <% if user_signed_in? && current_user.current_organization&.subscription_status == 'past_due' && !current_user.super_admin? && defined?(owner?) && owner? %>
+          <div class="rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3 mb-4 flex flex-col gap-2">
+            <p class="text-sm text-yellow-800">
+              <strong>Payment failed.</strong> Please update your payment method.
+            </p>
+            <%= button_to "Update Payment", subscription_billing_portal_path,
+                method: :post,
+                class: "inline-flex items-center justify-center rounded-md bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-700 transition-colors" %>
+          </div>
+        <% end %>
+        <%= yield %>
+      </main>
+
+      <% if user_signed_in? && controller.class.module_parent_name != 'Admin' && controller.class.module_parent_name != 'Crm' %>
+        <%= render "shared/mobile_tab_bar" %>
+      <% end %>
+
+      <% if user_signed_in? && current_user.current_organization && current_location && defined?(operator?) && operator? %>
+        <%= render "shared/price_check_modal" %>
+      <% end %>
+    </div>
+
+    <%= render "shared/two_factor_modal" if user_signed_in? %>
+    <%= render "shared/feedback_modal" if user_signed_in? %>
+
+    <%# Back to top button — appears after scrolling 2 viewport heights %>
+    <% if user_signed_in? %>
+      <button type="button" id="mobile-back-to-top"
+              onclick="window.scrollTo({top:0,behavior:'smooth'})"
+              style="position:fixed;right:1rem;bottom:7rem;z-index:49;width:2.75rem;height:2.75rem;border-radius:9999px;background:#3A6147;color:white;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.25);opacity:0;pointer-events:none;transition:opacity 0.2s;">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>
+      </button>
+      <script>
+        (function() {
+          var btn = document.getElementById('mobile-back-to-top');
+          if (!btn) return;
+          var threshold = window.innerHeight * 1.5;
+          window.addEventListener('scroll', function() {
+            if (window.scrollY > threshold) {
+              btn.style.opacity = '1';
+              btn.style.pointerEvents = 'auto';
+            } else {
+              btn.style.opacity = '0';
+              btn.style.pointerEvents = 'none';
+            }
+          }, { passive: true });
+        })();
+      </script>
+    <% end %>
+  </body>
+</html>

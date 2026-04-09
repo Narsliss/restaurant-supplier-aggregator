@@ -162,7 +162,8 @@ class Order < ApplicationRecord
   def mark_verification_failed!(error_message)
     update!(
       verification_status: "failed",
-      verification_error: error_message
+      verification_error: error_message,
+      price_verified_at: Time.current
     )
   end
 

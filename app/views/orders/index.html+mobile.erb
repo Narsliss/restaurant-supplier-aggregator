@@ -1,0 +1,166 @@
+<% content_for :title, "Orders" %>
+
+<%# Wired from mockups/mobile/order-history.html %>
+
+<!-- Header -->
+<header class="bg-white border-b border-gray-200 -mx-4 -mt-2" style="position: sticky; top: 0; z-index: 40;">
+  <div class="px-4 py-3 flex items-center justify-between">
+    <h1 class="font-heading text-lg font-semibold text-brand-navy tracking-wide">Orders</h1>
+    <%= link_to select_list_orders_path, class: "bg-brand-green text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5" do %>
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+      New Order
+    <% end %>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="px-4 pb-3 flex gap-2 overflow-x-auto hide-scrollbar">
+    <%= form_with(url: orders_path, method: :get, class: "contents", data: { turbo: false }) do |form| %>
+      <div class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full whitespace-nowrap border border-gray-200">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <%= form.text_field :search, value: params[:search], placeholder: "Search", class: "bg-transparent border-none text-[11px] w-16 p-0 focus:ring-0 focus:outline-none", size: 8 %>
+      </div>
+      <%= form.select :supplier_id,
+          [["All Suppliers", ""]] + @suppliers.map { |s| [s.name, s.id] },
+          { selected: params[:supplier_id] || "" },
+          class: "px-3 py-1.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full whitespace-nowrap border border-gray-200 appearance-none pr-6" %>
+    <% end %>
+  </div>
+</header>
+
+<!-- KPI Summary Cards -->
+<div class="mt-4 grid grid-cols-3 gap-2">
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+    <p class="text-xl font-heading font-bold text-brand-navy"><%= @order_count %></p>
+    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Orders</p>
+  </div>
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+    <p class="text-xl font-heading font-bold text-brand-navy"><%= number_to_currency(@total_spent, precision: 0) %></p>
+    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Spent</p>
+  </div>
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+    <p class="text-xl font-heading font-bold text-brand-green"><%= number_to_currency(@total_savings, precision: 0) %></p>
+    <p class="text-[10px] text-green-600 uppercase tracking-wider font-medium">Saved</p>
+  </div>
+</div>
+
+<!-- Order Groups -->
+<section class="mt-5">
+  <% if @order_groups.any? %>
+    <% @order_groups.each do |orders| %>
+      <% is_split = orders.size > 1 %>
+      <% first_order = orders.first %>
+      <% group_total = orders.sum { |o| o.total_amount || 0 } %>
+      <% group_savings = orders.sum { |o| o.savings_amount || 0 } %>
+      <% group_items = orders.sum { |o| o.item_count } %>
+      <% is_pending = orders.any?(&:pending?) || orders.any?(&:draft?) %>
+
+      <% if is_split %>
+        <%# Split order group %>
+        <div class="bg-white rounded-xl <%= is_pending ? 'border-2 border-brand-orange/30' : 'border border-gray-100' %> shadow-sm mb-2 overflow-hidden">
+          <div class="p-3">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-1.5">
+                <span class="<%= is_pending ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500' %> text-[9px] font-bold px-1.5 py-0.5 rounded-full">Split</span>
+                <% unless is_pending %>
+                  <span class="bg-green-50 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full"><%= first_order.status.titleize %></span>
+                <% end %>
+              </div>
+              <span class="text-[10px] text-gray-400"><%= first_order.submitted_at&.strftime("%b %-d") || first_order.created_at.strftime("%b %-d") %></span>
+            </div>
+            <% if is_pending %>
+              <%# Show expanded sub-rows for pending %>
+              <div class="space-y-2">
+                <% orders.each do |order| %>
+                  <%= link_to order, class: "flex items-center gap-3 bg-gray-50 rounded-lg p-2 block" do %>
+                    <div class="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span class="text-[8px] font-bold text-brand-green"><%= order.display_supplier_name.first(3).upcase %></span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-xs font-semibold text-gray-900"><%= order.display_supplier_name %></p>
+                      <p class="text-[10px] text-gray-400"><%= pluralize(order.item_count, "item") %></p>
+                    </div>
+                    <div class="text-right">
+                      <p class="text-xs font-bold text-brand-navy"><%= number_to_currency(order.total_amount) %></p>
+                      <span class="bg-amber-50 text-amber-600 text-[9px] font-bold px-1.5 py-0.5 rounded"><%= order.status.titleize %></span>
+                    </div>
+                  <% end %>
+                <% end %>
+              </div>
+              <div class="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between">
+                <div>
+                  <p class="text-xs text-gray-500">Total: <span class="font-bold text-brand-navy"><%= number_to_currency(group_total) %></span></p>
+                  <% if group_savings > 0 %>
+                    <p class="text-[10px] text-green-600 font-medium">Savings: <%= number_to_currency(group_savings) %></p>
+                  <% end %>
+                </div>
+              </div>
+            <% else %>
+              <%# Compact row for confirmed splits %>
+              <%= link_to first_order, class: "flex items-center gap-2 block" do %>
+                <div class="flex -space-x-1">
+                  <% orders.first(3).each do |order| %>
+                    <div class="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center border-2 border-white" style="z-index: <%= 20 - orders.index(order) %>">
+                      <span class="text-[7px] font-bold text-brand-green"><%= order.display_supplier_name.first(3).upcase %></span>
+                    </div>
+                  <% end %>
+                </div>
+                <p class="text-xs text-gray-500 flex-1"><%= orders.map(&:display_supplier_name).join(" + ") %> &middot; <%= group_items %> items</p>
+                <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(group_total) %></p>
+                <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+              <% end %>
+            <% end %>
+          </div>
+        </div>
+      <% else %>
+        <%# Single order %>
+        <% order = first_order %>
+        <%= link_to order, class: "block bg-white rounded-xl border border-gray-100 shadow-sm mb-2 overflow-hidden" do %>
+          <div class="p-3 flex items-center gap-3">
+            <div class="w-2 h-12 rounded-full flex-shrink-0
+              <%= case order.status
+                  when 'submitted', 'confirmed' then 'bg-green-400'
+                  when 'processing', 'verifying' then 'bg-blue-400'
+                  when 'failed' then 'bg-red-400'
+                  when 'price_changed' then 'bg-amber-400'
+                  when 'draft', 'pending' then 'bg-brand-orange'
+                  else 'bg-gray-300'
+                  end %>"></div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <p class="text-sm font-semibold text-gray-900"><%= order.display_supplier_name %></p>
+                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full
+                  <%= case order.status
+                      when 'submitted', 'confirmed' then 'bg-green-50 text-green-700'
+                      when 'processing', 'verifying' then 'bg-blue-50 text-blue-700'
+                      when 'failed' then 'bg-red-50 text-red-600'
+                      when 'price_changed' then 'bg-amber-50 text-amber-600'
+                      when 'draft', 'pending' then 'bg-amber-50 text-amber-600'
+                      else 'bg-gray-50 text-gray-600'
+                      end %>"><%= order.status.titleize %></span>
+              </div>
+              <p class="text-[10px] text-gray-400 mt-0.5">
+                <%= pluralize(order.item_count, "item") %>
+                <% if order.confirmation_number.present? %>
+                  &middot; Conf #<%= order.confirmation_number %>
+                <% end %>
+                &middot; <%= order.submitted_at&.strftime("%b %-d") || order.created_at.strftime("%b %-d") %>
+              </p>
+            </div>
+            <div class="text-right flex-shrink-0">
+              <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(order.total_amount) %></p>
+              <% if order.savings_amount.to_f > 0 %>
+                <p class="text-[10px] text-green-600 font-medium">-<%= number_to_currency(order.savings_amount) %></p>
+              <% end %>
+            </div>
+            <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </div>
+        <% end %>
+      <% end %>
+    <% end %>
+  <% else %>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center">
+      <p class="text-sm text-gray-500">No orders yet.</p>
+      <p class="mt-1"><%= link_to "Place your first order", select_list_orders_path, class: "text-brand-orange text-xs font-semibold" %></p>
+    </div>
+  <% end %>
+</section>
