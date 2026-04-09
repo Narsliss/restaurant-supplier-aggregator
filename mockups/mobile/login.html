@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SupplierHub — Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; max-width: 430px; margin: 0 auto; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+  </style>
+</head>
+<body class="bg-brand-green-dark min-h-screen flex flex-col">
+
+  <!-- Top decorative area -->
+  <div class="relative flex-shrink-0 pt-16 pb-10 px-6 text-center overflow-hidden">
+    <!-- Decorative circles -->
+    <div class="absolute top-0 left-0 w-48 h-48 bg-white/5 rounded-full -ml-20 -mt-20"></div>
+    <div class="absolute top-20 right-0 w-32 h-32 bg-white/5 rounded-full -mr-12"></div>
+    <div class="absolute bottom-0 left-1/2 w-24 h-24 bg-white/5 rounded-full -ml-16 mb-4"></div>
+
+    <!-- Logo area -->
+    <div class="relative z-10">
+      <div class="w-16 h-16 bg-brand-orange/90 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+        <svg class="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+        </svg>
+      </div>
+      <h1 class="font-heading text-3xl font-bold text-white tracking-wider">SupplierHub</h1>
+      <p class="text-green-200/80 text-sm mt-1.5">Restaurant supplier management</p>
+    </div>
+  </div>
+
+  <!-- Login card -->
+  <div class="flex-1 bg-brand-cream rounded-t-3xl px-6 pt-8 pb-6 flex flex-col">
+    <div class="flex-1">
+      <h2 class="font-heading text-xl font-semibold text-brand-navy tracking-wide">Welcome back</h2>
+      <p class="text-sm text-gray-500 mt-1">Sign in to manage your orders</p>
+
+      <!-- Form -->
+      <form class="mt-6 space-y-4">
+        <!-- Email -->
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Email</label>
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            <input type="email" placeholder="chef@yourrestaurant.com" value="chef@test.com" class="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-brand-navy font-medium focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green shadow-sm">
+          </div>
+        </div>
+
+        <!-- Password -->
+        <div>
+          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Password</label>
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            <input type="password" placeholder="Enter your password" value="••••••••" class="w-full pl-11 pr-12 py-3 bg-white border border-gray-200 rounded-xl text-sm text-brand-navy font-medium focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green shadow-sm">
+            <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Remember me + Forgot -->
+        <div class="flex items-center justify-between">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <div class="w-5 h-5 bg-brand-orange rounded flex items-center justify-center">
+              <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+            </div>
+            <span class="text-xs text-gray-600">Remember me</span>
+          </label>
+          <a href="#" class="text-xs text-brand-green font-semibold">Forgot password?</a>
+        </div>
+
+        <!-- Sign in button -->
+        <a href="chef-dashboard-a.html" class="block w-full bg-brand-orange text-white py-3.5 rounded-xl font-heading text-lg font-semibold tracking-wide shadow-lg active:scale-[0.98] transition-transform mt-2 text-center">
+          Sign In
+        </a>
+      </form>
+
+      <!-- Divider -->
+      <div class="flex items-center gap-3 my-6">
+        <div class="flex-1 h-px bg-gray-200"></div>
+        <span class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Or</span>
+        <div class="flex-1 h-px bg-gray-200"></div>
+      </div>
+
+      <!-- Sign up CTA -->
+      <div class="text-center">
+        <p class="text-sm text-gray-500">New to SupplierHub?</p>
+        <a href="#" class="inline-block mt-2 w-full border-2 border-brand-green text-brand-green py-3 rounded-xl font-heading text-base font-semibold tracking-wide text-center active:bg-brand-green/5 transition-colors">
+          Create Account
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="mt-8 text-center">
+      <p class="text-[10px] text-gray-400">By signing in, you agree to our <a href="#" class="text-brand-green font-medium">Terms</a> and <a href="#" class="text-brand-green font-medium">Privacy Policy</a></p>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Menu Planner — SupplierHub Mobile</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; max-width: 430px; margin: 0 auto; background: #FAFAF8; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+    .tab-active { color: #4A7C59; border-bottom: 2px solid #4A7C59; }
+    .tab-inactive { color: #9CA3AF; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-brand-cream pb-20">
+
+  <div class="h-2 bg-brand-green-dark"></div>
+
+  <!-- Header -->
+  <header class="bg-brand-green-dark px-4 pb-3 pt-2">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-white text-lg font-heading font-semibold tracking-wide">Menu Planner</h1>
+        <p class="text-green-200 text-xs">AI-powered menu planning</p>
+      </div>
+      <a href="profile.html" class="w-8 h-8 bg-brand-orange rounded-full flex items-center justify-center text-white text-sm font-bold">M</a>
+    </div>
+  </header>
+
+  <!-- Plan list (index view, shown first) -->
+  <section class="px-4 mt-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider">Your Plans</h2>
+      <button class="bg-brand-green text-white text-[10px] font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        New Plan
+      </button>
+    </div>
+
+    <!-- Active plan card (tapping opens the chat view below) -->
+    <div class="bg-white rounded-xl border-2 border-brand-green/30 shadow-sm mb-3 overflow-hidden">
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-sm font-semibold text-gray-900">Weekend Dinner Service</p>
+          <span class="bg-green-50 text-green-700 text-[9px] font-bold px-2 py-0.5 rounded-full">Active</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Saturday prix fixe menu for 60 covers</p>
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] text-gray-400">8 messages &middot; Updated 2h ago</span>
+          <span class="text-[10px] text-brand-green font-semibold">Open &rarr;</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-3 overflow-hidden">
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-sm font-semibold text-gray-900">Monday Lunch Special</p>
+          <span class="bg-gray-50 text-gray-500 text-[9px] font-bold px-2 py-0.5 rounded-full">Draft</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Seasonal pasta menu, 30 covers</p>
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] text-gray-400">3 messages &middot; Updated 2 days ago</span>
+          <span class="text-[10px] text-brand-green font-semibold">Open &rarr;</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-3 overflow-hidden">
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-sm font-semibold text-gray-900">Private Event — March 28</p>
+          <span class="bg-blue-50 text-blue-600 text-[9px] font-bold px-2 py-0.5 rounded-full">Order Created</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Cocktail reception, 40 guests, 8 passed apps</p>
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] text-gray-400">12 messages &middot; Updated 5 days ago</span>
+          <span class="text-[10px] text-brand-green font-semibold">Open &rarr;</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Divider -->
+  <div class="px-4 my-4">
+    <div class="h-px bg-gray-200"></div>
+  </div>
+
+  <!-- Chat view (what it looks like inside a plan) -->
+  <section class="px-4">
+    <div class="flex items-center gap-2 mb-3">
+      <button class="text-gray-400">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <h2 class="font-heading text-sm font-semibold text-brand-navy tracking-wide">Weekend Dinner Service</h2>
+    </div>
+
+    <!-- Chat messages -->
+    <div class="space-y-3 mb-4">
+      <!-- User message -->
+      <div class="flex justify-end">
+        <div class="bg-brand-green text-white rounded-2xl rounded-br-md px-3.5 py-2.5 max-w-[85%]">
+          <p class="text-sm">I need to plan a Saturday prix fixe dinner for 60 covers. 4 courses — amuse, appetizer, entree, dessert. Seasonal spring menu, upscale but not fussy.</p>
+        </div>
+      </div>
+
+      <!-- AI response -->
+      <div class="flex justify-start">
+        <div class="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-3.5 py-2.5 max-w-[85%] shadow-sm">
+          <div class="flex items-center gap-1.5 mb-2">
+            <div class="w-5 h-5 bg-brand-green/10 rounded-full flex items-center justify-center">
+              <svg class="w-3 h-3 text-brand-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>
+            </div>
+            <span class="text-[10px] text-brand-green font-semibold">SupplierHub AI</span>
+          </div>
+          <p class="text-sm text-gray-800 mb-2">Great! Here's a spring prix fixe concept for 60:</p>
+          <div class="space-y-2 text-xs text-gray-700">
+            <div class="bg-gray-50 rounded-lg p-2">
+              <p class="font-semibold text-brand-navy">Amuse-Bouche</p>
+              <p>Sweet pea velouté, crème fraîche, micro herbs</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2">
+              <p class="font-semibold text-brand-navy">Appetizer</p>
+              <p>Seared diver scallops, English pea purée, pancetta crisp, pea tendrils</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2">
+              <p class="font-semibold text-brand-navy">Entrée (choice of)</p>
+              <p>Pan-roasted halibut, spring vegetable nage, fiddleheads</p>
+              <p class="mt-0.5">OR Lamb rack, morel mushroom jus, asparagus, fingerlings</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2">
+              <p class="font-semibold text-brand-navy">Dessert</p>
+              <p>Strawberry pavlova, vanilla Chantilly, basil oil</p>
+            </div>
+          </div>
+          <p class="text-sm text-gray-800 mt-2">I've estimated ingredient quantities based on 60 covers with 60/40 fish-to-lamb split. Want me to adjust the split, swap any courses, or generate the order?</p>
+        </div>
+      </div>
+
+      <!-- User follow-up -->
+      <div class="flex justify-end">
+        <div class="bg-brand-green text-white rounded-2xl rounded-br-md px-3.5 py-2.5 max-w-[85%]">
+          <p class="text-sm">Love it. Let's do 50/50 split on entrees. Can you add a bread course between amuse and app?</p>
+        </div>
+      </div>
+
+      <!-- AI response with ingredients -->
+      <div class="flex justify-start">
+        <div class="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-3.5 py-2.5 max-w-[85%] shadow-sm">
+          <div class="flex items-center gap-1.5 mb-2">
+            <div class="w-5 h-5 bg-brand-green/10 rounded-full flex items-center justify-center">
+              <svg class="w-3 h-3 text-brand-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/></svg>
+            </div>
+            <span class="text-[10px] text-brand-green font-semibold">SupplierHub AI</span>
+          </div>
+          <p class="text-sm text-gray-800 mb-2">Done — added focaccia bread course and adjusted to 50/50. Here's the ingredient summary:</p>
+          <div class="bg-green-50 border border-green-200 rounded-lg p-2.5 mb-2">
+            <p class="text-[10px] font-bold text-brand-green uppercase tracking-wider mb-1.5">Key Ingredients (14 items)</p>
+            <div class="flex flex-wrap gap-1">
+              <span class="bg-white text-gray-700 text-[9px] font-medium px-1.5 py-0.5 rounded border border-green-200">Diver Scallops 10lb</span>
+              <span class="bg-white text-gray-700 text-[9px] font-medium px-1.5 py-0.5 rounded border border-green-200">Halibut Fillet 15lb</span>
+              <span class="bg-white text-gray-700 text-[9px] font-medium px-1.5 py-0.5 rounded border border-green-200">Lamb Rack x30</span>
+              <span class="bg-white text-gray-700 text-[9px] font-medium px-1.5 py-0.5 rounded border border-green-200">English Peas 5lb</span>
+              <span class="bg-white text-gray-700 text-[9px] font-medium px-1.5 py-0.5 rounded border border-green-200">Morel Mushrooms 3lb</span>
+              <span class="bg-white text-gray-700 text-[9px] font-medium px-1.5 py-0.5 rounded border border-green-200">Strawberries 8qt</span>
+              <span class="bg-gray-100 text-gray-500 text-[9px] font-medium px-1.5 py-0.5 rounded">+8 more</span>
+            </div>
+          </div>
+          <p class="text-sm text-gray-800">Ready to generate the order when you are!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chat input -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-2 flex items-end gap-2 mb-3">
+      <textarea rows="1" placeholder="Ask about your menu..." class="flex-1 text-sm border-0 focus:outline-none resize-none py-1.5 px-2 bg-transparent placeholder:text-gray-400"></textarea>
+      <button class="bg-brand-green rounded-lg p-2 flex-shrink-0 active:scale-90 transition-transform">
+        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- Fixed Create Order CTA -->
+  <div class="fixed bottom-16 left-0 right-0 z-40 px-4" style="max-width: 430px; margin: 0 auto;">
+    <a href="order-builder-a.html" class="block w-full bg-brand-orange text-white rounded-xl p-3.5 text-center shadow-lg active:scale-[0.98] transition-transform">
+      <div class="flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z"/></svg>
+        <span class="font-heading text-base font-semibold tracking-wide">Create Order from Plan</span>
+      </div>
+    </a>
+  </div>
+
+  <!-- Bottom Tab Bar -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50" style="max-width: 430px; margin: 0 auto;">
+    <div class="flex items-center justify-around py-2 px-2">
+      <a href="chef-dashboard-a.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span class="text-[10px] font-medium">Home</span>
+      </a>
+      <a href="order-history.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span class="text-[10px] font-medium">Orders</span>
+      </a>
+      <a href="select-list.html" class="flex flex-col items-center gap-0.5 px-3 pb-1 relative -top-3">
+        <div class="bg-brand-green rounded-full p-3 shadow-lg">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        </div>
+        <span class="text-[10px] font-semibold text-brand-green">Order</span>
+      </a>
+      <a href="suppliers.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        <span class="text-[10px] font-medium">Suppliers</span>
+      </a>
+      <a href="planner.html" class="flex flex-col items-center gap-0.5 tab-active px-3 pb-1">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+        <span class="text-[10px] font-semibold">Planner</span>
+      </a>
+    </div>
+  </nav>
+
+</body>
+</html>

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order History — Mobile</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; max-width: 430px; margin: 0 auto; background: #FAFAF8; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .tab-active { color: #4A7C59; border-bottom: 2px solid #4A7C59; }
+    .tab-inactive { color: #9CA3AF; }
+  </style>
+</head>
+<body class="bg-brand-cream pb-20">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="px-4 py-3 flex items-center justify-between">
+      <h1 class="font-heading text-lg font-semibold text-brand-navy tracking-wide">Orders</h1>
+      <a href="select-list.html" class="bg-brand-green text-white text-xs font-semibold px-4 py-2 rounded-lg flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        New Order
+      </a>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="px-4 pb-3 flex gap-2 overflow-x-auto hide-scrollbar">
+      <button class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full whitespace-nowrap border border-gray-200">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        Search
+      </button>
+      <button class="px-3 py-1.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full whitespace-nowrap border border-gray-200">
+        All Suppliers &#9662;
+      </button>
+      <button class="px-3 py-1.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full whitespace-nowrap border border-gray-200">
+        Last 30 Days &#9662;
+      </button>
+      <button class="px-3 py-1.5 bg-brand-green/10 text-brand-green text-[11px] font-semibold rounded-full whitespace-nowrap border border-brand-green/20">
+        Pending (1)
+      </button>
+    </div>
+  </header>
+
+  <!-- KPI Summary Cards -->
+  <div class="px-4 mt-4 grid grid-cols-3 gap-2">
+    <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+      <p class="text-xl font-heading font-bold text-brand-navy">28</p>
+      <p class="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Orders</p>
+    </div>
+    <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+      <p class="text-xl font-heading font-bold text-brand-navy">$8.4k</p>
+      <p class="text-[10px] text-gray-400 uppercase tracking-wider font-medium">Spent</p>
+    </div>
+    <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm text-center">
+      <p class="text-xl font-heading font-bold text-brand-green">$612</p>
+      <p class="text-[10px] text-green-600 uppercase tracking-wider font-medium">Saved</p>
+    </div>
+  </div>
+
+  <!-- Order Groups -->
+  <section class="px-4 mt-5">
+
+    <!-- Pending order (highlighted) -->
+    <div class="mb-4">
+      <p class="text-[10px] font-bold text-brand-orange uppercase tracking-wider mb-2">Pending</p>
+      <div class="bg-white rounded-xl border-2 border-brand-orange/30 shadow-sm overflow-hidden">
+        <div class="p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Split Order</span>
+              <span class="text-[10px] text-gray-400">3 suppliers</span>
+            </div>
+            <span class="text-[10px] text-gray-400">Today</span>
+          </div>
+          <!-- Supplier sub-rows -->
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
+              <div class="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <span class="text-[8px] font-bold text-brand-green">USF</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-semibold text-gray-900">US Foods</p>
+                <p class="text-[10px] text-gray-400">15 items</p>
+              </div>
+              <div class="text-right">
+                <p class="text-xs font-bold text-brand-navy">$683.30</p>
+                <span class="bg-amber-50 text-amber-600 text-[9px] font-bold px-1.5 py-0.5 rounded">Pending</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
+              <div class="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <span class="text-[8px] font-bold text-brand-green">CW</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-semibold text-gray-900">Chef's Warehouse</p>
+                <p class="text-[10px] text-gray-400">5 items</p>
+              </div>
+              <div class="text-right">
+                <p class="text-xs font-bold text-brand-navy">$182.40</p>
+                <span class="bg-amber-50 text-amber-600 text-[9px] font-bold px-1.5 py-0.5 rounded">Pending</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
+              <div class="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                <span class="text-[8px] font-bold text-brand-green">PPO</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-semibold text-gray-900">Premiere Produce</p>
+                <p class="text-[10px] text-gray-400">3 items</p>
+              </div>
+              <div class="text-right">
+                <p class="text-xs font-bold text-brand-navy">$34.80</p>
+                <span class="bg-amber-50 text-amber-600 text-[9px] font-bold px-1.5 py-0.5 rounded">Pending</span>
+              </div>
+            </div>
+          </div>
+          <!-- Group total + actions -->
+          <div class="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between">
+            <div>
+              <p class="text-xs text-gray-500">Total: <span class="font-bold text-brand-navy">$900.50</span></p>
+              <p class="text-[10px] text-green-600 font-medium">Savings: $47.20</p>
+            </div>
+            <div class="flex gap-2">
+              <button class="text-xs text-gray-500 px-3 py-1.5 rounded-lg border border-gray-200">Edit</button>
+              <button class="text-xs text-white bg-brand-green px-4 py-1.5 rounded-lg font-semibold shadow-sm">Submit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent section -->
+    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">This Week</p>
+
+    <!-- Confirmed order (single supplier) -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-2 overflow-hidden">
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-2 h-12 bg-green-400 rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1.5">
+            <p class="text-sm font-semibold text-gray-900">US Foods</p>
+            <span class="bg-green-50 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Confirmed</span>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-0.5">23 items &middot; Conf #USF-84721 &middot; Mar 24</p>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-sm font-bold text-brand-navy">$1,240.50</p>
+          <p class="text-[10px] text-green-600 font-medium">-$82.30</p>
+        </div>
+        <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+    </div>
+
+    <!-- Confirmed split order -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-2 overflow-hidden">
+      <div class="p-3">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-1.5">
+            <span class="bg-gray-100 text-gray-500 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Split</span>
+            <span class="bg-green-50 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Confirmed</span>
+          </div>
+          <span class="text-[10px] text-gray-400">Mar 22</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="flex -space-x-1">
+            <div class="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center border-2 border-white z-20">
+              <span class="text-[7px] font-bold text-brand-green">USF</span>
+            </div>
+            <div class="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center border-2 border-white z-10">
+              <span class="text-[7px] font-bold text-brand-green">CW</span>
+            </div>
+          </div>
+          <p class="text-xs text-gray-500 flex-1">US Foods + Chef's Warehouse &middot; 18 items</p>
+          <p class="text-sm font-bold text-brand-navy">$847.30</p>
+          <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Another confirmed order -->
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-2 overflow-hidden">
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-2 h-12 bg-green-400 rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1.5">
+            <p class="text-sm font-semibold text-gray-900">Premiere Produce</p>
+            <span class="bg-green-50 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Confirmed</span>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-0.5">8 items &middot; Conf #PPO-3291 &middot; Mar 21</p>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-sm font-bold text-brand-navy">$312.75</p>
+        </div>
+        <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+    </div>
+
+    <!-- Last week section -->
+    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-4">Last Week</p>
+
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-2 overflow-hidden">
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-2 h-12 bg-green-400 rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1.5">
+            <p class="text-sm font-semibold text-gray-900">US Foods</p>
+            <span class="bg-green-50 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Confirmed</span>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-0.5">19 items &middot; Conf #USF-84619 &middot; Mar 17</p>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-sm font-bold text-brand-navy">$1,087.20</p>
+          <p class="text-[10px] text-green-600 font-medium">-$63.10</p>
+        </div>
+        <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-2 overflow-hidden">
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-2 h-12 bg-red-400 rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1.5">
+            <p class="text-sm font-semibold text-gray-900">What Chefs Want</p>
+            <span class="bg-red-50 text-red-600 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Failed</span>
+          </div>
+          <p class="text-[10px] text-red-400 mt-0.5">Session expired &middot; Mar 16</p>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-sm font-bold text-brand-navy">$189.40</p>
+          <button class="text-[10px] text-brand-green font-semibold">Retry</button>
+        </div>
+        <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-2 overflow-hidden">
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-2 h-12 bg-green-400 rounded-full flex-shrink-0"></div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1.5">
+            <p class="text-sm font-semibold text-gray-900">Chef's Warehouse</p>
+            <span class="bg-green-50 text-green-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Confirmed</span>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-0.5">10 items &middot; Conf #CW-56218 &middot; Mar 15</p>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-sm font-bold text-brand-navy">$621.80</p>
+        </div>
+        <svg class="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </div>
+    </div>
+
+    <!-- Load more -->
+    <div class="text-center py-4">
+      <button class="text-brand-green text-xs font-semibold">Load more orders</button>
+    </div>
+  </section>
+
+  <!-- Bottom Tab Bar -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50" style="max-width: 430px; margin: 0 auto;">
+    <div class="flex items-center justify-around py-2 px-2">
+      <a href="chef-dashboard-a.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span class="text-[10px] font-medium">Home</span>
+      </a>
+      <a href="order-history.html" class="flex flex-col items-center gap-0.5 tab-active px-3 pb-1">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span class="text-[10px] font-semibold">Orders</span>
+      </a>
+      <a href="select-list.html" class="flex flex-col items-center gap-0.5 px-3 pb-1 relative -top-3">
+        <div class="bg-brand-green rounded-full p-3 shadow-lg">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        </div>
+        <span class="text-[10px] font-semibold text-brand-green">Order</span>
+      </a>
+      <a href="suppliers.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        <span class="text-[10px] font-medium">Suppliers</span>
+      </a>
+      <a href="planner.html" class="flex flex-col items-center gap-0.5 tab-inactive px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+        <span class="text-[10px] font-medium">Planner</span>
+      </a>
+    </div>
+  </nav>
+
+</body>
+</html>

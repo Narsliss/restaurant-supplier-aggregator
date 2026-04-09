@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SupplierHub Mobile Mockups</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+  </style>
+</head>
+<body class="bg-brand-cream min-h-screen">
+
+  <div class="max-w-3xl mx-auto px-6 py-12">
+    <div class="text-center mb-10">
+      <h1 class="font-heading text-4xl font-bold text-brand-navy tracking-wide">SupplierHub</h1>
+      <p class="text-lg text-gray-500 mt-2">Mobile Design Mockups</p>
+      <p class="text-sm text-gray-400 mt-1">Open each link to preview at mobile viewport (430px max-width)</p>
+    </div>
+
+    <!-- Chef Dashboard -->
+    <section class="mb-8">
+      <h2 class="font-heading text-xl font-semibold text-brand-navy tracking-wide mb-1">Chef Dashboard</h2>
+      <p class="text-sm text-gray-500 mb-3">The primary view for kitchen staff — orders, deliveries, and quick actions.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <a href="chef-dashboard-a.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-green text-white text-xs font-bold px-2 py-0.5 rounded">A</span>
+            <h3 class="font-semibold text-brand-navy">App-Style with Bottom Tabs</h3>
+          </div>
+          <p class="text-xs text-gray-500">Native app feel with bottom tab navigation, horizontal-scroll stat cards, and a prominent New Order CTA. Familiar mobile pattern (like DoorDash, Uber Eats).</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Bottom tabs</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Scroll cards</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Notification bell</span>
+          </div>
+        </a>
+        <a href="chef-dashboard-b.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-orange text-white text-xs font-bold px-2 py-0.5 rounded">B</span>
+            <h3 class="font-semibold text-brand-navy">Gesture-Driven with FAB</h3>
+          </div>
+          <p class="text-xs text-gray-500">Clean minimal header, dual hero action cards (New Order + Reorder), delivery timeline view, and a floating action button. More content-focused with horizontal quick-reorder cards.</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">FAB button</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Timeline view</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Quick reorder</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- Order Builder -->
+    <section class="mb-8">
+      <h2 class="font-heading text-xl font-semibold text-brand-navy tracking-wide mb-1">Order Builder</h2>
+      <p class="text-sm text-gray-500 mb-3">The core ordering experience — product browsing, price comparison, and cart management.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <a href="order-builder-a.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-green text-white text-xs font-bold px-2 py-0.5 rounded">A</span>
+            <h3 class="font-semibold text-brand-navy">Card Stack + Sticky Cart</h3>
+          </div>
+          <p class="text-xs text-gray-500">Full product cards with horizontal-scroll supplier price pills, inline quantity controls, and a sticky bottom cart summary with supplier progress bars. Rich but scannable.</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Price pills</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">BEST badge</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">CS/PC toggle</span>
+          </div>
+        </a>
+        <a href="order-builder-b.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-orange text-white text-xs font-bold px-2 py-0.5 rounded">B</span>
+            <h3 class="font-semibold text-brand-navy">Compact List + Bottom Sheet</h3>
+          </div>
+          <p class="text-xs text-gray-500">Dense compact rows with vertical +/- controls, inline best-price tags, and a draggable bottom sheet cart. Fits more products on screen, fast scanning for experienced users.</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Bottom sheet</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Compact rows</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Delivery date</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- Order History -->
+    <section class="mb-8">
+      <h2 class="font-heading text-xl font-semibold text-brand-navy tracking-wide mb-1">Order History</h2>
+      <p class="text-sm text-gray-500 mb-3">Track past orders, filter by supplier/date, and manage pending or failed orders.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <a href="order-history.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-green text-white text-xs font-bold px-2 py-0.5 rounded">A</span>
+            <h3 class="font-semibold text-brand-navy">Grouped Timeline</h3>
+          </div>
+          <p class="text-xs text-gray-500">Orders grouped by time period (Today, This Week, Last Week), with split orders expanded inline. KPI summary at top, pill filters, and color-coded status indicators.</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Time groups</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Split orders</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Status colors</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- Owner/Manager Dashboard -->
+    <section class="mb-8">
+      <h2 class="font-heading text-xl font-semibold text-brand-navy tracking-wide mb-1">Owner/Manager Dashboard</h2>
+      <p class="text-sm text-gray-500 mb-3">Business-level overview with spend, savings, team activity, and restaurant performance.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <a href="owner-dashboard-a.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-green text-white text-xs font-bold px-2 py-0.5 rounded">A</span>
+            <h3 class="font-semibold text-brand-navy">Executive Summary + Tabs</h3>
+          </div>
+          <p class="text-xs text-gray-500">Green header hero with all-time savings, 2x2 KPI grid, weekly spending chart, team activity bars, restaurant drill-down cards, and bottom tab nav. Data-rich executive view.</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Hero savings</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">KPI grid</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Bottom tabs</span>
+          </div>
+        </a>
+        <a href="owner-dashboard-b.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-orange text-white text-xs font-bold px-2 py-0.5 rounded">B</span>
+            <h3 class="font-semibold text-brand-navy">Sectioned Cards (No Tabs)</h3>
+          </div>
+          <p class="text-xs text-gray-500">Clean white header, stacked section cards (Financial Overview, Trend, Restaurants, Team, Suppliers) on a stone background. No bottom nav — scroll-focused, newspaper-style layout.</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Card sections</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Big savings</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Scroll layout</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- Reports -->
+    <section class="mb-8">
+      <h2 class="font-heading text-xl font-semibold text-brand-navy tracking-wide mb-1">Reports</h2>
+      <p class="text-sm text-gray-500 mb-3">Spending breakdowns by restaurant, supplier, and team member with drill-down navigation.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <a href="reports.html" class="block bg-white rounded-xl border border-gray-200 p-4 hover:border-brand-green hover:shadow-md transition-all">
+          <div class="flex items-center gap-3 mb-2">
+            <span class="bg-brand-green text-white text-xs font-bold px-2 py-0.5 rounded">A</span>
+            <h3 class="font-semibold text-brand-navy">Stacked Breakdown</h3>
+          </div>
+          <p class="text-xs text-gray-500">KPI grid at top, quick links to savings/missed savings, then stacked drill-down sections (By Restaurant, By Supplier with spend proportion bars, By Team Member, Weekly Trend chart).</p>
+          <div class="mt-2 flex flex-wrap gap-1">
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Proportion bars</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Drill-down</span>
+            <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-full">Savings links</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- Design Notes -->
+    <section class="bg-white rounded-2xl border border-gray-200 p-6 mb-8">
+      <h2 class="font-heading text-lg font-semibold text-brand-navy tracking-wide mb-3">Design Notes</h2>
+      <div class="space-y-3 text-sm text-gray-600">
+        <div>
+          <p class="font-semibold text-brand-navy">Brand Consistency</p>
+          <p>All mockups use the existing brand palette (sage green, warm amber, charcoal navy) with Oswald headings and Open Sans body text.</p>
+        </div>
+        <div>
+          <p class="font-semibold text-brand-navy">Key Design Decisions</p>
+          <ul class="list-disc list-inside text-xs mt-1 space-y-1">
+            <li><strong>430px max-width</strong> — targets iPhone 14 Pro Max as upper bound</li>
+            <li><strong>Touch targets 44px+</strong> — all buttons and controls meet accessibility minimums</li>
+            <li><strong>Information density trade-offs</strong> — Option A variants favor richness, Option B variants favor speed/scanning</li>
+            <li><strong>Sticky/fixed elements</strong> — cart summaries and CTAs are always reachable</li>
+            <li><strong>Same data, different layouts</strong> — all mockups present the exact same data as desktop, reorganized for mobile</li>
+          </ul>
+        </div>
+        <div>
+          <p class="font-semibold text-brand-navy">Navigation Approaches</p>
+          <ul class="list-disc list-inside text-xs mt-1 space-y-1">
+            <li><strong>Bottom tabs</strong> (Chef A, Owner A) — app-like, fast switching between sections</li>
+            <li><strong>Hamburger + FAB</strong> (Chef B) — maximizes content area, action-first</li>
+            <li><strong>Scroll-based</strong> (Owner B, Reports) — single-page dashboards, no nav distraction</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <p class="text-center text-xs text-gray-400 pb-8">SupplierHub Mobile Mockups &middot; Exploration Only &middot; Not checked into main</p>
+  </div>
+
+</body>
+</html>

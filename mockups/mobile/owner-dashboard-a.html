@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Owner Dashboard — Option A: Executive Summary</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; max-width: 430px; margin: 0 auto; background: #FAFAF8; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-brand-cream pb-20">
+
+  <!-- Header with savings hero -->
+  <header class="bg-brand-green-dark px-4 pt-3 pb-5 relative overflow-hidden">
+    <div class="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -mr-16 -mt-16"></div>
+    <div class="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full -ml-8 -mb-8"></div>
+
+    <div class="flex items-center justify-between mb-4 relative z-10">
+      <div>
+        <p class="text-green-200 text-xs">Las Noches Restaurant Group</p>
+        <h1 class="text-white text-lg font-heading font-semibold tracking-wide">Dashboard</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="relative p-2">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          <span class="absolute top-1.5 right-1.5 bg-brand-orange rounded-full w-2 h-2"></span>
+        </button>
+        <div class="w-8 h-8 bg-brand-orange rounded-full flex items-center justify-center text-white text-sm font-bold">CJ</div>
+      </div>
+    </div>
+
+    <!-- Savings hero -->
+    <div class="bg-white/10 backdrop-blur-sm rounded-2xl p-4 relative z-10">
+      <p class="text-green-200 text-[10px] uppercase tracking-wider font-semibold">All-Time Savings</p>
+      <div class="flex items-end gap-2 mt-1">
+        <p class="text-3xl font-heading font-bold text-white">$12,847</p>
+        <span class="text-green-300 text-xs font-medium mb-1">+$1,240 this month</span>
+      </div>
+      <div class="flex gap-3 mt-3">
+        <button class="bg-white text-brand-green text-xs font-bold px-4 py-2 rounded-lg flex-1 text-center">New Order</button>
+        <button class="bg-white/20 text-white text-xs font-bold px-4 py-2 rounded-lg flex-1 text-center">View Reports</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Location Selector -->
+  <div class="px-4 mt-4 mb-3">
+    <button class="w-full flex items-center justify-between bg-white rounded-xl border border-gray-200 px-3 py-2.5 shadow-sm">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-brand-green" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
+        <span class="text-sm font-medium text-brand-navy">All Locations</span>
+      </div>
+      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+    </button>
+  </div>
+
+  <!-- KPI Grid -->
+  <div class="px-4 grid grid-cols-2 gap-2">
+    <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+      <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Spend this month</p>
+      <p class="text-xl font-heading font-bold text-brand-navy mt-1">$24,670</p>
+      <div class="flex items-center gap-1 mt-1">
+        <svg class="w-3 h-3 text-red-500 rotate-180" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+        <span class="text-[10px] text-red-500 font-medium">+8% vs last month</span>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+      <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Savings this month</p>
+      <p class="text-xl font-heading font-bold text-brand-green mt-1">$1,240</p>
+      <div class="flex items-center gap-1 mt-1">
+        <svg class="w-3 h-3 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+        <span class="text-[10px] text-green-600 font-medium">+22% vs last month</span>
+      </div>
+    </div>
+    <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+      <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Team Members</p>
+      <p class="text-xl font-heading font-bold text-brand-navy mt-1">7</p>
+      <p class="text-[10px] text-gray-400 mt-1">5 active this week</p>
+    </div>
+    <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
+      <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Restaurants</p>
+      <p class="text-xl font-heading font-bold text-brand-navy mt-1">3</p>
+      <p class="text-[10px] text-gray-400 mt-1">All suppliers connected</p>
+    </div>
+  </div>
+
+  <!-- Spending Trend -->
+  <section class="px-4 mt-5">
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider">Weekly Spending</h2>
+        <div class="flex bg-gray-100 rounded-lg p-0.5">
+          <button class="px-2 py-0.5 bg-white rounded text-[10px] font-semibold text-brand-navy shadow-sm">Weekly</button>
+          <button class="px-2 py-0.5 text-[10px] font-medium text-gray-400">Monthly</button>
+        </div>
+      </div>
+      <div class="flex items-end justify-between gap-1.5 h-24">
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/15 rounded-t" style="height: 55%"></div>
+          <span class="text-[8px] text-gray-400">W1</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/20 rounded-t" style="height: 70%"></div>
+          <span class="text-[8px] text-gray-400">W2</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/25 rounded-t" style="height: 85%"></div>
+          <span class="text-[8px] text-gray-400">W3</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/30 rounded-t" style="height: 60%"></div>
+          <span class="text-[8px] text-gray-400">W4</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/25 rounded-t" style="height: 75%"></div>
+          <span class="text-[8px] text-gray-400">W5</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/30 rounded-t" style="height: 90%"></div>
+          <span class="text-[8px] text-gray-400">W6</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-green/20 rounded-t" style="height: 65%"></div>
+          <span class="text-[8px] text-gray-400">W7</span>
+        </div>
+        <div class="flex flex-col items-center gap-1 flex-1">
+          <div class="w-full bg-brand-orange rounded-t" style="height: 100%"></div>
+          <span class="text-[8px] text-brand-orange font-bold">Now</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Team Activity -->
+  <section class="px-4 mt-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider">Team Activity</h2>
+      <a href="#" class="text-brand-green text-[10px] font-semibold">View all</a>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden divide-y divide-gray-50">
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-8 h-8 bg-brand-orange rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">MC</div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-semibold text-gray-900">Chef Marco</p>
+          <p class="text-[10px] text-gray-400">Downtown</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-brand-green rounded-full" style="width: 80%"></div>
+          </div>
+          <span class="text-xs font-bold text-brand-navy w-8 text-right">12</span>
+        </div>
+      </div>
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-8 h-8 bg-blue-400 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">AS</div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-semibold text-gray-900">Ana Silva</p>
+          <p class="text-[10px] text-gray-400">Midtown</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-brand-green rounded-full" style="width: 60%"></div>
+          </div>
+          <span class="text-xs font-bold text-brand-navy w-8 text-right">9</span>
+        </div>
+      </div>
+      <div class="p-3 flex items-center gap-3">
+        <div class="w-8 h-8 bg-purple-400 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">JR</div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-semibold text-gray-900">James Rivera</p>
+          <p class="text-[10px] text-gray-400">Uptown</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-brand-green rounded-full" style="width: 45%"></div>
+          </div>
+          <span class="text-xs font-bold text-brand-navy w-8 text-right">7</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Restaurant Performance -->
+  <section class="px-4 mt-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider">By Restaurant</h2>
+    </div>
+    <div class="space-y-2">
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <p class="text-sm font-semibold text-gray-900">Downtown</p>
+          <p class="text-sm font-bold text-brand-navy">$12,340</p>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-[10px] text-gray-400">18 orders</span>
+            <span class="text-[10px] text-green-600 font-medium">Saved $680</span>
+          </div>
+          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <p class="text-sm font-semibold text-gray-900">Midtown</p>
+          <p class="text-sm font-bold text-brand-navy">$8,210</p>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-[10px] text-gray-400">12 orders</span>
+            <span class="text-[10px] text-green-600 font-medium">Saved $380</span>
+          </div>
+          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <p class="text-sm font-semibold text-gray-900">Uptown</p>
+          <p class="text-sm font-bold text-brand-navy">$4,120</p>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-[10px] text-gray-400">8 orders</span>
+            <span class="text-[10px] text-green-600 font-medium">Saved $180</span>
+          </div>
+          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Supplier Connections -->
+  <section class="px-4 mt-5 mb-6">
+    <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">Supplier Status</h2>
+    <div class="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 min-w-[130px] flex-shrink-0 text-center">
+        <div class="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-2">
+          <span class="text-[10px] font-bold text-brand-green">USF</span>
+        </div>
+        <p class="text-xs font-semibold text-gray-900">US Foods</p>
+        <span class="inline-block mt-1 bg-green-50 text-green-700 text-[9px] font-bold px-2 py-0.5 rounded-full">Active</span>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 min-w-[130px] flex-shrink-0 text-center">
+        <div class="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-2">
+          <span class="text-[10px] font-bold text-brand-green">CW</span>
+        </div>
+        <p class="text-xs font-semibold text-gray-900">Chef's Whse</p>
+        <span class="inline-block mt-1 bg-green-50 text-green-700 text-[9px] font-bold px-2 py-0.5 rounded-full">Active</span>
+      </div>
+      <div class="bg-white rounded-xl border border-amber-200 shadow-sm p-3 min-w-[130px] flex-shrink-0 text-center">
+        <div class="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-2">
+          <span class="text-[10px] font-bold text-amber-600">PPO</span>
+        </div>
+        <p class="text-xs font-semibold text-gray-900">PPO</p>
+        <span class="inline-block mt-1 bg-amber-50 text-amber-600 text-[9px] font-bold px-2 py-0.5 rounded-full">Needs 2FA</span>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 min-w-[130px] flex-shrink-0 text-center">
+        <div class="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-2">
+          <span class="text-[10px] font-bold text-brand-green">WCW</span>
+        </div>
+        <p class="text-xs font-semibold text-gray-900">WCW</p>
+        <span class="inline-block mt-1 bg-green-50 text-green-700 text-[9px] font-bold px-2 py-0.5 rounded-full">Active</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom Tab Bar -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50" style="max-width: 430px; margin: 0 auto;">
+    <div class="flex items-center justify-around py-2 px-2">
+      <a href="#" class="flex flex-col items-center gap-0.5 text-brand-green px-3 pb-1" style="border-bottom: 2px solid #4A7C59;">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+        <span class="text-[10px] font-semibold">Dashboard</span>
+      </a>
+      <a href="#" class="flex flex-col items-center gap-0.5 text-gray-400 px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span class="text-[10px] font-medium">Orders</span>
+      </a>
+      <a href="#" class="flex flex-col items-center gap-0.5 px-3 pb-1 relative -top-3">
+        <div class="bg-brand-green rounded-full p-3 shadow-lg">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        </div>
+        <span class="text-[10px] font-semibold text-brand-green">Order</span>
+      </a>
+      <a href="#" class="flex flex-col items-center gap-0.5 text-gray-400 px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span class="text-[10px] font-medium">Reports</span>
+      </a>
+      <a href="#" class="flex flex-col items-center gap-0.5 text-gray-400 px-3 pb-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        <span class="text-[10px] font-medium">Team</span>
+      </a>
+    </div>
+  </nav>
+
+</body>
+</html>

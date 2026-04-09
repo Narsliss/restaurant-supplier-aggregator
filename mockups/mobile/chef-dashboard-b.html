@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chef Dashboard — Option B: Gesture-Driven Cards</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-green': '#4A7C59',
+            'brand-green-dark': '#3A6147',
+            'brand-orange': '#D4943A',
+            'brand-navy': '#2D3436',
+            'brand-cream': '#FAFAF8',
+            'brand-stone': '#F5F3F0',
+          },
+          fontFamily: {
+            heading: ['Oswald', 'sans-serif'],
+            body: ['Open Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Open Sans', sans-serif; max-width: 430px; margin: 0 auto; background: #FAFAF8; }
+    h1, h2, h3, h4 { font-family: 'Oswald', sans-serif; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .gradient-card {
+      background: linear-gradient(135deg, #4A7C59 0%, #3A6147 100%);
+    }
+  </style>
+</head>
+<body class="bg-brand-cream">
+
+  <!-- Minimal Header with Slide-Down Nav -->
+  <header class="bg-white border-b border-gray-100 sticky top-0 z-50">
+    <div class="px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <button class="text-brand-navy">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <div>
+          <h1 class="font-heading text-lg font-semibold text-brand-navy tracking-wide leading-tight">My Kitchen</h1>
+          <p class="text-[10px] text-gray-400">Las Noches — Downtown</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="relative">
+          <button class="p-2 text-gray-500 hover:text-brand-navy">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          </button>
+          <span class="absolute top-1 right-1 bg-red-500 rounded-full w-2 h-2"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 2FA Alert (Swipeable card feel) -->
+  <div class="mx-4 mt-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl p-4 border border-amber-100 relative overflow-hidden">
+    <div class="absolute top-0 right-0 w-16 h-16 bg-amber-200/30 rounded-full -mr-4 -mt-4"></div>
+    <div class="flex items-center gap-3 relative z-10">
+      <div class="text-2xl">&#x1F512;</div>
+      <div class="flex-1">
+        <p class="text-sm font-bold text-amber-900">US Foods Verification</p>
+        <p class="text-xs text-amber-700 mt-0.5">Enter your code to keep ordering</p>
+        <div class="flex items-center gap-1 mt-1">
+          <div class="h-1 flex-1 bg-amber-300 rounded-full overflow-hidden">
+            <div class="h-full bg-amber-500 rounded-full" style="width: 65%"></div>
+          </div>
+          <span class="text-[10px] text-amber-600 font-medium">8m left</span>
+        </div>
+      </div>
+      <button class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-sm">
+        Verify
+      </button>
+    </div>
+  </div>
+
+  <!-- Hero Action Cards (Two prominent cards) -->
+  <div class="px-4 mt-5 grid grid-cols-2 gap-3">
+    <button class="gradient-card rounded-2xl p-4 text-left shadow-md active:scale-[0.97] transition-transform relative overflow-hidden">
+      <div class="absolute bottom-0 right-0 w-20 h-20 bg-white/10 rounded-full -mr-6 -mb-6"></div>
+      <svg class="w-8 h-8 text-white/80 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+      <p class="font-heading text-white text-lg font-semibold tracking-wide">New Order</p>
+      <p class="text-green-200 text-[11px] mt-0.5">Build from your list</p>
+    </button>
+    <button class="bg-white rounded-2xl p-4 text-left shadow-sm border border-gray-100 active:scale-[0.97] transition-transform relative overflow-hidden">
+      <div class="absolute bottom-0 right-0 w-20 h-20 bg-brand-orange/5 rounded-full -mr-6 -mb-6"></div>
+      <svg class="w-8 h-8 text-brand-orange/70 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      <p class="font-heading text-brand-navy text-lg font-semibold tracking-wide">Reorder</p>
+      <p class="text-gray-400 text-[11px] mt-0.5">From recent orders</p>
+    </button>
+  </div>
+
+  <!-- At-a-Glance Summary (Full width card) -->
+  <div class="mx-4 mt-5 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div class="p-4 pb-3">
+      <h2 class="font-heading text-sm font-semibold text-gray-400 uppercase tracking-wider">This Week at a Glance</h2>
+    </div>
+    <div class="grid grid-cols-3 divide-x divide-gray-100">
+      <div class="p-3 text-center">
+        <p class="text-2xl font-heading font-bold text-brand-navy">4</p>
+        <p class="text-[10px] text-gray-400 mt-0.5">Orders</p>
+      </div>
+      <div class="p-3 text-center">
+        <p class="text-2xl font-heading font-bold text-brand-navy">$3.4k</p>
+        <p class="text-[10px] text-gray-400 mt-0.5">Spent</p>
+      </div>
+      <div class="p-3 text-center">
+        <p class="text-2xl font-heading font-bold text-brand-green">$218</p>
+        <p class="text-[10px] text-green-600 mt-0.5">Saved</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timeline-Style Deliveries -->
+  <section class="mt-6 px-4">
+    <h2 class="font-heading text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Delivery Timeline</h2>
+
+    <div class="relative">
+      <!-- Timeline line -->
+      <div class="absolute left-[19px] top-6 bottom-6 w-0.5 bg-gray-200"></div>
+
+      <!-- Today -->
+      <div class="relative flex gap-4 mb-5">
+        <div class="w-10 flex-shrink-0 flex flex-col items-center">
+          <div class="w-10 h-10 bg-brand-orange rounded-full flex items-center justify-center z-10">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/></svg>
+          </div>
+        </div>
+        <div class="flex-1 bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-bold text-brand-orange uppercase">Today</span>
+            <span class="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">In Transit</span>
+          </div>
+          <p class="text-sm font-semibold text-gray-900">Chef's Warehouse</p>
+          <div class="flex items-center justify-between mt-1.5">
+            <span class="text-xs text-gray-500">12 items</span>
+            <span class="text-sm font-bold text-brand-navy">$847.30</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tomorrow -->
+      <div class="relative flex gap-4 mb-5">
+        <div class="w-10 flex-shrink-0 flex flex-col items-center">
+          <div class="w-10 h-10 bg-brand-green rounded-full flex items-center justify-center z-10">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/></svg>
+          </div>
+        </div>
+        <div class="flex-1 space-y-2">
+          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] font-bold text-gray-400 uppercase">Tomorrow</span>
+              <span class="bg-green-50 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Confirmed</span>
+            </div>
+            <p class="text-sm font-semibold text-gray-900">US Foods</p>
+            <div class="flex items-center justify-between mt-1.5">
+              <span class="text-xs text-gray-500">23 items</span>
+              <span class="text-sm font-bold text-brand-navy">$1,240.50</span>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] font-bold text-gray-400 uppercase">Tomorrow</span>
+              <span class="bg-green-50 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Confirmed</span>
+            </div>
+            <p class="text-sm font-semibold text-gray-900">Premiere Produce One</p>
+            <div class="flex items-center justify-between mt-1.5">
+              <span class="text-xs text-gray-500">8 items</span>
+              <span class="text-sm font-bold text-brand-navy">$312.75</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Friday -->
+      <div class="relative flex gap-4">
+        <div class="w-10 flex-shrink-0 flex flex-col items-center">
+          <div class="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center z-10">
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </div>
+        </div>
+        <div class="flex-1 bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-bold text-gray-400 uppercase">Friday</span>
+            <span class="bg-gray-50 text-gray-500 text-[10px] font-bold px-2 py-0.5 rounded-full">Scheduled</span>
+          </div>
+          <p class="text-sm font-semibold text-gray-900">What Chefs Want</p>
+          <div class="flex items-center justify-between mt-1.5">
+            <span class="text-xs text-gray-500">6 items</span>
+            <span class="text-sm font-bold text-brand-navy">$189.40</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Reorder Cards (Horizontal scroll) -->
+  <section class="mt-8 mb-8">
+    <div class="px-4 flex items-center justify-between mb-3">
+      <h2 class="font-heading text-sm font-semibold text-gray-400 uppercase tracking-wider">Quick Reorder</h2>
+    </div>
+    <div class="px-4 flex gap-3 overflow-x-auto hide-scrollbar pb-2">
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 min-w-[200px] flex-shrink-0">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-6 h-6 bg-green-50 rounded flex items-center justify-center">
+            <span class="text-[10px] font-bold text-brand-green">USF</span>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-gray-900">US Foods</p>
+            <p class="text-[10px] text-gray-400">Last: 2 days ago</p>
+          </div>
+        </div>
+        <p class="text-xs text-gray-500 mb-2">23 items &middot; $1,240.50</p>
+        <button class="w-full bg-brand-green/10 text-brand-green text-xs font-semibold py-2 rounded-lg">Reorder</button>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 min-w-[200px] flex-shrink-0">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-6 h-6 bg-green-50 rounded flex items-center justify-center">
+            <span class="text-[10px] font-bold text-brand-green">CW</span>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-gray-900">Chef's Warehouse</p>
+            <p class="text-[10px] text-gray-400">Last: 3 days ago</p>
+          </div>
+        </div>
+        <p class="text-xs text-gray-500 mb-2">12 items &middot; $847.30</p>
+        <button class="w-full bg-brand-green/10 text-brand-green text-xs font-semibold py-2 rounded-lg">Reorder</button>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 min-w-[200px] flex-shrink-0">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-6 h-6 bg-green-50 rounded flex items-center justify-center">
+            <span class="text-[10px] font-bold text-brand-green">PPO</span>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-gray-900">Premiere Produce</p>
+            <p class="text-[10px] text-gray-400">Last: 4 days ago</p>
+          </div>
+        </div>
+        <p class="text-xs text-gray-500 mb-2">8 items &middot; $312.75</p>
+        <button class="w-full bg-brand-green/10 text-brand-green text-xs font-semibold py-2 rounded-lg">Reorder</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Floating Action Button -->
+  <button class="fixed bottom-6 right-6 bg-brand-green text-white rounded-full w-14 h-14 flex items-center justify-center shadow-xl active:scale-90 transition-transform z-50" style="max-width: 430px;">
+    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+  </button>
+
+</body>
+</html>
