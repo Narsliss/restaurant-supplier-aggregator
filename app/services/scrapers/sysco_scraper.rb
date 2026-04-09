@@ -2746,12 +2746,18 @@ module Scrapers
       # order version is obsolete" (code 5022).
       next_sequence_id = sequence_id.to_i + 1
 
-      # submitOrderV2 also requires top-level name, shippingCondition, and
-      # invoiceSeparate (same fields we sent at create time).
-      # deliveryDate is stored on the draft at create time; re-sending our
-      # epoch-ms value causes "The given delivery date is invalid"
-      # (possibly due to timezone math). Omit it and let Sysco use the
-      # draft's stored value.
+      # deliveryDate is REQUIRED on submit. Send noon UTC of the delivery
+      # day: Sysco rejects midnight UTC with "The given delivery date is
+      # invalid" (code 1002), likely because midnight UTC falls on the
+      # previous day in US timezones. Noon UTC is safely inside the
+      # delivery day regardless of timezone interpretation.
+      delivery_ms = @last_sysco_delivery_ms
+      if delivery_ms
+        t = Time.at(delivery_ms / 1000).utc
+        noon_utc = Time.utc(t.year, t.month, t.day, 12, 0, 0)
+        delivery_ms = (noon_utc.to_f * 1000).to_i
+      end
+
       submit_payload = {
         id: order_id,
         name: @last_sysco_order_name || Time.current.strftime('%b %d %Y %I:%M %p'),
@@ -2762,6 +2768,7 @@ module Scrapers
         invoiceSeparate: false,
         deliveryInstructions: '',
         poNumber: '',
+        deliveryDate: delivery_ms,
         lineItems: submit_line_items
       }
       data = graphql_request('SubmitOrder', submit_order_mutation, {
