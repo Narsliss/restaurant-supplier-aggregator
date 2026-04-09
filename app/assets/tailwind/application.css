@@ -43,6 +43,14 @@
   --font-body: 'Open Sans', sans-serif;
 }
 
+/* Prevent iOS auto-zoom on input focus — all iOS browsers (including Chrome)
+   zoom into inputs with font-size < 16px and often don't zoom back out */
+@media screen and (max-width: 767px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
 /* Turbo progress bar — brand green, thicker for mobile visibility */
 .turbo-progress-bar {
   background: linear-gradient(to right, #4A7C59, #5A9469);
