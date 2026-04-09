@@ -1,0 +1,8 @@
+<% content_for :title, "Search Products" %>
+
+<%# Desktop: catalog search is a modal (price-check controller), not a page.
+    Redirect to dashboard — the modal is accessible from the nav bar. %>
+<script>
+  window.location.href = '<%= root_path %>';
+</script>
+<p class="text-center text-gray-500 mt-12">Redirecting to dashboard...</p>

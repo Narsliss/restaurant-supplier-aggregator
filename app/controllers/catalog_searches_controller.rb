@@ -3,20 +3,30 @@ class CatalogSearchesController < ApplicationController
   before_action :require_operator!
   before_action :require_location_context!
 
-  # GET /catalog_search?q=fennel — returns JSON
+  # GET /catalog_search — HTML search page or JSON results
   def show
     query = params[:q].to_s.strip
-    return render json: [] if query.length < 2
 
-    results = SupplierProduct
-      .where(supplier_id: connected_supplier_ids, discontinued: false)
-      .where.not(current_price: nil)
-      .where("LOWER(supplier_name) LIKE ?", "%#{query.downcase}%")
-      .includes(:supplier)
-      .order(:supplier_name)
-      .limit(20)
+    respond_to do |format|
+      format.html do
+        # Render the search page — results loaded via JS
+        @query = query
+        @order_lists = scoped_order_lists.order(is_favorite: :desc, last_used_at: :desc)
+      end
+      format.json do
+        return render json: [] if query.length < 2
 
-    render json: results.map { |sp| serialize_product(sp) }
+        results = SupplierProduct
+          .where(supplier_id: connected_supplier_ids, discontinued: false)
+          .where.not(current_price: nil)
+          .where("LOWER(supplier_name) LIKE ?", "%#{query.downcase}%")
+          .includes(:supplier)
+          .order(:supplier_name)
+          .limit(20)
+
+        render json: results.map { |sp| serialize_product(sp) }
+      end
+    end
   end
 
   # POST /catalog_search/add_to_list
