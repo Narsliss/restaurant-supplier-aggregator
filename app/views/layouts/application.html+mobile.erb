@@ -24,7 +24,7 @@
     <%= yield :head %>
   </head>
 
-  <body class="h-full">
+  <body class="h-full" style="overflow-x: hidden; max-width: 100vw;">
     <% if ENV['DEMO_MODE'] == 'true' %>
       <div class="bg-amber-500 text-center text-sm py-1.5 font-semibold text-white tracking-wide">
         Demo Environment &mdash; Sample data resets nightly at midnight
