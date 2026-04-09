@@ -11,7 +11,10 @@
 
 <!-- Search Input -->
 <div class="mt-4" data-controller="mobile-search"
-     data-mobile-search-url-value="<%= catalog_search_path(format: :json) %>">
+     data-mobile-search-url-value="<%= catalog_search_path(format: :json) %>"
+     data-mobile-search-add-url-value="<%= add_to_list_catalog_search_path %>"
+     data-mobile-search-csrf-value="<%= form_authenticity_token %>"
+     data-mobile-search-order-lists-value="<%= @order_lists.map { |l| { id: l.id, name: l.name } }.to_json %>">
   <div class="relative">
     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
     <input type="text" placeholder="Search by product name..."
