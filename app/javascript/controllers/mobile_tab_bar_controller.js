@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["tab"]
+  static targets = ["tab", "fabCircle"]
 
   connect() {
     this.highlight()
@@ -71,20 +71,52 @@ export default class extends Controller {
     this.highlight()
   }
 
+  // Paths that belong to the ordering flow (FAB), not the History tab
+  static orderFlowPaths = ["/orders/select_list", "/orders/review", "/orders/new", "/aggregated_lists/"]
+
+  _isOrderFlow(path) {
+    return this.constructor.orderFlowPaths.some(p => path.startsWith(p))
+  }
+
   highlight() {
     const path = window.location.pathname
+    const inOrderFlow = this._isOrderFlow(path)
 
     this.tabTargets.forEach(tab => {
       const tabPath = tab.dataset.path
-      const isActive = tabPath === "/" ? path === "/" : path.startsWith(tabPath)
+      let isActive
+
+      if (tabPath === "/") {
+        isActive = path === "/"
+      } else if (tabPath === "/orders/select_list") {
+        // FAB: active when in order flow
+        isActive = inOrderFlow
+      } else if (tabPath === "/orders") {
+        // History: active for /orders but NOT order flow pages
+        isActive = path.startsWith("/orders") && !inOrderFlow
+      } else {
+        isActive = path.startsWith(tabPath)
+      }
 
       if (isActive) {
         tab.style.color = "#4A7C59"
-        tab.style.borderBottom = "2px solid #4A7C59"
+        // No underline for FAB — it highlights via circle glow instead
+        tab.style.borderBottom = tabPath === "/orders/select_list"
+          ? "2px solid transparent"
+          : "2px solid #4A7C59"
       } else {
         tab.style.color = "#9CA3AF"
         tab.style.borderBottom = "2px solid transparent"
       }
     })
+
+    // Highlight FAB circle when in order flow
+    if (this.hasFabCircleTarget) {
+      if (inOrderFlow) {
+        this.fabCircleTarget.style.boxShadow = "0 0 0 3px rgba(74, 124, 89, 0.3), 0 4px 12px rgba(74, 124, 89, 0.4)"
+      } else {
+        this.fabCircleTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)"
+      }
+    }
   }
 }
