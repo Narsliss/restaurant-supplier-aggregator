@@ -647,6 +647,33 @@ module Scrapers
 
       raise ScrapingError, 'Cart is empty' if item_count.nil? || item_count == 0
 
+      # Validate delivery date is currently bookable. Sysco's submitOrderV2
+      # rejects with the opaque "The given delivery date is invalid" when
+      # the account's cutoff has passed or the date isn't on the route.
+      # Surface a clearer error before we hit submit.
+      available_days = graphql_available_delivery_days(shipping_condition: 0)
+      if available_days.any?
+        draft_date_iso = if delivery_date_raw.is_a?(Numeric)
+                           Time.at(delivery_date_raw / 1000).utc.strftime('%Y-%m-%d')
+                         elsif delivery_date_raw.is_a?(String) && !delivery_date_raw.empty?
+                           begin
+                             Date.parse(delivery_date_raw).strftime('%Y-%m-%d')
+                           rescue ArgumentError
+                             nil
+                           end
+                         end
+        logger.info "[Sysco] Draft delivery date=#{draft_date_iso.inspect}, available=#{available_days.first(5).inspect}..."
+        if draft_date_iso && !available_days.include?(draft_date_iso)
+          earliest = available_days.first
+          raise DeliveryUnavailableError,
+                "Sysco is not accepting delivery on #{draft_date_iso} for this account. " \
+                "Earliest currently-available date is #{earliest}. " \
+                "Available: #{available_days.first(5).join(', ')}#{available_days.size > 5 ? '...' : ''}."
+        end
+      else
+        logger.warn "[Sysco] Could not fetch availableDays — skipping pre-submit date validation"
+      end
+
       # Check order minimum
       if order_total && order_total > 0 && order_total < ORDER_MINIMUM
         raise OrderMinimumError.new(
@@ -2710,6 +2737,23 @@ module Scrapers
 
     def graphql_delete_order(order_id)
       graphql_request('DeleteOrder', delete_order_mutation, { orderId: order_id })
+    end
+
+    # Returns an array of ISO date strings (YYYY-MM-DD) that Sysco currently
+    # accepts as delivery dates for this account at the given shipping tier.
+    # shipping_condition 0 = GROUND (standard delivery route).
+    # Sysco refreshes this list as cutoff times roll over, so we call it
+    # right before submit rather than caching.
+    def graphql_available_delivery_days(shipping_condition: 0)
+      data = graphql_request(
+        'GetDeliveryDays',
+        'query GetDeliveryDays($sc: Int!) { getDeliveryDays(shippingCondition: $sc) { availableDays } }',
+        { sc: shipping_condition }
+      )
+      (data.dig('data', 'getDeliveryDays', 'availableDays') || []).compact
+    rescue StandardError => e
+      logger.warn "[Sysco] getDeliveryDays failed: #{e.message}"
+      []
     end
 
     def graphql_submit_order(order_id:, sequence_id:)
