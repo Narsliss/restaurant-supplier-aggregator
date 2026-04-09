@@ -43,6 +43,17 @@
   --font-body: 'Open Sans', sans-serif;
 }
 
+/* Turbo progress bar — brand green, thicker for mobile visibility */
+.turbo-progress-bar {
+  background: linear-gradient(to right, #4A7C59, #5A9469);
+  height: 3px;
+}
+
+/* Dark mode overlay background */
+.dark #turbo-loading-overlay {
+  background: rgba(17, 24, 39, 0.6) !important;
+}
+
 /* Flash toast slide-down animation */
 @keyframes slide-down {
   from {

@@ -77,6 +77,38 @@
     <%= render "shared/two_factor_modal" if user_signed_in? %>
     <%= render "shared/feedback_modal" if user_signed_in? %>
 
+    <%# Loading overlay — visible during Turbo page transitions %>
+    <div id="turbo-loading-overlay"
+         style="position:fixed;inset:0;z-index:45;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,0.6);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);pointer-events:none;">
+      <div style="display:flex;align-items:center;">
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+      </div>
+    </div>
+    <script>
+      (function() {
+        var overlay = document.getElementById('turbo-loading-overlay');
+        if (!overlay) return;
+        var timer, safety;
+        document.addEventListener('turbo:before-fetch-request', function() {
+          clearTimeout(timer);
+          clearTimeout(safety);
+          // Small delay so instant navigations don't flash
+          timer = setTimeout(function() { overlay.style.display = 'flex'; }, 150);
+          // Safety: never stay visible more than 10s
+          safety = setTimeout(hide, 10000);
+        });
+        function hide() {
+          clearTimeout(timer);
+          clearTimeout(safety);
+          overlay.style.display = 'none';
+        }
+        document.addEventListener('turbo:load', hide);
+        document.addEventListener('turbo:before-render', hide);
+      })();
+    </script>
+
     <%# Back to top button — appears after scrolling 2 viewport heights %>
     <% if user_signed_in? %>
       <button type="button" id="mobile-back-to-top"

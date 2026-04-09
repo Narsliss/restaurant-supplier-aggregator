@@ -38,7 +38,6 @@
           <% matched_list = @promoted_list || @aggregated_lists.first %>
           <% if matched_list %>
             <%= link_to order_builder_aggregated_list_path(matched_list, order_list_id: list.id),
-                data: { turbo: false },
                 class: "block bg-white rounded-xl border border-gray-200 shadow-sm p-4 active:border-brand-green active:bg-green-50/30 transition-colors" do %>
               <div class="flex items-center justify-between mb-1.5">
                 <div class="flex items-center gap-2">

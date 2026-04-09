@@ -72,7 +72,7 @@
           <% last_catalog_update = @catalog_last_synced[credential.supplier_id] %>
           <div class="grid grid-cols-3 gap-2 text-center">
             <div class="bg-gray-50 rounded-lg p-2">
-              <p class="text-sm font-heading font-bold text-brand-navy"><%= credential.supplier_lists.count %></p>
+              <p class="text-sm font-heading font-bold text-brand-navy"><%= @list_counts[credential.supplier_id] || 0 %></p>
               <p class="text-[9px] text-gray-400">Lists</p>
             </div>
             <div class="bg-gray-50 rounded-lg p-2">

@@ -5,6 +5,60 @@ export default class extends Controller {
 
   connect() {
     this.highlight()
+
+    // Show loading state on tapped tab during Turbo navigation
+    this._onBeforeFetch = this._showLoading.bind(this)
+    this._onLoad = this._hideLoading.bind(this)
+    document.addEventListener("turbo:before-fetch-request", this._onBeforeFetch)
+    document.addEventListener("turbo:load", this._onLoad)
+    // Safety net: also clear on render in case turbo:load doesn't fire
+    document.addEventListener("turbo:before-render", this._onLoad)
+  }
+
+  disconnect() {
+    document.removeEventListener("turbo:before-fetch-request", this._onBeforeFetch)
+    document.removeEventListener("turbo:load", this._onLoad)
+    document.removeEventListener("turbo:before-render", this._onLoad)
+    if (this._loadingTimeout) clearTimeout(this._loadingTimeout)
+  }
+
+  _showLoading(event) {
+    // Only react to navigation requests (not form submissions or fetch APIs)
+    const url = event.detail?.url
+    if (!url) return
+
+    const targetPath = new URL(url).pathname
+    this.tabTargets.forEach(tab => {
+      const tabPath = tab.dataset.path
+      if (!tabPath) return
+      const matches = tabPath === "/" ? targetPath === "/" : targetPath.startsWith(tabPath)
+      if (matches) {
+        // Replace the SVG icon with a spinner
+        const icon = tab.querySelector("svg")
+        if (icon) {
+          icon.style.display = "none"
+          const spinner = document.createElement("span")
+          spinner.className = "tab-loading-spinner"
+          spinner.dataset.loadingSpinner = "true"
+          icon.parentNode.insertBefore(spinner, icon)
+        }
+        tab.style.color = "#4A7C59"
+      }
+    })
+
+    // Safety: auto-hide after 8s so spinner never gets stuck
+    this._loadingTimeout = setTimeout(() => this._hideLoading(), 8000)
+  }
+
+  _hideLoading() {
+    if (this._loadingTimeout) clearTimeout(this._loadingTimeout)
+    // Remove any loading spinners and restore icons
+    this.element.querySelectorAll("[data-loading-spinner]").forEach(s => s.remove())
+    this.tabTargets.forEach(tab => {
+      const icon = tab.querySelector("svg")
+      if (icon) icon.style.display = ""
+    })
+    this.highlight()
   }
 
   highlight() {
@@ -15,11 +69,9 @@ export default class extends Controller {
       const isActive = tabPath === "/" ? path === "/" : path.startsWith(tabPath)
 
       if (isActive) {
-        // Match mockup: .tab-active { color: #4A7C59; border-bottom: 2px solid #4A7C59; }
         tab.style.color = "#4A7C59"
         tab.style.borderBottom = "2px solid #4A7C59"
       } else {
-        // Match mockup: .tab-inactive { color: #9CA3AF; }
         tab.style.color = "#9CA3AF"
         tab.style.borderBottom = "2px solid transparent"
       }

@@ -23,6 +23,13 @@ class SupplierCredentialsController < ApplicationController
                                              .group(:supplier_id)
                                              .count
 
+    # Pre-compute list counts per supplier (avoids N+1 in the view)
+    @list_counts = SupplierList.where(
+      supplier_id: supplier_ids,
+      organization_id: current_user.current_organization_id,
+      location_id: current_location&.id
+    ).group(:supplier_id).count
+
     # Pre-load order requirements per supplier for display on cards
     @supplier_requirements = SupplierRequirement.where(supplier_id: supplier_ids, active: true)
                                                  .where(requirement_type: %w[order_minimum case_minimum])
