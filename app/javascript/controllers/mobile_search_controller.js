@@ -109,7 +109,7 @@ export default class extends Controller {
 
     const addSection = lists.length > 0 ? `
       <div class="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2">
-        <select data-list-select class="flex-1 text-xs border-gray-200 rounded-lg py-1.5 focus:border-brand-green focus:ring-brand-green">
+        <select data-list-select class="flex-1 min-w-0 text-xs border-gray-200 rounded-lg py-1.5 focus:border-brand-green focus:ring-brand-green" style="max-width: calc(100% - 4rem);">
           ${listOptions}
         </select>
         <button type="button"

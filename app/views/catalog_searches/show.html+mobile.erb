@@ -10,7 +10,7 @@
 </header>
 
 <!-- Search Input -->
-<div class="mt-4" data-controller="mobile-search"
+<div class="mt-4" style="overflow-x: hidden; max-width: 100%;" data-controller="mobile-search"
      data-mobile-search-url-value="<%= catalog_search_path(format: :json) %>"
      data-mobile-search-add-url-value="<%= add_to_list_catalog_search_path %>"
      data-mobile-search-csrf-value="<%= form_authenticity_token %>"
