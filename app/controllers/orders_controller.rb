@@ -512,6 +512,21 @@ class OrdersController < ApplicationController
       total_savings: @review_orders.sum { |r| r[:savings] },
       all_minimums_met: @review_orders.all? { |r| r[:meets_minimum] && r[:meets_case_minimum] }
     }
+
+    # Delivery schedule data for per-order date validation
+    supplier_ids = @orders.map(&:supplier_id).uniq
+    @delivery_schedules_by_supplier = SupplierDeliverySchedule
+      .where(supplier_id: supplier_ids, active: true)
+      .for_location(current_location)
+      .order(:day_of_week)
+      .group_by(&:supplier_id)
+
+    @api_delivery_dates_by_supplier = {}
+    scoped_credentials.active.where(supplier_id: supplier_ids)
+      .where.not(available_delivery_dates: [nil, []])
+      .each do |cred|
+        @api_delivery_dates_by_supplier[cred.supplier_id] = cred.available_delivery_dates
+      end
   end
 
   # Search supplier products for the "Forgot Something?" modal on the review page.

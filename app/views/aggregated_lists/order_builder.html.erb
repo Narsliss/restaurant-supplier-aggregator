@@ -1,5 +1,13 @@
+<% delivery_schedules_json = @delivery_schedules_by_supplier.transform_values { |scheds|
+     scheds.map { |s| { day: s.day_of_week, day_name: s.day_name, cutoff_day: s.cutoff_day, cutoff_day_name: s.cutoff_day_name, cutoff_time: s.cutoff_time.strftime("%H:%M") } }
+   }.to_json %>
+<% api_delivery_dates_json = @api_delivery_dates_by_supplier.transform_values { |info|
+     { dates: info[:dates], fetched_at: info[:fetched_at]&.iso8601 }
+   }.to_json %>
 <div class="max-w-6xl mx-auto pb-6" data-controller="order-builder"
-     data-order-builder-supplier-minimums-value="<%= @supplier_minimums.to_json %>">
+     data-order-builder-supplier-minimums-value="<%= @supplier_minimums.to_json %>"
+     data-order-builder-delivery-schedules-value="<%= delivery_schedules_json %>"
+     data-order-builder-api-delivery-dates-value="<%= api_delivery_dates_json %>">
   <div class="mb-6">
     <%= link_to "&larr; New Order".html_safe, select_list_orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
   </div>
@@ -83,6 +91,7 @@
                 <% else %>
                   <span class="text-[10px] text-gray-400 mt-1">No minimum</span>
                 <% end %>
+                <div class="hidden text-[10px] mt-0.5 truncate" data-supplier-delivery-status="<%= supplier.id %>"></div>
               </div>
             <% end %>
           </div>
@@ -132,6 +141,7 @@
             <% else %>
               <span class="text-[10px] text-gray-400 mt-0.5">No minimum</span>
             <% end %>
+            <div class="hidden text-[10px] mt-0.5 truncate" data-supplier-delivery-status="<%= supplier.id %>"></div>
           </div>
         <% end %>
         <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">

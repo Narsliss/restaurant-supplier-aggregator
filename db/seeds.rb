@@ -132,4 +132,24 @@ if Rails.env.development? || Rails.env.production?
   end
 end
 
+# Seed Sysco delivery dates on any existing Sysco credentials (dev convenience)
+if Rails.env.development?
+  sysco = Supplier.find_by(code: 'sysco')
+  if sysco
+    SupplierCredential.where(supplier: sysco).find_each do |cred|
+      next if cred.available_delivery_dates.present?
+
+      # Generate realistic delivery dates: Mon/Wed/Fri for the next 4 weeks
+      dates = []
+      date = Date.tomorrow
+      28.times do
+        dates << date.iso8601 if [1, 3, 5].include?(date.wday) # Mon, Wed, Fri
+        date += 1.day
+      end
+      cred.update_columns(available_delivery_dates: dates, delivery_dates_fetched_at: Time.current)
+      puts "  Seeded #{dates.size} Sysco delivery dates for credential #{cred.id}"
+    end
+  end
+end
+
 puts 'Seeding complete!'

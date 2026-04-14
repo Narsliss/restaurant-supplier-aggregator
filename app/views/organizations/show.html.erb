@@ -413,4 +413,85 @@
       </div>
     </div>
   <% end %>
+
+  <%# Delivery Schedules — owner only %>
+  <% if owner? && @suppliers&.any? %>
+    <% day_abbrevs = %w[S M T W T F S] %>
+    <div id="delivery-schedules" class="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+         data-controller="delivery-schedule-grid"
+         data-delivery-schedule-grid-url-value="<%= update_delivery_schedule_organization_path(format: :json) %>">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Delivery Schedules</h2>
+        <p class="text-sm text-gray-500 mt-1">
+          Set which days each supplier delivers. For each delivery day, set the order cutoff day and time.
+          Changes save automatically.
+        </p>
+      </div>
+      <div class="divide-y divide-gray-100">
+        <% @suppliers.each do |supplier| %>
+          <% schedules = @delivery_schedules[supplier.id] || [] %>
+          <% active_days = schedules.map(&:day_of_week).to_set %>
+          <% schedule_by_day = schedules.index_by(&:day_of_week) %>
+          <div class="px-6 py-4">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm font-medium text-gray-900"><%= supplier.name %></span>
+              <span class="text-xs text-gray-400"><%= active_days.size %> delivery day<%= active_days.size == 1 ? '' : 's' %></span>
+            </div>
+            <%# Day pills %>
+            <div class="flex gap-2 mb-3">
+              <% 7.times do |day| %>
+                <% is_active = active_days.include?(day) %>
+                <button type="button"
+                        data-day-pill
+                        data-supplier-id="<%= supplier.id %>"
+                        data-day-of-week="<%= day %>"
+                        data-active="<%= is_active %>"
+                        class="w-9 h-9 rounded-full text-xs font-semibold transition-all cursor-pointer
+                               <%= is_active ? 'bg-brand-green text-white hover:bg-brand-green-dark' : 'bg-gray-100 text-gray-400 hover:bg-gray-200' %>">
+                  <%= day_abbrevs[day] %>
+                </button>
+              <% end %>
+            </div>
+            <%# Cutoff rows for each day %>
+            <div class="space-y-2">
+              <% 7.times do |day| %>
+                <% sched = schedule_by_day[day] %>
+                <% is_active = active_days.include?(day) %>
+                <div data-cutoff-row
+                     data-supplier-id="<%= supplier.id %>"
+                     data-day-of-week="<%= day %>"
+                     class="flex items-center gap-3 text-sm <%= is_active ? '' : 'hidden' %>">
+                  <span class="w-24 text-gray-600 font-medium"><%= SupplierDeliverySchedule::DAY_NAMES[day] %></span>
+                  <span class="text-xs text-gray-400">order by</span>
+                  <select data-cutoff-field data-cutoff-day
+                          data-supplier-id="<%= supplier.id %>"
+                          data-day-of-week="<%= day %>"
+                          class="rounded-md border-gray-300 text-sm py-1 px-2">
+                    <% 7.times do |cd| %>
+                      <option value="<%= cd %>" <%= (sched&.cutoff_day || ((day - 1) % 7)) == cd ? 'selected' : '' %>>
+                        <%= SupplierDeliverySchedule::DAY_NAMES[cd] %>
+                      </option>
+                    <% end %>
+                  </select>
+                  <span class="text-xs text-gray-400">at</span>
+                  <input type="time"
+                         data-cutoff-field data-cutoff-time
+                         data-supplier-id="<%= supplier.id %>"
+                         data-day-of-week="<%= day %>"
+                         value="<%= sched&.cutoff_time&.strftime('%H:%M') || '17:00' %>"
+                         class="rounded-md border-gray-300 text-sm py-1 px-2">
+                  <span class="text-xs text-gray-500 italic"
+                        data-schedule-text
+                        data-supplier-id="<%= supplier.id %>"
+                        data-day-of-week="<%= day %>">
+                    <%= sched&.formatted_schedule %>
+                  </span>
+                </div>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
 </div>

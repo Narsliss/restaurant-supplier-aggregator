@@ -737,6 +737,11 @@ module Scrapers
       }
     end
 
+    # Public wrapper for delivery date fetching (used by SyscoCombinedImportJob)
+    def fetch_available_delivery_days(shipping_condition: 0)
+      graphql_available_delivery_days(shipping_condition: shipping_condition)
+    end
+
     private
 
     # ----------------------------------------------------------------

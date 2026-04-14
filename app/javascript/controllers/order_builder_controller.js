@@ -2,7 +2,7 @@ import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
   static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "mobileSupplierDetail", "uomToggle"]
-  static values = { supplierMinimums: Object }
+  static values = { supplierMinimums: Object, deliverySchedules: Object, apiDeliveryDates: Object }
 
   connect() {
     this._buildMatchIndex()
@@ -404,6 +404,9 @@ export default class extends Controller {
     } else {
       this._clearDateHighlight()
     }
+
+    // Update per-supplier delivery status badges
+    this._updateDeliveryStatus(supplierTotals)
   }
 
   _hasValidDeliveryDate() {
@@ -428,6 +431,103 @@ export default class extends Controller {
     inputs.forEach(input => {
       input.classList.remove("ring-2", "ring-brand-orange", "border-brand-orange")
     })
+  }
+
+  _updateDeliveryStatus(supplierTotals) {
+    const allDates = [...(this._fixedDeliveryDates || []), ...(this.hasDeliveryDateTarget ? this.deliveryDateTargets : [])]
+    const dateVal = allDates.find(d => d.value)?.value
+    const apiDates = this.apiDeliveryDatesValue || {}
+    const schedules = this.deliverySchedulesValue || {}
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+    // Update all delivery status badges (original + cloned in fixed bar)
+    document.querySelectorAll("[data-supplier-delivery-status]").forEach(badge => {
+      const sid = badge.dataset.supplierDeliveryStatus
+      const hasItems = supplierTotals && supplierTotals[sid] > 0
+      const apiInfo = apiDates[sid]
+      const schedList = schedules[sid]
+
+      // Only show for suppliers with delivery info AND items selected
+      if (!hasItems || (!apiInfo && !schedList)) {
+        badge.classList.add("hidden")
+        badge.textContent = ""
+        return
+      }
+
+      badge.classList.remove("hidden")
+
+      if (!dateVal) {
+        // No date selected yet — show available days summary
+        if (apiInfo && apiInfo.dates && apiInfo.dates.length > 0) {
+          const nextDate = apiInfo.dates[0]
+          badge.textContent = `Next: ${this._formatShortDate(nextDate)}`
+          badge.className = badge.className.replace(/text-\S+/g, "")
+          badge.classList.add("text-gray-500")
+        } else if (schedList) {
+          const days = schedList.map(s => dayNames[s.day].substring(0, 3)).join("/")
+          badge.textContent = `Delivers ${days}`
+          badge.className = badge.className.replace(/text-\S+/g, "")
+          badge.classList.add("text-gray-500")
+        }
+        return
+      }
+
+      // Date selected — check if it's valid
+      if (apiInfo && apiInfo.dates) {
+        if (apiInfo.dates.includes(dateVal)) {
+          badge.textContent = `\u2713 Delivers ${this._formatShortDate(dateVal)}`
+          badge.className = badge.className.replace(/text-\S+/g, "")
+          badge.classList.add("text-green-600")
+        } else {
+          const next = apiInfo.dates.find(d => d > dateVal)
+          badge.textContent = next
+            ? `\u26A0 No delivery \u2014 next: ${this._formatShortDate(next)}`
+            : "\u26A0 No delivery dates available"
+          badge.className = badge.className.replace(/text-\S+/g, "")
+          badge.classList.add("text-amber-600")
+        }
+      } else if (schedList) {
+        const selected = new Date(dateVal + "T00:00:00")
+        const selectedDay = selected.getDay()
+        const validDays = schedList.map(s => s.day)
+
+        if (validDays.includes(selectedDay)) {
+          const sched = schedList.find(s => s.day === selectedDay)
+          badge.textContent = `\u2713 Delivers ${dayNames[selectedDay].substring(0, 3)}`
+          if (sched) badge.textContent += ` \u00B7 order by ${sched.cutoff_day_name.substring(0, 3)} ${this._formatTime(sched.cutoff_time)}`
+          badge.className = badge.className.replace(/text-\S+/g, "")
+          badge.classList.add("text-green-600")
+        } else {
+          const nextDay = this._nextValidDay(selected, validDays)
+          badge.textContent = `\u26A0 No delivery ${dayNames[selectedDay].substring(0, 3)} \u2014 next: ${this._formatShortDate(nextDay)}`
+          badge.className = badge.className.replace(/text-\S+/g, "")
+          badge.classList.add("text-amber-600")
+        }
+      }
+    })
+  }
+
+  _formatShortDate(isoStr) {
+    const d = new Date(isoStr + "T00:00:00")
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+  }
+
+  _formatTime(timeStr) {
+    const [h, m] = timeStr.split(":").map(Number)
+    const ampm = h >= 12 ? "pm" : "am"
+    const h12 = h % 12 || 12
+    return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, "0")}${ampm}`
+  }
+
+  _nextValidDay(fromDate, validDays) {
+    const d = new Date(fromDate)
+    for (let i = 1; i <= 7; i++) {
+      d.setDate(d.getDate() + 1)
+      if (validDays.includes(d.getDay())) {
+        return d.toISOString().split("T")[0]
+      }
+    }
+    return null
   }
 
   selectSupplier(event) {

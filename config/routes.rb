@@ -67,6 +67,7 @@ Rails.application.routes.draw do
   resource :organization, only: %i[show new create edit update] do
     post :switch, on: :member
     post :update_requirement, on: :collection
+    post :update_delivery_schedule, on: :collection
     resources :memberships, only: %i[update destroy], module: :organizations do
       patch :update_locations, on: :member
     end

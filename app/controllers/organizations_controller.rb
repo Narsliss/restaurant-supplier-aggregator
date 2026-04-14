@@ -1,6 +1,6 @@
 class OrganizationsController < ApplicationController
-  before_action :set_organization, only: [:show, :edit, :update, :update_requirement]
-  before_action :require_owner!, only: [:edit, :update, :update_requirement]
+  before_action :set_organization, only: [:show, :edit, :update, :update_requirement, :update_delivery_schedule]
+  before_action :require_owner!, only: [:edit, :update, :update_requirement, :update_delivery_schedule]
 
   def show
     @members = @organization.memberships.active.includes(:user, :locations).order(:role, :created_at)
@@ -37,6 +37,11 @@ class OrganizationsController < ApplicationController
         requirement_type: 'order_minimum', active: true,
         supplier_id: supplier_ids, location_id: nil
       ).index_by(&:supplier_id)
+
+      # Delivery schedules
+      @delivery_schedules = SupplierDeliverySchedule.where(
+        supplier_id: supplier_ids, active: true, location_id: nil
+      ).order(:day_of_week).group_by(&:supplier_id)
     end
   end
 
@@ -113,6 +118,44 @@ class OrganizationsController < ApplicationController
       ).destroy_all
 
       render json: { saved: true, removed: true, global: is_global }
+    end
+  end
+
+  def update_delivery_schedule
+    supplier = Supplier.find(params[:supplier_id])
+    day_of_week = params[:day_of_week].to_i
+    enabled = ActiveModel::Type::Boolean.new.cast(params[:enabled])
+
+    schedule = SupplierDeliverySchedule.find_or_initialize_by(
+      supplier: supplier, location: nil, day_of_week: day_of_week
+    )
+
+    if enabled
+      cutoff_day = params[:cutoff_day].present? ? params[:cutoff_day].to_i : ((day_of_week - 1) % 7)
+      cutoff_time = params[:cutoff_time].present? ? Time.zone.parse(params[:cutoff_time]) : Time.zone.parse("17:00")
+
+      schedule.assign_attributes(
+        cutoff_day: cutoff_day,
+        cutoff_time: cutoff_time,
+        active: true
+      )
+      schedule.save!
+
+      render json: {
+        saved: true,
+        schedule: {
+          id: schedule.id,
+          day_of_week: schedule.day_of_week,
+          day_name: schedule.day_name,
+          cutoff_day: schedule.cutoff_day,
+          cutoff_day_name: schedule.cutoff_day_name,
+          cutoff_time: schedule.cutoff_time.strftime("%H:%M"),
+          formatted: schedule.formatted_schedule
+        }
+      }
+    else
+      schedule.destroy if schedule.persisted?
+      render json: { saved: true, removed: true }
     end
   end
 

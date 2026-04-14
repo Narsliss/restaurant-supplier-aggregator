@@ -1,8 +1,20 @@
+<% review_delivery_data = {}.tap do |h|
+     @orders.each do |o|
+       api = @api_delivery_dates_by_supplier[o.supplier_id]
+       scheds = @delivery_schedules_by_supplier[o.supplier_id]
+       if api
+         h[o.id.to_s] = { type: "api", dates: api }
+       elsif scheds&.any?
+         h[o.id.to_s] = { type: "schedule", days: scheds.map { |s| { day: s.day_of_week, day_name: s.day_name, cutoff_day_name: s.cutoff_day_name, cutoff_time: s.cutoff_time.strftime("%H:%M") } } }
+       end
+     end
+   end %>
 <div class="max-w-5xl mx-auto pb-24"
      data-controller="order-review"
      data-order-review-batch-id-value="<%= @batch_id %>"
      data-order-review-verifying-value="true"
-     data-order-review-aggregated-list-id-value="<%= @aggregated_list_id %>">
+     data-order-review-aggregated-list-id-value="<%= @aggregated_list_id %>"
+     data-order-review-delivery-info-value="<%= review_delivery_data.to_json %>">
   <div class="mb-6 flex items-center gap-2">
     <% if @aggregated_list_id.present? %>
       <%= link_to order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id), class: "inline-flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-semibold rounded-md border border-brand-orange bg-brand-orange/5 text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" do %>
@@ -310,6 +322,7 @@
                    data-order-review-target="deliveryDate"
                    data-order-id="<%= order.id %>"
                    >
+            <p class="mt-1 text-xs hidden" data-order-review-target="deliveryHint" data-order-id="<%= order.id %>"></p>
           </div>
           <div class="flex-1">
             <label class="block text-xs font-medium text-gray-500 mb-1">Notes</label>

@@ -442,6 +442,25 @@ class AggregatedListsController < ApplicationController
       }
     end
 
+    # Delivery info for suppliers (used by date picker validation)
+    # Two sources: API-fetched dates (Sysco) and manual schedules (other suppliers)
+    @delivery_schedules_by_supplier = SupplierDeliverySchedule
+      .where(supplier_id: supplier_ids, active: true)
+      .for_location(current_location)
+      .order(:day_of_week)
+      .group_by(&:supplier_id)
+
+    # API-fetched available delivery dates from credentials (e.g., Sysco)
+    @api_delivery_dates_by_supplier = {}
+    scoped_credentials.active.where(supplier_id: supplier_ids)
+      .where.not(available_delivery_dates: [nil, []])
+      .each do |cred|
+        @api_delivery_dates_by_supplier[cred.supplier_id] = {
+          dates: cred.available_delivery_dates,
+          fetched_at: cred.delivery_dates_fetched_at
+        }
+      end
+
     # Pre-fill quantities from existing pending/draft/verifying batch orders (when returning from review page).
     # Draft orders are what a completed verification produces; also include verifying & price_changed
     # so "Continue Adding Items" works at any point in the pre-submission flow.

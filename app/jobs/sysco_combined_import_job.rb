@@ -61,6 +61,21 @@ class SyscoCombinedImportJob < ApplicationJob
       Rails.logger.error "[SyscoCombinedImport] List import failed: #{e.class}: #{e.message}"
     end
 
+    # Delivery dates — direct GraphQL call, no browser
+    begin
+      Rails.logger.info '[SyscoCombinedImport] Fetching available delivery dates...'
+      available_dates = scraper.fetch_available_delivery_days(shipping_condition: 0)
+      if available_dates.any?
+        @credential.update_columns(
+          available_delivery_dates: available_dates,
+          delivery_dates_fetched_at: Time.current
+        )
+        Rails.logger.info "[SyscoCombinedImport] Delivery dates: #{available_dates.size} dates stored (#{available_dates.first}..#{available_dates.last})"
+      end
+    rescue StandardError => e
+      Rails.logger.warn "[SyscoCombinedImport] Delivery dates fetch failed: #{e.class}: #{e.message}"
+    end
+
     Rails.logger.info "[SyscoCombinedImport] Combined import complete for #{@supplier.name}"
   rescue Scrapers::BaseScraper::AuthenticationError => e
     Rails.logger.warn "[SyscoCombinedImport] Auth failed: #{e.message}"

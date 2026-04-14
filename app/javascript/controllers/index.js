@@ -41,6 +41,7 @@ import CrmStageSelectController from "./crm_stage_select_controller"
 import MobileTabBarController from "./mobile_tab_bar_controller"
 import MobileSearchController from "./mobile_search_controller"
 import MatchFilterController from "./match_filter_controller"
+import DeliveryScheduleGridController from "./delivery_schedule_grid_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -83,3 +84,4 @@ application.register("crm-stage-select", CrmStageSelectController)
 application.register("mobile-tab-bar", MobileTabBarController)
 application.register("mobile-search", MobileSearchController)
 application.register("match-filter", MatchFilterController)
+application.register("delivery-schedule-grid", DeliveryScheduleGridController)

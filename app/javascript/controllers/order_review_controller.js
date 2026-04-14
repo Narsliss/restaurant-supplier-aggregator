@@ -18,13 +18,16 @@ export default class extends Controller {
     "verificationErrorDetails", "verificationErrorText",
     "suggestionsSection", "draftBanner",
     // Forgot Something modal
-    "forgotModal", "forgotSearchInput", "forgotResults"
+    "forgotModal", "forgotSearchInput", "forgotResults",
+    // Delivery hints
+    "deliveryHint"
   ]
 
   static values = {
     batchId: String,
     verifying: Boolean,
-    aggregatedListId: String
+    aggregatedListId: String,
+    deliveryInfo: Object
   }
 
   connect() {
@@ -35,6 +38,7 @@ export default class extends Controller {
     this._draftNotificationShown = false
     this._verifyingLocked = false
     this._updateSubmitStates()
+    this._initDeliveryHints()
 
     // Always start polling — verification may complete before the page finishes
     // loading (race condition), so poll regardless of initial verifying state.
@@ -167,6 +171,7 @@ export default class extends Controller {
     const orderId = input.dataset.orderId
     this._patchOrder(orderId, { delivery_date: input.value })
     this._clearDeliveryDateWarning(orderId, input)
+    this._updateDeliveryHint(orderId, input.value)
     this._updateSubmitStates()
   }
 
@@ -1584,6 +1589,70 @@ export default class extends Controller {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     return selected > today
+  }
+
+  _initDeliveryHints() {
+    this.deliveryDateTargets.forEach(input => {
+      this._updateDeliveryHint(input.dataset.orderId, input.value || null)
+    })
+  }
+
+  _updateDeliveryHint(orderId, dateVal) {
+    const hint = this.deliveryHintTargets.find(el => el.dataset.orderId === orderId)
+    if (!hint) return
+
+    const info = (this.deliveryInfoValue || {})[orderId]
+    if (!info) { hint.classList.add("hidden"); return }
+
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+    if (!dateVal) {
+      if (info.type === "api" && info.dates?.length) {
+        hint.textContent = `Available: ${info.dates.slice(0, 3).map(d => this._shortDate(d)).join(", ")}...`
+        hint.className = "mt-1 text-xs text-gray-500"
+      } else if (info.type === "schedule") {
+        hint.textContent = `Delivers ${info.days.map(d => d.day_name.substring(0, 3)).join("/")}`
+        hint.className = "mt-1 text-xs text-gray-500"
+      }
+      return
+    }
+
+    if (info.type === "api") {
+      if (info.dates.includes(dateVal)) {
+        hint.textContent = "\u2713 Valid delivery date"
+        hint.className = "mt-1 text-xs text-green-600"
+      } else {
+        const next = info.dates.find(d => d > dateVal)
+        hint.textContent = next
+          ? `\u26A0 Not a delivery date \u2014 try ${this._shortDate(next)}`
+          : "\u26A0 No delivery dates available"
+        hint.className = "mt-1 text-xs text-amber-600"
+      }
+    } else if (info.type === "schedule") {
+      const selected = new Date(dateVal + "T00:00:00")
+      const validDays = info.days.map(d => d.day)
+      if (validDays.includes(selected.getDay())) {
+        const sched = info.days.find(d => d.day === selected.getDay())
+        const cutoff = sched ? ` \u00B7 order by ${sched.cutoff_day_name.substring(0, 3)} ${this._fmtTime(sched.cutoff_time)}` : ""
+        hint.textContent = `\u2713 Valid delivery date${cutoff}`
+        hint.className = "mt-1 text-xs text-green-600"
+      } else {
+        const days = info.days.map(d => d.day_name.substring(0, 3)).join("/")
+        hint.textContent = `\u26A0 Delivers ${days} only`
+        hint.className = "mt-1 text-xs text-amber-600"
+      }
+    }
+  }
+
+  _shortDate(iso) {
+    return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+  }
+
+  _fmtTime(timeStr) {
+    const [h, m] = timeStr.split(":").map(Number)
+    const ampm = h >= 12 ? "pm" : "am"
+    const h12 = h % 12 || 12
+    return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, "0")}${ampm}`
   }
 
   _updateSubmitStates() {
