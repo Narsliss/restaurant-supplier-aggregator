@@ -44,6 +44,14 @@ production:
     schedule: "0 5 * * *"
     description: "Reset demo environment to golden state (1 AM EST / 5 AM UTC)"
 
+  # Daily cleanup: delete drafts older than Order::DRAFT_EXPIRY_DAYS (14 days by default)
+  # Timer resets when the chef returns to checkout — see OrdersController#review.
+  expire_drafts:
+    class: ExpireDraftsJob
+    queue: low
+    schedule: "30 4 * * *"
+    description: "Delete expired draft orders daily at 12:30 AM EST (4:30 AM UTC)"
+
   # Disabled — only run on explicit user request:
   #   DeepCatalogImportJob (US Foods deep category browse — 1-3 hrs)
   #   DiscontinueStaleProductsJob (stale product cleanup — no value without frequent imports)

@@ -1,14 +1,14 @@
 class OrderListsController < ApplicationController
   before_action :require_organization!
-  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison add_match remove_match]
-  before_action :require_operator!, only: %i[new create edit update destroy duplicate add_match remove_match]
-  before_action :require_list_owner!, only: %i[edit update destroy duplicate add_match remove_match]
+  before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison add_match remove_match toggle_favorite]
+  before_action :require_operator!, only: %i[new create edit update destroy duplicate add_match remove_match toggle_favorite]
+  before_action :require_list_owner!, only: %i[edit update destroy duplicate add_match remove_match toggle_favorite]
   before_action :require_location_context!
 
   def index
     @order_lists = scoped_order_lists
                                .includes(:order_list_items)
-                               .recent
+                               .order(is_favorite: :desc, last_used_at: :desc, updated_at: :desc)
 
     org = current_user.current_organization
     if org
@@ -118,6 +118,11 @@ class OrderListsController < ApplicationController
     item = @order_list.order_list_items.find_by(product_match_id: params[:product_match_id])
     item&.destroy
     redirect_to @order_list, notice: "Item removed from list."
+  end
+
+  def toggle_favorite
+    @order_list.toggle_favorite!
+    redirect_back fallback_location: order_lists_path
   end
 
   # GET /order_lists/for_select.json — lightweight list for dropdowns

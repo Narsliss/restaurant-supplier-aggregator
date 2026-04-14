@@ -146,7 +146,8 @@
   }
 
   /* --- Cards & panels --- */
-  .dark .bg-white {
+  .dark .bg-white,
+  .dark .sm\:bg-white {
     background-color: #1f2937 !important;
   }
 

@@ -502,11 +502,15 @@ export default class extends Controller {
     const caseMin = parseInt(card.dataset.caseMinimum) || 0
     let totalCases = 0
     if (caseMin > 0) {
+      // De-dup by item ID — each item renders twice (desktop tr + mobile div)
+      const seen = new Set()
       card.querySelectorAll("[data-order-review-target='itemRow']").forEach(row => {
-        if (row.dataset.orderId === orderId) {
-          const input = row.querySelector("[data-order-review-target='quantityInput']")
-          totalCases += input ? (parseInt(input.value) || 0) : 0
-        }
+        if (row.dataset.orderId !== orderId) return
+        const itemId = row.dataset.itemId
+        if (seen.has(itemId)) return
+        seen.add(itemId)
+        const input = row.querySelector("[data-order-review-target='quantityInput']")
+        totalCases += input ? (parseInt(input.value) || 0) : 0
       })
     }
     const meetsCaseHere = caseMin === 0 || totalCases >= caseMin
@@ -1592,11 +1596,18 @@ export default class extends Controller {
       const caseMin = parseInt(card.dataset.caseMinimum) || 0
       const verificationStatus = card.dataset.verificationStatus
 
-      // Calculate subtotal and case count
+      // Calculate subtotal and case count.
+      // Each item is rendered twice (desktop table row + mobile card), both with
+      // data-order-review-target="itemRow" — de-dup by data-item-id to avoid
+      // doubling the subtotal and falsely clearing the minimum check.
       const rows = card.querySelectorAll("[data-order-review-target='itemRow']")
+      const seenItemIds = new Set()
       let subtotal = 0
       let totalCases = 0
       rows.forEach(row => {
+        const itemId = row.dataset.itemId
+        if (seenItemIds.has(itemId)) return
+        seenItemIds.add(itemId)
         const unitPrice = parseFloat(row.dataset.unitPrice) || 0
         const input = row.querySelector("[data-order-review-target='quantityInput']")
         const qty = input ? (parseInt(input.value) || 0) : 0
@@ -1844,11 +1855,17 @@ export default class extends Controller {
         const packInfo = product.pack_size ? `<span class="text-gray-400">&middot;</span> <span>${this._escapeHtml(product.pack_size)}</span>` : ''
 
         return `
-          <div class="flex items-center justify-between px-4 py-3 ${border} hover:bg-gray-50 transition-colors">
+          <button type="button"
+                  class="group w-full flex items-center justify-between px-4 py-3 text-left ${border} hover:bg-brand-orange/5 transition-colors cursor-pointer"
+                  data-action="order-review#addForgotItem"
+                  data-supplier-product-id="${product.id}"
+                  data-order-id="${product.order_id}"
+                  data-product-name="${this._escapeHtml(product.name)}"
+                  data-product-price="${product.price}">
             <div class="flex-1 min-w-0 mr-4">
               <div class="flex items-center gap-2">
                 ${stockDot}
-                <span class="text-sm font-medium text-gray-900 truncate">${this._escapeHtml(product.name)}</span>
+                <span class="text-sm font-medium text-gray-900 truncate group-hover:text-brand-orange-dark">${this._escapeHtml(product.name)}</span>
               </div>
               <div class="flex items-center gap-1.5 mt-0.5 ml-3.5 text-xs text-gray-500">
                 <span>${this._escapeHtml(product.supplier_name)}</span>
@@ -1857,17 +1874,11 @@ export default class extends Controller {
             </div>
             <div class="flex items-center gap-3 flex-shrink-0">
               <span class="text-sm font-semibold text-gray-900 tabular-nums">${product.price ? this._formatCurrency(product.price) : 'N/A'}</span>
-              <button type="button"
-                      class="px-2.5 py-1 text-xs font-medium rounded-md text-brand-orange border border-brand-orange/40 hover:bg-brand-orange hover:text-white transition-colors"
-                      data-action="order-review#addForgotItem"
-                      data-supplier-product-id="${product.id}"
-                      data-order-id="${product.order_id}"
-                      data-product-name="${this._escapeHtml(product.name)}"
-                      data-product-price="${product.price}">
+              <span data-add-pill class="px-2.5 py-1 text-xs font-medium rounded-md text-brand-orange border border-brand-orange/40 group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange transition-colors">
                 Add
-              </button>
+              </span>
             </div>
-          </div>
+          </button>
         `
       }).join("")
     })
@@ -1881,11 +1892,13 @@ export default class extends Controller {
     const btn = event.currentTarget
     const orderId = btn.dataset.orderId
     const supplierProductId = btn.dataset.supplierProductId
+    // Pill is a child span — update IT instead of btn.textContent (which would wipe the row)
+    const pill = btn.querySelector('[data-add-pill]')
 
     // Disable to prevent double-click
     btn.disabled = true
-    btn.textContent = "Adding..."
-    btn.classList.add("opacity-50")
+    btn.classList.add("opacity-50", "pointer-events-none")
+    if (pill) pill.textContent = "Adding..."
 
     fetch(`/orders/${orderId}/order_items`, {
       method: "POST",
@@ -1929,25 +1942,35 @@ export default class extends Controller {
         this._forgotItemsAddedToOrders.add(orderId)
       }
 
-      // Show success state on button
-      btn.textContent = "Added!"
-      btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark")
-      btn.classList.add("bg-green-600")
+      // Show success state on pill
+      if (pill) {
+        pill.textContent = "Added!"
+        pill.classList.remove("text-brand-orange", "border-brand-orange/40")
+        pill.classList.add("bg-green-600", "text-white", "border-green-600")
+      }
       setTimeout(() => {
-        btn.textContent = "Add"
+        if (pill) {
+          pill.textContent = "Add"
+          pill.classList.remove("bg-green-600", "text-white", "border-green-600")
+          pill.classList.add("text-brand-orange", "border-brand-orange/40")
+        }
         btn.disabled = false
-        btn.classList.remove("opacity-50", "bg-green-600")
-        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark")
+        btn.classList.remove("opacity-50", "pointer-events-none")
       }, 1500)
     })
     .catch(err => {
       console.error("Error adding item:", err)
-      btn.textContent = "Failed"
-      btn.classList.add("bg-red-500")
+      if (pill) {
+        pill.textContent = "Failed"
+        pill.classList.add("bg-red-500", "text-white")
+      }
       setTimeout(() => {
-        btn.textContent = "Add"
+        if (pill) {
+          pill.textContent = "Add"
+          pill.classList.remove("bg-red-500", "text-white")
+        }
         btn.disabled = false
-        btn.classList.remove("opacity-50", "bg-red-500")
+        btn.classList.remove("opacity-50", "pointer-events-none")
       }, 1500)
     })
   }

@@ -24,6 +24,11 @@
 
   <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "order-form") do |form| %>
     <%= hidden_field_tag :aggregated_list_id, @aggregated_list.id %>
+    <%# When continuing from an existing draft/batch, pass its ID so create can clean it up
+        atomically after the new batch is created. See OrdersController#create_from_aggregated_list. %>
+    <% if @batch_id %>
+      <%= hidden_field_tag :previous_batch_id, @batch_id %>
+    <% end %>
     <% if @order_list %>
       <%= hidden_field_tag :order_list_id, @order_list.id %>
     <% end %>
@@ -86,7 +91,7 @@
           <div class="bg-white shadow rounded-lg px-2 py-1.5 flex items-center gap-1">
             <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
           </div>
-          <%= link_to "Cancel", select_list_orders_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
+          <%= link_to "Cancel", select_list_orders_path, class: "px-3 py-1.5 rounded-md text-sm font-medium text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition-colors" %>
           <button type="submit"
                   disabled
                   data-order-builder-target="submitButton"
@@ -134,7 +139,7 @@
           <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
         </div>
         <div class="ml-auto shrink-0 bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-3">
-          <%= link_to "Cancel", select_list_orders_path, class: "text-sm font-medium text-gray-700 hover:text-gray-900" %>
+          <%= link_to "Cancel", select_list_orders_path, class: "px-3 py-1.5 rounded-md text-sm font-medium text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition-colors" %>
           <button type="submit"
                   disabled
                   data-order-builder-target="submitButton"

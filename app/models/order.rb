@@ -68,6 +68,17 @@ class Order < ApplicationRecord
   # Price change threshold — differences within 5% are auto-accepted
   PRICE_CHANGE_THRESHOLD = 0.05
 
+  # Drafts auto-expire after this many days of inactivity. Touching draft_saved_at
+  # (e.g., when the chef reopens the draft on the review page) resets the timer.
+  DRAFT_EXPIRY_DAYS = 14
+
+  # Returns days remaining before this draft auto-expires. Nil for non-drafts.
+  def draft_expires_in_days
+    return nil unless draft? && draft_saved_at.present?
+    remaining = (draft_saved_at + DRAFT_EXPIRY_DAYS.days - Time.current) / 1.day
+    [remaining.ceil, 0].max
+  end
+
   # Methods
   def pending?
     status == "pending"
@@ -165,6 +176,18 @@ class Order < ApplicationRecord
       verification_error: error_message,
       price_verified_at: Time.current
     )
+  end
+
+  def received?
+    received_at.present?
+  end
+
+  def mark_received!
+    update!(received_at: Time.current)
+  end
+
+  def mark_unreceived!
+    update!(received_at: nil)
   end
 
   def mark_as_draft!

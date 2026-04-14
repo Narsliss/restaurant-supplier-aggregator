@@ -3,9 +3,12 @@
      data-order-review-batch-id-value="<%= @batch_id %>"
      data-order-review-verifying-value="true"
      data-order-review-aggregated-list-id-value="<%= @aggregated_list_id %>">
-  <div class="mb-6">
+  <div class="mb-6 flex items-center gap-2">
     <% if @aggregated_list_id.present? %>
-      <%= link_to "&larr; Back to Order Builder".html_safe, order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id), class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
+      <%= link_to order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id), class: "inline-flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-semibold rounded-md border border-brand-orange bg-brand-orange/5 text-brand-orange hover:bg-brand-orange hover:text-white transition-colors" do %>
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+        Continue Adding Items
+      <% end %>
     <% else %>
       <%= link_to "&larr; Order History".html_safe, orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
     <% end %>
@@ -21,7 +24,8 @@
   </div>
 
   <%# Verification progress banner — re-check since verification may have completed during render %>
-  <% @verifying = @orders.any? { |o| o.reload.verifying? } %>
+  <%# Uses verification_status (source of truth) rather than order.status — on failure, status stays "verifying" but verification_status becomes "failed", which would otherwise cause an infinite reload loop via the inline fallback poll below. %>
+  <% @verifying = @orders.any? { |o| o.reload.verification_status.in?(%w[pending verifying]) } %>
   <div class="mb-6 <%= @verifying ? '' : 'hidden' %>" data-order-review-target="verificationBanner">
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
       <div class="flex items-center gap-3">

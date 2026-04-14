@@ -13,21 +13,29 @@
       <p class="text-sm text-gray-500"><%= @order.display_supplier_name %> &middot; <%= @order.created_at.strftime("%b %d, %Y") %></p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <% case @order.status %>
-      <% when "pending" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">Pending</span>
-      <% when "processing" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800" data-order-status-badge>Processing</span>
-      <% when "submitted" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Submitted</span>
-      <% when "confirmed" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Confirmed</span>
-      <% when "dry_run_complete" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">Dry Run Complete</span>
-      <% when "failed" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">Failed</span>
-      <% when "cancelled" %>
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">Cancelled</span>
+      <% if @order.received? %>
+        <%# Received supersedes Submitted/Confirmed/Dry Run Complete — it's the final state %>
+        <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-emerald-100 text-emerald-800" title="Received <%= l(@order.received_at, format: :short) %>">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+          Received
+        </span>
+      <% else %>
+        <% case @order.status %>
+        <% when "pending" %>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">Pending</span>
+        <% when "processing" %>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800" data-order-status-badge>Processing</span>
+        <% when "submitted" %>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Submitted</span>
+        <% when "confirmed" %>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">Confirmed</span>
+        <% when "dry_run_complete" %>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">Dry Run Complete</span>
+        <% when "failed" %>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">Failed</span>
+        <% when "cancelled" %>
+          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">Cancelled</span>
+        <% end %>
       <% end %>
       <% if operator? %>
         <% if @order.pending? %>
@@ -47,6 +55,21 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               Retry
+            <% end %>
+          <% end %>
+          <%# Mark-received toggle — shown once an order has been sent to the supplier %>
+          <% if @order.submitted? || @order.confirmed? || @order.dry_run_complete? %>
+            <% if @order.received? %>
+              <%= button_to mark_unreceived_order_path(@order), method: :post, class: "inline-flex items-center gap-1.5 border border-emerald-300 text-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-50 text-sm font-medium",
+                  data: { turbo_confirm: "Clear received status on this order?" } do %>
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                Unmark Received
+              <% end %>
+            <% else %>
+              <%= button_to mark_received_order_path(@order), method: :post, class: "inline-flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 text-sm font-medium" do %>
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                Mark as Received
+              <% end %>
             <% end %>
           <% end %>
           <%= button_to reorder_order_path(@order), method: :post, class: "inline-flex items-center gap-1.5 bg-gray-700 text-white px-3 py-1.5 rounded-lg hover:bg-gray-600 text-sm font-medium" do %>
