@@ -96,8 +96,8 @@ export default class extends Controller {
         `<option value="${l.id}">${this.escapeHtml(l.name)}</option>`
       ).join("")
       this.listSelectorTarget.innerHTML = `
-        <span class="text-xs text-gray-500">Add to:</span>
-        <select data-action="change->price-check#selectList" class="ml-1.5 text-xs border-gray-200 rounded-md py-0.5 pr-6 pl-2 focus:ring-brand-orange/40 focus:border-brand-orange/40">
+        <span class="text-xs font-medium text-gray-700">Add to:</span>
+        <select data-action="change->price-check#selectList" class="ml-1.5 text-xs font-medium text-gray-900 bg-white border border-gray-400 rounded-md py-0.5 pr-6 pl-2 shadow-sm focus:ring-brand-orange/40 focus:border-brand-orange">
           ${options}
         </select>
       `
@@ -126,35 +126,41 @@ export default class extends Controller {
 
       const packInfo = item.pack_size ? `<span class="text-gray-400">&middot;</span> <span>${this.escapeHtml(item.pack_size)}</span>` : ""
 
-      const addButton = canAdd
-        ? `<form method="post" action="${this.addUrlValue}" data-turbo="true">
-             <input type="hidden" name="authenticity_token" value="${this.csrfToken()}">
-             <input type="hidden" name="supplier_product_id" value="${item.id}">
-             <input type="hidden" name="order_list_id" value="${this.selectedListId}">
-             <button type="submit" class="px-2.5 py-1 text-xs font-medium rounded-md text-brand-orange border border-brand-orange/40 hover:bg-brand-orange hover:text-white transition-colors">
-               Add
-             </button>
-           </form>`
-        : ''
-
-      return `
-        <div class="flex items-center justify-between px-4 py-3 ${border} hover:bg-gray-50 transition-colors">
-          <div class="flex-1 min-w-0 mr-4">
-            <div class="flex items-center gap-2">
-              ${stockDot}
-              <span class="text-sm font-medium text-gray-900 truncate">${this.escapeHtml(item.name)}</span>
-            </div>
-            <div class="flex items-center gap-1.5 mt-0.5 ml-3.5 text-xs text-gray-500">
-              <span>${this.escapeHtml(item.supplier_name)}</span>
-              ${packInfo}
-            </div>
+      const rowInner = `
+        <div class="flex-1 min-w-0 mr-4">
+          <div class="flex items-center gap-2">
+            ${stockDot}
+            <span class="text-sm font-medium text-gray-900 truncate group-hover:text-brand-orange-dark">${this.escapeHtml(item.name)}</span>
           </div>
-          <div class="flex items-center gap-3 flex-shrink-0">
-            <span class="text-sm font-semibold text-gray-900 tabular-nums">${this.escapeHtml(item.price)}</span>
-            ${addButton}
+          <div class="flex items-center gap-1.5 mt-0.5 ml-3.5 text-xs text-gray-500">
+            <span>${this.escapeHtml(item.supplier_name)}</span>
+            ${packInfo}
           </div>
         </div>
+        <div class="flex items-center gap-3 flex-shrink-0">
+          <span class="text-sm font-semibold text-gray-900 tabular-nums">${this.escapeHtml(item.price)}</span>
+          ${canAdd ? `<span class="px-2.5 py-1 text-xs font-medium rounded-md text-brand-orange border border-brand-orange/40 group-hover:bg-brand-orange group-hover:text-white group-hover:border-brand-orange transition-colors">Add</span>` : ''}
+        </div>
       `
+
+      if (canAdd) {
+        return `
+          <form method="post" action="${this.addUrlValue}" data-turbo="true" class="${border}">
+            <input type="hidden" name="authenticity_token" value="${this.csrfToken()}">
+            <input type="hidden" name="supplier_product_id" value="${item.id}">
+            <input type="hidden" name="order_list_id" value="${this.selectedListId}">
+            <button type="submit" class="group w-full flex items-center justify-between px-4 py-3 text-left hover:bg-brand-orange/5 transition-colors cursor-pointer">
+              ${rowInner}
+            </button>
+          </form>
+        `
+      } else {
+        return `
+          <div class="flex items-center justify-between px-4 py-3 ${border}">
+            ${rowInner}
+          </div>
+        `
+      }
     }).join("")
   }
 

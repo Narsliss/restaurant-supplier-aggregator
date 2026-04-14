@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_04_06_134220) do
+ActiveRecord::Schema[7.1].define(version: 2026_04_14_211717) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -411,6 +411,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_04_06_134220) do
     t.text "supplier_delivery_address"
     t.string "supplier_name"
     t.datetime "draft_saved_at"
+    t.datetime "received_at"
     t.index ["batch_id"], name: "index_orders_on_batch_id"
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"
@@ -758,6 +759,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_04_06_134220) do
     t.integer "refresh_failures", default: 0, null: false
     t.bigint "location_id"
     t.integer "display_position", default: 0
+    t.jsonb "available_delivery_dates", default: []
+    t.datetime "delivery_dates_fetched_at"
     t.index ["location_id"], name: "index_supplier_credentials_on_location_id"
     t.index ["organization_id", "location_id"], name: "idx_supplier_creds_org_location"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"

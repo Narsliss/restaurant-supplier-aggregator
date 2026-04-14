@@ -1,6 +1,6 @@
 class OrdersController < ApplicationController
   before_action :require_organization!
-  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status, :retry_order]
+  before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status, :retry_order, :mark_received, :mark_unreceived]
   before_action :require_operator!, only: [:new, :create, :edit, :update, :destroy, :submit, :reorder, :select_list]
 
   def select_list
@@ -89,7 +89,11 @@ class OrdersController < ApplicationController
       all_orders.concat(pending_siblings)
     end
 
-    @order_groups = all_orders.group_by { |o| o.order_list_id || o.batch_id || "standalone_#{o.id}" }
+    # Group by batch_id (the actual submission session) first — each checkout creates one batch.
+    # Previously grouped by order_list_id, which lumped every historical session from the same
+    # list into one "Split Order" row with duplicate suppliers. Fall back to order_list_id for
+    # legacy orders without a batch_id, and to standalone per-order otherwise.
+    @order_groups = all_orders.group_by { |o| o.batch_id || o.order_list_id || "standalone_#{o.id}" }
       .values
       .sort_by { |group| group.map { |o| o.submitted_at || o.draft_saved_at || o.created_at }.compact.max || Time.at(0) }
       .reverse
@@ -243,6 +247,16 @@ class OrdersController < ApplicationController
     redirect_to order_path(@order)
   end
 
+  def mark_received
+    @order.mark_received!
+    redirect_back fallback_location: order_path(@order), notice: "Order marked as received."
+  end
+
+  def mark_unreceived
+    @order.mark_unreceived!
+    redirect_back fallback_location: order_path(@order), notice: "Received status cleared."
+  end
+
   # Reorder: clone a completed order's items into a new pending order at current prices
   def reorder
     if @order.processing?
@@ -328,6 +342,15 @@ class OrdersController < ApplicationController
       order_builder_aggregated_list_path(aggregated_list)
 
     if orders.any?
+      # If this submission came from "Continue Adding Items" on an existing draft/batch,
+      # the old batch's in-progress orders are now stale — remove them so the user doesn't see
+      # duplicates in Order History. We only do this AFTER the new batch is confirmed created.
+      if params[:previous_batch_id].present? && params[:previous_batch_id] != batch_id
+        scoped_orders.for_batch(params[:previous_batch_id])
+                     .where(status: %w[pending verifying price_changed draft])
+                     .destroy_all
+      end
+
       redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: aggregated_list.id),
         notice: "#{orders.size} order(s) ready for review across #{orders.map { |o| o.supplier.name }.join(', ')}."
     else
@@ -354,6 +377,23 @@ class OrdersController < ApplicationController
       .where(status: %w[pending verifying price_changed draft])
       .includes(:supplier, order_items: { supplier_product: :product })
 
+    # If no aggregated_list_id was passed (e.g., resume from Order History),
+    # infer one the user can actually access so "Continue Adding Items" works. Prefer:
+    #   (1) a matched list tied to the batch's location
+    #   (2) an org-wide promoted matched list
+    #   (3) any matched list in the org the user can see
+    if @aggregated_list_id.blank?
+      order_location = @orders.first&.location
+      order_org = @orders.first&.organization || order_location&.organization || current_user.current_organization
+      if order_org
+        scope = AggregatedList.for_organization(order_org).matched_lists
+        inferred = (order_location && scope.where(location_id: order_location.id).first) ||
+                   scope.promoted.first ||
+                   scope.first
+        @aggregated_list_id = inferred&.id
+      end
+    end
+
     if @orders.empty?
       # Check if they've all been submitted already
       submitted = scoped_orders.for_batch(@batch_id).where(status: %w[processing submitted confirmed])
@@ -365,9 +405,22 @@ class OrdersController < ApplicationController
       return
     end
 
-    # Re-verify draft orders only if prices are stale (verified > 1 hour ago)
-    # Skip orders where verification already failed — those need manual retry, not auto-retry loops
-    draft_orders_to_reverify = @orders.select { |o| o.draft? && o.verification_status != "failed" && (o.price_verified_at.nil? || o.price_verified_at < 1.hour.ago) }
+    # Touch draft_saved_at on every draft order in this batch — this resets the auto-expiry
+    # timer, so chefs revisiting a draft via "Return to Checkout" keep it alive another window.
+    drafts_in_batch = @orders.select(&:draft?)
+    if drafts_in_batch.any?
+      Order.where(id: drafts_in_batch.map(&:id)).update_all(draft_saved_at: Time.current)
+    end
+
+    # Re-verify draft orders only if prices are stale (verified > 1 hour ago).
+    # Skip orders where verification already failed OR was skipped (e.g., 2FA supplier needing
+    # re-login, maintenance) — those need manual retry, not auto-retry loops.
+    # Also skip orders with price_changed status (user must review/accept changes manually).
+    draft_orders_to_reverify = @orders.select { |o|
+      o.draft? &&
+        !o.verification_status.in?(%w[failed skipped price_changed]) &&
+        (o.price_verified_at.nil? || o.price_verified_at < 1.hour.ago)
+    }
     draft_orders_to_reverify.each do |order|
       # Clear stale delivery dates so the chef must pick a new one
       if order.delivery_date.present? && order.delivery_date <= Date.current
@@ -400,8 +453,10 @@ class OrdersController < ApplicationController
 
     # No reload needed — start_verification! already updated the in-memory objects
 
-    # Check if any are currently verifying (for UI state)
-    @verifying = @orders.any?(&:verifying?)
+    # Check if any are currently verifying (for UI state). Use verification_status as the
+    # source of truth — order.status can get stuck at "verifying" after a skip/fail, which
+    # would keep the inline poll script alive and show a misleading banner.
+    @verifying = @orders.any? { |o| o.verification_status.in?(%w[pending verifying]) }
     @has_price_changes = @orders.any?(&:price_changed?)
 
     # Build review data for each order

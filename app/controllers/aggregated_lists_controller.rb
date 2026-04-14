@@ -442,11 +442,18 @@ class AggregatedListsController < ApplicationController
       }
     end
 
-    # Pre-fill quantities from existing pending batch orders (when returning from review page)
+    # Pre-fill quantities from existing pending/draft/verifying batch orders (when returning from review page).
+    # Draft orders are what a completed verification produces; also include verifying & price_changed
+    # so "Continue Adding Items" works at any point in the pre-submission flow.
+    # IMPORTANT: we do NOT destroy the old batch here — if the user navigates away without submitting,
+    # their draft must survive. The old batch is destroyed only on successful form submission
+    # (see OrdersController#create_from_aggregated_list).
     @quantities = {}
     @delivery_date = nil
-    if params[:batch_id].present?
-      batch_orders = scoped_orders.for_batch(params[:batch_id]).pending
+    @batch_id = params[:batch_id].presence
+    if @batch_id
+      batch_orders = scoped_orders.for_batch(@batch_id)
+                       .where(status: %w[pending verifying price_changed draft])
                        .includes(order_items: :supplier_product)
       if batch_orders.any?
         @delivery_date = batch_orders.first.delivery_date
@@ -467,9 +474,6 @@ class AggregatedListsController < ApplicationController
             @quantities[match_id.to_s] = oi.quantity if match_id
           end
         end
-
-        # Delete the pending batch orders since user is re-editing
-        batch_orders.destroy_all
       end
     end
 

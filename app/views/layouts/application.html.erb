@@ -76,5 +76,77 @@
 
     <%= render "shared/two_factor_modal" if user_signed_in? %>
     <%= render "shared/feedback_modal" if user_signed_in? %>
+
+    <%# Loading overlay — visible during Turbo page transitions and form submissions %>
+    <div id="turbo-loading-overlay"
+         style="position:fixed;inset:0;z-index:45;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,0.6);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);pointer-events:none;">
+      <div style="display:flex;align-items:center;">
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+      </div>
+    </div>
+    <script>
+      (function() {
+        // Always target the current overlay in the DOM (survives Turbo body swaps)
+        function getOverlay() { return document.getElementById('turbo-loading-overlay'); }
+        var timer, safety;
+
+        function show() {
+          clearTimeout(timer);
+          clearTimeout(safety);
+          timer = setTimeout(function() {
+            var o = getOverlay();
+            if (o) o.style.display = 'flex';
+          }, 150);
+          safety = setTimeout(hide, 10000);
+        }
+
+        function hide() {
+          clearTimeout(timer);
+          clearTimeout(safety);
+          var o = getOverlay();
+          if (o) o.style.display = 'none';
+        }
+
+        // Turbo-driven navigation and form submissions — only for full-page visits, not frame loads
+        document.addEventListener('turbo:before-fetch-request', function(e) {
+          var headers = (e.detail && e.detail.fetchOptions && e.detail.fetchOptions.headers) || {};
+          var accept = headers.Accept || '';
+          if (accept.indexOf('text/html') === -1) return;
+          // Skip Turbo Frame requests (they don't fire turbo:load to hide)
+          if (e.target && e.target.tagName === 'TURBO-FRAME') return;
+          // Skip Turbo link prefetches triggered by hover (Turbo 8+)
+          if (headers['X-Sec-Purpose'] === 'prefetch') return;
+          show();
+        });
+        document.addEventListener('turbo:load', hide);
+        document.addEventListener('turbo:before-render', hide);
+        document.addEventListener('turbo:render', hide);
+        document.addEventListener('turbo:fetch-request-error', hide);
+
+        // Hide before Turbo caches so snapshots never contain the overlay
+        document.addEventListener('turbo:before-cache', hide);
+
+        // Hide on bfcache restoration (browser back to a page with overlay visible)
+        window.addEventListener('pageshow', function(e) { if (e.persisted) hide(); });
+
+        // Non-Turbo links (data-turbo="false") — show overlay immediately
+        // (no 150ms delay, because the browser may suspend JS timers
+        //  during full-page navigation before the timeout fires)
+        document.addEventListener('click', function(e) {
+          var link = e.target.closest('a[href]');
+          if (!link) return;
+          var href = link.getAttribute('href');
+          if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+          if (link.target === '_blank' || e.metaKey || e.ctrlKey) return;
+          if (link.dataset.turbo !== 'false' && !link.closest('[data-turbo="false"]')) return;
+          var o = getOverlay();
+          if (o) o.style.display = 'flex';
+          clearTimeout(safety);
+          safety = setTimeout(hide, 10000);
+        });
+      })();
+    </script>
   </body>
 </html>

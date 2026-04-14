@@ -111,10 +111,13 @@
 
         // Turbo-driven navigation — only for full-page visits, not frame loads
         document.addEventListener('turbo:before-fetch-request', function(e) {
-          var accept = (e.detail && e.detail.fetchOptions && e.detail.fetchOptions.headers && e.detail.fetchOptions.headers.Accept) || '';
+          var headers = (e.detail && e.detail.fetchOptions && e.detail.fetchOptions.headers) || {};
+          var accept = headers.Accept || '';
           if (accept.indexOf('text/html') === -1) return;
           // Skip Turbo Frame requests (they don't fire turbo:load to hide)
           if (e.target && e.target.tagName === 'TURBO-FRAME') return;
+          // Skip Turbo link prefetches triggered by hover (Turbo 8+)
+          if (headers['X-Sec-Purpose'] === 'prefetch') return;
           show();
         });
         document.addEventListener('turbo:load', hide);

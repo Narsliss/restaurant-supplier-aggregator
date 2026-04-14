@@ -1,4 +1,4 @@
-<div class="py-6" data-controller="catalog-modal" data-catalog-modal-url-value="<%= catalog_browse_aggregated_list_path(@aggregated_list) %>" data-catalog-modal-add-url-value="<%= add_product_aggregated_list_path(@aggregated_list) %>">
+<div class="py-6" data-controller="catalog-modal match-filter" data-catalog-modal-url-value="<%= catalog_browse_aggregated_list_path(@aggregated_list) %>" data-catalog-modal-add-url-value="<%= add_product_aggregated_list_path(@aggregated_list) %>">
   <div class="mb-6">
     <%= link_to "&larr; #{@aggregated_list.matched_list? ? 'Product Matching' : 'Compare Lists'}".html_safe, aggregated_lists_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
   </div>
@@ -78,20 +78,32 @@
     </div>
   </div>
 
-  <!-- Stats bar -->
+  <!-- Stats bar — clickable filters -->
   <div class="grid grid-cols-3 gap-4 mb-6">
-    <div class="bg-white shadow rounded-lg p-4 text-center">
+    <button type="button"
+            data-action="click->match-filter#setFilter"
+            data-filter="all"
+            data-match-filter-target="card"
+            class="bg-white shadow rounded-lg p-4 text-center transition-all ring-2 ring-brand-orange cursor-pointer hover:shadow-md focus:outline-none">
       <p class="text-2xl font-heading font-bold text-gray-900"><%= @stats[:total] %></p>
       <p class="text-sm text-gray-500">Total Products</p>
-    </div>
-    <div class="bg-white shadow rounded-lg p-4 text-center">
+    </button>
+    <button type="button"
+            data-action="click->match-filter#setFilter"
+            data-filter="matched"
+            data-match-filter-target="card"
+            class="bg-white shadow rounded-lg p-4 text-center transition-all ring-2 ring-transparent cursor-pointer hover:shadow-md focus:outline-none">
       <p class="text-2xl font-heading font-bold text-green-600"><%= @stats[:matched] %></p>
       <p class="text-sm text-gray-500">Matched</p>
-    </div>
-    <div class="bg-white shadow rounded-lg p-4 text-center">
+    </button>
+    <button type="button"
+            data-action="click->match-filter#setFilter"
+            data-filter="unmatched"
+            data-match-filter-target="card"
+            class="bg-white shadow rounded-lg p-4 text-center transition-all ring-2 ring-transparent cursor-pointer hover:shadow-md focus:outline-none">
       <p class="text-2xl font-heading font-bold text-amber-600"><%= @stats[:unmatched] %></p>
       <p class="text-sm text-gray-500">Unmatched</p>
-    </div>
+    </button>
   </div>
 
   <%# Add Supplier Guide section — only for non-matched (comparison) lists %>
@@ -150,7 +162,7 @@
         </div>
         <div>
           <p class="text-base font-semibold text-gray-900">Processing — please wait</p>
-          <p class="text-sm text-gray-600 mt-0.5">Matching products and searching catalog. This can take 2-5 minutes. The page will refresh automatically when complete.</p>
+          <p class="text-sm text-gray-600 mt-0.5">Matching products and searching catalog. This can take 2-5 minutes — feel free to navigate away; the page will refresh automatically when complete.</p>
         </div>
       </div>
     </div>
@@ -172,7 +184,7 @@
         </div>
         <div>
           <p class="text-base font-semibold text-blue-800">Searching full catalog — please wait</p>
-          <p class="text-sm text-blue-600 mt-0.5">Searching supplier products for matches to unmatched items. This can take 1-2 minutes. The page will refresh automatically when complete.</p>
+          <p class="text-sm text-blue-600 mt-0.5">Searching supplier products for matches to unmatched items. This can take 1-2 minutes — feel free to navigate away; the page will refresh automatically when complete.</p>
         </div>
       </div>
     </div>
@@ -194,7 +206,7 @@
   <% if @product_matches.any? %>
     <div id="match-cards-container" class="space-y-6">
       <% @sorted_categories.each do |category| %>
-        <div>
+        <div data-match-filter-target="categoryGroup">
           <div class="flex items-center gap-3 mb-3">
             <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wider border-l-4 border-brand-orange pl-3"><%= category %></h3>
             <span class="text-xs text-gray-400"><%= @grouped_matches[category].size %></span>
@@ -202,12 +214,15 @@
           </div>
           <div class="space-y-3">
             <% @grouped_matches[category].each do |match| %>
-              <div id="<%= dom_id(match) %>" class="bg-white shadow rounded-lg <%= match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
+              <div id="<%= dom_id(match) %>"
+                   data-match-filter-target="row"
+                   data-match-status="<%= match.unmatched? ? 'unmatched' : 'matched' %>"
+                   class="bg-white shadow rounded-lg <%= match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
                 <div class="flex flex-col sm:flex-row">
                   <%= render "aggregated_lists/match_row_left", match: match, aggregated_list: @aggregated_list %>
 
-                  <%# Right: Grid of supplier cells %>
-                  <div class="flex-1" style="padding:10px;">
+                  <%# Right: Grid of supplier cells (min-w-0 prevents long product names from blowing out the row width) %>
+                  <div class="flex-1 min-w-0" style="padding:10px;">
                     <% total_supplier_cols = @suppliers.size + (@unconnected_suppliers&.size || 0) %>
                     <div class="grid" style="grid-template-columns: repeat(<%= total_supplier_cols %>, 1fr); gap: 6px;">
                       <% price_info = @price_data[match.id] %>
@@ -244,6 +259,15 @@
                             <div class="text-gray-400" style="font-size:10px; margin-top:2px;"><%= teaser_product.pack_size %></div>
                             <% if teaser_product.current_price %>
                               <div class="text-gray-500 font-bold" style="font-size:14px; margin-top:4px;"><%= number_to_currency(teaser_product.current_price) %></div>
+                            <% end %>
+                            <%# Desktop-only pill: link to connect this supplier %>
+                            <%= link_to new_supplier_credential_path(supplier_id: supplier.id),
+                                class: "hidden sm:inline-flex items-center gap-1 rounded-full bg-brand-orange/10 text-brand-orange hover:bg-brand-orange hover:text-white transition-colors font-medium",
+                                style: "margin-top:6px; padding:2px 8px; font-size:10px;" do %>
+                              <svg fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width:10px; height:10px;">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                              </svg>
+                              Add this supplier
                             <% end %>
                           </div>
                         <% end %>

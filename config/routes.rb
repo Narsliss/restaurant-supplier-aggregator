@@ -187,6 +187,7 @@ Rails.application.routes.draw do
       get :price_comparison
       post :add_match
       post :remove_match
+      post :toggle_favorite
     end
     resources :order_list_items, only: %i[create update destroy]
   end
@@ -206,6 +207,8 @@ Rails.application.routes.draw do
       post :reorder
       get :placement_status
       post :retry_order
+      post :mark_received
+      post :mark_unreceived
     end
     collection do
       get :select_list

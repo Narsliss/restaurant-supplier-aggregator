@@ -154,7 +154,7 @@
           <% if credential.failed? && credential.supplier.password_auth? %>
             <div data-reconnect-banner class="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
               <p class="text-xs font-medium text-red-800">Login failed</p>
-              <p class="text-xs text-red-600 mt-0.5">Try <strong>Validate</strong> to re-test, or <strong>Edit</strong> to update credentials.</p>
+              <p class="text-xs text-red-600 mt-0.5">Your password may have changed. Use <strong>Update Information</strong> below to reconnect.</p>
             </div>
           <% end %>
 
@@ -163,13 +163,22 @@
 
           <%# Action buttons — compact grid for card layout %>
           <div class="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
-            <button type="button"
-                    data-credential-validator-target="validateBtn"
-                    data-action="click->credential-validator#startValidation"
-                    class="<%= fully_healthy ? 'hidden' : 'inline-flex' %> items-center px-2.5 py-1 text-xs font-medium rounded-md border transition-colors <%= needs_reconnect ? 'border-red-400 bg-red-50 text-red-700 hover:bg-red-100 ring-1 ring-red-300' : 'border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white' %>">
-              <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              Validate
-            </button>
+            <% if credential.failed? && credential.supplier.password_auth? %>
+              <%# Failed password login — direct user to Update rather than re-Validate (saving the form re-validates) %>
+              <%= link_to edit_supplier_credential_path(credential),
+                  class: "inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors ring-1 ring-red-700" do %>
+                <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+                Update Information
+              <% end %>
+            <% else %>
+              <button type="button"
+                      data-credential-validator-target="validateBtn"
+                      data-action="click->credential-validator#startValidation"
+                      class="<%= fully_healthy ? 'hidden' : 'inline-flex' %> items-center px-2.5 py-1 text-xs font-medium rounded-md border transition-colors <%= needs_reconnect ? 'border-red-400 bg-red-50 text-red-700 hover:bg-red-100 ring-1 ring-red-300' : 'border-brand-orange text-brand-orange hover:bg-brand-orange hover:text-white' %>">
+                <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Validate
+              </button>
+            <% end %>
             <% if credential.active? %>
               <%= button_to import_lists_supplier_credential_path(credential),
                   method: :post,
@@ -179,8 +188,9 @@
               <% end %>
             <% end %>
             <div class="flex-1"></div>
-            <%= link_to edit_supplier_credential_path(credential), class: "inline-flex items-center px-2 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors" do %>
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+            <%= link_to edit_supplier_credential_path(credential), title: "Edit credential", class: "inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-brand-orange/40 text-brand-orange hover:bg-brand-orange hover:text-white hover:border-brand-orange transition-colors" do %>
+              <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
+              Edit
             <% end %>
             <%= button_to supplier_credential_path(credential), method: :delete, data: { turbo_confirm: "Are you sure you want to remove these credentials?" }, class: "inline-flex items-center px-2 py-1 text-xs font-medium rounded-md border border-red-200 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors" do %>
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
