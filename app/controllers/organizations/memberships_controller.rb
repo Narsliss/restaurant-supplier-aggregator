@@ -1,7 +1,7 @@
 module Organizations
   class MembershipsController < ApplicationController
     before_action :set_organization
-    before_action :require_owner!
+    before_action :require_owner_or_manager!
     before_action :set_membership, only: [:update, :destroy, :update_locations]
 
     def update

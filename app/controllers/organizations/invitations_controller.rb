@@ -1,7 +1,7 @@
 module Organizations
   class InvitationsController < ApplicationController
     before_action :set_organization, except: [:accept]
-    before_action :require_owner!, except: [:accept]
+    before_action :require_owner_or_manager!, except: [:accept]
     before_action :set_invitation, only: %i[edit update]
     skip_before_action :authenticate_user!, only: [:accept]
 
