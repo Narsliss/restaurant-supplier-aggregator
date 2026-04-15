@@ -156,10 +156,12 @@
               <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Team</span>
               <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Billing</span>
               <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Restaurants</span>
-            <% elsif owner? %>
+            <% elsif manager_or_owner? %>
               <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-              <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-              <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <% if owner? %>
+                <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+                <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <% end %>
             <% end %>
             <% if current_user.super_admin? %>
               <%= link_to "Admin Dashboard", admin_root_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
@@ -311,10 +313,12 @@
           <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Team</span>
           <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Billing</span>
           <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Restaurants</span>
-        <% elsif owner? %>
+        <% elsif manager_or_owner? %>
           <%= link_to "Team", organization_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
-          <%= link_to "Billing", subscription_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
-          <%= link_to "Restaurants", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+          <% if owner? %>
+            <%= link_to "Billing", subscription_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+            <%= link_to "Restaurants", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+          <% end %>
         <% end %>
         <% if current_user.super_admin? %>
           <%= link_to "Admin Dashboard", admin_root_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
