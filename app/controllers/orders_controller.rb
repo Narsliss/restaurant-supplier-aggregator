@@ -1,4 +1,6 @@
 class OrdersController < ApplicationController
+  include DeliveryDatesRefresher
+
   before_action :require_organization!
   before_action :set_order, only: [:show, :edit, :update, :destroy, :submit, :cancel, :reorder, :placement_status, :retry_order, :mark_received, :mark_unreceived]
   before_action :require_operator!, only: [:new, :create, :edit, :update, :destroy, :submit, :reorder, :select_list]
@@ -521,12 +523,22 @@ class OrdersController < ApplicationController
       .order(:day_of_week)
       .group_by(&:supplier_id)
 
+    api_capable_credentials = scoped_credentials.active
+                                                .where(supplier_id: supplier_ids)
+                                                .includes(:supplier)
+                                                .to_a
     @api_delivery_dates_by_supplier = {}
-    scoped_credentials.active.where(supplier_id: supplier_ids)
-      .where.not(available_delivery_dates: [nil, []])
-      .each do |cred|
-        @api_delivery_dates_by_supplier[cred.supplier_id] = cred.available_delivery_dates
-      end
+    api_capable_credentials.each do |cred|
+      next if cred.available_delivery_dates.blank?
+
+      @api_delivery_dates_by_supplier[cred.supplier_id] = cred.available_delivery_dates
+    end
+
+    # Auto-refresh stale API delivery dates (Sysco today). Runs async — the
+    # current page uses whatever's cached; the next page load picks up the
+    # refreshed values. See FetchSyscoDeliveryDatesJob for the freshness
+    # window and dedupe behavior.
+    refresh_stale_delivery_dates!(api_capable_credentials)
   end
 
   # Search supplier products for the "Forgot Something?" modal on the review page.

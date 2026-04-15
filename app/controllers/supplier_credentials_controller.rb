@@ -119,6 +119,7 @@ class SupplierCredentialsController < ApplicationController
 
   def edit
     load_requirement_values
+    load_delivery_schedule_values
   end
 
   def update
@@ -491,6 +492,14 @@ class SupplierCredentialsController < ApplicationController
     # Clear zero values so the form shows blank instead of "0"
     @order_minimum = nil if @order_minimum.to_f.zero?
     @case_minimum = nil if @case_minimum.to_i.zero?
+  end
+
+  def load_delivery_schedule_values
+    # API-fetched delivery dates (e.g. Sysco's getDeliveryDays). Supplier
+    # flags whether it exposes such an API via api_delivery_dates?; the
+    # view only renders this section when it does.
+    @api_delivery_dates = @credential.available_delivery_dates.presence
+    @api_delivery_dates_fetched_at = @credential.delivery_dates_fetched_at
   end
 
   def save_supplier_requirements

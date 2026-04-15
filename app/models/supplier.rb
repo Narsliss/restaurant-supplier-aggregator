@@ -59,6 +59,20 @@ class Supplier < ApplicationRecord
     !password_auth?
   end
 
+  # Indicates whether this supplier exposes an API we can use to discover
+  # which delivery dates are valid for the customer. Returns :api when we
+  # have an integration, nil when we don't. Used to gate delivery schedule
+  # UI so we only show it for suppliers where it means something.
+  def delivery_dates_source
+    case code
+    when 'sysco' then :api
+    end
+  end
+
+  def api_delivery_dates?
+    delivery_dates_source == :api
+  end
+
   # Email supplier helpers
   def latest_price_list
     return nil unless email_supplier? && contact_email.present?

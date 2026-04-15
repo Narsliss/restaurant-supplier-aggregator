@@ -1,6 +1,9 @@
 class OrganizationsController < ApplicationController
   before_action :set_organization, only: [:show, :edit, :update, :update_requirement, :update_delivery_schedule]
-  before_action :require_owner!, only: [:edit, :update, :update_requirement, :update_delivery_schedule]
+  # Org-level management (renaming, plan changes, etc.) stays owner-only.
+  # Operational config (supplier requirements, delivery schedules) is open to all
+  # members — on-site chefs/managers know the reality better than a remote owner.
+  before_action :require_owner!, only: [:edit, :update]
 
   def show
     @members = @organization.memberships.active.includes(:user, :locations).order(:role, :created_at)
@@ -9,40 +12,48 @@ class OrganizationsController < ApplicationController
     @seat_count = @organization.seat_count
     @seat_limit = @organization.seat_limit
 
-    # Supplier requirements for owner view
-    if owner?
-      connected_supplier_ids = SupplierCredential.where(organization: @organization).select(:supplier_id).distinct
-      @suppliers = Supplier.active.where(id: connected_supplier_ids).order(:name)
-      supplier_ids = @suppliers.pluck(:id)
-      location_ids = @locations.pluck(:id)
+    # Supplier operational config — available to all members.
+    # On-site chefs/managers know the reality of their supplier relationships
+    # (delivery days, minimums) better than a remote multi-location owner.
+    connected_supplier_ids = SupplierCredential.where(organization: @organization).select(:supplier_id).distinct
+    @suppliers = Supplier.active.where(id: connected_supplier_ids).order(:name)
+    supplier_ids = @suppliers.pluck(:id)
+    location_ids = @locations.pluck(:id)
 
-      # Case minimums
-      @case_minimums = SupplierRequirement.where(
-        requirement_type: 'case_minimum', active: true,
-        supplier_id: supplier_ids, location_id: location_ids
-      ).index_by { |r| [r.supplier_id, r.location_id] }
+    # API-fetched delivery dates per supplier — we roll up across all of the
+    # organization's credentials for that supplier and pick the most recently
+    # synced record. Only suppliers with api_delivery_dates? get rendered.
+    @api_delivery_by_supplier = {}
+    SupplierCredential
+      .where(organization: @organization, supplier_id: supplier_ids)
+      .where.not(available_delivery_dates: [nil, []])
+      .order(delivery_dates_fetched_at: :desc)
+      .each do |cred|
+        @api_delivery_by_supplier[cred.supplier_id] ||= {
+          dates: cred.available_delivery_dates,
+          fetched_at: cred.delivery_dates_fetched_at
+        }
+      end
 
-      @global_case_minimums = SupplierRequirement.where(
-        requirement_type: 'case_minimum', active: true,
-        supplier_id: supplier_ids, location_id: nil
-      ).index_by(&:supplier_id)
+    @case_minimums = SupplierRequirement.where(
+      requirement_type: 'case_minimum', active: true,
+      supplier_id: supplier_ids, location_id: location_ids
+    ).index_by { |r| [r.supplier_id, r.location_id] }
 
-      # Order (dollar) minimums
-      @order_minimums = SupplierRequirement.where(
-        requirement_type: 'order_minimum', active: true,
-        supplier_id: supplier_ids, location_id: location_ids
-      ).index_by { |r| [r.supplier_id, r.location_id] }
+    @global_case_minimums = SupplierRequirement.where(
+      requirement_type: 'case_minimum', active: true,
+      supplier_id: supplier_ids, location_id: nil
+    ).index_by(&:supplier_id)
 
-      @global_order_minimums = SupplierRequirement.where(
-        requirement_type: 'order_minimum', active: true,
-        supplier_id: supplier_ids, location_id: nil
-      ).index_by(&:supplier_id)
+    @order_minimums = SupplierRequirement.where(
+      requirement_type: 'order_minimum', active: true,
+      supplier_id: supplier_ids, location_id: location_ids
+    ).index_by { |r| [r.supplier_id, r.location_id] }
 
-      # Delivery schedules
-      @delivery_schedules = SupplierDeliverySchedule.where(
-        supplier_id: supplier_ids, active: true, location_id: nil
-      ).order(:day_of_week).group_by(&:supplier_id)
-    end
+    @global_order_minimums = SupplierRequirement.where(
+      requirement_type: 'order_minimum', active: true,
+      supplier_id: supplier_ids, location_id: nil
+    ).index_by(&:supplier_id)
   end
 
   def new

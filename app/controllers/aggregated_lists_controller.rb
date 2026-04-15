@@ -1,4 +1,6 @@
 class AggregatedListsController < ApplicationController
+  include DeliveryDatesRefresher
+
   before_action :require_location_context!
   before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search catalog_browse add_product]
   before_action :require_owner!, only: %i[promote demote]
@@ -450,16 +452,28 @@ class AggregatedListsController < ApplicationController
       .order(:day_of_week)
       .group_by(&:supplier_id)
 
-    # API-fetched available delivery dates from credentials (e.g., Sysco)
+    # API-fetched available delivery dates from credentials (e.g., Sysco).
+    # We read whatever's currently stored — the refresh below runs async and
+    # will update the DB in place; the next page load picks it up.
+    api_capable_credentials = scoped_credentials.active
+                                                .where(supplier_id: supplier_ids)
+                                                .includes(:supplier)
+                                                .to_a
     @api_delivery_dates_by_supplier = {}
-    scoped_credentials.active.where(supplier_id: supplier_ids)
-      .where.not(available_delivery_dates: [nil, []])
-      .each do |cred|
-        @api_delivery_dates_by_supplier[cred.supplier_id] = {
-          dates: cred.available_delivery_dates,
-          fetched_at: cred.delivery_dates_fetched_at
-        }
-      end
+    api_capable_credentials.each do |cred|
+      next if cred.available_delivery_dates.blank?
+
+      @api_delivery_dates_by_supplier[cred.supplier_id] = {
+        dates: cred.available_delivery_dates,
+        fetched_at: cred.delivery_dates_fetched_at
+      }
+    end
+
+    # Auto-refresh: if any Sysco credential's dates are stale (>4h) or missing,
+    # kick off a background refetch. No UI prompt, no chef action — the dates
+    # either update silently for the next page load, or the user proceeds with
+    # the slightly-stale cache (the submit-time validation catches any drift).
+    refresh_stale_delivery_dates!(api_capable_credentials)
 
     # Pre-fill quantities from existing pending/draft/verifying batch orders (when returning from review page).
     # Draft orders are what a completed verification produces; also include verifying & price_changed

@@ -136,6 +136,55 @@
       </div>
     <% end %>
 
+    <%# Delivery Schedule — only shown for suppliers whose API provides delivery dates.
+        Read-only card: we fetch dates automatically on credential creation and refresh
+        them whenever the chef visits the order builder. No manual configuration needed. %>
+    <% if credential.persisted? && credential.supplier.api_delivery_dates? %>
+      <div class="border-t border-gray-100 pt-5 mt-2">
+        <h3 class="text-sm font-semibold text-gray-900 mb-1">Delivery Schedule</h3>
+        <p class="text-xs text-gray-500 mb-4">
+          <%= credential.supplier.name %> tells us which days they can deliver to your location.
+          This updates automatically — no setup required.
+        </p>
+
+        <% if @api_delivery_dates&.any? %>
+          <% parsed_dates = @api_delivery_dates.map { |d| Date.parse(d) rescue nil }.compact.sort %>
+          <% upcoming = parsed_dates.select { |d| d >= Date.current }.first(8) %>
+          <div class="bg-brand-green/5 border border-brand-green/20 rounded-lg p-3">
+            <div class="flex items-start gap-2">
+              <svg class="w-4 h-4 text-brand-green flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-900">
+                  Delivery dates auto-updated from <%= credential.supplier.name %>
+                </p>
+                <% if @api_delivery_dates_fetched_at %>
+                  <p class="text-xs text-gray-500 mt-0.5">
+                    Last synced <%= time_ago_in_words(@api_delivery_dates_fetched_at) %> ago
+                  </p>
+                <% end %>
+                <% if upcoming.any? %>
+                  <p class="text-xs text-gray-500 mt-2 mb-1.5">Upcoming available delivery dates:</p>
+                  <div class="flex flex-wrap gap-1.5">
+                    <% upcoming.each do |d| %>
+                      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-white border border-brand-green/30 text-gray-700">
+                        <%= d.strftime("%a %b %-d") %>
+                      </span>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+          </div>
+        <% else %>
+          <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-500">
+            Delivery dates will appear here once the first sync completes (usually within 2 minutes of adding the credential).
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+
     <%# Action buttons %>
     <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-2 border-t border-gray-100">
       <%= link_to "Cancel", supplier_credentials_path, class: "px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-center transition-colors" %>
