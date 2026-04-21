@@ -294,7 +294,7 @@ class SupplierCredentialsController < ApplicationController
       status: 'pending'
     ).where('expires_at > ?', Time.current).order(created_at: :desc).first
 
-    Rails.logger.info "[2FA] Submit code for credential #{@credential.id} (#{@credential.supplier.name}) - User: #{current_user.email}"
+    Rails.logger.info "[2FA] Submit code for credential #{@credential.id} (#{@credential.supplier.name}) - User: ##{current_user.id}"
     Rails.logger.info "[2FA] Code provided: #{code.present? ? 'Yes' : 'No'}, length: #{code.length}"
     Rails.logger.info "[2FA] Pending requests found: #{Supplier2faRequest.where(user: current_user,
                                                                                 supplier_credential: @credential, status: 'pending').count}"

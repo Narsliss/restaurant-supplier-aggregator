@@ -41,7 +41,7 @@ class StaggeredSupplierImportJob < ApplicationJob
       else
         ImportSupplierProductsJob.set(wait: (queued * 5).minutes).perform_later(supplier.id, credential.id, log.id)
       end
-      Rails.logger.info "[StaggeredSupplierImportJob] Queued import for #{supplier.name} using credential #{credential.id} (#{credential.user.email}) in #{queued * 5}m"
+      Rails.logger.info "[StaggeredSupplierImportJob] Queued import for #{supplier.name} using credential #{credential.id} (user ##{credential.user.id}) in #{queued * 5}m"
       queued += 1
     end
   end
