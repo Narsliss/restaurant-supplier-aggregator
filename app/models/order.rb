@@ -16,6 +16,7 @@ class Order < ApplicationRecord
     in: %w[pending verifying verified price_changed failed skipped],
     allow_nil: true
   }
+  validate :location_belongs_to_same_organization
 
   # Organization scoping
   belongs_to :organization, optional: true
@@ -340,5 +341,12 @@ class Order < ApplicationRecord
 
   def snapshot_supplier_name
     self.supplier_name ||= supplier&.name
+  end
+
+  def location_belongs_to_same_organization
+    return unless location_id_changed? && location.present? && organization_id.present?
+    if location.organization_id != organization_id
+      errors.add(:location_id, "must be in this organization")
+    end
   end
 end

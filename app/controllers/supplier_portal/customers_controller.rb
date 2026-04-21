@@ -66,7 +66,10 @@ class SupplierPortal::CustomersController < SupplierPortal::BaseController
   end
 
   def show
-    @organization = Organization.find(params[:id])
+    @organization = Organization.joins(:orders)
+                                .where(orders: { supplier_id: current_supplier.id })
+                                .distinct
+                                .find(params[:id])
     org_orders = scoped_orders.where(organization_id: @organization.id)
     raise ActiveRecord::RecordNotFound if org_orders.none?
 
