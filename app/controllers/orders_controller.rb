@@ -377,7 +377,7 @@ class OrdersController < ApplicationController
     @orders = scoped_orders
       .for_batch(@batch_id)
       .where(status: %w[pending verifying price_changed draft])
-      .includes(:supplier, order_items: { supplier_product: :product })
+      .includes(:supplier, :location, order_items: { supplier_product: :product })
 
     # If no aggregated_list_id was passed (e.g., resume from Order History),
     # infer one the user can actually access so "Continue Adding Items" works. Prefer:
