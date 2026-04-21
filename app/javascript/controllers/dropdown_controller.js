@@ -7,6 +7,10 @@ export default class extends Controller {
     this.closeOnClickOutside = this.closeOnClickOutside.bind(this)
   }
 
+  disconnect() {
+    document.removeEventListener("click", this.closeOnClickOutside)
+  }
+
   toggle() {
     if (this.menuTarget.classList.contains("hidden")) {
       this.open()

@@ -11,6 +11,12 @@ export default class extends Controller {
     }
   }
 
+  disconnect() {
+    if (this.timeout) clearTimeout(this.timeout)
+    document.removeEventListener("keydown", this._handleKeydown)
+    document.body.style.overflow = ""
+  }
+
   open() {
     this.modalTarget.classList.remove("hidden")
     document.addEventListener("keydown", this._handleKeydown)

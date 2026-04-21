@@ -13,6 +13,8 @@ export default class extends Controller {
 
   disconnect() {
     window.removeEventListener("feedback:open", this._handleOpen)
+    document.removeEventListener("keydown", this._handleKeydown)
+    document.body.style.overflow = ""
   }
 
   open() {
