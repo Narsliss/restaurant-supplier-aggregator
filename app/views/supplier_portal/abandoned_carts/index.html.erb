@@ -24,8 +24,8 @@
         <% if card[:change] %>
           <% change_str = card[:change] > 0 ? "+#{card[:change]}%" : "#{card[:change]}%" %>
           <%# Inverted: increase in abandoned carts is bad (red), decrease is good (green) %>
-          <% color = card[:change] > 0 ? "color: #dc2626;" : card[:change] < 0 ? "color: #16a34a;" : "color: #6b7280;" %>
-          <p class="mt-1 text-sm" style="<%= color %>"><%= change_str %> vs prior period</p>
+          <% trend_class = card[:change] > 0 ? "text-red-600" : card[:change] < 0 ? "text-green-600" : "text-gray-500" %>
+          <p class="mt-1 text-sm <%= trend_class %>"><%= change_str %> vs prior period</p>
         <% else %>
           <p class="mt-1 text-sm text-gray-400">—</p>
         <% end %>

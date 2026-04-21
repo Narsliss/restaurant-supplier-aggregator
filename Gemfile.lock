@@ -98,6 +98,9 @@ GEM
     bootsnap (1.21.1)
       msgpack (~> 1.2)
     builder (3.3.0)
+    bullet (8.1.0)
+      activesupport (>= 3.0.0)
+      uniform_notifier (~> 1.11)
     capybara (3.40.0)
       addressable
       matrix
@@ -401,6 +404,12 @@ GEM
       rexml (~> 3.2, >= 3.2.5)
       rubyzip (>= 1.2.2, < 4.0)
       websocket (~> 1.0)
+    sentry-rails (5.28.1)
+      railties (>= 5.0)
+      sentry-ruby (~> 5.28.1)
+    sentry-ruby (5.28.1)
+      bigdecimal
+      concurrent-ruby (~> 1.0, >= 1.0.2)
     shoulda-matchers (7.0.1)
       activesupport (>= 7.1)
     simplecov (0.22.0)
@@ -458,6 +467,7 @@ GEM
     unicode-display_width (3.2.0)
       unicode-emoji (~> 4.1)
     unicode-emoji (4.2.0)
+    uniform_notifier (1.18.0)
     uri (1.1.1)
     vcr (6.4.0)
     warden (1.2.9)
@@ -498,6 +508,7 @@ DEPENDENCIES
   attr_encrypted (~> 4.0)
   bcrypt (~> 3.1)
   bootsnap
+  bullet
   capybara
   database_cleaner-active_record
   debug
@@ -525,6 +536,8 @@ DEPENDENCIES
   ruby-openai (~> 7.0)
   secure_headers (~> 6.5)
   selenium-webdriver
+  sentry-rails (~> 5.22)
+  sentry-ruby (~> 5.22)
   shoulda-matchers
   simplecov
   solid_cable (~> 0.3)

@@ -197,6 +197,7 @@ class AiProductCategorizer
       parse_ai_response(response.dig("choices", 0, "message", "content"))
     rescue => e
       Rails.logger.error "[AiProductCategorizer] AI categorization failed: #{e.message}"
+      Sentry.capture_exception(e)
       { category: nil, subcategory: nil, confidence: 0.0 }
     end
 
@@ -227,6 +228,7 @@ class AiProductCategorizer
       results
     rescue => e
       Rails.logger.error "[AiProductCategorizer] Batch AI categorization failed: #{e.message}"
+      Sentry.capture_exception(e, extra: { batch_size: product_names.size })
       product_names.map { { category: nil, subcategory: nil, confidence: 0.0 } }
     end
 

@@ -21,6 +21,10 @@ gem "attr_encrypted", "~> 4.0"
 gem "secure_headers", "~> 6.5"
 gem "bcrypt", "~> 3.1"
 
+# Error tracking
+gem "sentry-ruby", "~> 5.22"
+gem "sentry-rails", "~> 5.22"
+
 # Payments
 gem "stripe", "~> 12.0"
 
@@ -69,6 +73,7 @@ group :development do
   gem "annotate"
   gem "rubocop-rails", require: false
   gem "letter_opener"
+  gem "bullet"
 end
 
 group :test do

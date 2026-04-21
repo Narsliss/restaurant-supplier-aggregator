@@ -79,6 +79,7 @@ class PdfParsingService
     { success: true, product_count: price_list.product_count }
   rescue => e
     Rails.logger.error "[PdfParsing] Failed to parse price list #{price_list.id}: #{e.class}: #{e.message}"
+    Sentry.capture_exception(e, extra: { price_list_id: price_list.id })
 
     price_list.update!(
       status: 'failed',

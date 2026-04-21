@@ -77,6 +77,7 @@ class AiProductGrouper
     true
   rescue StandardError => e
     Rails.logger.error "[AiGrouper] Failed to merge #{duplicate_id} into #{primary_id}: #{e.message}"
+    Sentry.capture_exception(e, extra: { primary_id: primary_id, duplicate_id: duplicate_id })
     false
   end
 
@@ -133,6 +134,7 @@ class AiProductGrouper
   rescue StandardError => e
     @results[:errors] << "#{sp.supplier_name}: #{e.message}"
     Rails.logger.warn "[AiGrouper] Error processing #{sp.id}: #{e.message}"
+    Sentry.capture_exception(e, extra: { supplier_product_id: sp.id, supplier_name: sp.supplier_name })
   end
 
   def find_candidate_products(supplier_name)

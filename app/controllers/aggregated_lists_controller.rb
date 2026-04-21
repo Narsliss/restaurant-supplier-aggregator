@@ -43,7 +43,7 @@ class AggregatedListsController < ApplicationController
     @supplier_lists = @aggregated_list.supplier_lists.includes(:supplier)
     @product_matches = @aggregated_list.product_matches
                                        .where.not(match_status: 'rejected')
-                                       .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+                                       .includes(product_match_items: [:supplier, { supplier_list_item: [:supplier_product, :supplier_list] }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     @suppliers = sort_suppliers_for_user(@supplier_lists.map(&:supplier).uniq)
 
@@ -407,7 +407,7 @@ class AggregatedListsController < ApplicationController
 
     @product_matches = @aggregated_list.product_matches
                                        .where.not(match_status: 'rejected')
-                                       .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+                                       .includes(product_match_items: [:supplier, { supplier_list_item: [:supplier_product, :supplier_list] }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     # Show suppliers the user has active credentials for, plus email suppliers (no credentials needed)
     available_supplier_ids = scoped_credentials.active.pluck(:supplier_id).to_set

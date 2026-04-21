@@ -27,8 +27,8 @@
         <p class="mt-2 text-2xl font-bold text-gray-900"><%= card[:value] %></p>
         <% if card[:change] %>
           <% change_str = card[:change] > 0 ? "+#{card[:change]}%" : "#{card[:change]}%" %>
-          <% color = card[:change] > 0 ? "color: #16a34a;" : card[:change] < 0 ? "color: #dc2626;" : "color: #6b7280;" %>
-          <p class="mt-1 text-sm" style="<%= color %>"><%= change_str %> vs prior period</p>
+          <% trend_class = card[:change] > 0 ? "text-green-600" : card[:change] < 0 ? "text-red-600" : "text-gray-500" %>
+          <p class="mt-1 text-sm <%= trend_class %>"><%= change_str %> vs prior period</p>
         <% end %>
       </div>
     <% end %>
