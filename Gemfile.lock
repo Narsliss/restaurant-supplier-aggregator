@@ -299,6 +299,8 @@ GEM
     raabro (1.4.0)
     racc (1.8.1)
     rack (3.2.4)
+    rack-attack (6.8.0)
+      rack (>= 1.0, < 4)
     rack-mini-profiler (4.0.1)
       rack (>= 1.2.0)
     rack-session (2.1.1)
@@ -529,6 +531,7 @@ DEPENDENCIES
   prawn (~> 2.5)
   prawn-table (~> 0.2)
   puma (~> 6.4)
+  rack-attack (~> 6.7)
   rack-mini-profiler
   rails (~> 7.1.0)
   rspec-rails (~> 6.1)

@@ -1,7 +1,7 @@
 class User < ApplicationRecord
   devise :database_authenticatable, :registerable,
          :recoverable, :rememberable, :validatable,
-         :trackable, :lockable
+         :trackable, :lockable, :timeoutable
 
   # Associations
   # Organization memberships

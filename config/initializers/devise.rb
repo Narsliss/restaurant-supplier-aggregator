@@ -23,8 +23,8 @@ Devise.setup do |config|
   config.unlock_in = 1.hour
   config.last_attempt_warning = true
 
-  # Timeout (optional)
-  # config.timeout_in = 30.minutes
+  # Timeout: idle sessions expire after 8 hours (one shift length)
+  config.timeout_in = 8.hours
 
   config.navigational_formats = ["*/*", :html, :turbo_stream]
   # Scoped views — required for multi-model Devise (User + SupplierUser)

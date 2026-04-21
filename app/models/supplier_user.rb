@@ -1,6 +1,6 @@
 class SupplierUser < ApplicationRecord
   devise :database_authenticatable, :recoverable, :rememberable,
-         :validatable, :trackable, :lockable
+         :validatable, :trackable, :lockable, :timeoutable
 
   belongs_to :supplier
 

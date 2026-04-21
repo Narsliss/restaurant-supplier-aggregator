@@ -25,6 +25,9 @@ gem "bcrypt", "~> 3.1"
 gem "sentry-ruby", "~> 5.22"
 gem "sentry-rails", "~> 5.22"
 
+# Rate limiting / abuse throttling
+gem "rack-attack", "~> 6.7"
+
 # Payments
 gem "stripe", "~> 12.0"
 
