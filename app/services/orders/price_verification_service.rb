@@ -50,13 +50,17 @@ module Orders
           return skip_verification!("#{order.supplier.name} session expired. Using last imported prices.")
         end
       end
-      skus = order.order_items.includes(:supplier_product).map { |item| item.supplier_product.supplier_sku }.compact
+      sku_queries = order.order_items.includes(:supplier_product).map do |item|
+        sku = item.supplier_product&.supplier_sku
+        next nil unless sku
+        { sku: sku, uom: item.uom }
+      end.compact
 
-      if skus.empty?
+      if sku_queries.empty?
         return fail_verification!("No products to verify for this order.")
       end
 
-      verified_prices = fetch_prices(scraper, skus)
+      verified_prices = fetch_prices(scraper, sku_queries)
       @delivery_address = scraper.last_delivery_address
       compare_prices(verified_prices)
 
@@ -114,13 +118,13 @@ module Orders
         .first
     end
 
-    def fetch_prices(scraper, skus)
+    def fetch_prices(scraper, sku_queries)
       prices = {}
 
       # Each scraper's scrape_prices opens its own browser session via with_browser,
       # handles login/session restore, and closes the browser when done.
       # We must NOT wrap in an outer with_browser — that causes nested browsers.
-      results = scraper.scrape_prices(skus)
+      results = scraper.scrape_prices(sku_queries)
       results.each do |result|
         prices[result[:supplier_sku]] = {
           price: result[:current_price],
@@ -140,8 +144,11 @@ module Orders
         if verified && verified[:price]
           item.update!(verified_price: verified[:price])
 
-          # Also update the supplier product's cached price
-          if verified[:price] != item.supplier_product.current_price
+          # Also update the supplier product's cached price — but only when
+          # we verified at the case price (the convention for current_price).
+          # PC verifications return the per-piece price, which would corrupt
+          # the cache used by catalog/builder/comparison views.
+          if item.uom != "PC" && verified[:price] != item.supplier_product.current_price
             item.supplier_product.update_price!(verified[:price], in_stock: verified[:in_stock])
           end
 

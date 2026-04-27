@@ -110,6 +110,7 @@ module Scrapers
 
     def scrape_prices(product_skus)
       api_client.ensure_session!
+      product_skus = normalize_price_queries(product_skus).map { |q| q[:sku] }
 
       delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
 

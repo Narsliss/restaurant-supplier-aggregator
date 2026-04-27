@@ -115,6 +115,7 @@ module Scrapers
 
     def scrape_prices(product_skus)
       api_client.ensure_session!
+      product_skus = normalize_price_queries(product_skus).map { |q| q[:sku] }
 
       product_numbers = product_skus.map(&:to_i)
       products_by_number = fetch_products_map(product_numbers)

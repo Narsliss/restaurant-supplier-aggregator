@@ -374,6 +374,7 @@ module Scrapers
     def scrape_prices(product_skus)
       ensure_api_session!
       tokens = load_api_tokens
+      product_skus = normalize_price_queries(product_skus).map { |q| q[:sku] }
 
       logger.info "[Sysco] Fetching live prices for #{product_skus.size} SKUs via API"
 

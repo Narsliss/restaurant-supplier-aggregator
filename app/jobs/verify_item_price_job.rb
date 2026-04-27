@@ -38,14 +38,16 @@ class VerifyItemPriceJob < ApplicationJob
     end
 
     scraper = supplier.scraper_klass.new(credential)
-    results = scraper.scrape_prices([sku])
+    results = scraper.scrape_prices([{ sku: sku, uom: item.uom }])
     result = results&.first
 
     if result && result[:current_price]
       item.update!(verified_price: result[:current_price])
 
-      # Update cached price on the supplier product if it changed
-      if result[:current_price] != item.supplier_product.current_price
+      # Update cached price on the supplier product if it changed — but only
+      # for case-priced verifications. supplier_product.current_price is the
+      # case price by convention; writing a per-piece price would corrupt it.
+      if item.uom != "PC" && result[:current_price] != item.supplier_product.current_price
         item.supplier_product.update_price!(result[:current_price], in_stock: result[:in_stock])
       end
 

@@ -112,8 +112,23 @@ module Scrapers
       raise NotImplementedError, 'Subclass must implement #login'
     end
 
+    # Subclasses accept either an array of bare SKU strings or an array of
+    # { sku:, uom: } hashes (PriceVerificationService and VerifyItemPriceJob
+    # pass the latter so the scraper can return the price for the user's
+    # chosen UOM, e.g., PC vs CS for Chef's Warehouse piece-priced items).
     def scrape_prices(product_skus)
       raise NotImplementedError, 'Subclass must implement #scrape_prices'
+    end
+
+    # Normalize either form into [{ sku: String, uom: String|nil }, ...].
+    def normalize_price_queries(input)
+      Array(input).map do |item|
+        if item.is_a?(Hash)
+          { sku: item[:sku].to_s, uom: item[:uom].presence&.to_s }
+        else
+          { sku: item.to_s, uom: nil }
+        end
+      end
     end
 
     # Lightweight session check: restore cookies → navigate → check if still logged in.

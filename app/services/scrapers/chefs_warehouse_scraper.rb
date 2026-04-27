@@ -137,6 +137,9 @@ module Scrapers
 
     def scrape_prices(product_skus)
       api_client.ensure_session!
+      queries = normalize_price_queries(product_skus)
+      product_skus = queries.map { |q| q[:sku] }
+      uom_map = queries.each_with_object({}) { |q, h| h[q[:sku]] = q[:uom] }
       results = []
 
       # Build variant info for each SKU.
@@ -154,10 +157,12 @@ module Scrapers
       prices = api_client.fetch_prices(variants)
       price_map = prices.index_by { |p| p[:variant_code] }
 
-      # Also fetch piece prices for items sold by the piece.
-      # The CS price for Piece items is the full-case price (e.g., $1,924
-      # for 80 pieces) — we need the PC price ($23.82) instead.
+      # Also fetch piece prices for items where we want the PC price —
+      # either the caller asked for PC explicitly (uom_map), or the product's
+      # pack size has "Piece" in it (the CS price for Piece items is the
+      # full-case price, e.g., $1,924 for 80 pieces — we want $23.82 instead).
       piece_skus = product_skus.select do |sku|
+        next true if uom_map[sku] == 'PC'
         sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
         sp&.pack_size.to_s.match?(/\bPiece\b/i)
       end
@@ -183,10 +188,15 @@ module Scrapers
         next unless price_data
 
         sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
+        requested_uom = uom_map[sku]
 
-        # For Piece items, prefer the PC price over the inflated CS price
         current_price = price_data[:primary_price]
-        if sp&.pack_size.to_s.match?(/\bPiece\b/i)
+
+        # Prefer the PC price when the caller asked for PC, or when the
+        # product's pack size signals it's sold by the piece.
+        wants_piece_price = requested_uom == 'PC' ||
+                            (requested_uom.nil? && sp&.pack_size.to_s.match?(/\bPiece\b/i))
+        if wants_piece_price
           piece_data = piece_price_map[variant_code]
           piece_price = piece_data&.dig(:secondary_price) || piece_data&.dig(:primary_price)
           current_price = piece_price if piece_price.present? && piece_price > 0

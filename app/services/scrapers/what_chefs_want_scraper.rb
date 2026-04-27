@@ -78,6 +78,7 @@ module Scrapers
 
     def scrape_prices(product_skus)
       api_client.ensure_session!
+      product_skus = normalize_price_queries(product_skus).map { |q| q[:sku] }
 
       # Fetch order guide items which include pricing
       all_items = fetch_all_order_guide_items
