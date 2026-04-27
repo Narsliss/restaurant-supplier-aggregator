@@ -292,12 +292,17 @@ module Scrapers
 
       if api_items.any?
         begin
+          requested_skus = api_items.map { |i| i[:code] }
+          logger.info "[ChefsWarehouse] cart/add request: #{api_items.size} line(s), SKUs=#{requested_skus.inspect}"
           result = api_client.add_to_cart(api_items)
+          # Full response body — diagnostic floor for silent line-item drops.
+          # CW has been observed to return success: true while omitting a line.
+          logger.info "[ChefsWarehouse] cart/add response: #{result.inspect}"
           if result.is_a?(Hash) && result['success']
             added_items = items.select { |i| guide_data[i[:sku]] }
             logger.info "[ChefsWarehouse] API added #{result['totalCount']} items to cart"
           else
-            logger.warn "[ChefsWarehouse] API add_to_cart returned: #{result.inspect[0..200]}"
+            logger.warn "[ChefsWarehouse] API add_to_cart returned non-success: #{result.inspect[0..200]}"
             failed_items.concat(api_items.map { |i| { sku: i[:code], error: 'API rejected', name: nil } })
           end
         rescue StandardError => e
@@ -409,6 +414,10 @@ module Scrapers
       # LIVE ORDER
       logger.warn "[ChefsWarehouse] API PLACING LIVE ORDER"
       result = api_client.submit_cart(dry_run: false)
+      # Full response body — when CW doesn't return a real confirmation number,
+      # the fallback below masks the cause. Log the raw response so we can tell
+      # "missing field" from "non-2xx parsed as nil" from anything else.
+      logger.info "[ChefsWarehouse] cart/submit response: #{result.inspect}"
 
       confirmation_number = result&.dig('confirmationNumber') || result&.dig('orderNumber') || "API-#{Time.current.strftime('%Y%m%d%H%M%S')}"
       logger.info "[ChefsWarehouse] API order placed: #{confirmation_number}"
