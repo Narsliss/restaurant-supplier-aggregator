@@ -99,8 +99,9 @@ railway logs
 ```
 
 ### Railway URLs
-- App: https://web-production-0bed.up.railway.app
-- Health: https://web-production-0bed.up.railway.app/up
+- App: https://enplacepro.app (also https://www.enplacepro.app)
+- Health: https://enplacepro.app/up
+- NOTE: The old `web-production-0bed.up.railway.app` subdomain was released and is now serving another Railway tenant's Next.js app. Do not use it.
 
 ## Local Development
 
