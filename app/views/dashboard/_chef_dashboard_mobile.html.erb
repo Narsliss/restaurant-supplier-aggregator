@@ -54,6 +54,8 @@
   <% end %>
 </header>
 
+<%= render "dashboard/credential_health_alert_mobile" %>
+
 <!-- 2FA Alert Banners -->
 <% if @pending_2fa_requests.any? %>
   <% @pending_2fa_requests.each do |request| %>

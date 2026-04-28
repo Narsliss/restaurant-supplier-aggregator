@@ -43,6 +43,9 @@ class SupplierCredential < ApplicationRecord
   scope :needs_refresh, -> { where('last_login_at < ?', 6.hours.ago) }
   scope :for_supplier, ->(supplier) { where(supplier: supplier) }
   scope :for_location, ->(loc) { where(location: loc) }
+  scope :needs_user_attention, -> {
+    where(status: %w[failed expired invalid hold]).or(where(account_on_hold: true))
+  }
 
   # Status constants
   STATUSES = {
@@ -105,6 +108,33 @@ class SupplierCredential < ApplicationRecord
 
   def mark_on_hold!(reason)
     update!(status: 'hold', account_on_hold: true, hold_reason: reason)
+  end
+
+  # User-facing one-line description of why this credential is broken.
+  # Used by the dashboard alert and anywhere else we need to explain
+  # connection issues in plain English.
+  def health_message
+    if account_on_hold?
+      return hold_reason.present? ? "Account on hold: #{hold_reason}" : 'Account on hold'
+    end
+
+    case status
+    when 'failed'
+      err = last_error.to_s.strip
+      if err.empty?
+        'Validation failed — please re-validate.'
+      else
+        err.length > 140 ? "#{err[0, 140]}…" : err
+      end
+    when 'expired'
+      'Session expired — please re-validate.'
+    when 'invalid'
+      'Credentials are no longer valid — please update them.'
+    when 'hold'
+      'Account on hold — please re-validate.'
+    else
+      'Connection issue — please re-validate.'
+    end
   end
 
   def clear_session!

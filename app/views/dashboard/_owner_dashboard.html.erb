@@ -42,6 +42,8 @@
   </div>
 </div>
 
+<%= render "dashboard/credential_health_alert" %>
+
 <!-- 2FA Alerts -->
 <% if @pending_2fa_requests.any? %>
   <div class="mb-6 rounded-md bg-brand-orange-50 border border-brand-orange/20 p-4">

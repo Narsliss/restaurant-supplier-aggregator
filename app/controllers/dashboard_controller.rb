@@ -52,6 +52,11 @@ class DashboardController < ApplicationController
       .includes(:supplier, :user)
       .order(:created_at)
 
+    @broken_credentials = base_credentials
+      .needs_user_attention
+      .includes(:supplier, :user)
+      .order(:created_at)
+
     @pending_2fa_requests = current_user.supplier_2fa_requests
       .pending
       .where("expires_at > ?", Time.current)
@@ -141,6 +146,11 @@ class DashboardController < ApplicationController
       .order(created_at: :desc)
       .limit(10)
 
+    @broken_credentials = base_credentials
+      .needs_user_attention
+      .includes(:supplier, :user)
+      .order(:created_at)
+
     @pending_2fa_requests = Supplier2faRequest.none
 
     # Stats with current + prior month for % change
@@ -229,6 +239,11 @@ class DashboardController < ApplicationController
   def load_chef_dashboard
     base_orders = scoped_orders
     base_credentials = scoped_credentials
+
+    @broken_credentials = base_credentials
+      .needs_user_attention
+      .includes(:supplier, :user)
+      .order(:created_at)
 
     @pending_2fa_requests = current_user.supplier_2fa_requests
       .pending
