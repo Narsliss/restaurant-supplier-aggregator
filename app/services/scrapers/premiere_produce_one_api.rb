@@ -160,6 +160,62 @@ module Scrapers
       @id_token.present?
     end
 
+    # Read-only probe to determine whether Pepper's Cognito user pool has
+    # device tracking enabled. Logs three signals:
+    #   1. Amplify device-related keys in localStorage (deviceKey,
+    #      deviceGroupKey, randomPasswordKey)
+    #   2. `device_key` claim in the access_token JWT
+    #   3. Response from Cognito ListDevices API
+    #
+    # If any of these show device data, we have a path to bypass the
+    # 30-day refresh-token cap via DEVICE_PASSWORD_VERIFIER. Pure logging
+    # — no DB writes, no token mutations, wrapped in rescue.
+    def probe_device_tracking
+      raw = credential.session_data
+      sd  = raw.is_a?(String) ? (JSON.parse(raw) rescue {}) : (raw || {})
+      ls  = sd['local_storage'] || {}
+
+      ls_keys = ls.keys
+      device_keys = ls_keys.select { |k| k =~ /\.(deviceKey|deviceGroupKey|randomPasswordKey)$/i }
+      logger.warn "[PPO-PROBE] localStorage total_keys=#{ls_keys.size} device_keys=#{device_keys.inspect}"
+      device_keys.each do |k|
+        v = ls[k].to_s
+        logger.warn "[PPO-PROBE]   #{k} = #{v.length > 80 ? "#{v[0, 40]}…(#{v.size} chars)" : v}"
+      end
+
+      access_token_key = ls_keys.find { |k| k.include?('.accessToken') }
+      access_token = access_token_key ? ls[access_token_key].to_s : nil
+
+      if access_token && !access_token.empty?
+        require 'base64'
+        parts = access_token.split('.')
+        if parts.size >= 2
+          claims = JSON.parse(Base64.decode64(parts[1] + '==')) rescue {}
+          interesting = claims.slice('device_key', 'origin_jti', 'token_use', 'scope', 'username', 'auth_time', 'iat', 'exp')
+          logger.warn "[PPO-PROBE] access_token claim_keys=#{claims.keys}"
+          logger.warn "[PPO-PROBE] access_token interesting=#{interesting}"
+        end
+
+        require 'net/http'
+        uri = URI.parse(COGNITO_ENDPOINT)
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = true
+        req = Net::HTTP::Post.new('/')
+        req['Content-Type'] = 'application/x-amz-json-1.1'
+        req['X-Amz-Target'] = 'AWSCognitoIdentityProviderService.ListDevices'
+        req.body = { AccessToken: access_token, Limit: 10 }.to_json
+
+        resp = http.request(req)
+        body = resp.body.to_s
+        body_log = body.length > 1500 ? "#{body[0, 1500]}…(#{body.size} chars truncated)" : body
+        logger.warn "[PPO-PROBE] ListDevices HTTP #{resp.code} body=#{body_log}"
+      else
+        logger.warn '[PPO-PROBE] No accessToken in localStorage — skipping ListDevices'
+      end
+    rescue StandardError => e
+      logger.warn "[PPO-PROBE] Probe error (non-fatal): #{e.class}: #{e.message}"
+    end
+
     # ── Catalog ───────────────────────────────────────────────────
 
     # Get all products grouped by category (full catalog).

@@ -487,6 +487,7 @@ module Scrapers
 
             if logged_in?
               save_session
+              api_client.probe_device_tracking
               credential.mark_active!
               mark_2fa_request_verified!
               logger.info '[PremiereProduceOne] Verification successful — logged in!'
@@ -527,6 +528,7 @@ module Scrapers
         # Final check after all attempts
         if logged_in?
           save_session
+          api_client.probe_device_tracking
           credential.mark_active!
           true
         else
