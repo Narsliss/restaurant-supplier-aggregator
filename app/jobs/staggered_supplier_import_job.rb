@@ -37,7 +37,7 @@ class StaggeredSupplierImportJob < ApplicationJob
       # Sysco: use combined job (catalog + lists in one browser session) since
       # session restore doesn't work and we don't want 2 separate logins.
       if supplier.code == 'sysco'
-        SyscoCombinedImportJob.set(wait: (queued * 5).minutes).perform_later(credential.id)
+        SyscoCombinedImportJob.set(wait: (queued * 5).minutes).perform_later(credential.id, log.id)
       else
         ImportSupplierProductsJob.set(wait: (queued * 5).minutes).perform_later(supplier.id, credential.id, log.id)
       end

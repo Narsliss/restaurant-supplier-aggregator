@@ -220,6 +220,108 @@ module Scrapers
       results
     end
 
+    # Refresh pricing for a list of known Sysco product IDs via the getProducts
+    # GraphQL endpoint (direct ID lookup — no keyword search). This is the
+    # complement to scrape_catalog: term-search discovers NEW SKUs, this
+    # refreshes EXISTING SKUs that don't match any of the generic search terms.
+    #
+    # Yields per-batch results so callers can write incrementally:
+    #   { updates: [{supplier_sku:, current_price:, price_unit:}, ...],
+    #     missed: [sku_string, ...] }
+    #
+    # SKUs in `missed` either weren't returned by the API or returned no price —
+    # treat them as candidates for consecutive_misses tracking.
+    REFRESH_BATCH_SIZE = 30
+
+    def refresh_known_skus(skus, batch_size: REFRESH_BATCH_SIZE)
+      ensure_api_session!
+      tokens = load_api_tokens
+
+      total_updated = 0
+      total_missed = 0
+      batch_count = 0
+
+      skus.each_slice(batch_size) do |batch|
+        batch_count += 1
+
+        begin
+          updates, missed = refresh_batch(batch, tokens)
+        rescue StandardError => e
+          logger.error "[Sysco] Refresh batch ##{batch_count} failed: #{e.class}: #{e.message}"
+          updates = []
+          missed = batch.map(&:to_s)
+        end
+
+        total_updated += updates.size
+        total_missed += missed.size
+
+        if (batch_count % 20).zero?
+          logger.info "[Sysco] Refresh progress: batch #{batch_count}, updated=#{total_updated}, missed=#{total_missed}"
+        end
+
+        yield(updates: updates, missed: missed) if block_given?
+      end
+
+      logger.info "[Sysco] Refresh complete: #{total_updated} updated, #{total_missed} missed across #{batch_count} batches"
+      { updated: total_updated, missed: total_missed, batches: batch_count }
+    end
+
+    def refresh_batch(batch, tokens)
+      product_params = batch.map do |sku|
+        {
+          productId: sku.to_s,
+          sellerId: tokens[:seller_id],
+          siteId: tokens[:site_id],
+          quantity: { case: 0, each: 0 },
+          splitCode: 'CASE'
+        }
+      end
+
+      data = graphql_request('Prices', prices_query, {
+        isIncludePriceInfoV2: true,
+        products: { params: product_params },
+        priceOptions: {}
+      })
+
+      response_products = data.dig('data', 'getProducts') || []
+      response_by_id = response_products.index_by { |p| p['productId'].to_s }
+
+      updates = []
+      missed = []
+
+      batch.each do |sku|
+        sku_str = sku.to_s
+        pp = response_by_id[sku_str]
+
+        # SKU not in API response at all → genuine miss (likely removed upstream)
+        if pp.nil?
+          missed << sku_str
+          next
+        end
+
+        # SKU returned by API → counts as "seen" even if no price.
+        # Matches catalog scrape semantics (returned-from-search = not missed).
+        case_info = pp.dig('priceInfoV2', 'case') || {}
+        each_info = pp.dig('priceInfoV2', 'each') || {}
+        current_price = case_info['netPrice'] || case_info['price'] ||
+                        each_info['netPrice'] || each_info['price']
+
+        price_unit = if case_info['netPrice'] || case_info['price']
+                       'CS'
+                     elsif each_info['netPrice'] || each_info['price']
+                       'EA'
+                     end
+
+        updates << {
+          supplier_sku: sku_str,
+          current_price: current_price&.to_f,
+          price_unit: price_unit
+        }
+      end
+
+      [updates, missed]
+    end
+
     def search_supplier_catalog(term, max: 100)
       products = []
       start = 0

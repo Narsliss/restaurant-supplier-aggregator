@@ -84,6 +84,50 @@ class ImportSupplierProductsService
     results
   end
 
+  # Refresh pricing for all known (non-discontinued) SKUs that weren't seen in
+  # the term-based catalog scrape. Uses the scraper's direct ID lookup
+  # (scraper#refresh_known_skus) — currently only Sysco implements this.
+  #
+  # This closes the coverage gap where term-based search misses niche products
+  # that don't match any of the generic search terms. SKUs that come back with
+  # data get last_scraped_at bumped + price refreshed; SKUs not returned get
+  # added to consecutive_misses tracking via the normal record_misses path.
+  def refresh_known_products(scraper:)
+    unless scraper.respond_to?(:refresh_known_skus)
+      Rails.logger.info "[ImportProducts] #{supplier.name} scraper doesn't support refresh_known_skus, skipping"
+      return { updated: 0, missed: 0 }
+    end
+
+    @existing_by_sku ||= SupplierProduct.where(supplier: supplier).index_by(&:supplier_sku)
+    @seen_skus ||= Set.new
+
+    skus_to_refresh = @existing_by_sku.values
+                                       .reject(&:discontinued)
+                                       .map(&:supplier_sku)
+                                       .reject { |s| s.blank? || @seen_skus.include?(s) }
+
+    if skus_to_refresh.empty?
+      Rails.logger.info "[ImportProducts] No additional known SKUs to refresh for #{supplier.name}"
+      return { updated: 0, missed: 0 }
+    end
+
+    Rails.logger.info "[ImportProducts] Refreshing #{skus_to_refresh.size} known #{supplier.name} SKUs via direct ID lookup"
+    credential.update_columns(import_status_text: "Refreshing #{skus_to_refresh.size} known products...")
+
+    total_updated = 0
+    total_missed = 0
+
+    scraper.refresh_known_skus(skus_to_refresh) do |result|
+      apply_refresh_updates(result[:updates])
+      total_updated += result[:updates].size
+      total_missed += result[:missed].size
+      result[:updates].each { |u| @seen_skus.add(u[:supplier_sku]) }
+    end
+
+    Rails.logger.info "[ImportProducts] #{supplier.name} refresh complete: #{total_updated} updated, #{total_missed} missed"
+    { updated: total_updated, missed: total_missed }
+  end
+
   # Import a batch of scraped items into the DB immediately.
   # Called by the scraper via the block passed to scrape_catalog.
   #
@@ -222,6 +266,59 @@ class ImportSupplierProductsService
         discontinued discontinued_at
       ]
     )
+  end
+
+  # Apply price/timestamp refreshes for SKUs returned by direct ID lookup.
+  # Only touches price-related columns + last_scraped_at + miss counters —
+  # name/pack_size/category/url stay as-is since the refresh API doesn't
+  # return them. Reinstates discontinued products that reappeared.
+  def apply_refresh_updates(updates)
+    return if updates.empty?
+
+    now = Time.current
+    rows = []
+
+    updates.each do |item|
+      existing = @existing_by_sku[item[:supplier_sku]]
+      next unless existing
+
+      new_price = item[:current_price]
+      price_changed = new_price.present? && new_price != existing.current_price
+      reinstating = existing.discontinued?
+
+      rows << {
+        id: existing.id,
+        supplier_id: existing.supplier_id,
+        supplier_sku: existing.supplier_sku,
+        last_scraped_at: now,
+        current_price: price_changed ? new_price : existing.current_price,
+        previous_price: price_changed ? existing.current_price : existing.previous_price,
+        price_updated_at: price_changed ? now : existing.price_updated_at,
+        price_unit: item[:price_unit].presence || existing.price_unit,
+        consecutive_misses: 0,
+        discontinued: reinstating ? false : existing.discontinued,
+        discontinued_at: reinstating ? nil : existing.discontinued_at
+      }
+
+      results[:updated] += 1 if price_changed
+      if reinstating
+        results[:reinstated] += 1
+        Rails.logger.info "[ImportProducts] Reinstated SKU #{existing.supplier_sku} via refresh — reappeared upstream"
+      end
+    end
+
+    return if rows.empty?
+
+    SupplierProduct.upsert_all(
+      rows,
+      unique_by: %i[supplier_id supplier_sku],
+      update_only: %i[
+        last_scraped_at current_price previous_price price_updated_at
+        price_unit consecutive_misses discontinued discontinued_at
+      ]
+    )
+
+    sync_prices_to_list_items(rows)
   end
 
   # Propagate updated catalog prices to linked SupplierListItems so matched
