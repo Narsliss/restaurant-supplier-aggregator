@@ -1,10 +1,20 @@
 class PlaceOrderJob < ApplicationJob
   queue_as :critical
 
+  # One in-flight placement per order. Prevents duplicate supplier
+  # submissions from double-clicks, batch-submit races, or stale
+  # retry jobs landing after a successful submission.
+  limits_concurrency to: 1, key: ->(order_id, *) { "place_order_#{order_id}" }, duration: 15.minutes
+
   discard_on ActiveRecord::RecordNotFound
 
   def perform(order_id, options = {})
     order = Order.find(order_id)
+
+    if order.placed?
+      Rails.logger.info "[PlaceOrderJob] Order #{order.id} already #{order.status}, skipping"
+      return
+    end
 
     # Demo mode: simulate successful submission without browser automation
     if ENV['DEMO_MODE'] == 'true'
