@@ -19,11 +19,11 @@ Rails.application.configure do
   config.action_mailer.default_url_options = { host: 'www.enplacepro.app', protocol: 'https' }
   config.action_mailer.delivery_method = :smtp
   config.action_mailer.smtp_settings = {
-    address: 'smtp.sendgrid.net',
+    address: 'smtp.resend.com',
     port: 587,
     authentication: :plain,
-    user_name: 'apikey',
-    password: ENV['SENDGRID_API_KEY'],
+    user_name: 'resend',
+    password: ENV['RESEND_API_KEY'],
     domain: 'enplacepro.app',
     enable_starttls_auto: true
   }
