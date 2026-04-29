@@ -109,13 +109,24 @@ if Rails.env.development? || Rails.env.production?
   if existing_super_admin
     puts "  Super admin already exists: #{existing_super_admin.email}"
   else
+    email    = ENV['SEED_SUPER_ADMIN_EMAIL']
+    password = ENV['SEED_SUPER_ADMIN_PASSWORD']
+
+    if email.blank? || password.blank?
+      if Rails.env.production?
+        raise 'SEED_SUPER_ADMIN_EMAIL and SEED_SUPER_ADMIN_PASSWORD must be set to seed a super admin in production'
+      end
+      email    ||= 'admin@example.com'
+      password ||= 'admin123'
+    end
+
     puts 'Creating super admin user...'
 
     admin_user = User.create!(
-      email: 'carmin@las-noches.com',
-      password: 'Tres-Leches16!',
-      password_confirmation: 'Tres-Leches16!',
-      first_name: 'Carmin',
+      email: email,
+      password: password,
+      password_confirmation: password,
+      first_name: 'Super',
       last_name: 'Admin',
       role: 'super_admin'
     )
@@ -128,7 +139,7 @@ if Rails.env.development? || Rails.env.production?
       l.is_default = true
     end
 
-    puts '  Created super admin user: carmin@las-noches.com'
+    puts "  Created super admin user: #{admin_user.email}"
   end
 end
 
