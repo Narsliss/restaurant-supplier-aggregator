@@ -14,7 +14,7 @@
 # JWT tokens have 7-day expiry, so browser login is rare.
 class SyscoCombinedImportJob < ApplicationJob
   queue_as :scraping
-  limits_concurrency to: 1, key: ->(credential_id) { "sysco_combined_#{credential_id}" }
+  limits_concurrency to: 1, key: ->(credential_id, _scraping_log_id = nil) { "sysco_combined_#{credential_id}" }
 
   retry_on StandardError, attempts: 2, wait: 1.minute
   discard_on ActiveRecord::RecordNotFound
