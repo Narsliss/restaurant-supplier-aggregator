@@ -290,6 +290,7 @@ class ImportSupplierProductsService
         id: existing.id,
         supplier_id: existing.supplier_id,
         supplier_sku: existing.supplier_sku,
+        supplier_name: existing.supplier_name, # required: NOT NULL — upsert_all validates INSERT clause even on conflict
         last_scraped_at: now,
         current_price: price_changed ? new_price : existing.current_price,
         previous_price: price_changed ? existing.current_price : existing.previous_price,
