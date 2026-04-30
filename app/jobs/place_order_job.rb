@@ -11,7 +11,7 @@ class PlaceOrderJob < ApplicationJob
   def perform(order_id, options = {})
     order = Order.find(order_id)
 
-    if order.placed?
+    if order.completed?
       Rails.logger.info "[PlaceOrderJob] Order #{order.id} already #{order.status}, skipping"
       return
     end
