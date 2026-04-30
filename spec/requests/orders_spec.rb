@@ -157,6 +157,26 @@ RSpec.describe 'Orders', type: :request do
     end
   end
 
+  describe 'DELETE /orders/:id' do
+    let!(:order) do
+      create(:order,
+        user: user, supplier: supplier, organization: org, location: location,
+        status: 'price_changed').tap do |o|
+          create(:order_item, order: o, supplier_product: supplier_product)
+        end
+    end
+
+    it 'preserves filter params on the redirect so the user lands back on the same view' do
+      delete order_path(order), params: { status: 'price_changed', supplier_id: supplier.id }
+      expect(response).to redirect_to(orders_path(status: 'price_changed', supplier_id: supplier.id.to_s))
+    end
+
+    it 'falls back to plain orders_path when no filter params are present' do
+      delete order_path(order)
+      expect(response).to redirect_to(orders_path)
+    end
+  end
+
   describe 'POST /orders/:id/submit' do
     let!(:order) do
       create(:order, user: user, supplier: supplier, organization: org, location: location, status: 'pending').tap do |o|

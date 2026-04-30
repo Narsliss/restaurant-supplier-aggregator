@@ -170,7 +170,7 @@ class OrdersController < ApplicationController
   def destroy
     if @order.can_delete?
       @order.destroy
-      redirect_to orders_path, notice: "Order deleted."
+      redirect_to orders_path(index_filter_params), notice: "Order deleted."
     else
       redirect_to @order, alert: "Cannot delete a submitted order."
     end
@@ -923,6 +923,12 @@ class OrdersController < ApplicationController
 
   def set_order
     @order = scoped_orders.find(params[:id])
+  end
+
+  # Filter params forwarded by destroy/delete buttons so the user lands back
+  # on the same filtered Order History view they came from.
+  def index_filter_params
+    params.permit(:status, :supplier_id, :search, :date_from, :date_to).to_h.compact_blank
   end
 
   def order_params

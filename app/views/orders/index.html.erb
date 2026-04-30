@@ -179,7 +179,7 @@
                         <%= link_to "View", order_path(order), class: "hidden sm:inline text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
                       <% end %>
                       <% if order.can_delete? %>
-                        <%= button_to order_path(order), method: :delete,
+                        <%= button_to order_path(order, request.query_parameters), method: :delete,
                             data: { turbo_confirm: "Delete this #{order.display_supplier_name} order? This cannot be undone." },
                             class: "inline-flex items-center text-gray-400 hover:text-red-500 transition-colors",
                             title: "Delete order" do %>
