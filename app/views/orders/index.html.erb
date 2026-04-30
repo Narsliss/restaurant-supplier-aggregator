@@ -10,12 +10,14 @@
         <%= form.label :search, "Search", class: "block text-xs font-medium text-gray-500 mb-1" %>
         <%= form.text_field :search, value: params[:search], placeholder: "Order ID or confirmation #...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
+      <% auto_submit = { onchange: "this.form.requestSubmit()" } %>
       <div class="sm:w-32">
         <%= form.label :supplier_id, "Supplier", class: "block text-xs font-medium text-gray-500 mb-1" %>
         <%= form.select :supplier_id,
             [["All", ""]] + @suppliers.map { |s| [s.name, s.id] },
             { selected: params[:supplier_id] || "" },
-            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+            **auto_submit %>
       </div>
       <div class="sm:w-36">
         <%= form.label :status, "Status", class: "block text-xs font-medium text-gray-500 mb-1" %>
@@ -31,22 +33,22 @@
               ["Cancelled", "cancelled"]
             ],
             { selected: @status_filter || "" },
-            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+            class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+            **auto_submit %>
       </div>
       <div class="sm:w-28">
         <%= form.label :date_from, "From", class: "block text-xs font-medium text-gray-500 mb-1" %>
-        <%= form.date_field :date_from, value: @date_from, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+        <%= form.date_field :date_from, value: @date_from, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", **auto_submit %>
       </div>
       <div class="sm:w-28">
         <%= form.label :date_to, "To", class: "block text-xs font-medium text-gray-500 mb-1" %>
-        <%= form.date_field :date_to, value: @date_to, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+        <%= form.date_field :date_to, value: @date_to, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", **auto_submit %>
       </div>
-      <div class="flex gap-2">
-        <%= form.submit "Filter", class: "bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 text-sm cursor-pointer" %>
-        <% if params[:search].present? || params[:supplier_id].present? || params[:status].present? || params[:date_from].present? || params[:date_to].present? %>
+      <% if params[:search].present? || params[:supplier_id].present? || params[:status].present? || params[:date_from].present? || params[:date_to].present? %>
+        <div class="flex">
           <%= link_to "Clear", orders_path, class: "text-sm text-gray-500 hover:text-gray-700 px-2 py-2" %>
-        <% end %>
-      </div>
+        </div>
+      <% end %>
     <% end %>
   </div>
 
@@ -269,7 +271,7 @@
                     <%= link_to "View", order_path(order), class: "hidden sm:inline text-sm text-brand-orange hover:text-brand-orange-dark font-medium" %>
                   <% end %>
                   <% if order.can_delete? %>
-                    <%= button_to order_path(order), method: :delete,
+                    <%= button_to order_path(order, request.query_parameters), method: :delete,
                         data: { turbo_confirm: "Delete this #{order.display_supplier_name} order? This cannot be undone." },
                         class: "inline-flex items-center text-gray-400 hover:text-red-500 transition-colors",
                         title: "Delete order" do %>

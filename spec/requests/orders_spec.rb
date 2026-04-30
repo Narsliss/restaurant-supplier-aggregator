@@ -175,6 +175,15 @@ RSpec.describe 'Orders', type: :request do
       delete order_path(order)
       expect(response).to redirect_to(orders_path)
     end
+
+    # Regression: the delete form on the index page must put the active filter
+    # params into the form action URL so the destroy action can forward them
+    # on the redirect. A previous fix only patched the split-row delete button
+    # and missed the single-supplier row, dropping the filter on delete.
+    it 'renders both delete buttons with current filter params in the form action' do
+      get orders_path, params: { status: 'price_changed' }
+      expect(response.body).to match(%r{action="/orders/#{order.id}\?[^"]*status=price_changed})
+    end
   end
 
   describe 'POST /orders/:id/submit' do
