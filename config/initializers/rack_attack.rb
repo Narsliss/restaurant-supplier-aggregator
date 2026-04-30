@@ -2,11 +2,12 @@
 
 # Rack::Attack — rate limiting / abuse throttling.
 #
-# DEPLOYED IN TRACK-ONLY MODE on 2026-04-21. Rules log "would-have-blocked"
-# events via Rails.logger but do NOT actually block requests. After 24-48h
-# soak, review Railway logs for lines tagged [Rack::Attack]. If only
-# attacker-like traffic is flagged, flip `track` calls to `throttle` in a
-# follow-up commit.
+# Track-only soak from 2026-04-21 to 2026-04-29 produced zero matches on
+# legitimate traffic. Rules below are now in `throttle` mode — exceeding
+# the limit returns HTTP 429 with `Retry-After`. The catch-all per-IP
+# limit was raised from 300 to 600/min before flipping to give heavy
+# real users (Turbo prefetch + status polling + XHR bursts) safe headroom
+# while still catching brute-force / credential-stuffing attempts.
 
 class Rack::Attack
   # Counter storage — uses Rails.cache (Solid Cache in production).
@@ -29,37 +30,40 @@ class Rack::Attack
     req.path.start_with?("/cable")
   end
 
-  # --- Tracks (log only, do NOT block) ---
+  # --- Throttles (return 429 when exceeded) ---
 
   # Login attempts per IP: 10/min
-  track("track/logins/ip", limit: 10, period: 60.seconds) do |req|
+  throttle("throttle/logins/ip", limit: 10, period: 60.seconds) do |req|
     req.ip if req.post? && req.path == "/users/sign_in"
   end
 
   # Login attempts per email: 5/min (password spray detection)
-  track("track/logins/email", limit: 5, period: 60.seconds) do |req|
+  throttle("throttle/logins/email", limit: 5, period: 60.seconds) do |req|
     if req.post? && req.path == "/users/sign_in"
       req.params.dig("user", "email").to_s.downcase.strip.presence
     end
   end
 
   # Password reset requests per IP: 5/min
-  track("track/password_resets/ip", limit: 5, period: 60.seconds) do |req|
+  throttle("throttle/password_resets/ip", limit: 5, period: 60.seconds) do |req|
     req.ip if req.post? && req.path == "/users/password"
   end
 
   # Signups per IP: 5/min
-  track("track/signups/ip", limit: 5, period: 60.seconds) do |req|
+  throttle("throttle/signups/ip", limit: 5, period: 60.seconds) do |req|
     req.ip if req.post? && req.path == "/users"
   end
 
   # Supplier portal logins: 10/min per IP
-  track("track/supplier_logins/ip", limit: 10, period: 60.seconds) do |req|
+  throttle("throttle/supplier_logins/ip", limit: 10, period: 60.seconds) do |req|
     req.ip if req.post? && req.path == "/supplier_users/sign_in"
   end
 
-  # Catch-all: 300 requests per minute per IP
-  track("track/req/ip", limit: 300, period: 60.seconds) do |req|
+  # Catch-all: 600 requests per minute per IP
+  # (raised from 300 when flipping out of track mode — gives heavy real
+  # users with Turbo prefetch + status polling + XHR bursts safe headroom
+  # while still catching sustained 10 req/s attacks.)
+  throttle("throttle/req/ip", limit: 600, period: 60.seconds) do |req|
     req.ip
   end
 end
