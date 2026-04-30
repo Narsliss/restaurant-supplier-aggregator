@@ -7,6 +7,8 @@ module Orders
     end
 
     def place_order(accept_price_changes: false, skip_warnings: false, skip_pre_validation: false)
+      @accept_price_changes = accept_price_changes
+
       # Email suppliers: route to email-based order placement (no scraper needed)
       if order.supplier.email_supplier?
         return Orders::EmailOrderPlacementService.new(order).place_order
