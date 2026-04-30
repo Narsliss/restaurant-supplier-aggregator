@@ -79,12 +79,42 @@ RSpec.describe 'Orders', type: :request do
         expect(response.body).not_to include("Order ##{cancelled.id}")
       end
 
-      it 'status=active shows price_changed/pending but not drafts or completed' do
-        get orders_path, params: { status: 'active' }
+      it 'status=price_changed shows only price_changed orders' do
+        pending_order = create(:order,
+          user: user, supplier: supplier, organization: org, location: location,
+          status: 'pending').tap { |o| create(:order_item, order: o, supplier_product: supplier_product) }
+
+        get orders_path, params: { status: 'price_changed' }
         expect(response.body).to include("Order ##{price_changed.id}")
+        expect(response.body).not_to include("Order ##{pending_order.id}")
         expect(response.body).not_to include("Order ##{draft.id}")
         expect(response.body).not_to include("Order ##{completed.id}")
         expect(response.body).not_to include("Order ##{cancelled.id}")
+      end
+
+      it 'status=waiting shows pending/pending_review/pending_manual but not price_changed' do
+        pending_order = create(:order,
+          user: user, supplier: supplier, organization: org, location: location,
+          status: 'pending').tap { |o| create(:order_item, order: o, supplier_product: supplier_product) }
+
+        get orders_path, params: { status: 'waiting' }
+        expect(response.body).to include("Order ##{pending_order.id}")
+        expect(response.body).not_to include("Order ##{price_changed.id}")
+        expect(response.body).not_to include("Order ##{draft.id}")
+      end
+
+      it 'status=processing groups verifying with processing' do
+        verifying_order = create(:order,
+          user: user, supplier: supplier, organization: org, location: location,
+          status: 'verifying').tap { |o| create(:order_item, order: o, supplier_product: supplier_product) }
+        processing_order = create(:order,
+          user: user, supplier: supplier, organization: org, location: location,
+          status: 'processing').tap { |o| create(:order_item, order: o, supplier_product: supplier_product) }
+
+        get orders_path, params: { status: 'processing' }
+        expect(response.body).to include("Order ##{verifying_order.id}")
+        expect(response.body).to include("Order ##{processing_order.id}")
+        expect(response.body).not_to include("Order ##{price_changed.id}")
       end
 
       it 'status=cancelled surfaces cancelled orders that the default view hides' do

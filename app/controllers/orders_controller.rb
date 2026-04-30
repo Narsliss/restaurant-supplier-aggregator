@@ -29,15 +29,30 @@ class OrdersController < ApplicationController
   end
 
   # Status groups exposed via the ?status= filter on Order History.
+  # Each bucket maps to a distinct chef action — collapsing only happens where
+  # chefs don't distinguish (verifying ≈ processing; the three submit-ready
+  # states all share a single submit click).
   # Cancelled is intentionally excluded from the default view — only visible when
   # explicitly filtered to "cancelled".
   STATUS_FILTER_GROUPS = {
-    "active"    => %w[pending verifying price_changed processing pending_review pending_manual],
-    "drafts"    => %w[draft],
-    "completed" => %w[submitted confirmed dry_run_complete],
-    "failed"    => %w[failed],
-    "cancelled" => %w[cancelled]
+    "drafts"        => %w[draft],
+    "price_changed" => %w[price_changed],
+    "waiting"       => %w[pending pending_review pending_manual],
+    "processing"    => %w[verifying processing],
+    "completed"     => %w[submitted confirmed dry_run_complete],
+    "failed"        => %w[failed],
+    "cancelled"     => %w[cancelled]
   }.freeze
+
+  # Statuses pulled into the default Order History view regardless of date
+  # range or batch membership — anything the chef might still need to act on.
+  OPEN_STATUSES = (
+    STATUS_FILTER_GROUPS["drafts"] +
+    STATUS_FILTER_GROUPS["price_changed"] +
+    STATUS_FILTER_GROUPS["waiting"] +
+    STATUS_FILTER_GROUPS["processing"] +
+    STATUS_FILTER_GROUPS["failed"]
+  ).freeze
 
   def index
     @date_from = params[:date_from].present? ? Date.parse(params[:date_from]) : 30.days.ago.to_date
@@ -886,8 +901,7 @@ class OrdersController < ApplicationController
       .order(submitted_at: :desc)
       .to_a
 
-    open_statuses = STATUS_FILTER_GROUPS["active"] + STATUS_FILTER_GROUPS["drafts"] + STATUS_FILTER_GROUPS["failed"]
-    open_orders = apply_common_filters(scoped_orders.where(status: open_statuses))
+    open_orders = apply_common_filters(scoped_orders.where(status: OPEN_STATUSES))
       .where.not(id: completed.map(&:id))
       .includes(:supplier, :location, :order_items, :order_list, :user)
       .to_a

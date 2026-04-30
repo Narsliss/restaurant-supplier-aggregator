@@ -6,14 +6,14 @@
   <!-- Date Range Filter -->
   <div class="bg-white shadow rounded-lg p-4 mb-6">
     <%= form_with(url: orders_path, method: :get, class: "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end") do |form| %>
-      <div class="flex-1 min-w-[200px]">
+      <div class="flex-1 min-w-[140px]">
         <%= form.label :search, "Search", class: "block text-xs font-medium text-gray-500 mb-1" %>
         <%= form.text_field :search, value: params[:search], placeholder: "Order ID or confirmation #...", class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
-      <div class="sm:w-40">
+      <div class="sm:w-32">
         <%= form.label :supplier_id, "Supplier", class: "block text-xs font-medium text-gray-500 mb-1" %>
         <%= form.select :supplier_id,
-            [["All Suppliers", ""]] + @suppliers.map { |s| [s.name, s.id] },
+            [["All", ""]] + @suppliers.map { |s| [s.name, s.id] },
             { selected: params[:supplier_id] || "" },
             class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
@@ -21,9 +21,11 @@
         <%= form.label :status, "Status", class: "block text-xs font-medium text-gray-500 mb-1" %>
         <%= form.select :status,
             [
-              ["All Statuses", ""],
-              ["Active", "active"],
+              ["All", ""],
               ["Drafts", "drafts"],
+              ["Price Changed", "price_changed"],
+              ["Waiting to Submit", "waiting"],
+              ["Processing", "processing"],
               ["Completed", "completed"],
               ["Failed", "failed"],
               ["Cancelled", "cancelled"]
@@ -31,11 +33,11 @@
             { selected: @status_filter || "" },
             class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
-      <div class="sm:w-32">
+      <div class="sm:w-28">
         <%= form.label :date_from, "From", class: "block text-xs font-medium text-gray-500 mb-1" %>
         <%= form.date_field :date_from, value: @date_from, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
-      <div class="sm:w-32">
+      <div class="sm:w-28">
         <%= form.label :date_to, "To", class: "block text-xs font-medium text-gray-500 mb-1" %>
         <%= form.date_field :date_to, value: @date_to, class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
       </div>
@@ -161,7 +163,9 @@
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
                       <% elsif order.draft? %>
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Draft</span>
-                      <% elsif order.processing? %>
+                      <% elsif order.price_changed? %>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Price Changed</span>
+                      <% elsif order.processing? || order.verifying? %>
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Processing</span>
                       <% elsif order.can_submit? %>
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Waiting to Submit</span>
@@ -241,7 +245,9 @@
                     <% if order.batch_id.present? %>
                       <%= link_to "Return to Checkout", review_orders_path(batch_id: order.batch_id), class: "inline-flex items-center px-3.5 py-1.5 rounded-md text-sm font-semibold text-white bg-brand-orange hover:bg-brand-orange-dark shadow-sm transition-colors" %>
                     <% end %>
-                  <% elsif order.processing? %>
+                  <% elsif order.price_changed? %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Price Changed</span>
+                  <% elsif order.processing? || order.verifying? %>
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Processing</span>
                   <% elsif order.can_submit? %>
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Waiting to Submit</span>
