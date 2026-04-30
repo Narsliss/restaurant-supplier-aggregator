@@ -44,10 +44,12 @@ class PlaceOrderJob < ApplicationJob
     else
       handle_failure(order, result)
     end
+  rescue ActiveRecord::RecordNotFound
+    raise # let `discard_on` handle missing orders cleanly
   rescue => e
     Rails.logger.error "[PlaceOrderJob] Order #{order_id} failed: #{e.message}"
-    
-    order.update!(status: "failed", error_message: e.message)
+
+    order&.update!(status: "failed", error_message: e.message)
 
     raise # Re-raise for retry logic
   end

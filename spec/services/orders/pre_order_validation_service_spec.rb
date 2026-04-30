@@ -34,7 +34,6 @@ RSpec.describe Orders::PreOrderValidationService, type: :service do
   end
 
   before do
-    skip 'PreOrderValidationService references nonexistent OrderListItem#supplier_product — see top-of-file note'
     allow(supplier).to receive(:scraper_klass).and_return(fake_scraper_class)
     allow(fake_scraper_class).to receive(:new).and_return(fake_scraper)
   end

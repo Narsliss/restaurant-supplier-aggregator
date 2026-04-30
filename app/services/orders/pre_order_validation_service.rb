@@ -98,7 +98,7 @@ module Orders
       return if @validation_errors.any? || !@scraper
 
       order_items.each do |item|
-        product = item.supplier_product
+        product = supplier_product_for(item)
         next unless product
 
         begin
@@ -107,7 +107,6 @@ module Orders
 
           if stock_info[:in_stock] == false
             add_error(:stock, "#{product.supplier_name} is out of stock", item: item)
-            item.mark_unavailable!(stock_info[:message] || 'Out of stock')
           elsif stock_info[:available_quantity] && stock_info[:available_quantity] < item.quantity
             add_error(:stock,
                       "#{product.supplier_name} has insufficient stock. Available: #{stock_info[:available_quantity]}, Requested: #{item.quantity}", item: item)
@@ -130,7 +129,7 @@ module Orders
     end
 
     def validate_cached_stock_for_item(item)
-      product = item.supplier_product
+      product = supplier_product_for(item)
       return unless product
 
       if product.discontinued?
@@ -148,7 +147,7 @@ module Orders
       return if @validation_errors.any? || !@scraper
 
       order_items.each do |item|
-        product = item.supplier_product
+        product = supplier_product_for(item)
         next unless product
 
         begin
@@ -186,7 +185,7 @@ module Orders
     def validate_cached_prices!
       # Check if any cached prices are stale (> 1 hour old)
       stale_products = order_items
-                       .map(&:supplier_product)
+                       .map { |item| supplier_product_for(item) }
                        .compact
                        .select { |p| p.last_scraped_at.nil? || p.last_scraped_at < 1.hour.ago }
 
@@ -271,11 +270,16 @@ module Orders
     end
 
     def order_items
-      @order_items ||= order_list.order_list_items.includes(:supplier_product)
+      @order_items ||= order_list.order_list_items.includes(product: :supplier_products)
     end
 
     def order_total
-      order_items.sum { |item| item.supplier_product&.current_price.to_f * item.quantity }
+      order_items.sum { |item| supplier_product_for(item)&.current_price.to_f * item.quantity }
+    end
+
+    def supplier_product_for(item)
+      @supplier_product_cache ||= {}
+      @supplier_product_cache[item.id] ||= item.product&.supplier_product_for(supplier)
     end
 
     def add_error(type, message, item: nil)

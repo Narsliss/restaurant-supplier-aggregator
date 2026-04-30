@@ -44,7 +44,6 @@ RSpec.describe PlaceOrderJob, type: :job do
     # `order.update!` on a nil `order`, raising NoMethodError instead of
     # discarding cleanly. See docs/known_bugs.md.
     it 'discards instead of raising when the order has been deleted' do
-      skip 'rescue-hazard bug — discard_on RecordNotFound is shadowed by the bare rescue in perform'
       missing_id = order.id
       order.destroy!
 
