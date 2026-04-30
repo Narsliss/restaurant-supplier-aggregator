@@ -14,6 +14,95 @@ RSpec.describe 'Orders', type: :request do
       get orders_path
       expect(response).to have_http_status(:ok)
     end
+
+    # Regression: a price_changed (or any other actionable) order with no batch
+    # sibling used to be invisible on the index — only completed orders, drafts,
+    # and batch siblings of those were rendered. The dashboard surfaced it but
+    # Order History did not, so chefs had no way to delete it.
+    it 'shows orphan price_changed orders that have no batch sibling' do
+      orphan = create(:order,
+        user: user, supplier: supplier, organization: org, location: location,
+        status: 'price_changed', batch_id: nil)
+      create(:order_item, order: orphan, supplier_product: supplier_product)
+
+      get orders_path
+      expect(response.body).to include("Order ##{orphan.id}")
+    end
+
+    it 'shows orphan failed orders that have no batch sibling' do
+      orphan = create(:order, :failed,
+        user: user, supplier: supplier, organization: org, location: location,
+        batch_id: nil)
+      create(:order_item, order: orphan, supplier_product: supplier_product)
+
+      get orders_path
+      expect(response.body).to include("Order ##{orphan.id}")
+    end
+
+    context 'with status filter' do
+      let!(:completed) do
+        create(:order, :submitted,
+          user: user, supplier: supplier, organization: org, location: location,
+          submitted_at: 2.days.ago).tap do |o|
+            create(:order_item, order: o, supplier_product: supplier_product)
+          end
+      end
+
+      let!(:draft) do
+        create(:order, :draft,
+          user: user, supplier: supplier, organization: org, location: location).tap do |o|
+            create(:order_item, order: o, supplier_product: supplier_product)
+          end
+      end
+
+      let!(:price_changed) do
+        create(:order,
+          user: user, supplier: supplier, organization: org, location: location,
+          status: 'price_changed').tap do |o|
+            create(:order_item, order: o, supplier_product: supplier_product)
+          end
+      end
+
+      let!(:cancelled) do
+        create(:order,
+          user: user, supplier: supplier, organization: org, location: location,
+          status: 'cancelled').tap do |o|
+            create(:order_item, order: o, supplier_product: supplier_product)
+          end
+      end
+
+      it 'status=drafts shows only drafts' do
+        get orders_path, params: { status: 'drafts' }
+        expect(response.body).to include("Order ##{draft.id}")
+        expect(response.body).not_to include("Order ##{completed.id}")
+        expect(response.body).not_to include("Order ##{price_changed.id}")
+        expect(response.body).not_to include("Order ##{cancelled.id}")
+      end
+
+      it 'status=active shows price_changed/pending but not drafts or completed' do
+        get orders_path, params: { status: 'active' }
+        expect(response.body).to include("Order ##{price_changed.id}")
+        expect(response.body).not_to include("Order ##{draft.id}")
+        expect(response.body).not_to include("Order ##{completed.id}")
+        expect(response.body).not_to include("Order ##{cancelled.id}")
+      end
+
+      it 'status=cancelled surfaces cancelled orders that the default view hides' do
+        get orders_path
+        expect(response.body).not_to include("Order ##{cancelled.id}")
+
+        get orders_path, params: { status: 'cancelled' }
+        expect(response.body).to include("Order ##{cancelled.id}")
+      end
+
+      it 'status=completed honors the date range' do
+        get orders_path, params: { status: 'completed', date_from: 1.day.ago.to_date, date_to: Date.current }
+        expect(response.body).not_to include("Order ##{completed.id}")
+
+        get orders_path, params: { status: 'completed', date_from: 7.days.ago.to_date, date_to: Date.current }
+        expect(response.body).to include("Order ##{completed.id}")
+      end
+    end
   end
 
   describe 'GET /orders/:id' do

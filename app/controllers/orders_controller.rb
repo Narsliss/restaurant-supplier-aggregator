@@ -28,80 +28,48 @@ class OrdersController < ApplicationController
     @empty = @promoted_list.nil? && @aggregated_lists.empty? && @order_lists.empty?
   end
 
-  def index
-    # Build filter scope WITHOUT includes — includes(:order_items) causes
-    # LEFT JOIN that inflates sum() aggregates (one row per item).
-    kpi_scope = scoped_orders
-      .where(status: %w[submitted confirmed dry_run_complete])
+  # Status groups exposed via the ?status= filter on Order History.
+  # Cancelled is intentionally excluded from the default view — only visible when
+  # explicitly filtered to "cancelled".
+  STATUS_FILTER_GROUPS = {
+    "active"    => %w[pending verifying price_changed processing pending_review pending_manual],
+    "drafts"    => %w[draft],
+    "completed" => %w[submitted confirmed dry_run_complete],
+    "failed"    => %w[failed],
+    "cancelled" => %w[cancelled]
+  }.freeze
 
-    # Default date range: last 30 days
+  def index
     @date_from = params[:date_from].present? ? Date.parse(params[:date_from]) : 30.days.ago.to_date
     @date_to = params[:date_to].present? ? Date.parse(params[:date_to]) : Date.current
+    @status_filter = params[:status].to_s.presence
+    @status_filter = nil unless STATUS_FILTER_GROUPS.key?(@status_filter)
 
-    kpi_scope = kpi_scope.where("submitted_at >= ?", @date_from.beginning_of_day)
-    kpi_scope = kpi_scope.where("submitted_at <= ?", @date_to.end_of_day)
+    # KPI cards always reflect "completed orders in date range" so they remain
+    # meaningful regardless of which status the list below is filtered to.
+    kpi_scope = apply_common_filters(
+      scoped_orders.where(status: STATUS_FILTER_GROUPS["completed"])
+    ).where(submitted_at: @date_from.beginning_of_day..@date_to.end_of_day)
 
-    # Filter by supplier
-    if params[:supplier_id].present?
-      kpi_scope = kpi_scope.where(supplier_id: params[:supplier_id])
-    end
-
-    # Search by order ID or confirmation number
-    if params[:search].present?
-      search_term = "%#{params[:search]}%"
-      kpi_scope = kpi_scope.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
-    end
-
-    # KPI: total savings across filtered orders (computed before includes to avoid join inflation)
     @total_savings = kpi_scope.sum(:savings_amount)
     @total_spent = kpi_scope.sum(:total_amount)
     @order_count = kpi_scope.count
 
-    # Now add includes for eager loading the order list
-    orders_scope = kpi_scope
-      .includes(:supplier, :location, :order_items, :order_list, :user)
-      .order(submitted_at: :desc)
-
-    # Group orders by order_list_id or batch_id for split/batch order display
-    all_orders = orders_scope.to_a
-
-    # Include draft orders (not filtered by submitted_at since they haven't been submitted)
-    draft_scope = scoped_orders.where(status: "draft")
-    draft_scope = draft_scope.where(supplier_id: params[:supplier_id]) if params[:supplier_id].present?
-    if params[:search].present?
-      search_term = "%#{params[:search]}%"
-      draft_scope = draft_scope.where("CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?", search_term, search_term)
-    end
-    draft_orders = draft_scope
-      .includes(:supplier, :location, :order_items, :order_list, :user)
-      .where.not(id: all_orders.map(&:id))
-      .to_a
-    all_orders.concat(draft_orders)
-
-    # Include pending/failed siblings from the same batch so incomplete batches
-    # are visible in Order History with action links to resume submission.
-    batch_ids = all_orders.filter_map(&:batch_id).uniq
-    if batch_ids.any?
-      pending_siblings = scoped_orders
-        .where(batch_id: batch_ids)
-        .where(status: %w[pending verifying price_changed failed draft])
-        .where.not(id: all_orders.map(&:id))
-        .includes(:supplier, :location, :order_items, :order_list, :user)
-        .to_a
-      all_orders.concat(pending_siblings)
+    all_orders = if @status_filter
+      build_filtered_list(@status_filter)
+    else
+      build_default_list
     end
 
     # Group by batch_id (the actual submission session) first — each checkout creates one batch.
-    # Previously grouped by order_list_id, which lumped every historical session from the same
-    # list into one "Split Order" row with duplicate suppliers. Fall back to order_list_id for
-    # legacy orders without a batch_id, and to standalone per-order otherwise.
+    # Fall back to order_list_id for legacy orders without a batch_id, then to standalone per-order.
     @order_groups = all_orders.group_by { |o| o.batch_id || o.order_list_id || "standalone_#{o.id}" }
       .values
       .sort_by { |group| group.map { |o| o.submitted_at || o.draft_saved_at || o.created_at }.compact.max || Time.at(0) }
       .reverse
 
     @suppliers = Supplier.joins(:orders)
-      .merge(scoped_orders.where(status: %w[submitted confirmed dry_run_complete]))
+      .merge(scoped_orders.where(status: STATUS_FILTER_GROUPS["completed"]))
       .distinct.order(:name)
   end
 
@@ -893,6 +861,51 @@ class OrdersController < ApplicationController
   end
 
   private
+
+  # Apply supplier_id and search filters that all index scopes share.
+  def apply_common_filters(relation)
+    relation = relation.where(supplier_id: params[:supplier_id]) if params[:supplier_id].present?
+    if params[:search].present?
+      search_term = "%#{params[:search]}%"
+      relation = relation.where(
+        "CAST(orders.id AS TEXT) LIKE ? OR confirmation_number LIKE ?",
+        search_term, search_term
+      )
+    end
+    relation
+  end
+
+  # Default Order History list: completed orders within the date range, plus
+  # every draft and every actionable order (pending/verifying/price_changed/
+  # processing/pending_review/pending_manual/failed) regardless of date or
+  # batch membership. Cancelled orders are hidden unless filtered to.
+  def build_default_list
+    completed = apply_common_filters(scoped_orders.where(status: STATUS_FILTER_GROUPS["completed"]))
+      .where(submitted_at: @date_from.beginning_of_day..@date_to.end_of_day)
+      .includes(:supplier, :location, :order_items, :order_list, :user)
+      .order(submitted_at: :desc)
+      .to_a
+
+    open_statuses = STATUS_FILTER_GROUPS["active"] + STATUS_FILTER_GROUPS["drafts"] + STATUS_FILTER_GROUPS["failed"]
+    open_orders = apply_common_filters(scoped_orders.where(status: open_statuses))
+      .where.not(id: completed.map(&:id))
+      .includes(:supplier, :location, :order_items, :order_list, :user)
+      .to_a
+
+    completed + open_orders
+  end
+
+  # Targeted view when ?status= is set. Date range only applies to "completed".
+  def build_filtered_list(status_key)
+    relation = apply_common_filters(scoped_orders.where(status: STATUS_FILTER_GROUPS[status_key]))
+    if status_key == "completed"
+      relation = relation.where(submitted_at: @date_from.beginning_of_day..@date_to.end_of_day)
+    end
+    relation
+      .includes(:supplier, :location, :order_items, :order_list, :user)
+      .order(Arel.sql("COALESCE(submitted_at, draft_saved_at, created_at) DESC"))
+      .to_a
+  end
 
   def set_order
     @order = scoped_orders.find(params[:id])
