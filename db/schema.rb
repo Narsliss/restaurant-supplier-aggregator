@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_04_14_211717) do
+ActiveRecord::Schema[7.1].define(version: 2026_05_06_214908) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -312,6 +312,20 @@ ActiveRecord::Schema[7.1].define(version: 2026_04_14_211717) do
     t.index ["role"], name: "index_memberships_on_role"
     t.index ["user_id", "organization_id"], name: "index_memberships_on_user_id_and_organization_id", unique: true
     t.index ["user_id"], name: "index_memberships_on_user_id"
+  end
+
+  create_table "onboarding_progresses", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "role", null: false
+    t.string "current_step", default: "welcome", null: false
+    t.jsonb "completed_steps", default: [], null: false
+    t.datetime "started_at", null: false
+    t.datetime "completed_at"
+    t.datetime "dismissed_at"
+    t.integer "restart_count", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_onboarding_progresses_on_user_id", unique: true
   end
 
   create_table "order_items", force: :cascade do |t|
@@ -1025,6 +1039,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_04_14_211717) do
   add_foreign_key "membership_locations", "memberships", on_delete: :cascade
   add_foreign_key "memberships", "organizations"
   add_foreign_key "memberships", "users"
+  add_foreign_key "onboarding_progresses", "users"
   add_foreign_key "order_items", "orders", on_delete: :cascade
   add_foreign_key "order_items", "supplier_products", on_delete: :restrict
   add_foreign_key "order_list_items", "order_lists", on_delete: :cascade

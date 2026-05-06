@@ -31,6 +31,9 @@ class User < ApplicationRecord
   # Aggregated lists created by this user
   has_many :created_aggregated_lists, class_name: 'AggregatedList', foreign_key: :created_by_id, dependent: :destroy
 
+  # Onboarding wizard progress (one row per user, lazily created on first wizard mount)
+  has_one :onboarding_progress, dependent: :destroy
+
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :first_name, :last_name, presence: true

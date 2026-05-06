@@ -49,6 +49,19 @@ Rails.application.routes.draw do
   root 'dashboard#index'
   post 'onboarding/dismiss', to: 'dashboard#dismiss_onboarding', as: :dismiss_onboarding
 
+  # Onboarding wizard (spotlight tour) — JSON API consumed by the client controller.
+  # Writes only to onboarding_progresses; never touches application data.
+  namespace :onboarding do
+    resource :progress, only: [:show], controller: "progress" do
+      collection do
+        post :advance
+        post :complete
+        post :skip
+        post :restart
+      end
+    end
+  end
+
   # Stripe Webhooks
   namespace :webhooks do
     post 'stripe', to: 'stripe#create'
