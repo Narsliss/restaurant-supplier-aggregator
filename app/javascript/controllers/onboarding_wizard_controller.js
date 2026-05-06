@@ -9,8 +9,15 @@ import { stepsFor, flowFor, nextStepName, isLastStep } from "onboarding/steps"
 // application data — when a step asks the user to do something (create org,
 // connect supplier, etc.), they leave the wizard panel and use the real
 // form on the real page. The wizard's job is to spotlight where to go.
+//
+// EXCEPTION: the suppliers step embeds /supplier_credentials/new inline via
+// a Turbo Frame. The user fills out the REAL form, which POSTs to the REAL
+// SupplierCredentialsController. The wizard never bypasses controllers.
 export default class extends Controller {
-  static targets = ["scrim", "panel", "title", "body", "image", "primaryCta", "skipCta", "stepIndicator", "picker"]
+  static targets = [
+    "scrim", "panel", "title", "body", "image", "primaryCta", "skipCta",
+    "stepIndicator", "picker", "supplierForm",
+  ]
   static values = {
     role:           String,
     currentStep:    String,
@@ -28,11 +35,18 @@ export default class extends Controller {
       this.hide()
       return
     }
+    this._onFrameLoad = this.onSupplierFrameLoad.bind(this)
+    if (this.hasSupplierFormTarget) {
+      this.supplierFormTarget.addEventListener("turbo:frame-load", this._onFrameLoad)
+    }
     this.render()
   }
 
   disconnect() {
     this.clearSpotlight()
+    if (this.hasSupplierFormTarget && this._onFrameLoad) {
+      this.supplierFormTarget.removeEventListener("turbo:frame-load", this._onFrameLoad)
+    }
   }
 
   // --- Stimulus actions (bound from view) ---
@@ -68,6 +82,53 @@ export default class extends Controller {
     this.post(this.skipUrlValue, {}).then(() => this.hide())
   }
 
+  // Picker → load supplier form inline. Bound from generated picker cards.
+  connectSupplier(event) {
+    event?.preventDefault()
+    const supplierId = event.currentTarget?.dataset?.supplierId
+    if (!supplierId) return
+
+    if (!this.hasSupplierFormTarget) return
+
+    // Switch the panel to "form mode": hide picker, show empty frame, set src
+    // (Turbo will fetch and replace the frame's contents).
+    this.showSupplierForm()
+    this.supplierFormTarget.setAttribute(
+      "src",
+      `/supplier_credentials/new?supplier_id=${encodeURIComponent(supplierId)}&from_wizard=1`,
+    )
+  }
+
+  // "← Back to suppliers" link inside the loaded form returns to picker mode.
+  backToPicker(event) {
+    event?.preventDefault()
+    this.showPicker()
+    if (this.hasSupplierFormTarget) {
+      // Empty the frame so the next Connect → triggers a fresh fetch.
+      this.supplierFormTarget.removeAttribute("src")
+      this.supplierFormTarget.innerHTML = ""
+    }
+  }
+
+  // --- Frame load handler (success detection after form submit) ---
+
+  onSupplierFrameLoad(event) {
+    if (!this.hasSupplierFormTarget) return
+
+    // After /supplier_credentials#create runs in from_wizard mode, the
+    // response includes an empty marker div [data-onboarding-saved] inside
+    // the frame. We detect it here, then flip back to the picker.
+    const savedMarker = this.supplierFormTarget.querySelector("[data-onboarding-saved]")
+    if (savedMarker) {
+      // Re-render the picker (which will re-fetch and show the new
+      // supplier's ✓ Connected state).
+      this.showPicker()
+      this.supplierFormTarget.removeAttribute("src")
+      this.supplierFormTarget.innerHTML = ""
+      this.renderSuppliersPicker()
+    }
+  }
+
   // --- Rendering ---
 
   render() {
@@ -81,9 +142,6 @@ export default class extends Controller {
     if (this.hasBodyTarget)       this.bodyTarget.innerHTML    = step.body  || ""
     if (this.hasPrimaryCtaTarget) this.primaryCtaTarget.textContent = step.primaryCta || "Got it →"
 
-    // Steps without a spotlight (welcome, done) render as a centered modal
-    // for stronger visual presence; spotlight steps stay bottom-anchored
-    // so they don't cover the highlighted element.
     if (this.hasPanelTarget) {
       if (step.spotlight) {
         this.panelTarget.classList.remove("onboarding-panel--centered")
@@ -103,15 +161,17 @@ export default class extends Controller {
       }
     }
 
-    // Supplier picker — special render for the suppliers step.
-    // Fetches /onboarding/suppliers JSON and draws Connect / ✓ Connected
-    // cards inside the panel.
-    if (this.hasPickerTarget) {
-      if (this.currentStepValue === "suppliers") {
-        this.renderSuppliersPicker()
-      } else {
+    // Suppliers step → render picker; anything else → hide picker + form.
+    if (this.currentStepValue === "suppliers") {
+      this.showPicker()
+      this.renderSuppliersPicker()
+    } else {
+      if (this.hasPickerTarget) {
         this.pickerTarget.innerHTML = ""
         this.pickerTarget.setAttribute("hidden", "true")
+      }
+      if (this.hasSupplierFormTarget) {
+        this.supplierFormTarget.setAttribute("hidden", "true")
       }
     }
 
@@ -134,10 +194,34 @@ export default class extends Controller {
     this.clearSpotlight()
   }
 
+  showPicker() {
+    if (this.hasPickerTarget) this.pickerTarget.removeAttribute("hidden")
+    if (this.hasSupplierFormTarget) this.supplierFormTarget.setAttribute("hidden", "true")
+    this.togglePanelCtas(true)
+  }
+
+  showSupplierForm() {
+    if (this.hasPickerTarget) this.pickerTarget.setAttribute("hidden", "true")
+    if (this.hasSupplierFormTarget) this.supplierFormTarget.removeAttribute("hidden")
+    // The form has its own Cancel + Save buttons; hide the wizard's CTAs
+    // so they don't compete with it.
+    this.togglePanelCtas(false)
+  }
+
+  togglePanelCtas(visible) {
+    const display = visible ? "" : "none"
+    if (this.hasPrimaryCtaTarget) {
+      this.primaryCtaTarget.parentElement.style.display = display
+    }
+    if (this.hasSkipCtaTarget) {
+      this.skipCtaTarget.style.display = display
+    }
+  }
+
   // --- Suppliers picker ---
 
   renderSuppliersPicker() {
-    if (!this.suppliersUrlValue) return
+    if (!this.suppliersUrlValue || !this.hasPickerTarget) return
 
     this.pickerTarget.removeAttribute("hidden")
     this.pickerTarget.innerHTML = `<div class="onboarding-panel-picker-loading text-xs text-gray-500">Loading suppliers…</div>`
@@ -168,10 +252,12 @@ export default class extends Controller {
             <span class="onboarding-panel-picker-card-status">✓ Connected</span>
           </div>`
         }
-        const url = `/supplier_credentials/new?supplier_id=${s.id}&from_wizard=1`
         return `<div class="onboarding-panel-picker-card">
           <span class="onboarding-panel-picker-card-name">${this.escape(s.name)}</span>
-          <a class="onboarding-panel-picker-card-action" href="${url}">Connect →</a>
+          <button type="button"
+                  class="onboarding-panel-picker-card-action"
+                  data-action="click->onboarding-wizard#connectSupplier"
+                  data-supplier-id="${s.id}">Connect →</button>
         </div>`
       })
       .join("")
@@ -202,9 +288,6 @@ export default class extends Controller {
     return isLastStep(this.roleValue, this.currentStepValue)
   }
 
-  // Apply the spotlight ring to the first DOM target found. Accepts either
-  // a single target id or an array of fallback ids (first match wins).
-  // If the target lives inside a closed dropdown, opens it first.
   applySpotlight(target) {
     this.clearSpotlight()
     if (!target) return

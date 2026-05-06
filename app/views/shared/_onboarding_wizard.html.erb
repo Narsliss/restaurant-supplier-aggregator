@@ -74,8 +74,20 @@
       <div class="text-sm text-gray-700 leading-relaxed mb-3"
            data-onboarding-wizard-target="body"></div>
 
-      <%# Iterative supplier picker — populated when current step is "suppliers" %>
+      <%# Iterative supplier picker — populated when current step is "suppliers".
+          Connect → links target the turbo-frame below, so the credential form
+          loads inline inside the panel. %>
       <div data-onboarding-wizard-target="picker" hidden></div>
+
+      <%# Inline supplier credential form — Turbo Frame loads
+          /supplier_credentials/new?supplier_id=X&from_wizard=1 here when the
+          user clicks Connect. After save, controller responds with an
+          HTML chunk containing a "saved" marker; the Stimulus controller
+          detects that, refreshes the picker, and hides the frame. %>
+      <turbo-frame id="onboarding-supplier-form"
+                   data-onboarding-wizard-target="supplierForm"
+                   class="onboarding-supplier-form-frame"
+                   hidden></turbo-frame>
 
       <div class="flex justify-end">
         <button type="button"

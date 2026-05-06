@@ -112,11 +112,21 @@ class SupplierCredentialsController < ApplicationController
                   "#{@credential.supplier.name} credentials saved. Validating now — this usually takes 15-30 seconds."
                 end
 
-      # Came in from the onboarding wizard? Bounce back to the dashboard
-      # so the wizard's supplier picker re-renders with the new ✓ Connected
-      # state and the user can pick another or continue the tour.
+      # Wizard-mode: respond with a turbo-frame that contains a marker the
+      # wizard's Stimulus controller picks up. It then refreshes the picker
+      # and hides the frame. No page navigation.
       if params[:from_wizard].present?
-        redirect_to root_path, notice: message
+        supplier_name = ERB::Util.html_escape(@credential.supplier.name)
+        marker_html = <<~HTML.html_safe
+          <turbo-frame id="onboarding-supplier-form">
+            <div data-onboarding-saved="true"
+                 data-supplier-name="#{supplier_name}"
+                 class="onboarding-supplier-form-saved">
+              <span class="text-sm text-green-700 font-medium">✓ #{supplier_name} saved.</span>
+            </div>
+          </turbo-frame>
+        HTML
+        render html: marker_html, layout: false
       else
         redirect_to supplier_credentials_path, notice: message
       end
