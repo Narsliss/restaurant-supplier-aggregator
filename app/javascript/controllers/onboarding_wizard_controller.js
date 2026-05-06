@@ -15,8 +15,8 @@ import { stepsFor, flowFor, nextStepName, isLastStep } from "onboarding/steps"
 // SupplierCredentialsController. The wizard never bypasses controllers.
 export default class extends Controller {
   static targets = [
-    "scrim", "panel", "title", "body", "image", "primaryCta", "skipCta",
-    "stepIndicator", "picker", "supplierForm",
+    "scrim", "panel", "title", "body", "image", "primaryCta", "skipCta", "backCta",
+    "stepIndicator", "livesAt", "picker", "supplierForm", "footer",
   ]
   static values = {
     role:           String,
@@ -83,6 +83,23 @@ export default class extends Controller {
     this.post(this.skipUrlValue, {}).then(() => this.hide())
   }
 
+  // ← Back — go to the previous step in the flow.
+  back(event) {
+    event?.preventDefault()
+
+    const flow = flowFor(this.roleValue)
+    const i = flow.indexOf(this.currentStepValue)
+    if (i <= 0) return  // already on first step
+
+    const prev = flow[i - 1]
+    this.post(this.advanceUrlValue, { next_step: prev }).then((state) => {
+      if (!state) return
+      this.currentStepValue    = state.current_step
+      this.completedStepsValue = state.completed_steps || []
+      this.render()
+    })
+  }
+
   // Picker → load supplier form inline. Bound from generated picker cards.
   connectSupplier(event) {
     event?.preventDefault()
@@ -143,6 +160,44 @@ export default class extends Controller {
     if (this.hasBodyTarget)       this.bodyTarget.innerHTML    = step.body  || ""
     if (this.hasPrimaryCtaTarget) this.primaryCtaTarget.textContent = step.primaryCta || "Got it →"
 
+    // Phase + step indicator: "SETUP · 3 OF 10 · OPTIONAL"
+    if (this.hasStepIndicatorTarget) {
+      this.stepIndicatorTarget.textContent = this.formatPhaseIndicator(step)
+    }
+
+    // Lives-at breadcrumb: "↗ Lives at\nAvatar → Team"
+    if (this.hasLivesAtTarget) {
+      if (step.livesAt && step.livesAt.length > 0) {
+        const path = step.livesAt.join(" → ")
+        this.livesAtTarget.innerHTML = `
+          <span class="onboarding-panel-livesat-label">↗ Lives at</span>
+          <span class="onboarding-panel-livesat-path">${this.escape(path)}</span>
+        `
+        this.livesAtTarget.removeAttribute("hidden")
+      } else {
+        this.livesAtTarget.innerHTML = ""
+        this.livesAtTarget.setAttribute("hidden", "true")
+      }
+    }
+
+    // Hide Back on the first step; hide Skip + Back on the done step.
+    if (this.hasBackCtaTarget) {
+      const flow = flowFor(this.roleValue)
+      const isFirst = flow.indexOf(this.currentStepValue) <= 0
+      if (isFirst || step.phase === "done") {
+        this.backCtaTarget.setAttribute("hidden", "true")
+      } else {
+        this.backCtaTarget.removeAttribute("hidden")
+      }
+    }
+    if (this.hasSkipCtaTarget) {
+      if (step.phase === "done") {
+        this.skipCtaTarget.setAttribute("hidden", "true")
+      } else {
+        this.skipCtaTarget.removeAttribute("hidden")
+      }
+    }
+
     // Body class controls whether the sticky nav stays bright above the
     // scrim (spotlight steps) or gets dimmed under it (welcome / done).
     if (step.spotlight) {
@@ -176,14 +231,26 @@ export default class extends Controller {
       }
     }
 
-    if (this.hasStepIndicatorTarget) {
-      const flow = flowFor(this.roleValue)
-      const idx  = flow.indexOf(this.currentStepValue) + 1
-      this.stepIndicatorTarget.textContent = idx > 0 ? `${idx} of ${flow.length}` : ""
-    }
-
     this.applySpotlight(step.spotlight)
     this.show()
+  }
+
+  // "SETUP · 3 OF 10 · OPTIONAL" / "TOUR · 7 OF 10" / "INTRO" / "DONE"
+  formatPhaseIndicator(step) {
+    const flow = flowFor(this.roleValue)
+    const idx  = flow.indexOf(this.currentStepValue) + 1
+    const total = flow.length
+
+    const phaseLabel = (step.phase || "tour").toUpperCase()
+    const parts = [phaseLabel]
+
+    if (step.phase !== "intro" && step.phase !== "done" && idx > 0) {
+      parts.push(`${idx} of ${total}`.toUpperCase())
+    }
+
+    if (step.optional) parts.push("OPTIONAL")
+
+    return parts.join(" · ")
   }
 
   show() {
@@ -211,12 +278,8 @@ export default class extends Controller {
   }
 
   togglePanelCtas(visible) {
-    const display = visible ? "" : "none"
-    if (this.hasPrimaryCtaTarget) {
-      this.primaryCtaTarget.parentElement.style.display = display
-    }
-    if (this.hasSkipCtaTarget) {
-      this.skipCtaTarget.style.display = display
+    if (this.hasFooterTarget) {
+      this.footerTarget.style.display = visible ? "" : "none"
     }
   }
 

@@ -1,16 +1,10 @@
 <%# Onboarding wizard overlay (spotlight tour).
     Renders only when onboarding_wizard_visible? — see ApplicationController.
 
-    Server-side responsibilities:
-      - Decide whether to render at all (eligibility + role)
-      - Pass the user's current step + role + completed steps to the JS controller
-      - Hand the JS controller a digest-aware image path map so step bodies
-        can reference screenshots by key
-
-    Client-side (onboarding_wizard_controller.js) responsibilities:
-      - Render scrim/spotlight/panel from the step descriptor
-      - Open avatar dropdown when spotlight target is menu-prefixed
-      - Advance, skip, and complete the wizard via JSON POSTs
+    Layout matches the approved mockups: a tall panel anchored to the
+    bottom-left, with a phase/step badge + "lives at" breadcrumb in the
+    header, the step's content in the middle, and a Back / Skip / Primary
+    footer pinned to the bottom.
 %>
 <% if onboarding_wizard_visible? %>
   <%
@@ -19,21 +13,18 @@
     role             = progress.role
     completed_steps  = progress.effective_completed_steps
 
-    # Map of image key → digested asset URL. Step descriptors reference these
-    # keys (e.g. "product-matching") instead of hardcoding URLs, so the asset
-    # pipeline can fingerprint files in production.
     image_paths = {
-      "product-matching"    => image_path("onboarding/01-product-matching.png"),
-      "aggregated-show"     => image_path("onboarding/02-aggregated-show.png"),
-      "order-lists"         => image_path("onboarding/03-order-lists.png"),
-      "order-builder"       => image_path("onboarding/04-order-builder.png"),
-      "order-history"       => image_path("onboarding/05-order-history.png"),
-      "reports"             => image_path("onboarding/06-reports.png"),
-      "restaurants"         => image_path("onboarding/07-restaurants.png"),
-      "team"                => image_path("onboarding/08-team.png"),
+      "product-matching"     => image_path("onboarding/01-product-matching.png"),
+      "aggregated-show"      => image_path("onboarding/02-aggregated-show.png"),
+      "order-lists"          => image_path("onboarding/03-order-lists.png"),
+      "order-builder"        => image_path("onboarding/04-order-builder.png"),
+      "order-history"        => image_path("onboarding/05-order-history.png"),
+      "reports"              => image_path("onboarding/06-reports.png"),
+      "restaurants"          => image_path("onboarding/07-restaurants.png"),
+      "team"                 => image_path("onboarding/08-team.png"),
       "supplier-credentials" => image_path("onboarding/09-supplier-credentials.png"),
-      "new-order"           => image_path("onboarding/10-new-order.png"),
-      "order-review"        => image_path("onboarding/11-order-review.png"),
+      "new-order"            => image_path("onboarding/10-new-order.png"),
+      "order-review"         => image_path("onboarding/11-order-review.png"),
     }
   %>
   <div data-controller="onboarding-wizard"
@@ -48,52 +39,60 @@
        data-onboarding-wizard-csrf-value="<%= form_authenticity_token %>"
        class="onboarding-wizard"
        hidden>
-    <%# Scrim — semi-transparent backdrop covering the full viewport %>
     <div class="onboarding-scrim" data-onboarding-wizard-target="scrim"></div>
 
-    <%# Modal panel — fixed-position card with step copy + actions %>
     <div class="onboarding-panel" data-onboarding-wizard-target="panel" role="dialog" aria-labelledby="onboarding-title" aria-modal="true">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-xs font-semibold tracking-wider uppercase text-brand-orange"
+      <%# Header: phase + step indicator on the left, "lives at" breadcrumb on the right %>
+      <div class="onboarding-panel-header">
+        <span class="onboarding-panel-phase"
               data-onboarding-wizard-target="stepIndicator"></span>
-        <button type="button"
-                data-action="onboarding-wizard#skip"
-                data-onboarding-wizard-target="skipCta"
-                class="text-xs text-gray-500 hover:text-gray-700 underline">
-          Skip for now
-        </button>
+        <span class="onboarding-panel-livesat"
+              data-onboarding-wizard-target="livesAt"
+              hidden></span>
       </div>
 
       <h2 id="onboarding-title"
-          class="text-lg font-bold text-gray-900 mb-2"
+          class="onboarding-panel-title"
           data-onboarding-wizard-target="title"></h2>
 
       <%# Optional embedded screenshot — populated by the controller from step.image %>
       <div class="onboarding-panel-image-slot" data-onboarding-wizard-target="image" hidden></div>
 
-      <div class="text-sm text-gray-700 leading-relaxed mb-3"
+      <div class="onboarding-panel-body"
            data-onboarding-wizard-target="body"></div>
 
-      <%# Iterative supplier picker — populated when current step is "suppliers".
-          Connect → links target the turbo-frame below, so the credential form
-          loads inline inside the panel. %>
+      <%# Iterative supplier picker — populated when current step is "suppliers" %>
       <div data-onboarding-wizard-target="picker" hidden></div>
 
-      <%# Inline supplier credential form — Turbo Frame loads
-          /supplier_credentials/new?supplier_id=X&from_wizard=1 here when the
-          user clicks Connect. After save, controller responds with an
-          HTML chunk containing a "saved" marker; the Stimulus controller
-          detects that, refreshes the picker, and hides the frame. %>
+      <%# Inline supplier credential form — Turbo Frame target. After save,
+          controller responds with a frame containing the saved marker;
+          Stimulus picks it up via turbo:frame-load and re-renders the picker. %>
       <turbo-frame id="onboarding-supplier-form"
                    data-onboarding-wizard-target="supplierForm"
                    class="onboarding-supplier-form-frame"
                    hidden></turbo-frame>
 
-      <div class="flex justify-end">
+      <%# Spacer pushes the footer to the bottom of the (tall) panel %>
+      <div class="onboarding-panel-spacer"></div>
+
+      <%# Footer: Back · Skip · Primary CTA %>
+      <div class="onboarding-panel-footer" data-onboarding-wizard-target="footer">
+        <button type="button"
+                data-action="onboarding-wizard#back"
+                data-onboarding-wizard-target="backCta"
+                class="onboarding-panel-back">
+          ← Back
+        </button>
+        <button type="button"
+                data-action="onboarding-wizard#skip"
+                data-onboarding-wizard-target="skipCta"
+                class="onboarding-panel-skip">
+          Skip
+        </button>
         <button type="button"
                 data-action="onboarding-wizard#advance"
                 data-onboarding-wizard-target="primaryCta"
-                class="bg-brand-orange hover:bg-brand-orange-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+                class="onboarding-panel-primary">
         </button>
       </div>
     </div>
