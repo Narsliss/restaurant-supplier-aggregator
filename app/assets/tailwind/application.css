@@ -450,4 +450,64 @@
   .dark .border-l-4.border-brand-orange {
     background-color: rgba(212, 148, 58, 0.1) !important;
   }
+
+  /* --- Onboarding wizard panel — dark mode --- */
+  .dark .onboarding-panel {
+    background-color: #1f2937;
+    color: #f9fafb;
+    border-color: #374151;
+  }
+  .dark .onboarding-panel h2 {
+    color: #f9fafb;
+  }
+  .dark .onboarding-panel [data-onboarding-wizard-target="body"] {
+    color: #d1d5db;
+  }
+  .dark .onboarding-panel button[data-action*="skip"] {
+    color: #9ca3af;
+  }
+  .dark .onboarding-panel button[data-action*="skip"]:hover {
+    color: #d1d5db;
+  }
+}
+
+/* --- Onboarding wizard (spotlight tour) ---
+   Scrim covers the page; spotlight ring highlights one DOM element;
+   panel sits above both. Z-stack: scrim 30, spotlight 50, panel 60. */
+
+.onboarding-wizard[hidden] {
+  display: none;
+}
+
+.onboarding-scrim {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 30;
+  pointer-events: auto;
+}
+
+/* Applied dynamically to the spotlit DOM element. The 3px outer ring uses
+   the brand-orange color at high opacity. position:relative + z-index lifts
+   the element above the scrim so it's fully visible. */
+.onboarding-spotlight {
+  position: relative;
+  z-index: 50;
+  box-shadow: 0 0 0 3px rgba(212, 148, 58, 0.95) !important;
+  border-radius: 6px;
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.onboarding-panel {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  z-index: 60;
+  width: min(420px, calc(100vw - 3rem));
+  background-color: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
 }

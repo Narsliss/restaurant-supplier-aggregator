@@ -8,3 +8,4 @@ pin "@rails/actioncable", to: "actioncable.esm.js", preload: true
 
 pin_all_from "app/javascript/controllers", under: "controllers"
 pin_all_from "app/javascript/channels", under: "channels"
+pin_all_from "app/javascript/onboarding", under: "onboarding"

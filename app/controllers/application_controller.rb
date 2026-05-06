@@ -9,7 +9,8 @@ class ApplicationController < ActionController::Base
   before_action :require_subscription, unless: :skip_subscription_check?
   before_action :configure_permitted_parameters, if: :devise_controller?
 
-  helper_method :current_location, :subscription_required?, :onboarding_incomplete?, :viewing_all_locations?, :impersonating?, :mobile?
+  helper_method :current_location, :subscription_required?, :onboarding_incomplete?, :viewing_all_locations?, :impersonating?, :mobile?,
+                :onboarding_wizard_visible?, :onboarding_wizard_progress
 
   # Show a helpful message when CSRF token is stale (e.g. after server restart or long idle)
   rescue_from ActionController::InvalidAuthenticityToken do
@@ -150,6 +151,30 @@ class ApplicationController < ActionController::Base
 
   def mobile?
     request.variant&.include?(:mobile)
+  end
+
+  # --- Onboarding wizard (spotlight tour) helpers ---
+  #
+  # These are read-only on every page render. The wizard's progress record
+  # is lazily created the first time the user advances or skips a step
+  # (server side, by Onboarding::ProgressController) — not here.
+
+  def onboarding_wizard_progress
+    return @onboarding_wizard_progress if defined?(@onboarding_wizard_progress)
+
+    @onboarding_wizard_progress = if current_user
+                                    OnboardingProgress.for_user(current_user)
+                                  end
+  end
+
+  def onboarding_wizard_visible?
+    return false unless current_user
+    return false if mobile?              # desktop-only in v1
+    return false if devise_controller?
+
+    progress = onboarding_wizard_progress
+    return false unless progress
+    progress.in_progress?
   end
 
   def skip_onboarding_check?

@@ -76,6 +76,7 @@
 
     <%= render "shared/two_factor_modal" if user_signed_in? %>
     <%= render "shared/feedback_modal" if user_signed_in? %>
+    <%= render "shared/onboarding_wizard" if user_signed_in? %>
 
     <%# Loading overlay — visible during Turbo page transitions and form submissions %>
     <div id="turbo-loading-overlay"

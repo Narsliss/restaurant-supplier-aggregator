@@ -1,0 +1,60 @@
+<%# Onboarding wizard overlay (spotlight tour).
+    Renders only when onboarding_wizard_visible? — see ApplicationController.
+
+    Server-side responsibilities:
+      - Decide whether to render at all (eligibility + role)
+      - Pass the user's current step + role to the JS controller as data attributes
+      - Provide CSRF token + endpoint URLs
+
+    Client-side (onboarding_wizard_controller.js) responsibilities:
+      - Render scrim/spotlight/panel from the step descriptor
+      - Advance, skip, and complete the wizard via JSON POSTs
+%>
+<% if onboarding_wizard_visible? %>
+  <%
+    progress      = onboarding_wizard_progress
+    current_step  = progress.current_step
+    role          = progress.role
+  %>
+  <div data-controller="onboarding-wizard"
+       data-onboarding-wizard-role-value="<%= role %>"
+       data-onboarding-wizard-current-step-value="<%= current_step %>"
+       data-onboarding-wizard-advance-url-value="<%= advance_onboarding_progress_path %>"
+       data-onboarding-wizard-complete-url-value="<%= complete_onboarding_progress_path %>"
+       data-onboarding-wizard-skip-url-value="<%= skip_onboarding_progress_path %>"
+       data-onboarding-wizard-csrf-value="<%= form_authenticity_token %>"
+       class="onboarding-wizard"
+       hidden>
+    <%# Scrim — semi-transparent backdrop covering the full viewport %>
+    <div class="onboarding-scrim" data-onboarding-wizard-target="scrim"></div>
+
+    <%# Modal panel — fixed-position card with step copy + actions %>
+    <div class="onboarding-panel" data-onboarding-wizard-target="panel" role="dialog" aria-labelledby="onboarding-title" aria-modal="true">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs font-semibold tracking-wider uppercase text-brand-orange"
+              data-onboarding-wizard-target="stepIndicator"></span>
+        <button type="button"
+                data-action="onboarding-wizard#skip"
+                data-onboarding-wizard-target="skipCta"
+                class="text-xs text-gray-500 hover:text-gray-700 underline">
+          Skip for now
+        </button>
+      </div>
+
+      <h2 id="onboarding-title"
+          class="text-lg font-bold text-gray-900 mb-2"
+          data-onboarding-wizard-target="title"></h2>
+
+      <div class="text-sm text-gray-700 leading-relaxed mb-4"
+           data-onboarding-wizard-target="body"></div>
+
+      <div class="flex justify-end">
+        <button type="button"
+                data-action="onboarding-wizard#advance"
+                data-onboarding-wizard-target="primaryCta"
+                class="bg-brand-orange hover:bg-brand-orange-dark text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+        </button>
+      </div>
+    </div>
+  </div>
+<% end %>
