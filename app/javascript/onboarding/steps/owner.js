@@ -44,16 +44,20 @@ const OWNER_ONLY_STEPS = {
 
 export const OWNER_STEPS = { ...SHARED_STEPS, ...OWNER_ONLY_STEPS }
 
+// Flow order matters — matching comes right after suppliers because it's
+// the foundation everything else (lists, orders) builds on. Promote sits
+// next to matching since it's about promoting a matched list. Then lists,
+// then placing an order, then the post-order surfaces (history, reports).
 export const OWNER_FLOW = [
   "welcome",
   "organization",
   "restaurant",
   "team",
   "suppliers",
-  "train-orderlists",
-  "train-neworder",
   "train-matching",
   "train-promote",
+  "train-orderlists",
+  "train-neworder",
   "train-orderhistory",
   "train-reports",
   "done",

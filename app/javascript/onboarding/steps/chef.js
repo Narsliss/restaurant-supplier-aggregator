@@ -5,11 +5,13 @@ import { SHARED_STEPS } from "onboarding/steps/shared"
 // inside this object: { ...SHARED_STEPS, suppliers: {...} }.
 export const CHEF_STEPS = { ...SHARED_STEPS }
 
+// Flow order mirrors the real workflow: connect suppliers → match products
+// across them → build order lists from matched products → place an order.
 export const CHEF_FLOW = [
   "welcome",
   "suppliers",
+  "train-matching",
   "train-orderlists",
   "train-neworder",
-  "train-matching",
   "done",
 ]
