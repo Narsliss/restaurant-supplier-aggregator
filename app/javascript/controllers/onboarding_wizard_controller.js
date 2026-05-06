@@ -143,14 +143,6 @@ export default class extends Controller {
     if (this.hasBodyTarget)       this.bodyTarget.innerHTML    = step.body  || ""
     if (this.hasPrimaryCtaTarget) this.primaryCtaTarget.textContent = step.primaryCta || "Got it →"
 
-    if (this.hasPanelTarget) {
-      if (step.spotlight) {
-        this.panelTarget.classList.remove("onboarding-panel--centered")
-      } else {
-        this.panelTarget.classList.add("onboarding-panel--centered")
-      }
-    }
-
     // Body class controls whether the sticky nav stays bright above the
     // scrim (spotlight steps) or gets dimmed under it (welcome / done).
     if (step.spotlight) {
