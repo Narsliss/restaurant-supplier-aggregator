@@ -496,20 +496,33 @@
   display: none;
 }
 
+/* Z-index stack for the wizard:
+   - Scrim:        100 (above the sticky nav at z-50)
+   - Nav (boost):  110 (only when a spotlight step is active, so the
+                        spotlit element stays visible above the scrim)
+   - Modal panel:  130
+   On non-spotlight steps the nav stays at z-50 and the scrim covers it. */
+
 .onboarding-scrim {
   position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.62);
-  z-index: 30;
+  z-index: 100;
   pointer-events: auto;
 }
 
+/* Lift the sticky top nav above the scrim during spotlight steps so the
+   user can see (and click) the highlighted nav/avatar item. The body
+   class is toggled by the wizard's Stimulus controller. */
+body.onboarding-spotlight-active nav.sticky.top-0 {
+  z-index: 110;
+}
+
 /* Applied dynamically to the spotlit DOM element. The 3px outer ring uses
-   the brand-orange color at high opacity. position:relative + z-index lifts
-   the element above the scrim so it's fully visible. */
+   the brand-orange color at high opacity. position:relative ensures the
+   ring renders above sibling elements within the nav's stacking context. */
 .onboarding-spotlight {
   position: relative;
-  z-index: 50;
   box-shadow: 0 0 0 3px rgba(212, 148, 58, 0.95) !important;
   border-radius: 6px;
   transition: box-shadow 0.2s ease-in-out;
@@ -520,7 +533,7 @@
   bottom: 2rem;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 60;
+  z-index: 130;
   width: min(640px, calc(100vw - 3rem));
   max-height: calc(100vh - 4rem);
   overflow-y: auto;

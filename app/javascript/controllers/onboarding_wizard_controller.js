@@ -44,6 +44,7 @@ export default class extends Controller {
 
   disconnect() {
     this.clearSpotlight()
+    document.body.classList.remove("onboarding-spotlight-active")
     if (this.hasSupplierFormTarget && this._onFrameLoad) {
       this.supplierFormTarget.removeEventListener("turbo:frame-load", this._onFrameLoad)
     }
@@ -150,6 +151,14 @@ export default class extends Controller {
       }
     }
 
+    // Body class controls whether the sticky nav stays bright above the
+    // scrim (spotlight steps) or gets dimmed under it (welcome / done).
+    if (step.spotlight) {
+      document.body.classList.add("onboarding-spotlight-active")
+    } else {
+      document.body.classList.remove("onboarding-spotlight-active")
+    }
+
     if (this.hasImageTarget) {
       const url = step.image ? this.imagePathsValue[step.image] : null
       if (url) {
@@ -192,6 +201,7 @@ export default class extends Controller {
   hide() {
     this.element.setAttribute("hidden", "true")
     this.clearSpotlight()
+    document.body.classList.remove("onboarding-spotlight-active")
   }
 
   showPicker() {
