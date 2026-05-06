@@ -20,7 +20,12 @@ module Onboarding
                                  []
                                end
 
-      suppliers = Supplier.active.by_name.map do |supplier|
+      # Only login-based suppliers belong in the wizard picker. Email
+      # suppliers (auth_type=email) don't have a credential form — they
+      # are set up by routing the supplier's price-list emails into the
+      # inbound parser. Owners manage those on the Supplier Credentials
+      # page directly; the wizard intentionally skips them.
+      suppliers = Supplier.active.web_suppliers.by_name.map do |supplier|
         {
           id:        supplier.id,
           name:      supplier.name,
