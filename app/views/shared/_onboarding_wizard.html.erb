@@ -41,6 +41,7 @@
        data-onboarding-wizard-current-step-value="<%= current_step %>"
        data-onboarding-wizard-completed-steps-value="<%= completed_steps.to_json %>"
        data-onboarding-wizard-image-paths-value="<%= image_paths.to_json %>"
+       data-onboarding-wizard-suppliers-url-value="<%= onboarding_suppliers_path %>"
        data-onboarding-wizard-advance-url-value="<%= advance_onboarding_progress_path %>"
        data-onboarding-wizard-complete-url-value="<%= complete_onboarding_progress_path %>"
        data-onboarding-wizard-skip-url-value="<%= skip_onboarding_progress_path %>"
@@ -70,8 +71,11 @@
       <%# Optional embedded screenshot — populated by the controller from step.image %>
       <div class="onboarding-panel-image-slot" data-onboarding-wizard-target="image" hidden></div>
 
-      <div class="text-sm text-gray-700 leading-relaxed mb-4"
+      <div class="text-sm text-gray-700 leading-relaxed mb-3"
            data-onboarding-wizard-target="body"></div>
+
+      <%# Iterative supplier picker — populated when current step is "suppliers" %>
+      <div data-onboarding-wizard-target="picker" hidden></div>
 
       <div class="flex justify-end">
         <button type="button"

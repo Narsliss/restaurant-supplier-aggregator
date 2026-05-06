@@ -62,7 +62,9 @@ class SupplierCredentialsController < ApplicationController
   def show; end
 
   def new
-    @credential = current_user.supplier_credentials.new
+    # Pre-select supplier when arriving from the onboarding wizard's supplier
+    # picker (link includes ?supplier_id=X).
+    @credential = current_user.supplier_credentials.new(supplier_id: params[:supplier_id])
   end
 
   def create
@@ -110,7 +112,14 @@ class SupplierCredentialsController < ApplicationController
                   "#{@credential.supplier.name} credentials saved. Validating now — this usually takes 15-30 seconds."
                 end
 
-      redirect_to supplier_credentials_path, notice: message
+      # Came in from the onboarding wizard? Bounce back to the dashboard
+      # so the wizard's supplier picker re-renders with the new ✓ Connected
+      # state and the user can pick another or continue the tour.
+      if params[:from_wizard].present?
+        redirect_to root_path, notice: message
+      else
+        redirect_to supplier_credentials_path, notice: message
+      end
     else
       Rails.logger.warn "[SupplierCredentials] Failed to create credential: #{@credential.errors.full_messages.join(', ')}"
       render :new, status: :unprocessable_entity

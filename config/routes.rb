@@ -60,6 +60,9 @@ Rails.application.routes.draw do
         post :restart
       end
     end
+
+    # Read-only feed for the wizard's iterative supplier picker.
+    resources :suppliers, only: [:index]
   end
 
   # Stripe Webhooks

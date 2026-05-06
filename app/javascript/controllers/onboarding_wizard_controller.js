@@ -10,12 +10,13 @@ import { stepsFor, flowFor, nextStepName, isLastStep } from "onboarding/steps"
 // connect supplier, etc.), they leave the wizard panel and use the real
 // form on the real page. The wizard's job is to spotlight where to go.
 export default class extends Controller {
-  static targets = ["scrim", "panel", "title", "body", "image", "primaryCta", "skipCta", "stepIndicator"]
+  static targets = ["scrim", "panel", "title", "body", "image", "primaryCta", "skipCta", "stepIndicator", "picker"]
   static values = {
     role:           String,
     currentStep:    String,
     completedSteps: { type: Array,  default: [] },
     imagePaths:     { type: Object, default: {} },
+    suppliersUrl:   String,
     advanceUrl:     String,
     completeUrl:    String,
     skipUrl:        String,
@@ -44,7 +45,7 @@ export default class extends Controller {
       return
     }
 
-    const next = nextStepName(this.roleValue, this.currentStepValue, this.completedStepsValue)
+    const next = nextStepName(this.roleValue, this.currentStepValue)
     if (!next) {
       this.completeWizard()
       return
@@ -80,8 +81,17 @@ export default class extends Controller {
     if (this.hasBodyTarget)       this.bodyTarget.innerHTML    = step.body  || ""
     if (this.hasPrimaryCtaTarget) this.primaryCtaTarget.textContent = step.primaryCta || "Got it →"
 
-    // Optional embedded screenshot — referenced by key in step.image,
-    // resolved to an asset URL via the imagePaths map (passed from server).
+    // Steps without a spotlight (welcome, done) render as a centered modal
+    // for stronger visual presence; spotlight steps stay bottom-anchored
+    // so they don't cover the highlighted element.
+    if (this.hasPanelTarget) {
+      if (step.spotlight) {
+        this.panelTarget.classList.remove("onboarding-panel--centered")
+      } else {
+        this.panelTarget.classList.add("onboarding-panel--centered")
+      }
+    }
+
     if (this.hasImageTarget) {
       const url = step.image ? this.imagePathsValue[step.image] : null
       if (url) {
@@ -90,6 +100,18 @@ export default class extends Controller {
       } else {
         this.imageTarget.innerHTML = ""
         this.imageTarget.setAttribute("hidden", "true")
+      }
+    }
+
+    // Supplier picker — special render for the suppliers step.
+    // Fetches /onboarding/suppliers JSON and draws Connect / ✓ Connected
+    // cards inside the panel.
+    if (this.hasPickerTarget) {
+      if (this.currentStepValue === "suppliers") {
+        this.renderSuppliersPicker()
+      } else {
+        this.pickerTarget.innerHTML = ""
+        this.pickerTarget.setAttribute("hidden", "true")
       }
     }
 
@@ -110,6 +132,59 @@ export default class extends Controller {
   hide() {
     this.element.setAttribute("hidden", "true")
     this.clearSpotlight()
+  }
+
+  // --- Suppliers picker ---
+
+  renderSuppliersPicker() {
+    if (!this.suppliersUrlValue) return
+
+    this.pickerTarget.removeAttribute("hidden")
+    this.pickerTarget.innerHTML = `<div class="onboarding-panel-picker-loading text-xs text-gray-500">Loading suppliers…</div>`
+
+    fetch(this.suppliersUrlValue, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data?.suppliers) {
+          this.pickerTarget.innerHTML = ""
+          return
+        }
+        this.pickerTarget.innerHTML = this.buildPickerHtml(data.suppliers)
+      })
+      .catch(() => {
+        this.pickerTarget.innerHTML = ""
+      })
+  }
+
+  buildPickerHtml(suppliers) {
+    const cards = suppliers
+      .map((s) => {
+        if (s.connected) {
+          return `<div class="onboarding-panel-picker-card onboarding-panel-picker-card--connected">
+            <span class="onboarding-panel-picker-card-name">${this.escape(s.name)}</span>
+            <span class="onboarding-panel-picker-card-status">✓ Connected</span>
+          </div>`
+        }
+        const url = `/supplier_credentials/new?supplier_id=${s.id}&from_wizard=1`
+        return `<div class="onboarding-panel-picker-card">
+          <span class="onboarding-panel-picker-card-name">${this.escape(s.name)}</span>
+          <a class="onboarding-panel-picker-card-action" href="${url}">Connect →</a>
+        </div>`
+      })
+      .join("")
+
+    return `<div class="onboarding-panel-picker">${cards}</div>`
+  }
+
+  escape(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
   }
 
   // --- Internals ---
@@ -142,8 +217,6 @@ export default class extends Controller {
     }
     if (!el) return
 
-    // If inside a dropdown menu that's currently hidden, open it so the
-    // spotlit element is actually visible.
     const dropdown = el.closest('[data-controller~="dropdown"]')
     if (dropdown) {
       const menu = dropdown.querySelector('[data-dropdown-target="menu"]')

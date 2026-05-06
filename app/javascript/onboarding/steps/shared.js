@@ -24,10 +24,9 @@ export const SHARED_STEPS = {
 
   suppliers: {
     title: "Connect your suppliers",
-    body: "Link your supplier accounts so we can pull in pricing and order guides. Click <strong>Supplier Credentials</strong> to add accounts now, then return here and tap <strong>Got it</strong> to keep going. You can also skip and come back later.",
-    image: "supplier-credentials",
+    body: "Pick a supplier below to connect. We'll bring you back here after each save so you can connect more — or tap <strong>Continue tour</strong> when you're done.",
     spotlight: "menu-supplier-creds",
-    primaryCta: "Got it →",
+    primaryCta: "Continue tour →",
   },
 
   "train-orderlists": {
