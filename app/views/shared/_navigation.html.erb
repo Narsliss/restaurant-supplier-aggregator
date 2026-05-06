@@ -190,6 +190,12 @@
                 Feedback
               </button>
               <%= link_to "Terms of Service", terms_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <% if OnboardingProgress.role_for(current_user) %>
+                <%= button_to "Restart Tour", restart_onboarding_progress_path, method: :post,
+                      data: { onboarding_target: "menu-restart-tour" },
+                      form_class: "block",
+                      class: "block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <% end %>
               <button type="button"
                       data-action="click->theme#cycle"
                       class="flex w-full items-center px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark">

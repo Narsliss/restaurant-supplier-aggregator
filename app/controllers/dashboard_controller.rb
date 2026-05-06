@@ -16,14 +16,9 @@ class DashboardController < ApplicationController
       return
     end
 
-    # Keep showing the full-page wizard for owners who still have optional
-    # steps (connect supplier, import lists) until they dismiss or complete.
-    # This avoids the jarring jump from wizard → empty dashboard.
-    if owner? && owner_setup_in_progress?
-      load_onboarding_steps
-      @required_steps_complete = true # enables "Go to Dashboard" dismiss button
-      return
-    end
+    # Once required setup is complete, fall through to the dashboard.
+    # The spotlight tour (rendered globally from the application layout)
+    # picks up from here for any remaining training steps.
 
     if owner?
       load_owner_dashboard
@@ -92,10 +87,10 @@ class DashboardController < ApplicationController
       active_suppliers: base_credentials.where(status: 'active').count
     }
 
-    # Setup wizard (inline)
-    @onboarding_steps = build_owner_setup_steps(org)
-    @onboarding_complete = @onboarding_steps.all? { |s| s[:done] } || current_user.onboarding_dismissed_at?
-    @onboarding_hard_gate = false
+    # Setup wizard moved to the global spotlight tour (see
+    # app/views/shared/_onboarding_wizard.html.erb).
+    # @onboarding_steps / @onboarding_complete / @onboarding_hard_gate
+    # are no longer set on the owner dashboard.
 
     # Weekly spending trend (8 weeks)
     @weekly_trend = load_weekly_trend(kpi_orders)
@@ -309,19 +304,6 @@ class DashboardController < ApplicationController
       { title: "Connect a supplier", description: "Link your supplier account to pull in pricing and order guides", done: true, path: new_supplier_credential_path, cta: "Connect" }
     ]
     @getting_started = nil if @getting_started.all? { |s| s[:done] } || current_user.onboarding_dismissed_at?
-  end
-
-  # Owner has completed required steps (org, restaurant, team) but still has
-  # optional steps (connect supplier, import lists) remaining. We keep the
-  # full-page wizard visible so the setup flow feels continuous.
-  def owner_setup_in_progress?
-    return false if current_user.onboarding_dismissed_at?
-
-    org = current_user.current_organization
-    return false unless org
-
-    steps = build_owner_setup_steps(org)
-    !steps.all? { |s| s[:done] }
   end
 
   def chef_needs_onboarding?

@@ -24,7 +24,7 @@ export const SHARED_STEPS = {
 
   suppliers: {
     title: "Connect your suppliers",
-    body: "Link your supplier accounts so we can pull in pricing and order guides. Connect them now or skip and come back later — you can manage credentials any time from this menu.",
+    body: "Link your supplier accounts so we can pull in pricing and order guides. Click <strong>Supplier Credentials</strong> to add accounts now, then return here and tap <strong>Got it</strong> to keep going. You can also skip and come back later.",
     image: "supplier-credentials",
     spotlight: "menu-supplier-creds",
     primaryCta: "Got it →",

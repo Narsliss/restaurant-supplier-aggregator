@@ -103,14 +103,26 @@ RSpec.describe 'Onboarding::Progress', type: :request do
     end
 
     describe 'POST /onboarding/progress/restart' do
-      it 'resets a completed wizard back to welcome' do
-        post complete_onboarding_progress_path
-        post restart_onboarding_progress_path
+      it 'resets a completed wizard back to welcome (JSON)' do
+        post complete_onboarding_progress_path, as: :json
+        post restart_onboarding_progress_path, as: :json
 
         body = JSON.parse(response.body)
         expect(body['current_step']).to eq('welcome')
         expect(body['in_progress']).to be true
         expect(body['restart_count']).to eq(1)
+      end
+
+      it 'redirects when called as HTML (avatar dropdown link)' do
+        post complete_onboarding_progress_path, as: :json
+        post restart_onboarding_progress_path
+
+        expect(response).to be_redirect
+        expect(current_user_progress.reload.current_step).to eq('welcome')
+      end
+
+      def current_user_progress
+        OnboardingProgress.find_by(user_id: User.find_by(email: user.email).id)
       end
     end
   end

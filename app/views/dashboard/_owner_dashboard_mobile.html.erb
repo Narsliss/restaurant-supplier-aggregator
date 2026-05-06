@@ -86,37 +86,8 @@
   <% end %>
 <% end %>
 
-<!-- Setup Wizard (if incomplete) -->
-<% if @onboarding_steps.present? && !@onboarding_complete %>
-  <div class="mb-3 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-    <div class="px-3 py-2 border-b border-gray-100 flex items-center justify-between" style="background: linear-gradient(135deg, #3A6147 0%, #4A7C59 100%);">
-      <h3 class="text-xs font-heading font-semibold text-white">Finish Setting Up</h3>
-      <span class="text-[10px] font-medium text-white/80"><%= @onboarding_steps.count { |s| s[:done] } %>/<%= @onboarding_steps.size %></span>
-    </div>
-    <ol class="divide-y divide-gray-50">
-      <% @onboarding_steps.each_with_index do |step, i| %>
-        <li class="flex items-center gap-2.5 px-3 py-2.5 <%= step[:done] ? 'bg-gray-50/50' : '' %>">
-          <% if step[:done] %>
-            <div class="flex h-6 w-6 items-center justify-center rounded-full bg-brand-green flex-shrink-0">
-              <svg class="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" /></svg>
-            </div>
-          <% else %>
-            <div class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-brand-orange text-[10px] font-semibold text-brand-orange flex-shrink-0"><%= i + 1 %></div>
-          <% end %>
-          <p class="flex-1 text-xs font-semibold <%= step[:done] ? 'text-gray-400 line-through' : 'text-gray-900' %>"><%= step[:title] %></p>
-          <% if !step[:done] && step[:cta] %>
-            <%= link_to step[:cta], step[:path], class: "flex-shrink-0 bg-brand-orange text-white text-[10px] font-semibold px-2.5 py-1 rounded-lg" %>
-          <% end %>
-        </li>
-      <% end %>
-    </ol>
-    <% if @required_steps_complete %>
-      <div class="px-3 py-2 border-t border-gray-100 bg-gray-50">
-        <%= button_to "Exit Wizard →", dismiss_onboarding_path, method: :post, class: "w-full bg-brand-green text-white text-xs font-bold px-4 py-2 rounded-lg" %>
-      </div>
-    <% end %>
-  </div>
-<% end %>
+<%# Setup wizard partial removed — desktop uses the spotlight tour;
+    mobile is intentionally not yet covered by the new wizard. %>
 
 <!-- KPI Grid -->
 <div class="grid grid-cols-2 gap-2">

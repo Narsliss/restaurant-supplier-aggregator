@@ -45,10 +45,17 @@ module Onboarding
     end
 
     # POST /onboarding/progress/restart
+    # Supports JSON (called by JS controller) and HTML (called by Restart
+    # Tour button in the avatar dropdown — redirects back so the wizard
+    # mounts fresh on next page render).
     def restart
       @progress.save! if @progress.new_record?
       @progress.restart!
-      render json: progress_payload
+
+      respond_to do |format|
+        format.json { render json: progress_payload }
+        format.html { redirect_to(request.referer || root_path, notice: "Tour restarted.") }
+      end
     end
 
     private
