@@ -1,32 +1,42 @@
 import { SHARED_STEPS } from "onboarding/steps/shared"
 
-// Owner-only steps — adds the setup phase (org/restaurant/team) and the
-// promote-list training step that only owners can perform.
+// Owner-only steps — adds the setup-phase reminders (org/restaurant/team)
+// and the promote-list training step that only owners can perform.
+//
+// The owner wizard runs AFTER the legacy hard-gate is satisfied, so the
+// org/restaurant/team steps are training reminders ("here's where these
+// settings live going forward") rather than blocking setup. The wizard
+// auto-skips them via computed_completed_steps when their underlying DB
+// state already exists.
 const OWNER_ONLY_STEPS = {
   organization: {
-    title: "Set up your organization",
-    body: "Your organization is the top-level container — restaurants, team, suppliers all live under it.",
+    title: "Organization settings",
+    body: "Your organization is the top-level container — restaurants, team, suppliers all live under it. You can update your org details, name, and timezone here any time.",
+    image: "team",
     spotlight: "menu-settings",
     primaryCta: "Got it →",
   },
 
   restaurant: {
-    title: "Add a restaurant",
-    body: "Each location is a delivery address. Add as many as you need — every order is tied to one.",
+    title: "Restaurants",
+    body: "Each location is a delivery address. Add as many as you need — every order is tied to one, and you can switch between them from the location pill in the top nav.",
+    image: "restaurants",
     spotlight: "menu-restaurants",
     primaryCta: "Got it →",
   },
 
   team: {
-    title: "Invite your team",
-    body: "Add managers and chefs so they can run orders for their locations.",
+    title: "Team",
+    body: "Invite managers (read-only across locations) and chefs (assigned to one location) so your team can run orders for their restaurants.",
+    image: "team",
     spotlight: "menu-team",
     primaryCta: "Got it →",
   },
 
   "train-promote": {
     title: "Promote a list (optional)",
-    body: "Any matched list can be promoted org-wide. Once promoted, it's the canonical comparison list every chef and manager sees. If you don't promote one, each location uses its own matched list instead.",
+    body: "Any matched list can be promoted org-wide. Once promoted, it becomes the canonical comparison list every chef and manager across every restaurant sees. If you don't promote one, each location uses its own matched list instead.",
+    image: "product-matching",
     spotlight: "menu-product-matching",
     primaryCta: "Got it →",
   },

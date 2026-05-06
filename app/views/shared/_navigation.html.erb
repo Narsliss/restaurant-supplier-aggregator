@@ -31,18 +31,21 @@
           <% if ops_disabled %>
             <% if !onboarding && manager_or_owner? %>
               <%= link_to "Order History", orders_path,
+                  data: { onboarding_target: "nav-orderhistory" },
                   class: "inline-flex items-center border-b-2 #{order_history_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
             <% else %>
               <span class="inline-flex items-center border-b-2 border-transparent px-1 pt-1 text-sm font-medium text-gray-500 cursor-not-allowed" title="<%= onboarding ? 'Complete account setup first' : 'Select a specific restaurant' %>">Order History</span>
             <% end %>
           <% else %>
             <%= link_to "Order History", orders_path,
+                data: { onboarding_target: "nav-orderhistory" },
                 class: "inline-flex items-center border-b-2 #{order_history_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
           <%# — Order Lists (top-level) %>
           <% unless ops_disabled %>
             <%= link_to "Order Lists", order_lists_path,
+                data: { onboarding_target: "nav-orderlists" },
                 class: "inline-flex items-center border-b-2 #{order_lists_active ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
@@ -67,6 +70,7 @@
           <%# Reports — visible to owners and managers (always, not affected by location context) %>
           <% if manager_or_owner? %>
             <%= link_to "Reports", reports_path,
+                data: { onboarding_target: "nav-reports" },
                 class: "inline-flex items-center border-b-2 #{controller_name == 'reports' ? 'border-brand-orange text-white' : 'border-transparent text-gray-300 hover:border-gray-400 hover:text-white'} px-1 pt-1 text-sm font-medium transition-colors duration-150" %>
           <% end %>
 
@@ -93,6 +97,7 @@
             <% end %>
           <% elsif operator? %>
             <%= link_to select_list_orders_path,
+                data: { onboarding_target: "nav-neworder" },
                 class: "inline-flex items-center gap-1 ml-3 px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase shadow-sm transition-all duration-150 #{new_order_active ? 'ring-2 ring-white/60' : 'hover:shadow-md hover:scale-105'}",
                 style: "background-color: #fff; color: #3a6147; align-self: center;" do %>
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
@@ -146,21 +151,29 @@
             <%# — Supplier Info (moved from top nav) %>
             <% if !ops_disabled && operator? %>
               <%= link_to "Supplier Credentials", supplier_credentials_path,
+                  data: { onboarding_target: "menu-supplier-creds" },
                   class: "block px-4 py-2 text-sm #{controller_name == 'supplier_credentials' ? 'bg-brand-green-50 text-brand-green-dark font-medium' : 'text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark'}" %>
               <%= link_to "Product Matching", aggregated_lists_path,
+                  data: { onboarding_target: "menu-product-matching" },
                   class: "block px-4 py-2 text-sm #{%w[aggregated_lists product_matches].include?(controller_name) && action_name != 'order_builder' ? 'bg-brand-green-50 text-brand-green-dark font-medium' : 'text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark'}" %>
               <div class="border-t border-gray-100 my-1"></div>
             <% end %>
-            <%= link_to "Settings", edit_user_registration_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+            <%= link_to "Settings", edit_user_registration_path,
+                data: { onboarding_target: "menu-settings" },
+                class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
             <% if onboarding %>
               <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Team</span>
               <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Billing</span>
               <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Restaurants</span>
             <% elsif manager_or_owner? %>
-              <%= link_to "Team", organization_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <%= link_to "Team", organization_path,
+                  data: { onboarding_target: "menu-team" },
+                  class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
               <% if owner? %>
                 <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-                <%= link_to "Restaurants", locations_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+                <%= link_to "Restaurants", locations_path,
+                    data: { onboarding_target: "menu-restaurants" },
+                    class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
               <% end %>
             <% end %>
             <% if current_user.super_admin? %>

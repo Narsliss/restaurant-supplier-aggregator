@@ -20,6 +20,34 @@ RSpec.describe 'Onboarding wizard partial — layout integration', type: :reques
       expect(response.body).to include('data-onboarding-wizard-complete-url-value="/onboarding/progress/complete"')
     end
 
+    it 'passes the image-paths map (digest-aware) to the JS controller' do
+      get root_path
+      expect(response.body).to include('data-onboarding-wizard-image-paths-value=')
+      # At minimum, the keys we author in shared.js + owner.js should be present
+      expect(response.body).to include('product-matching')
+      expect(response.body).to include('order-review')
+      expect(response.body).to include('supplier-credentials')
+    end
+
+    it 'passes computed completed steps so the JS can skip already-done steps' do
+      # :fully_onboarded creates org, location, and a teammate — these should auto-mark "organization", "restaurant", and "team" complete
+      get root_path
+      expect(response.body).to match(/data-onboarding-wizard-completed-steps-value=".*organization.*restaurant.*team/)
+    end
+
+    it 'annotates real nav items with data-onboarding-target hooks' do
+      get root_path
+      expect(response.body).to include('data-onboarding-target="nav-orderhistory"')
+      expect(response.body).to include('data-onboarding-target="nav-orderlists"')
+      expect(response.body).to include('data-onboarding-target="nav-neworder"')
+      expect(response.body).to include('data-onboarding-target="nav-reports"')
+      expect(response.body).to include('data-onboarding-target="menu-supplier-creds"')
+      expect(response.body).to include('data-onboarding-target="menu-product-matching"')
+      expect(response.body).to include('data-onboarding-target="menu-settings"')
+      expect(response.body).to include('data-onboarding-target="menu-team"')
+      expect(response.body).to include('data-onboarding-target="menu-restaurants"')
+    end
+
     it 'does NOT lazily create an OnboardingProgress row from rendering the partial' do
       expect {
         get root_path
@@ -44,6 +72,16 @@ RSpec.describe 'Onboarding wizard partial — layout integration', type: :reques
       get root_path
       expect(response).to redirect_to(new_user_session_path)
       follow_redirect!
+      expect(response.body).not_to include('data-controller="onboarding-wizard"')
+    end
+  end
+
+  describe 'while the legacy hard-gate onboarding is still in progress' do
+    let(:user) { create(:user) } # no org yet — onboarding_incomplete? = true
+    before { sign_in user }
+
+    it 'suppresses the wizard partial so legacy fullscreen onboarding can run' do
+      get root_path
       expect(response.body).not_to include('data-controller="onboarding-wizard"')
     end
   end

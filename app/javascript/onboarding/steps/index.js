@@ -17,12 +17,19 @@ export function stepsFor(role) {
 }
 
 // Returns the next step name in the flow, or null if currentStep is
-// the last (or unknown) step.
-export function nextStepName(role, currentStep) {
+// the last (or unknown) step. Already-completed steps (e.g. organization
+// when the user already created their org outside the wizard) are skipped.
+export function nextStepName(role, currentStep, completedSteps = []) {
   const flow = flowFor(role)
   const i = flow.indexOf(currentStep)
-  if (i === -1 || i + 1 >= flow.length) return null
-  return flow[i + 1]
+  if (i === -1) return null
+
+  for (let j = i + 1; j < flow.length; j++) {
+    if (!completedSteps.includes(flow[j])) {
+      return flow[j]
+    }
+  }
+  return null
 }
 
 export function isLastStep(role, currentStep) {

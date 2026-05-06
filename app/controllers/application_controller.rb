@@ -171,6 +171,7 @@ class ApplicationController < ActionController::Base
     return false unless current_user
     return false if mobile?              # desktop-only in v1
     return false if devise_controller?
+    return false if onboarding_incomplete?  # legacy hard-gate runs first; wizard is a tour after setup
 
     progress = onboarding_wizard_progress
     return false unless progress

@@ -10,14 +10,16 @@ import { stepsFor, flowFor, nextStepName, isLastStep } from "onboarding/steps"
 // connect supplier, etc.), they leave the wizard panel and use the real
 // form on the real page. The wizard's job is to spotlight where to go.
 export default class extends Controller {
-  static targets = ["scrim", "panel", "title", "body", "primaryCta", "skipCta", "stepIndicator"]
+  static targets = ["scrim", "panel", "title", "body", "image", "primaryCta", "skipCta", "stepIndicator"]
   static values = {
-    role:        String,  // "owner" | "chef" | "manager"
-    currentStep: String,
-    advanceUrl:  String,
-    completeUrl: String,
-    skipUrl:     String,
-    csrf:        String,
+    role:           String,
+    currentStep:    String,
+    completedSteps: { type: Array,  default: [] },
+    imagePaths:     { type: Object, default: {} },
+    advanceUrl:     String,
+    completeUrl:    String,
+    skipUrl:        String,
+    csrf:           String,
   }
 
   connect() {
@@ -42,7 +44,7 @@ export default class extends Controller {
       return
     }
 
-    const next = nextStepName(this.roleValue, this.currentStepValue)
+    const next = nextStepName(this.roleValue, this.currentStepValue, this.completedStepsValue)
     if (!next) {
       this.completeWizard()
       return
@@ -50,7 +52,8 @@ export default class extends Controller {
 
     this.post(this.advanceUrlValue, { next_step: next }).then((state) => {
       if (!state) return
-      this.currentStepValue = state.current_step
+      this.currentStepValue    = state.current_step
+      this.completedStepsValue = state.completed_steps || []
       if (state.completed_at || state.dismissed_at) {
         this.hide()
         return
@@ -76,6 +79,19 @@ export default class extends Controller {
     if (this.hasTitleTarget)      this.titleTarget.textContent = step.title || ""
     if (this.hasBodyTarget)       this.bodyTarget.innerHTML    = step.body  || ""
     if (this.hasPrimaryCtaTarget) this.primaryCtaTarget.textContent = step.primaryCta || "Got it →"
+
+    // Optional embedded screenshot — referenced by key in step.image,
+    // resolved to an asset URL via the imagePaths map (passed from server).
+    if (this.hasImageTarget) {
+      const url = step.image ? this.imagePathsValue[step.image] : null
+      if (url) {
+        this.imageTarget.innerHTML = `<a href="${url}" target="_blank" rel="noopener" class="onboarding-panel-screenshot-link"><img src="${url}" alt="" class="onboarding-panel-screenshot" /></a>`
+        this.imageTarget.removeAttribute("hidden")
+      } else {
+        this.imageTarget.innerHTML = ""
+        this.imageTarget.setAttribute("hidden", "true")
+      }
+    }
 
     if (this.hasStepIndicatorTarget) {
       const flow = flowFor(this.roleValue)
@@ -111,12 +127,31 @@ export default class extends Controller {
     return isLastStep(this.roleValue, this.currentStepValue)
   }
 
-  applySpotlight(targetId) {
+  // Apply the spotlight ring to the first DOM target found. Accepts either
+  // a single target id or an array of fallback ids (first match wins).
+  // If the target lives inside a closed dropdown, opens it first.
+  applySpotlight(target) {
     this.clearSpotlight()
-    if (!targetId) return
+    if (!target) return
 
-    const el = document.querySelector(`[data-onboarding-target="${targetId}"]`)
+    const candidates = Array.isArray(target) ? target : [target]
+    let el = null
+    for (const id of candidates) {
+      el = document.querySelector(`[data-onboarding-target="${id}"]`)
+      if (el) break
+    }
     if (!el) return
+
+    // If inside a dropdown menu that's currently hidden, open it so the
+    // spotlit element is actually visible.
+    const dropdown = el.closest('[data-controller~="dropdown"]')
+    if (dropdown) {
+      const menu = dropdown.querySelector('[data-dropdown-target="menu"]')
+      if (menu && menu.classList.contains("hidden")) {
+        menu.classList.remove("hidden")
+        this._openedDropdownMenu = menu
+      }
+    }
 
     el.classList.add("onboarding-spotlight")
     this._spotlightEl = el
@@ -126,6 +161,10 @@ export default class extends Controller {
     if (this._spotlightEl) {
       this._spotlightEl.classList.remove("onboarding-spotlight")
       this._spotlightEl = null
+    }
+    if (this._openedDropdownMenu) {
+      this._openedDropdownMenu.classList.add("hidden")
+      this._openedDropdownMenu = null
     }
   }
 

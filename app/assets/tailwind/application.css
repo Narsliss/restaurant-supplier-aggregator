@@ -469,6 +469,9 @@
   .dark .onboarding-panel button[data-action*="skip"]:hover {
     color: #d1d5db;
   }
+  .dark .onboarding-panel-screenshot-link {
+    border-color: #374151;
+  }
 }
 
 /* --- Onboarding wizard (spotlight tour) ---
@@ -503,11 +506,42 @@
   bottom: 1.5rem;
   left: 1.5rem;
   z-index: 60;
-  width: min(420px, calc(100vw - 3rem));
+  width: min(440px, calc(100vw - 3rem));
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
   background-color: #ffffff;
   color: #111827;
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   padding: 1.25rem;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+.onboarding-panel-image-slot[hidden] {
+  display: none;
+}
+
+.onboarding-panel-image-slot {
+  margin-bottom: 0.875rem;
+}
+
+.onboarding-panel-screenshot-link {
+  display: block;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease-in-out;
+}
+
+.onboarding-panel-screenshot-link:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.onboarding-panel-screenshot {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: cover;
+  object-position: top;
 }
