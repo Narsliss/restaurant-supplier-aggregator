@@ -172,15 +172,24 @@
             <%= link_to "Settings", edit_user_registration_path,
                 data: { onboarding_target: "menu-settings" },
                 class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-            <% if onboarding %>
-              <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Team</span>
-              <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Billing</span>
-              <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Restaurants</span>
-            <% elsif manager_or_owner? %>
-              <%= link_to "Team", organization_path,
-                  data: { onboarding_target: "menu-team" },
-                  class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
-              <% if owner? %>
+
+            <%# Team — manager + owner only. Greyed out during owner setup hard-gate. %>
+            <% if manager_or_owner? %>
+              <% if onboarding %>
+                <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Team</span>
+              <% else %>
+                <%= link_to "Team", organization_path,
+                    data: { onboarding_target: "menu-team" },
+                    class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
+              <% end %>
+            <% end %>
+
+            <%# Billing + Restaurants — owner only. %>
+            <% if owner? %>
+              <% if onboarding %>
+                <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Billing</span>
+                <span class="block px-4 py-2 text-sm text-gray-400 cursor-not-allowed">Restaurants</span>
+              <% else %>
                 <%= link_to "Billing", subscription_path, class: "block px-4 py-2 text-sm text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark" %>
                 <%= link_to "Restaurants", locations_path,
                     data: { onboarding_target: "menu-restaurants" },
@@ -345,13 +354,22 @@
           <div class="border-t border-white/10 my-1"></div>
         <% end %>
         <%= link_to "Settings", edit_user_registration_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
-        <% if onboarding %>
-          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Team</span>
-          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Billing</span>
-          <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Restaurants</span>
-        <% elsif manager_or_owner? %>
-          <%= link_to "Team", organization_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
-          <% if owner? %>
+
+        <%# Team — manager + owner only. Greyed out during owner setup hard-gate. %>
+        <% if manager_or_owner? %>
+          <% if onboarding %>
+            <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Team</span>
+          <% else %>
+            <%= link_to "Team", organization_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
+          <% end %>
+        <% end %>
+
+        <%# Billing + Restaurants — owner only. %>
+        <% if owner? %>
+          <% if onboarding %>
+            <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Billing</span>
+            <span class="block rounded-md px-3 py-2 text-base font-medium text-gray-500 cursor-not-allowed">Restaurants</span>
+          <% else %>
             <%= link_to "Billing", subscription_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
             <%= link_to "Restaurants", locations_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
           <% end %>
