@@ -548,6 +548,26 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
+.onboarding-panel-close {
+  position: absolute;
+  top: 0.875rem;
+  right: 1rem;
+  background: transparent;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.onboarding-panel-close:hover {
+  color: #1f2937;
+  background-color: #f3f4f6;
+}
+
 /* Header row: phase/step badge on the left, "lives at" breadcrumb on the right */
 .onboarding-panel-header {
   display: flex;

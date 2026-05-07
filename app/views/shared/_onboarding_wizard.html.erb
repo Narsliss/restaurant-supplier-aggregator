@@ -42,6 +42,14 @@
     <div class="onboarding-scrim" data-onboarding-wizard-target="scrim"></div>
 
     <div class="onboarding-panel" data-onboarding-wizard-target="panel" role="dialog" aria-labelledby="onboarding-title" aria-modal="true">
+      <%# Close × — dismisses the entire wizard. Restart Tour in the avatar
+          menu brings it back. %>
+      <button type="button"
+              data-action="onboarding-wizard#skip"
+              aria-label="Dismiss tour"
+              title="Dismiss tour"
+              class="onboarding-panel-close">×</button>
+
       <%# Header: phase + step indicator on the left, "lives at" breadcrumb on the right %>
       <div class="onboarding-panel-header">
         <span class="onboarding-panel-phase"
@@ -75,19 +83,13 @@
       <%# Spacer pushes the footer to the bottom of the (tall) panel %>
       <div class="onboarding-panel-spacer"></div>
 
-      <%# Footer: Back · Skip · Primary CTA %>
+      <%# Footer: Back · Primary CTA. Dismiss lives in the corner × button. %>
       <div class="onboarding-panel-footer" data-onboarding-wizard-target="footer">
         <button type="button"
                 data-action="onboarding-wizard#back"
                 data-onboarding-wizard-target="backCta"
                 class="onboarding-panel-back">
           ← Back
-        </button>
-        <button type="button"
-                data-action="onboarding-wizard#skip"
-                data-onboarding-wizard-target="skipCta"
-                class="onboarding-panel-skip">
-          Skip
         </button>
         <button type="button"
                 data-action="onboarding-wizard#advance"
