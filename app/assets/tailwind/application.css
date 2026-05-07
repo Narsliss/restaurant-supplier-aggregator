@@ -632,18 +632,20 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
   min-height: 1rem;
 }
 
-/* Footer: Back · Skip · Primary */
+/* Footer: Back (left) · Primary (right). Primary stays anchored to the
+   right even when Back is hidden (welcome / done) — Back pushes itself
+   to the far left via margin-right: auto when present. */
 .onboarding-panel-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 0.75rem;
   padding-top: 1rem;
   border-top: 1px solid #f3f4f6;
 }
 
-.onboarding-panel-back,
-.onboarding-panel-skip {
+.onboarding-panel-back {
+  margin-right: auto;
   background: transparent;
   border: none;
   padding: 0.5rem 0.25rem;
@@ -652,18 +654,12 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
   cursor: pointer;
 }
 
-.onboarding-panel-back:hover,
-.onboarding-panel-skip:hover {
+.onboarding-panel-back:hover {
   color: #111827;
 }
 
-.onboarding-panel-back[hidden],
-.onboarding-panel-skip[hidden] {
+.onboarding-panel-back[hidden] {
   display: none;
-}
-
-.onboarding-panel-skip {
-  text-decoration: underline;
 }
 
 .onboarding-panel-primary {
