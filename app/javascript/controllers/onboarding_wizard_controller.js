@@ -388,14 +388,16 @@ export default class extends Controller {
 
     // Failed/expired/hold: credential exists but needs to be fixed.
     // Open the EDIT form for the existing credential rather than trying
-    // to create a duplicate (which the controller would reject).
+    // to create a duplicate (which the controller would reject). Label
+    // matches the actual state so the user knows what's wrong.
     if (s.credential_id && status) {
+      const label = this.statusActionLabel(status)
       return `<div class="onboarding-panel-picker-card onboarding-panel-picker-card--needs-attention">
         <span class="onboarding-panel-picker-card-name">${name}</span>
         <button type="button"
                 class="onboarding-panel-picker-card-action onboarding-panel-picker-card-action--reconnect"
                 data-action="click->onboarding-wizard#reconnectSupplier"
-                data-credential-id="${s.credential_id}">⚠ Reconnect</button>
+                data-credential-id="${s.credential_id}">${label}</button>
       </div>`
     }
 
@@ -415,6 +417,15 @@ export default class extends Controller {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
+  }
+
+  statusActionLabel(status) {
+    switch (status) {
+      case "failed":  return "⚠ Failed"
+      case "expired": return "⚠ Expired"
+      case "hold":    return "⚠ On hold"
+      default:        return "⚠ Fix"
+    }
   }
 
   // --- Internals ---
