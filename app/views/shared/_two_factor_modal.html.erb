@@ -2,11 +2,8 @@
      data-two-factor-session-token-value=""
      data-two-factor-expires-at-value="">
   
-  <%# z-[200] so the verification modal sits above the onboarding wizard
-      (z-130). When the modal pops up to ask for a code, it must be the
-      foreground concern; the wizard waits behind it. %>
   <div data-two-factor-target="modal"
-       class="hidden relative z-[200]">
+       class="hidden relative z-50">
     <!-- Backdrop -->
     <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
 

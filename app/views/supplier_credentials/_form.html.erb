@@ -2,11 +2,6 @@
 <% suppliers_auth_map = @all_suppliers.each_with_object({}) { |s, h| h[s.id] = { auth_type: s.auth_type, code: s.code } } %>
 
 <%= form_with(model: credential, class: "space-y-5", data: { controller: "credential-form", credential_form_suppliers_value: suppliers_auth_map.to_json }) do |form| %>
-  <%# Preserve the from_wizard flag through form submission so the controller
-      knows to redirect back to the dashboard (where the wizard picker lives). %>
-  <% if params[:from_wizard].present? %>
-    <%= hidden_field_tag :from_wizard, "1" %>
-  <% end %>
   <% if credential.errors.any? %>
     <div class="bg-red-50 border border-red-200 rounded-lg p-4">
       <h3 class="text-red-800 font-medium text-sm">Please fix the following errors:</h3>

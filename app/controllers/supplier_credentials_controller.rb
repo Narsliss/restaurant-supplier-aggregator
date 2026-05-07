@@ -62,8 +62,8 @@ class SupplierCredentialsController < ApplicationController
   def show; end
 
   def new
-    # Pre-select supplier when arriving from the onboarding wizard's supplier
-    # picker (link includes ?supplier_id=X).
+    # Honors ?supplier_id=X for direct-link convenience (e.g. from the
+    # supplier credentials index "Add" button).
     @credential = current_user.supplier_credentials.new(supplier_id: params[:supplier_id])
   end
 
@@ -112,14 +112,7 @@ class SupplierCredentialsController < ApplicationController
                   "#{@credential.supplier.name} credentials saved. Validating now — this usually takes 15-30 seconds."
                 end
 
-      # Wizard-mode: respond with a turbo-frame that contains a marker the
-      # wizard's Stimulus controller picks up. It then refreshes the picker
-      # and hides the frame. No page navigation.
-      if params[:from_wizard].present?
-        render html: wizard_saved_marker_html(@credential), layout: false
-      else
-        redirect_to supplier_credentials_path, notice: message
-      end
+      redirect_to supplier_credentials_path, notice: message
     else
       Rails.logger.warn "[SupplierCredentials] Failed to create credential: #{@credential.errors.full_messages.join(', ')}"
       render :new, status: :unprocessable_entity
@@ -152,13 +145,8 @@ class SupplierCredentialsController < ApplicationController
 
       Rails.logger.info "[SupplierCredentials] Updated credential ##{@credential.id} for #{@credential.supplier.name} (user: #{current_user.id})"
 
-      # Wizard mode: clicking "Failed/Reconnect" → editing the form is the
-      # user's explicit retry signal. Always re-run validation in that flow,
-      # even if no fields changed (especially relevant for 2FA-only
-      # suppliers where the form has only an email field).
-      force_revalidate = params[:from_wizard].present?
-
-      if credentials_changed || force_revalidate
+      if credentials_changed
+        # Only re-validate when login credentials actually changed
         Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
         @credential.update!(status: 'pending')
         ValidateCredentialsJob.perform_later(@credential.id)
@@ -172,13 +160,7 @@ class SupplierCredentialsController < ApplicationController
         message = "#{@credential.supplier.name} settings updated."
       end
 
-      # Wizard-mode: respond with the saved-marker frame so the wizard
-      # transitions to the Connecting view. Same path as create.
-      if params[:from_wizard].present?
-        render html: wizard_saved_marker_html(@credential), layout: false
-      else
-        redirect_to supplier_credentials_path, notice: message
-      end
+      redirect_to supplier_credentials_path, notice: message
     else
       load_requirement_values
       Rails.logger.warn "[SupplierCredentials] Failed to update credential ##{@credential.id}: #{@credential.errors.full_messages.join(', ')}"
@@ -484,24 +466,6 @@ class SupplierCredentialsController < ApplicationController
 
     Rails.logger.warn "[SupplierCredentials] Credential ##{params[:id]} not found for user #{current_user.id}"
     redirect_to supplier_credentials_path
-  end
-
-  # Build the turbo-frame HTML that signals the wizard's Stimulus
-  # controller to transition to the Connecting view. Includes the
-  # supplier id + name so the JS knows which supplier we're tracking.
-  def wizard_saved_marker_html(credential)
-    supplier_name = ERB::Util.html_escape(credential.supplier.name)
-    supplier_id   = credential.supplier_id
-    <<~HTML.html_safe
-      <turbo-frame id="onboarding-supplier-form">
-        <div data-onboarding-saved="true"
-             data-supplier-id="#{supplier_id}"
-             data-supplier-name="#{supplier_name}"
-             class="onboarding-supplier-form-saved">
-          <span class="text-sm text-green-700 font-medium">✓ #{supplier_name} saved.</span>
-        </div>
-      </turbo-frame>
-    HTML
   end
 
   def set_suppliers

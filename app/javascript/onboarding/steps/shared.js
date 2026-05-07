@@ -29,10 +29,11 @@ export const SHARED_STEPS = {
     phase: "setup",
     optional: true,
     title: "Connect your suppliers",
-    body: "Pick a supplier below to connect. We'll bring you back here after each save so you can connect more — or tap <strong>Continue tour</strong> when you're done.",
+    body: "Click <strong>Supplier Credentials</strong> to link your supplier accounts. Each supplier has its own login — some use a password, some use a 2FA verification code (we'll prompt you for the code when needed). Connect what you can; you can always add more later.",
+    image: "supplier-credentials",
     spotlight: "menu-supplier-creds",
     livesAt: ["Avatar", "Supplier Credentials"],
-    primaryCta: "Continue tour →",
+    primaryCta: "Got it →",
   },
 
   "train-orderlists": {
