@@ -44,6 +44,7 @@ export default class extends Controller {
 
   disconnect() {
     this.clearSpotlight()
+    this.clearPickerRefresh()
     document.body.classList.remove("onboarding-spotlight-active")
     if (this.hasSupplierFormTarget && this._onFrameLoad) {
       this.supplierFormTarget.removeEventListener("turbo:frame-load", this._onFrameLoad)
@@ -227,11 +228,13 @@ export default class extends Controller {
       }
     }
 
-    // Suppliers step → render picker; anything else → hide picker + form.
+    // Suppliers step → render picker; anything else → hide picker + form
+    // (and stop the picker's polling if we're moving away).
     if (this.currentStepValue === "suppliers") {
       this.showPicker()
       this.renderSuppliersPicker()
     } else {
+      this.clearPickerRefresh()
       if (this.hasPickerTarget) {
         this.pickerTarget.innerHTML = ""
         this.pickerTarget.setAttribute("hidden", "true")
@@ -270,6 +273,7 @@ export default class extends Controller {
   hide() {
     this.element.setAttribute("hidden", "true")
     this.clearSpotlight()
+    this.clearPickerRefresh()
     document.body.classList.remove("onboarding-spotlight-active")
   }
 
@@ -301,6 +305,15 @@ export default class extends Controller {
     this.pickerTarget.removeAttribute("hidden")
     this.pickerTarget.innerHTML = `<div class="onboarding-panel-picker-loading text-xs text-gray-500">Loading suppliers…</div>`
 
+    this.fetchPickerData({ initial: true })
+  }
+
+  // Fetches /onboarding/suppliers.json and re-renders the picker. If any
+  // supplier is in `pending` status (validation job still running, possibly
+  // waiting on a 2FA code), schedules another fetch a few seconds later so
+  // the picker auto-updates to ✓ Connected or ⚠ Reconnect when the
+  // background job finishes — no manual refresh required.
+  fetchPickerData({ initial = false } = {}) {
     fetch(this.suppliersUrlValue, {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
@@ -308,14 +321,41 @@ export default class extends Controller {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data?.suppliers) {
-          this.pickerTarget.innerHTML = ""
+          if (initial) this.pickerTarget.innerHTML = ""
           return
         }
         this.pickerTarget.innerHTML = this.buildPickerHtml(data.suppliers)
+
+        const hasPending = data.suppliers.some((s) => s.credential_status === "pending")
+        if (hasPending) {
+          this.schedulePickerRefresh()
+        } else {
+          this.clearPickerRefresh()
+        }
       })
       .catch(() => {
-        this.pickerTarget.innerHTML = ""
+        if (initial) this.pickerTarget.innerHTML = ""
       })
+  }
+
+  schedulePickerRefresh() {
+    this.clearPickerRefresh()
+    this._pickerRefreshTimer = setTimeout(() => {
+      // Only re-fetch if we're still on the suppliers step and the wizard
+      // is still showing.
+      const stillOnSuppliers = this.currentStepValue === "suppliers"
+      const stillVisible = !this.element.hasAttribute("hidden")
+      if (stillOnSuppliers && stillVisible) {
+        this.fetchPickerData()
+      }
+    }, 4000)
+  }
+
+  clearPickerRefresh() {
+    if (this._pickerRefreshTimer) {
+      clearTimeout(this._pickerRefreshTimer)
+      this._pickerRefreshTimer = null
+    }
   }
 
   buildPickerHtml(suppliers) {
