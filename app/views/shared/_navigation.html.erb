@@ -148,14 +148,25 @@
               <%= current_user.full_name %>
               <span class="block text-xs text-gray-400 font-normal"><%= current_role&.titleize %></span>
             </div>
-            <%# — Supplier Info (moved from top nav) %>
-            <% if !ops_disabled && operator? %>
+            <%# — Supplier Info (moved from top nav).
+                 Supplier Credentials stays accessible for chefs even during
+                 their hard-gate (no creds yet) — it's the page they NEED to
+                 reach to satisfy that gate. Owners during the setup hard-gate
+                 still have it hidden because they need org/restaurant/team
+                 first. Product Matching only makes sense once data exists. %>
+            <% supplier_creds_link_visible = operator? && (!ops_disabled || chef?) %>
+            <% product_matching_link_visible = operator? && !ops_disabled %>
+            <% if supplier_creds_link_visible %>
               <%= link_to "Supplier Credentials", supplier_credentials_path,
                   data: { onboarding_target: "menu-supplier-creds" },
                   class: "block px-4 py-2 text-sm #{controller_name == 'supplier_credentials' ? 'bg-brand-green-50 text-brand-green-dark font-medium' : 'text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark'}" %>
+            <% end %>
+            <% if product_matching_link_visible %>
               <%= link_to "Product Matching", aggregated_lists_path,
                   data: { onboarding_target: "menu-product-matching" },
                   class: "block px-4 py-2 text-sm #{%w[aggregated_lists product_matches].include?(controller_name) && action_name != 'order_builder' ? 'bg-brand-green-50 text-brand-green-dark font-medium' : 'text-gray-700 hover:bg-brand-green-50 hover:text-brand-green-dark'}" %>
+            <% end %>
+            <% if supplier_creds_link_visible || product_matching_link_visible %>
               <div class="border-t border-gray-100 my-1"></div>
             <% end %>
             <%= link_to "Settings", edit_user_registration_path,
@@ -320,11 +331,17 @@
         </div>
       </div>
       <div class="space-y-1">
-        <% if !ops_disabled && operator? %>
+        <% supplier_creds_link_visible = operator? && (!ops_disabled || chef?) %>
+        <% product_matching_link_visible = operator? && !ops_disabled %>
+        <% if supplier_creds_link_visible %>
           <%= link_to "Supplier Credentials", supplier_credentials_path,
               class: "block rounded-md px-3 py-2 text-base font-medium #{controller_name == 'supplier_credentials' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+        <% end %>
+        <% if product_matching_link_visible %>
           <%= link_to "Product Matching", aggregated_lists_path,
               class: "block rounded-md px-3 py-2 text-base font-medium #{supplier_data_active && controller_name != 'supplier_credentials' ? 'bg-brand-green/80 text-white border-l-4 border-brand-orange' : 'text-gray-300 hover:bg-brand-green/80 hover:text-white'}" %>
+        <% end %>
+        <% if supplier_creds_link_visible || product_matching_link_visible %>
           <div class="border-t border-white/10 my-1"></div>
         <% end %>
         <%= link_to "Settings", edit_user_registration_path, class: "block rounded-md px-3 py-2 text-base font-medium text-gray-300 hover:bg-brand-green/80 hover:text-white" %>
