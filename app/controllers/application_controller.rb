@@ -184,6 +184,11 @@ class ApplicationController < ActionController::Base
   end
 
   def onboarding_wizard_visible?
+    # Production kill switch. Set ONBOARDING_WIZARD=false in Railway env
+    # to suppress the wizard for everyone without redeploying / reverting.
+    # Defaults to enabled.
+    return false unless ENV.fetch("ONBOARDING_WIZARD", "true") == "true"
+
     return false unless current_user
     return false if mobile?              # desktop-only in v1
     return false if devise_controller?
