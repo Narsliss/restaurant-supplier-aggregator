@@ -18,6 +18,7 @@ export default class extends Controller {
   static targets = [
     "scrim", "panel", "title", "body", "image", "primaryCta", "skipCta", "backCta",
     "stepIndicator", "livesAt", "picker", "supplierForm", "footer",
+    "connecting", "connectingSupplier",
     "twoFa", "twoFaSupplier", "twoFaPrompt", "twoFaTimer", "twoFaCode",
     "twoFaError", "twoFaSubmit",
   ]
@@ -159,17 +160,21 @@ export default class extends Controller {
   onSupplierFrameLoad(event) {
     if (!this.hasSupplierFormTarget) return
 
-    // After /supplier_credentials#create runs in from_wizard mode, the
-    // response includes an empty marker div [data-onboarding-saved] inside
-    // the frame. We detect it here, then flip back to the picker.
+    // After /supplier_credentials#create or #update runs in from_wizard
+    // mode, the response includes a marker div [data-onboarding-saved]
+    // with the supplier id + name. We use that to enter the Connecting
+    // view (form gone, "verifying credentials…" shown) and watch the
+    // polling for status transitions.
     const savedMarker = this.supplierFormTarget.querySelector("[data-onboarding-saved]")
     if (savedMarker) {
-      // Re-render the picker (which will re-fetch and show the new
-      // supplier's ✓ Connected state).
-      this.showPicker()
+      const supplierId   = savedMarker.dataset.supplierId
+      const supplierName = savedMarker.dataset.supplierName
+
+      // Empty the frame so the next Connect → triggers a fresh fetch.
       this.supplierFormTarget.removeAttribute("src")
       this.supplierFormTarget.innerHTML = ""
-      this.renderSuppliersPicker()
+
+      this.enterConnecting(supplierId, supplierName)
     }
   }
 
@@ -243,23 +248,28 @@ export default class extends Controller {
       }
     }
 
-    // Suppliers step → render picker; anything else → hide picker / form /
-    // 2FA view, stop polling, drop any 2FA flag.
+    // Suppliers step → render picker; anything else → hide all suppliers
+    // sub-views, stop polling, drop any 2FA / Connecting flags.
     if (this.currentStepValue === "suppliers") {
-      // If we're already in the middle of a 2FA challenge, keep that view
-      // up — leaving the user mid-verification would lose the session.
-      if (!this._twoFaSessionToken) {
+      // Don't clobber an active 2FA prompt or Connecting view if render()
+      // happens to fire while one is in progress.
+      const activeFlow = this._twoFaSessionToken || this._connectingSupplierId
+      if (!activeFlow) {
         this.showPicker()
         this.renderSuppliersPicker()
       }
     } else {
       this.clearPickerRefresh()
+      this._connectingSupplierId = null
       if (this.hasPickerTarget) {
         this.pickerTarget.innerHTML = ""
         this.pickerTarget.setAttribute("hidden", "true")
       }
       if (this.hasSupplierFormTarget) {
         this.supplierFormTarget.setAttribute("hidden", "true")
+      }
+      if (this.hasConnectingTarget) {
+        this.connectingTarget.setAttribute("hidden", "true")
       }
       if (this.hasTwoFaTarget) {
         this.twoFaTarget.setAttribute("hidden", "true")
@@ -299,9 +309,17 @@ export default class extends Controller {
     document.body.classList.remove("onboarding-spotlight-active")
   }
 
+  // The suppliers step has four sub-views. Exactly one is visible at a time:
+  //   - picker         : list of suppliers + Connect / Failed / etc.
+  //   - supplierForm   : credential form loaded via Turbo Frame
+  //   - connecting     : "Verifying your credentials…" spinner view
+  //   - twoFa          : 2FA code entry
+  // showXxx() makes Xxx visible and hides the other three.
+
   showPicker() {
     if (this.hasPickerTarget)       this.pickerTarget.removeAttribute("hidden")
     if (this.hasSupplierFormTarget) this.supplierFormTarget.setAttribute("hidden", "true")
+    if (this.hasConnectingTarget)   this.connectingTarget.setAttribute("hidden", "true")
     if (this.hasTwoFaTarget)        this.twoFaTarget.setAttribute("hidden", "true")
     this.togglePanelCtas(true)
   }
@@ -309,17 +327,56 @@ export default class extends Controller {
   showSupplierForm() {
     if (this.hasPickerTarget)       this.pickerTarget.setAttribute("hidden", "true")
     if (this.hasSupplierFormTarget) this.supplierFormTarget.removeAttribute("hidden")
+    if (this.hasConnectingTarget)   this.connectingTarget.setAttribute("hidden", "true")
     if (this.hasTwoFaTarget)        this.twoFaTarget.setAttribute("hidden", "true")
     // The form has its own Cancel + Save buttons; hide the wizard's CTAs
     // so they don't compete with it.
     this.togglePanelCtas(false)
   }
 
+  showConnecting() {
+    if (this.hasPickerTarget)       this.pickerTarget.setAttribute("hidden", "true")
+    if (this.hasSupplierFormTarget) this.supplierFormTarget.setAttribute("hidden", "true")
+    if (this.hasConnectingTarget)   this.connectingTarget.removeAttribute("hidden")
+    if (this.hasTwoFaTarget)        this.twoFaTarget.setAttribute("hidden", "true")
+    this.togglePanelCtas(false)
+  }
+
   showTwoFa() {
     if (this.hasPickerTarget)       this.pickerTarget.setAttribute("hidden", "true")
     if (this.hasSupplierFormTarget) this.supplierFormTarget.setAttribute("hidden", "true")
+    if (this.hasConnectingTarget)   this.connectingTarget.setAttribute("hidden", "true")
     if (this.hasTwoFaTarget)        this.twoFaTarget.removeAttribute("hidden")
     this.togglePanelCtas(false)
+  }
+
+  // Called from onSupplierFrameLoad after a successful credential save.
+  // Stores the supplier id we're tracking; the polling loop watches for
+  // its status to leave "pending" and transitions to picker (success/fail)
+  // or the 2FA channel hands off to showTwoFa.
+  enterConnecting(supplierId, supplierName) {
+    this._connectingSupplierId = supplierId ? Number(supplierId) : null
+    if (this.hasConnectingSupplierTarget) {
+      this.connectingSupplierTarget.textContent = supplierName || "this supplier"
+    }
+    this.showConnecting()
+    // Speed up the first poll so users don't sit on the spinner needlessly
+    // when validation is fast.
+    this.fetchPickerData()
+  }
+
+  exitConnecting() {
+    this._connectingSupplierId = null
+  }
+
+  // "Hide and keep going" button on the Connecting view — drops to the
+  // picker without aborting validation. The job runs to completion in the
+  // background; polling will still pick up status changes if the user
+  // stays on the suppliers step.
+  connectingHide(event) {
+    event?.preventDefault()
+    this.exitConnecting()
+    this.showPicker()
   }
 
   togglePanelCtas(visible) {
@@ -355,7 +412,20 @@ export default class extends Controller {
           if (initial) this.pickerTarget.innerHTML = ""
           return
         }
+        // Always rebuild the picker DOM so it's ready when we eventually
+        // show it (even if currently hidden behind Connecting / 2FA / form).
         this.pickerTarget.innerHTML = this.buildPickerHtml(data.suppliers)
+
+        // Connecting state: if the supplier we're tracking has finished
+        // validating (status no longer pending), transition to the picker
+        // so the user sees the result.
+        if (this._connectingSupplierId) {
+          const tracked = data.suppliers.find((s) => s.id === this._connectingSupplierId)
+          if (tracked && tracked.credential_status !== "pending") {
+            this.exitConnecting()
+            this.showPicker()
+          }
+        }
 
         const hasPending = data.suppliers.some((s) => s.credential_status === "pending")
         if (hasPending) {
@@ -486,6 +556,10 @@ export default class extends Controller {
 
     // Tell the global 2FA controller to skip — wizard owns this challenge.
     window.__onboardingWizardHandlesTwoFa = true
+
+    // 2FA takes over from Connecting; the credential's status will
+    // transition once the code is verified.
+    this._connectingSupplierId = null
 
     this._twoFaSessionToken = data.session_token
     this._twoFaExpiresAt    = data.expires_at

@@ -726,6 +726,73 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
   background-color: #991b1b;
 }
 
+/* "Connecting…" view shown after credential save, before validation
+   completes (or before a 2FA challenge fires). */
+.onboarding-panel-connecting[hidden] {
+  display: none;
+}
+
+.onboarding-panel-connecting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  padding: 1.5rem 1rem;
+  background-color: #f0fdf4;       /* green-50 */
+  border: 1px solid #bbf7d0;       /* green-200 */
+  border-radius: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.onboarding-panel-connecting-spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 3px solid rgba(74, 124, 89, 0.25);
+  border-top-color: #4A7C59;       /* brand-green */
+  border-radius: 50%;
+  animation: onboarding-spinner-rotate 0.85s linear infinite;
+}
+
+@keyframes onboarding-spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.onboarding-panel-connecting-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: #14532d;                  /* green-900 */
+  margin: 0;
+}
+
+.onboarding-panel-connecting-message {
+  font-size: 0.875rem;
+  color: #166534;                  /* green-800 */
+  margin: 0;
+  line-height: 1.5;
+}
+
+.onboarding-panel-connecting-note {
+  font-size: 0.8125rem;
+  color: #15803d;                  /* green-700 */
+  margin: 0;
+  font-style: italic;
+}
+
+.onboarding-panel-connecting-cancel {
+  background: transparent;
+  border: none;
+  color: #4b5563;
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.onboarding-panel-connecting-cancel:hover {
+  color: #1f2937;
+}
+
 /* Inline 2FA verification view inside the wizard panel */
 .onboarding-panel-twofa[hidden] {
   display: none;

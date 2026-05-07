@@ -116,17 +116,7 @@ class SupplierCredentialsController < ApplicationController
       # wizard's Stimulus controller picks up. It then refreshes the picker
       # and hides the frame. No page navigation.
       if params[:from_wizard].present?
-        supplier_name = ERB::Util.html_escape(@credential.supplier.name)
-        marker_html = <<~HTML.html_safe
-          <turbo-frame id="onboarding-supplier-form">
-            <div data-onboarding-saved="true"
-                 data-supplier-name="#{supplier_name}"
-                 class="onboarding-supplier-form-saved">
-              <span class="text-sm text-green-700 font-medium">✓ #{supplier_name} saved.</span>
-            </div>
-          </turbo-frame>
-        HTML
-        render html: marker_html, layout: false
+        render html: wizard_saved_marker_html(@credential), layout: false
       else
         redirect_to supplier_credentials_path, notice: message
       end
@@ -182,20 +172,10 @@ class SupplierCredentialsController < ApplicationController
         message = "#{@credential.supplier.name} settings updated."
       end
 
-      # Wizard-mode: respond with the saved-marker frame so the wizard's
-      # picker re-renders. Same path as create.
+      # Wizard-mode: respond with the saved-marker frame so the wizard
+      # transitions to the Connecting view. Same path as create.
       if params[:from_wizard].present?
-        supplier_name = ERB::Util.html_escape(@credential.supplier.name)
-        marker_html = <<~HTML.html_safe
-          <turbo-frame id="onboarding-supplier-form">
-            <div data-onboarding-saved="true"
-                 data-supplier-name="#{supplier_name}"
-                 class="onboarding-supplier-form-saved">
-              <span class="text-sm text-green-700 font-medium">✓ #{supplier_name} saved.</span>
-            </div>
-          </turbo-frame>
-        HTML
-        render html: marker_html, layout: false
+        render html: wizard_saved_marker_html(@credential), layout: false
       else
         redirect_to supplier_credentials_path, notice: message
       end
@@ -504,6 +484,24 @@ class SupplierCredentialsController < ApplicationController
 
     Rails.logger.warn "[SupplierCredentials] Credential ##{params[:id]} not found for user #{current_user.id}"
     redirect_to supplier_credentials_path
+  end
+
+  # Build the turbo-frame HTML that signals the wizard's Stimulus
+  # controller to transition to the Connecting view. Includes the
+  # supplier id + name so the JS knows which supplier we're tracking.
+  def wizard_saved_marker_html(credential)
+    supplier_name = ERB::Util.html_escape(credential.supplier.name)
+    supplier_id   = credential.supplier_id
+    <<~HTML.html_safe
+      <turbo-frame id="onboarding-supplier-form">
+        <div data-onboarding-saved="true"
+             data-supplier-id="#{supplier_id}"
+             data-supplier-name="#{supplier_name}"
+             class="onboarding-supplier-form-saved">
+          <span class="text-sm text-green-700 font-medium">✓ #{supplier_name} saved.</span>
+        </div>
+      </turbo-frame>
+    HTML
   end
 
   def set_suppliers

@@ -80,6 +80,30 @@
                    class="onboarding-supplier-form-frame"
                    hidden></turbo-frame>
 
+      <%# Connecting view — shown after the credential form saves while
+          the validation job is running but no 2FA challenge has fired
+          yet. Polling watches the supplier's status; when it transitions
+          to active/failed (or 2FA arrives) we swap views accordingly. %>
+      <div data-onboarding-wizard-target="connecting"
+           class="onboarding-panel-connecting"
+           hidden>
+        <div class="onboarding-panel-connecting-spinner" aria-hidden="true"></div>
+        <h3 class="onboarding-panel-connecting-title">
+          Connecting <span data-onboarding-wizard-target="connectingSupplier"></span>…
+        </h3>
+        <p class="onboarding-panel-connecting-message">
+          Verifying your credentials. This usually takes 15–30 seconds.
+        </p>
+        <p class="onboarding-panel-connecting-note">
+          If your supplier requires a verification code, we'll prompt you here next.
+        </p>
+        <button type="button"
+                data-action="onboarding-wizard#connectingHide"
+                class="onboarding-panel-connecting-cancel">
+          Hide and keep going
+        </button>
+      </div>
+
       <%# Inline 2FA verification — when the validation job triggers a 2FA
           challenge while the user is on the suppliers step, the wizard
           listens on TwoFactorChannel and swaps this view in instead of
