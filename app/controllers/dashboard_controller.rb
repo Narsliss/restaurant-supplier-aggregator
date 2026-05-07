@@ -6,13 +6,13 @@ class DashboardController < ApplicationController
     # Salesperson goes straight to CRM dashboard
     redirect_to crm_root_path and return if current_user.salesperson?
 
-    # Onboarding takes priority — show setup wizard instead of dashboard
-    if onboarding_incomplete?
-      if chef?
-        load_chef_onboarding_steps
-      else
-        load_onboarding_steps
-      end
+    # Owner setup hard-gate: legacy fullscreen wizard handles
+    # org/restaurant/team creation. Chefs no longer get a fullscreen —
+    # the spotlight tour's supplier picker handles their hard-gate
+    # (connect a supplier) inline, so they fall through to the regular
+    # chef dashboard with the wizard mounted on top.
+    if onboarding_incomplete? && !chef?
+      load_onboarding_steps
       return
     end
 
@@ -407,22 +407,9 @@ class DashboardController < ApplicationController
     ((current - previous).to_f / previous * 100).round(1)
   end
 
-  def load_chef_onboarding_steps
-    org = current_user.current_organization
-    has_credentials = current_user.supplier_credentials.where(organization: org).any?
-
-    @chef_onboarding_steps = [
-      {
-        key: :connect_supplier,
-        title: "Connect a supplier account",
-        description: "Link your US Foods, Chef's Warehouse, or other supplier login so we can pull in your order guides",
-        done: has_credentials,
-        path: new_supplier_credential_path,
-        cta: "Connect Supplier",
-        required: true
-      }
-    ]
-
-    @chef_onboarding_complete = false
-  end
+  # load_chef_onboarding_steps removed — the spotlight wizard's supplier
+  # picker now owns chef onboarding. The dead-code template blocks in
+  # dashboard/index.html.erb and dashboard/index.html+mobile.erb (still
+  # gated on @chef_onboarding_steps which is now never set) will never
+  # render. They can be deleted in a follow-up cleanup.
 end

@@ -171,10 +171,19 @@ class ApplicationController < ActionController::Base
     return false unless current_user
     return false if mobile?              # desktop-only in v1
     return false if devise_controller?
-    return false if onboarding_incomplete?  # legacy hard-gate runs first; wizard is a tour after setup
 
     progress = onboarding_wizard_progress
     return false unless progress
+
+    # Owners with incomplete setup get the legacy fullscreen wizard (which
+    # walks them through org/restaurant/team creation). Suppress the
+    # spotlight tour while that's running.
+    #
+    # Chefs and managers don't have a fullscreen — the spotlight wizard's
+    # supplier picker IS the chef's path to satisfying their "connect a
+    # supplier" hard-gate, so we let it render right away.
+    return false if onboarding_incomplete? && progress.role == "owner"
+
     progress.in_progress?
   end
 
