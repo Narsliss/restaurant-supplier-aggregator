@@ -167,6 +167,22 @@ class ApplicationController < ActionController::Base
                                   end
   end
 
+  # Renders the turbo-frame chunk that signals "form saved successfully"
+  # to the wizard's Stimulus controller. Used by org/restaurant/team form
+  # controllers when params[:from_wizard] is present:
+  #   render html: onboarding_wizard_form_marker_html("Saved"), layout: false
+  def onboarding_wizard_form_marker_html(message = "Saved")
+    safe_message = ERB::Util.html_escape(message)
+    <<~HTML.html_safe
+      <turbo-frame id="onboarding-step-form">
+        <div data-onboarding-form-saved="true"
+             class="onboarding-panel-step-form-saved">
+          <span class="text-sm text-green-700 font-medium">✓ #{safe_message}</span>
+        </div>
+      </turbo-frame>
+    HTML
+  end
+
   def onboarding_wizard_visible?
     return false unless current_user
     return false if mobile?              # desktop-only in v1

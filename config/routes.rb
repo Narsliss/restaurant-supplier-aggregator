@@ -84,7 +84,7 @@ Rails.application.routes.draw do
     resources :memberships, only: %i[update destroy], module: :organizations do
       patch :update_locations, on: :member
     end
-    resources :invitations, only: %i[create edit update destroy], module: :organizations do
+    resources :invitations, only: %i[new create edit update destroy], module: :organizations do
       post :resend, on: :member
     end
   end

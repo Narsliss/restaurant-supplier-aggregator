@@ -1,3 +1,10 @@
+<% if params[:from_wizard].present? %>
+  <turbo-frame id="onboarding-step-form">
+    <div class="onboarding-step-form-inner space-y-3">
+      <%= render "form", location: @location %>
+    </div>
+  </turbo-frame>
+<% else %>
 <div class="max-w-2xl mx-auto">
   <% if onboarding_incomplete? %>
     <% if params[:added].present? %>
@@ -97,3 +104,4 @@
     <%= render "form", location: @location %>
   <% end %>
 </div>
+<% end %>

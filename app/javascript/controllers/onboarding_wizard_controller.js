@@ -15,7 +15,7 @@ import { stepsFor, flowFor, nextStepName, isLastStep } from "onboarding/steps"
 export default class extends Controller {
   static targets = [
     "scrim", "panel", "title", "body", "image", "primaryCta", "backCta",
-    "stepIndicator", "livesAt", "footer",
+    "stepIndicator", "livesAt", "footer", "stepForm",
   ]
   static values = {
     role:           String,
@@ -33,12 +33,19 @@ export default class extends Controller {
       this.hide()
       return
     }
+    this._onStepFormFrameLoad = this.onStepFormFrameLoad.bind(this)
+    if (this.hasStepFormTarget) {
+      this.stepFormTarget.addEventListener("turbo:frame-load", this._onStepFormFrameLoad)
+    }
     this.render()
   }
 
   disconnect() {
     this.clearSpotlight()
     document.body.classList.remove("onboarding-spotlight-active")
+    if (this.hasStepFormTarget && this._onStepFormFrameLoad) {
+      this.stepFormTarget.removeEventListener("turbo:frame-load", this._onStepFormFrameLoad)
+    }
   }
 
   // --- Stimulus actions (bound from view) ---
@@ -122,6 +129,24 @@ export default class extends Controller {
       }
     }
 
+    // Inline form: when a step has a formUrl, load it into the turbo-frame.
+    // Submission goes to the real Rails controller; on success the
+    // controller responds with a saved-marker frame and onStepFormFrameLoad
+    // advances the wizard.
+    if (this.hasStepFormTarget) {
+      if (step.formUrl) {
+        const desiredSrc = new URL(step.formUrl, window.location.origin).toString()
+        if (this.stepFormTarget.getAttribute("src") !== desiredSrc) {
+          this.stepFormTarget.setAttribute("src", desiredSrc)
+        }
+        this.stepFormTarget.removeAttribute("hidden")
+      } else {
+        this.stepFormTarget.removeAttribute("src")
+        this.stepFormTarget.innerHTML = ""
+        this.stepFormTarget.setAttribute("hidden", "true")
+      }
+    }
+
     // Phase + step indicator: "SETUP · 3 OF 10 · OPTIONAL"
     if (this.hasStepIndicatorTarget) {
       this.stepIndicatorTarget.textContent = this.formatPhaseIndicator(step)
@@ -165,6 +190,25 @@ export default class extends Controller {
     this.element.setAttribute("hidden", "true")
     this.clearSpotlight()
     document.body.classList.remove("onboarding-spotlight-active")
+  }
+
+  // --- Inline form frame ---
+
+  // Fired by Turbo each time the stepForm frame loads new content. The
+  // server signals "form saved successfully" by including a child element
+  // with [data-onboarding-form-saved] inside the frame; we detect that
+  // and advance the wizard to the next step.
+  onStepFormFrameLoad() {
+    if (!this.hasStepFormTarget) return
+    const savedMarker = this.stepFormTarget.querySelector("[data-onboarding-form-saved]")
+    if (!savedMarker) return
+
+    // Empty the frame so coming back to this step (via Back) re-fetches
+    // a fresh form.
+    this.stepFormTarget.removeAttribute("src")
+    this.stepFormTarget.innerHTML = ""
+
+    this.advance()
   }
 
   // --- Internals ---

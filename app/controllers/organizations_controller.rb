@@ -82,7 +82,11 @@ class OrganizationsController < ApplicationController
 
   def update
     if @organization.update(organization_params)
-      redirect_to organization_path(@organization)
+      if params[:from_wizard].present?
+        render html: onboarding_wizard_form_marker_html("Organization updated"), layout: false
+      else
+        redirect_to organization_path(@organization)
+      end
     else
       render :edit, status: :unprocessable_entity
     end

@@ -1,0 +1,102 @@
+<% wizard_mode = params[:from_wizard].present? %>
+
+<% if wizard_mode %>
+  <turbo-frame id="onboarding-step-form">
+    <div class="onboarding-step-form-inner space-y-3">
+      <%= form_with model: @invitation,
+                    url: organization_invitations_path(from_wizard: 1),
+                    class: "space-y-3",
+                    data: { controller: "invitation-form" } do |f| %>
+        <% if @invitation.errors.any? %>
+          <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+            <% @invitation.errors.full_messages.each do |msg| %>
+              <div><%= msg %></div>
+            <% end %>
+          </div>
+        <% end %>
+
+        <div>
+          <%= f.label :email, "Email address", class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= f.email_field :email, required: true, autocomplete: "off",
+              class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+              placeholder: "teammate@yourrestaurant.com" %>
+        </div>
+
+        <div>
+          <%= f.label :role, class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= f.select :role,
+              [["Chef (assigned to one location)", "chef"], ["Manager (read-only across locations)", "manager"]],
+              { prompt: "Select role…" },
+              class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm",
+              data: { action: "change->invitation-form#roleChanged", "invitation-form-target": "roleSelect" },
+              required: true %>
+        </div>
+
+        <div data-invitation-form-target="chefLocation"
+             class="<%= 'hidden' unless @invitation.role == 'chef' %>">
+          <%= f.label :location_id, "Assigned location", class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= f.select :location_id,
+              @locations.map { |l| [l.name, l.id] },
+              { prompt: "Select location…" },
+              class: "block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm" %>
+        </div>
+
+        <div class="pt-2 flex justify-end">
+          <%= f.submit "Send invite →", class: "onboarding-panel-primary" %>
+        </div>
+      <% end %>
+    </div>
+  </turbo-frame>
+<% else %>
+  <div class="max-w-2xl mx-auto py-8 px-4">
+    <div class="mb-6">
+      <h1 class="text-2xl font-bold text-gray-900">Invite a team member</h1>
+      <p class="mt-1 text-sm text-gray-500">Send an email invitation to join <strong><%= @organization.name %></strong>.</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <%= form_with model: @invitation,
+                    url: organization_invitations_path,
+                    local: true,
+                    class: "space-y-5",
+                    data: { controller: "invitation-form" } do |f| %>
+        <% if @invitation.errors.any? %>
+          <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+            <% @invitation.errors.full_messages.each do |msg| %>
+              <div><%= msg %></div>
+            <% end %>
+          </div>
+        <% end %>
+
+        <div>
+          <%= f.label :email, class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= f.email_field :email, required: true,
+              class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green" %>
+        </div>
+
+        <div>
+          <%= f.label :role, class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= f.select :role,
+              [["Chef", "chef"], ["Manager", "manager"]],
+              { prompt: "Select role…" },
+              class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green",
+              data: { action: "change->invitation-form#roleChanged", "invitation-form-target": "roleSelect" },
+              required: true %>
+        </div>
+
+        <div data-invitation-form-target="chefLocation"
+             class="<%= 'hidden' unless @invitation.role == 'chef' %>">
+          <%= f.label :location_id, "Assigned location", class: "block text-sm font-medium text-gray-700 mb-1" %>
+          <%= f.select :location_id,
+              @locations.map { |l| [l.name, l.id] },
+              { prompt: "Select location…" },
+              class: "mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green" %>
+        </div>
+
+        <div class="pt-4 flex justify-end gap-3">
+          <%= link_to "Cancel", organization_path, class: "px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" %>
+          <%= f.submit "Send Invite", class: "px-4 py-2 text-sm font-medium text-white bg-brand-orange rounded-md hover:bg-brand-orange-dark cursor-pointer" %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+<% end %>

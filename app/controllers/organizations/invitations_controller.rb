@@ -5,6 +5,11 @@ module Organizations
     before_action :set_invitation, only: %i[edit update]
     skip_before_action :authenticate_user!, only: [:accept]
 
+    def new
+      @invitation = @organization.organization_invitations.new
+      @locations = @organization.locations
+    end
+
     def create
       @invitation = @organization.organization_invitations.new(invitation_params)
       @invitation.invited_by = current_user
@@ -12,15 +17,30 @@ module Organizations
       # Check if user is already a member
       if User.exists?(email: @invitation.email) &&
          @organization.member?(User.find_by(email: @invitation.email))
-        redirect_to organization_path(error: "already_member")
+        if params[:from_wizard].present?
+          @invitation.errors.add(:email, "is already a member of this organization")
+          @locations = @organization.locations
+          render :new, status: :unprocessable_entity
+        else
+          redirect_to organization_path(error: "already_member")
+        end
         return
       end
 
       if @invitation.save
         OrganizationInvitationMailer.invite(@invitation).deliver_later
-        redirect_to organization_path(invited: @invitation.email)
+        if params[:from_wizard].present?
+          render html: onboarding_wizard_form_marker_html("Invitation sent to #{@invitation.email}"), layout: false
+        else
+          redirect_to organization_path(invited: @invitation.email)
+        end
       else
-        redirect_to organization_path(error: @invitation.errors.full_messages.first)
+        if params[:from_wizard].present?
+          @locations = @organization.locations
+          render :new, status: :unprocessable_entity
+        else
+          redirect_to organization_path(error: @invitation.errors.full_messages.first)
+        end
       end
     end
 

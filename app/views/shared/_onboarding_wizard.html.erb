@@ -71,6 +71,16 @@
       <div class="onboarding-panel-body"
            data-onboarding-wizard-target="body"></div>
 
+      <%# Inline form for owner setup steps (organization / restaurant / team).
+          Stimulus loads the appropriate Rails form into this frame when the
+          current step has a formUrl. Submission posts to the real controller;
+          on success the controller responds with a marker frame and Stimulus
+          advances the wizard. %>
+      <turbo-frame id="onboarding-step-form"
+                   data-onboarding-wizard-target="stepForm"
+                   class="onboarding-panel-step-form"
+                   hidden></turbo-frame>
+
       <%# Spacer pushes the footer to the bottom of the (tall) panel %>
       <div class="onboarding-panel-spacer"></div>
 

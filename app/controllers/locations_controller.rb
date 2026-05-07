@@ -39,7 +39,9 @@ class LocationsController < ApplicationController
     @location.created_by = current_user
 
     if @location.save
-      if onboarding_incomplete?
+      if params[:from_wizard].present?
+        render html: onboarding_wizard_form_marker_html("Restaurant added"), layout: false
+      elsif onboarding_incomplete?
         # During onboarding, offer to add another restaurant
         redirect_to new_location_path(added: @location.name)
       else
