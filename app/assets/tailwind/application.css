@@ -688,6 +688,28 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
   border-color: #bbf7d0;
 }
 
+.onboarding-panel-picker-card--pending {
+  background-color: #fefce8;
+  border-color: #fde68a;
+}
+
+.onboarding-panel-picker-card--needs-attention {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+
+.onboarding-panel-picker-card-status--pending {
+  color: #b45309;
+}
+
+.onboarding-panel-picker-card-action--reconnect {
+  background-color: #b91c1c;
+}
+
+.onboarding-panel-picker-card-action--reconnect:hover {
+  background-color: #991b1b;
+}
+
 .onboarding-panel-picker-card-name {
   font-weight: 600;
   color: #111827;

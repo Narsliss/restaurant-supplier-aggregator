@@ -177,7 +177,23 @@ class SupplierCredentialsController < ApplicationController
         message = "#{@credential.supplier.name} settings updated."
       end
 
-      redirect_to supplier_credentials_path, notice: message
+      # Wizard-mode: respond with the saved-marker frame so the wizard's
+      # picker re-renders. Same path as create.
+      if params[:from_wizard].present?
+        supplier_name = ERB::Util.html_escape(@credential.supplier.name)
+        marker_html = <<~HTML.html_safe
+          <turbo-frame id="onboarding-supplier-form">
+            <div data-onboarding-saved="true"
+                 data-supplier-name="#{supplier_name}"
+                 class="onboarding-supplier-form-saved">
+              <span class="text-sm text-green-700 font-medium">✓ #{supplier_name} saved.</span>
+            </div>
+          </turbo-frame>
+        HTML
+        render html: marker_html, layout: false
+      else
+        redirect_to supplier_credentials_path, notice: message
+      end
     else
       load_requirement_values
       Rails.logger.warn "[SupplierCredentials] Failed to update credential ##{@credential.id}: #{@credential.errors.full_messages.join(', ')}"

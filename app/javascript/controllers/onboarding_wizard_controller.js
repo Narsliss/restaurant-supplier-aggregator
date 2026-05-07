@@ -100,20 +100,30 @@ export default class extends Controller {
     })
   }
 
-  // Picker → load supplier form inline. Bound from generated picker cards.
+  // Picker → load NEW supplier form inline. Bound from "Connect →" cards.
   connectSupplier(event) {
     event?.preventDefault()
     const supplierId = event.currentTarget?.dataset?.supplierId
-    if (!supplierId) return
+    if (!supplierId || !this.hasSupplierFormTarget) return
 
-    if (!this.hasSupplierFormTarget) return
-
-    // Switch the panel to "form mode": hide picker, show empty frame, set src
-    // (Turbo will fetch and replace the frame's contents).
     this.showSupplierForm()
     this.supplierFormTarget.setAttribute(
       "src",
       `/supplier_credentials/new?supplier_id=${encodeURIComponent(supplierId)}&from_wizard=1`,
+    )
+  }
+
+  // Picker → load EDIT form for an existing failed/expired credential.
+  // Bound from "⚠ Reconnect" cards.
+  reconnectSupplier(event) {
+    event?.preventDefault()
+    const credentialId = event.currentTarget?.dataset?.credentialId
+    if (!credentialId || !this.hasSupplierFormTarget) return
+
+    this.showSupplierForm()
+    this.supplierFormTarget.setAttribute(
+      "src",
+      `/supplier_credentials/${encodeURIComponent(credentialId)}/edit?from_wizard=1`,
     )
   }
 
@@ -310,24 +320,53 @@ export default class extends Controller {
 
   buildPickerHtml(suppliers) {
     const cards = suppliers
-      .map((s) => {
-        if (s.connected) {
-          return `<div class="onboarding-panel-picker-card onboarding-panel-picker-card--connected">
-            <span class="onboarding-panel-picker-card-name">${this.escape(s.name)}</span>
-            <span class="onboarding-panel-picker-card-status">✓ Connected</span>
-          </div>`
-        }
-        return `<div class="onboarding-panel-picker-card">
-          <span class="onboarding-panel-picker-card-name">${this.escape(s.name)}</span>
-          <button type="button"
-                  class="onboarding-panel-picker-card-action"
-                  data-action="click->onboarding-wizard#connectSupplier"
-                  data-supplier-id="${s.id}">Connect →</button>
-        </div>`
-      })
+      .map((s) => this.buildPickerCard(s))
       .join("")
 
     return `<div class="onboarding-panel-picker">${cards}</div>`
+  }
+
+  buildPickerCard(s) {
+    const name = this.escape(s.name)
+    const status = s.credential_status
+
+    // Active: green, ✓ Connected (no action — already done)
+    if (status === "active") {
+      return `<div class="onboarding-panel-picker-card onboarding-panel-picker-card--connected">
+        <span class="onboarding-panel-picker-card-name">${name}</span>
+        <span class="onboarding-panel-picker-card-status">✓ Connected</span>
+      </div>`
+    }
+
+    // Pending: validation running, possibly waiting on user 2FA code
+    if (status === "pending") {
+      return `<div class="onboarding-panel-picker-card onboarding-panel-picker-card--pending">
+        <span class="onboarding-panel-picker-card-name">${name}</span>
+        <span class="onboarding-panel-picker-card-status onboarding-panel-picker-card-status--pending">Validating…</span>
+      </div>`
+    }
+
+    // Failed/expired/hold: credential exists but needs to be fixed.
+    // Open the EDIT form for the existing credential rather than trying
+    // to create a duplicate (which the controller would reject).
+    if (s.credential_id && status) {
+      return `<div class="onboarding-panel-picker-card onboarding-panel-picker-card--needs-attention">
+        <span class="onboarding-panel-picker-card-name">${name}</span>
+        <button type="button"
+                class="onboarding-panel-picker-card-action onboarding-panel-picker-card-action--reconnect"
+                data-action="click->onboarding-wizard#reconnectSupplier"
+                data-credential-id="${s.credential_id}">⚠ Reconnect</button>
+      </div>`
+    }
+
+    // No credential yet: fresh "Connect →" creates a new credential.
+    return `<div class="onboarding-panel-picker-card">
+      <span class="onboarding-panel-picker-card-name">${name}</span>
+      <button type="button"
+              class="onboarding-panel-picker-card-action"
+              data-action="click->onboarding-wizard#connectSupplier"
+              data-supplier-id="${s.id}">Connect →</button>
+    </div>`
   }
 
   escape(s) {
