@@ -726,6 +726,122 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
   background-color: #991b1b;
 }
 
+/* Inline 2FA verification view inside the wizard panel */
+.onboarding-panel-twofa[hidden] {
+  display: none;
+}
+
+.onboarding-panel-twofa {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem;
+  background-color: #fef3c7;       /* amber-100 */
+  border: 1px solid #fcd34d;       /* amber-300 */
+  border-radius: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.onboarding-panel-twofa-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #78350f;                  /* amber-900 */
+  margin: 0;
+}
+
+.onboarding-panel-twofa-prompt {
+  font-size: 0.875rem;
+  color: #92400e;                  /* amber-800 */
+  margin: 0;
+  line-height: 1.5;
+}
+
+.onboarding-panel-twofa-timer {
+  font-size: 0.75rem;
+  color: #92400e;
+  margin: 0;
+}
+
+.onboarding-panel-twofa-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #78350f;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: -0.5rem;
+}
+
+.onboarding-panel-twofa-input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  font-size: 1.25rem;
+  text-align: center;
+  letter-spacing: 0.25em;
+  border: 1px solid #d97706;       /* amber-600 */
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: #111827;
+}
+
+.onboarding-panel-twofa-input:focus {
+  outline: none;
+  border-color: #b45309;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.25);
+}
+
+.onboarding-panel-twofa-error[hidden] {
+  display: none;
+}
+
+.onboarding-panel-twofa-error {
+  font-size: 0.8125rem;
+  color: #b91c1c;                  /* red-700 */
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.onboarding-panel-twofa-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.onboarding-panel-twofa-cancel {
+  background: transparent;
+  border: none;
+  color: #78350f;
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.onboarding-panel-twofa-cancel:hover {
+  color: #451a03;
+}
+
+.onboarding-panel-twofa-submit {
+  background-color: #D4943A;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+
+.onboarding-panel-twofa-submit:hover {
+  background-color: #B87A2E;
+}
+
+.onboarding-panel-twofa-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .onboarding-panel-picker-card-name {
   font-weight: 600;
   color: #111827;

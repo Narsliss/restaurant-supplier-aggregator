@@ -80,6 +80,54 @@
                    class="onboarding-supplier-form-frame"
                    hidden></turbo-frame>
 
+      <%# Inline 2FA verification — when the validation job triggers a 2FA
+          challenge while the user is on the suppliers step, the wizard
+          listens on TwoFactorChannel and swaps this view in instead of
+          letting the global 2FA modal pop up. Submitting the code goes
+          back through the same channel — same backend path as the global
+          modal. %>
+      <div data-onboarding-wizard-target="twoFa"
+           class="onboarding-panel-twofa"
+           hidden>
+        <h3 class="onboarding-panel-twofa-title">
+          Verification required for <span data-onboarding-wizard-target="twoFaSupplier"></span>
+        </h3>
+        <p class="onboarding-panel-twofa-prompt"
+           data-onboarding-wizard-target="twoFaPrompt"></p>
+        <p class="onboarding-panel-twofa-timer">
+          Time remaining: <span data-onboarding-wizard-target="twoFaTimer">5:00</span>
+        </p>
+
+        <label for="onboarding-twofa-code" class="onboarding-panel-twofa-label">Verification code</label>
+        <input type="text"
+               id="onboarding-twofa-code"
+               data-onboarding-wizard-target="twoFaCode"
+               data-action="keydown->onboarding-wizard#twoFaKeydown"
+               class="onboarding-panel-twofa-input"
+               placeholder="000000"
+               maxlength="10"
+               autocomplete="one-time-code"
+               inputmode="numeric">
+
+        <div data-onboarding-wizard-target="twoFaError"
+             class="onboarding-panel-twofa-error"
+             hidden></div>
+
+        <div class="onboarding-panel-twofa-actions">
+          <button type="button"
+                  data-action="onboarding-wizard#twoFaCancel"
+                  class="onboarding-panel-twofa-cancel">
+            Cancel verification
+          </button>
+          <button type="button"
+                  data-action="onboarding-wizard#twoFaSubmit"
+                  data-onboarding-wizard-target="twoFaSubmit"
+                  class="onboarding-panel-twofa-submit">
+            Verify
+          </button>
+        </div>
+      </div>
+
       <%# Spacer pushes the footer to the bottom of the (tall) panel %>
       <div class="onboarding-panel-spacer"></div>
 

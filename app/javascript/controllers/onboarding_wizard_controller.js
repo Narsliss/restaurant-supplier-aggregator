@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import consumer from "../channels/consumer"
 import { stepsFor, flowFor, nextStepName, isLastStep } from "onboarding/steps"
 
 // Mounts the onboarding wizard overlay (scrim + spotlight ring + modal panel).
@@ -17,6 +18,8 @@ export default class extends Controller {
   static targets = [
     "scrim", "panel", "title", "body", "image", "primaryCta", "skipCta", "backCta",
     "stepIndicator", "livesAt", "picker", "supplierForm", "footer",
+    "twoFa", "twoFaSupplier", "twoFaPrompt", "twoFaTimer", "twoFaCode",
+    "twoFaError", "twoFaSubmit",
   ]
   static values = {
     role:           String,
@@ -39,12 +42,24 @@ export default class extends Controller {
     if (this.hasSupplierFormTarget) {
       this.supplierFormTarget.addEventListener("turbo:frame-load", this._onFrameLoad)
     }
+
+    // Subscribe to TwoFactorChannel so we can intercept verification
+    // challenges and render them inline in the wizard panel instead of
+    // letting the global 2FA modal pop up.
+    this._twoFaSubscription = consumer.subscriptions.create("TwoFactorChannel", {
+      received: this.onTwoFaMessage.bind(this),
+    })
+
     this.render()
   }
 
   disconnect() {
     this.clearSpotlight()
     this.clearPickerRefresh()
+    this.stopTwoFaTimer()
+    this._twoFaSubscription?.unsubscribe()
+    this._twoFaSubscription = null
+    window.__onboardingWizardHandlesTwoFa = false
     document.body.classList.remove("onboarding-spotlight-active")
     if (this.hasSupplierFormTarget && this._onFrameLoad) {
       this.supplierFormTarget.removeEventListener("turbo:frame-load", this._onFrameLoad)
@@ -228,11 +243,15 @@ export default class extends Controller {
       }
     }
 
-    // Suppliers step → render picker; anything else → hide picker + form
-    // (and stop the picker's polling if we're moving away).
+    // Suppliers step → render picker; anything else → hide picker / form /
+    // 2FA view, stop polling, drop any 2FA flag.
     if (this.currentStepValue === "suppliers") {
-      this.showPicker()
-      this.renderSuppliersPicker()
+      // If we're already in the middle of a 2FA challenge, keep that view
+      // up — leaving the user mid-verification would lose the session.
+      if (!this._twoFaSessionToken) {
+        this.showPicker()
+        this.renderSuppliersPicker()
+      }
     } else {
       this.clearPickerRefresh()
       if (this.hasPickerTarget) {
@@ -241,6 +260,9 @@ export default class extends Controller {
       }
       if (this.hasSupplierFormTarget) {
         this.supplierFormTarget.setAttribute("hidden", "true")
+      }
+      if (this.hasTwoFaTarget) {
+        this.twoFaTarget.setAttribute("hidden", "true")
       }
     }
 
@@ -278,16 +300,25 @@ export default class extends Controller {
   }
 
   showPicker() {
-    if (this.hasPickerTarget) this.pickerTarget.removeAttribute("hidden")
+    if (this.hasPickerTarget)       this.pickerTarget.removeAttribute("hidden")
     if (this.hasSupplierFormTarget) this.supplierFormTarget.setAttribute("hidden", "true")
+    if (this.hasTwoFaTarget)        this.twoFaTarget.setAttribute("hidden", "true")
     this.togglePanelCtas(true)
   }
 
   showSupplierForm() {
-    if (this.hasPickerTarget) this.pickerTarget.setAttribute("hidden", "true")
+    if (this.hasPickerTarget)       this.pickerTarget.setAttribute("hidden", "true")
     if (this.hasSupplierFormTarget) this.supplierFormTarget.removeAttribute("hidden")
+    if (this.hasTwoFaTarget)        this.twoFaTarget.setAttribute("hidden", "true")
     // The form has its own Cancel + Save buttons; hide the wizard's CTAs
     // so they don't compete with it.
+    this.togglePanelCtas(false)
+  }
+
+  showTwoFa() {
+    if (this.hasPickerTarget)       this.pickerTarget.setAttribute("hidden", "true")
+    if (this.hasSupplierFormTarget) this.supplierFormTarget.setAttribute("hidden", "true")
+    if (this.hasTwoFaTarget)        this.twoFaTarget.removeAttribute("hidden")
     this.togglePanelCtas(false)
   }
 
@@ -426,6 +457,176 @@ export default class extends Controller {
       case "hold":    return "⚠ On hold"
       default:        return "⚠ Fix"
     }
+  }
+
+  // --- 2FA inline verification ---
+
+  onTwoFaMessage(data) {
+    switch (data.type) {
+      case "two_fa_required":
+        this.handleTwoFaRequired(data)
+        break
+      case "code_result":
+        this.handleTwoFaCodeResult(data)
+        break
+      case "cancelled":
+        this.exitTwoFa()
+        break
+      case "error":
+        this.showTwoFaError(data.message || "Verification error")
+        break
+    }
+  }
+
+  handleTwoFaRequired(data) {
+    // Only intercept if the wizard is currently on the suppliers step.
+    // Otherwise let the global 2FA modal handle it (e.g. session-refresh
+    // 2FA challenges that fire from background jobs).
+    if (this.currentStepValue !== "suppliers") return
+
+    // Tell the global 2FA controller to skip — wizard owns this challenge.
+    window.__onboardingWizardHandlesTwoFa = true
+
+    this._twoFaSessionToken = data.session_token
+    this._twoFaExpiresAt    = data.expires_at
+
+    if (this.hasTwoFaSupplierTarget) {
+      this.twoFaSupplierTarget.textContent = data.supplier_name || "your supplier"
+    }
+    if (this.hasTwoFaPromptTarget) {
+      this.twoFaPromptTarget.textContent = data.prompt_message || "Enter the verification code we sent."
+    }
+    if (this.hasTwoFaCodeTarget) {
+      this.twoFaCodeTarget.value = ""
+    }
+    this.hideTwoFaError()
+    this.enableTwoFaSubmit()
+    this.startTwoFaTimer()
+    this.showTwoFa()
+    if (this.hasTwoFaCodeTarget) this.twoFaCodeTarget.focus()
+  }
+
+  handleTwoFaCodeResult(data) {
+    this.enableTwoFaSubmit()
+    if (this.hasTwoFaSubmitTarget) this.twoFaSubmitTarget.textContent = "Verify"
+
+    if (data.success) {
+      this.exitTwoFa()
+      // Re-fetch the picker so the just-verified supplier flips to ✓ Connected.
+      // (The credential's status transitions in the background; polling will
+      // catch up either way, but this is faster.)
+      this.fetchPickerData()
+      return
+    }
+
+    let msg = data.error || "Verification failed"
+    if (data.attempts_remaining) msg += ` (${data.attempts_remaining} attempts remaining)`
+    this.showTwoFaError(msg)
+
+    if (this.hasTwoFaCodeTarget) {
+      this.twoFaCodeTarget.value = ""
+      this.twoFaCodeTarget.focus()
+    }
+
+    if (data.can_retry === false) {
+      this.disableTwoFaSubmit()
+      if (this.hasTwoFaSubmitTarget) this.twoFaSubmitTarget.textContent = "Max attempts reached"
+    }
+  }
+
+  twoFaSubmit(event) {
+    event?.preventDefault()
+    if (!this._twoFaSubscription) return
+    if (!this.hasTwoFaCodeTarget) return
+
+    const code = this.twoFaCodeTarget.value.trim()
+    if (!code) {
+      this.showTwoFaError("Please enter a verification code")
+      return
+    }
+
+    this.disableTwoFaSubmit()
+    if (this.hasTwoFaSubmitTarget) this.twoFaSubmitTarget.textContent = "Verifying…"
+    this._twoFaSubscription.perform("submit_code", {
+      session_token: this._twoFaSessionToken,
+      code: code,
+    })
+  }
+
+  twoFaCancel(event) {
+    event?.preventDefault()
+    if (this._twoFaSubscription && this._twoFaSessionToken) {
+      this._twoFaSubscription.perform("cancel", {
+        session_token: this._twoFaSessionToken,
+      })
+    }
+    this.exitTwoFa()
+    this.fetchPickerData()
+  }
+
+  twoFaKeydown(event) {
+    if (event.key === "Enter") {
+      event.preventDefault()
+      this.twoFaSubmit()
+    }
+  }
+
+  exitTwoFa() {
+    window.__onboardingWizardHandlesTwoFa = false
+    this._twoFaSessionToken = null
+    this._twoFaExpiresAt    = null
+    this.stopTwoFaTimer()
+    this.hideTwoFaError()
+    if (this.hasTwoFaCodeTarget) this.twoFaCodeTarget.value = ""
+    this.showPicker()
+  }
+
+  startTwoFaTimer() {
+    this.stopTwoFaTimer()
+    if (!this._twoFaExpiresAt || !this.hasTwoFaTimerTarget) return
+
+    const expiresAt = new Date(this._twoFaExpiresAt)
+    const tick = () => {
+      const remaining = Math.max(0, Math.floor((expiresAt - new Date()) / 1000))
+      if (remaining <= 0) {
+        this.twoFaTimerTarget.textContent = "Expired"
+        this.disableTwoFaSubmit()
+        this.stopTwoFaTimer()
+        return
+      }
+      const m = Math.floor(remaining / 60)
+      const s = remaining % 60
+      this.twoFaTimerTarget.textContent = `${m}:${s.toString().padStart(2, "0")}`
+    }
+    tick()
+    this._twoFaTimerInterval = setInterval(tick, 1000)
+  }
+
+  stopTwoFaTimer() {
+    if (this._twoFaTimerInterval) {
+      clearInterval(this._twoFaTimerInterval)
+      this._twoFaTimerInterval = null
+    }
+  }
+
+  showTwoFaError(message) {
+    if (!this.hasTwoFaErrorTarget) return
+    this.twoFaErrorTarget.textContent = message
+    this.twoFaErrorTarget.removeAttribute("hidden")
+  }
+
+  hideTwoFaError() {
+    if (!this.hasTwoFaErrorTarget) return
+    this.twoFaErrorTarget.textContent = ""
+    this.twoFaErrorTarget.setAttribute("hidden", "true")
+  }
+
+  enableTwoFaSubmit() {
+    if (this.hasTwoFaSubmitTarget) this.twoFaSubmitTarget.disabled = false
+  }
+
+  disableTwoFaSubmit() {
+    if (this.hasTwoFaSubmitTarget) this.twoFaSubmitTarget.disabled = true
   }
 
   // --- Internals ---

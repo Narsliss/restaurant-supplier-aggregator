@@ -20,6 +20,11 @@ export default class extends Controller {
   }
 
   handleMessage(data) {
+    // The onboarding wizard handles 2FA inline when it's on the suppliers
+    // step. In that case we skip the global modal entirely so we don't
+    // double up on prompts.
+    if (window.__onboardingWizardHandlesTwoFa) return
+
     switch(data.type) {
       case "two_fa_required":
         this.showModal(data)
