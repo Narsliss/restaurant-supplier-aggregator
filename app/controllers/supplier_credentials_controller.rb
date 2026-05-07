@@ -162,8 +162,13 @@ class SupplierCredentialsController < ApplicationController
 
       Rails.logger.info "[SupplierCredentials] Updated credential ##{@credential.id} for #{@credential.supplier.name} (user: #{current_user.id})"
 
-      if credentials_changed
-        # Only re-validate when login credentials actually changed
+      # Wizard mode: clicking "Failed/Reconnect" → editing the form is the
+      # user's explicit retry signal. Always re-run validation in that flow,
+      # even if no fields changed (especially relevant for 2FA-only
+      # suppliers where the form has only an email field).
+      force_revalidate = params[:from_wizard].present?
+
+      if credentials_changed || force_revalidate
         Supplier2faRequest.where(supplier_credential: @credential, status: 'pending').update_all(status: 'cancelled')
         @credential.update!(status: 'pending')
         ValidateCredentialsJob.perform_later(@credential.id)
