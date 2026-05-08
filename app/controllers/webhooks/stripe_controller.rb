@@ -29,18 +29,18 @@ module Webhooks
       # Process the event
       result = Stripe::WebhookHandler.handle(event)
 
+      # Always return 200 once we've recorded the event, even on application
+      # errors. The BillingEvent row carries the audit trail (error_message);
+      # any other status would cause Stripe to retry indefinitely on bugs in
+      # our handler code.
       case result[:status]
-      when :success, :already_processed, :ignored
-        render json: { status: result[:status] }, status: :ok
-      when :user_not_found, :subscription_not_found
-        Rails.logger.warn "[Stripe Webhook] #{result[:status]} for event #{event.id}"
-        render json: { status: result[:status] }, status: :ok
       when :error
         Rails.logger.error "[Stripe Webhook] Error: #{result[:message]}"
-        render json: { error: result[:message] }, status: :unprocessable_entity
-      else
-        render json: { status: "processed" }, status: :ok
+      when :user_not_found, :subscription_not_found
+        Rails.logger.warn "[Stripe Webhook] #{result[:status]} for event #{event.id}"
       end
+
+      render json: { status: result[:status] || "processed" }, status: :ok
     end
   end
 end

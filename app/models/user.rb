@@ -203,57 +203,6 @@ class User < ApplicationRecord
     current_subscription&.trial_days_remaining || 0
   end
 
-  # Get or create Stripe customer
-  def find_or_create_stripe_customer
-    return Stripe::Customer.retrieve(stripe_customer_id) if stripe_customer_id.present?
-
-    customer = Stripe::Customer.create(
-      email: email,
-      name: full_name,
-      metadata: {
-        user_id: id
-      }
-    )
-
-    update!(stripe_customer_id: customer.id)
-    customer
-  end
-
-  # Create checkout session for subscription
-  def create_checkout_session(success_url:, cancel_url:)
-    customer = find_or_create_stripe_customer
-    config = Rails.application.config.stripe_config
-
-    Stripe::Checkout::Session.create(
-      customer: customer.id,
-      payment_method_types: ['card'],
-      line_items: [{
-        price: config[:monthly_price_id],
-        quantity: 1
-      }],
-      mode: 'subscription',
-      subscription_data: {
-        trial_period_days: config[:trial_days],
-        metadata: {
-          user_id: id
-        }
-      },
-      success_url: success_url,
-      cancel_url: cancel_url,
-      allow_promotion_codes: true
-    )
-  end
-
-  # Create billing portal session
-  def create_billing_portal_session(return_url:)
-    raise 'No Stripe customer' unless stripe_customer_id
-
-    Stripe::BillingPortal::Session.create(
-      customer: stripe_customer_id,
-      return_url: return_url
-    )
-  end
-
   # Class method to get the single super admin
   def self.super_admin
     find_by(role: 'super_admin')

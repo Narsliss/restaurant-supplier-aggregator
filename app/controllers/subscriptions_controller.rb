@@ -33,19 +33,16 @@ class SubscriptionsController < ApplicationController
   end
 
   def success
-    # Verify the checkout session
     if params[:session_id].present?
       begin
         session = Stripe::Checkout::Session.retrieve(params[:session_id])
+        org = current_user.current_organization
 
-        if session.customer == current_user.stripe_customer_id ||
-           current_user.stripe_customer_id.blank?
-
-          # Sync the subscription
+        if org && (org.stripe_customer_id.blank? || session.customer == org.stripe_customer_id)
           if session.subscription
             stripe_sub = Stripe::Subscription.retrieve(session.subscription)
             Subscription.sync_from_stripe(stripe_sub, user: current_user)
-            current_user.update_column(:stripe_customer_id, session.customer) unless current_user.stripe_customer_id
+            org.update_column(:stripe_customer_id, session.customer) if org.stripe_customer_id.blank?
           end
         end
       rescue Stripe::StripeError => e
@@ -62,9 +59,13 @@ class SubscriptionsController < ApplicationController
   end
 
   def billing_portal
-    session = current_user.create_billing_portal_session(
-      return_url: subscription_url
-    )
+    org = current_user.current_organization
+    unless org&.stripe_customer_id.present?
+      redirect_to subscription_path, alert: "No active billing account."
+      return
+    end
+
+    session = org.create_billing_portal_session(return_url: subscription_url)
 
     redirect_to session.url, allow_other_host: true
   rescue Stripe::StripeError => e

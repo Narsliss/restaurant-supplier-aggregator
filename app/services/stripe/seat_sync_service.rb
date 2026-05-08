@@ -29,11 +29,9 @@ module Stripe
 
       if paid_seats > 0
         if seat_item
-          # Update existing seat line item quantity
           ::Stripe::SubscriptionItem.update(seat_item.id, quantity: paid_seats)
           Rails.logger.info "[SeatSync] Updated #{@org.name} to #{paid_seats} paid seat(s)"
         else
-          # Add seat line item to existing subscription
           ::Stripe::SubscriptionItem.create(
             subscription: stripe_subscription.id,
             price: @config[:seat_price_id],
@@ -42,15 +40,20 @@ module Stripe
           Rails.logger.info "[SeatSync] Added #{paid_seats} paid seat(s) for #{@org.name}"
         end
       elsif seat_item
-        # No paid seats needed — remove the seat line item
         ::Stripe::SubscriptionItem.delete(seat_item.id)
         Rails.logger.info "[SeatSync] Removed paid seats for #{@org.name}"
       end
 
-      # Keep the local additional_seats count in sync
       @org.update_columns(additional_seats: [paid_seats, 0].max)
     rescue ::Stripe::StripeError => e
-      Rails.logger.error "[SeatSync] Stripe error for #{@org.name}: #{e.message}"
+      # Don't raise — that would roll back the membership transaction that
+      # triggered this sync. But silence is also unacceptable: a failed sync
+      # means we're under-charging the org. Log loudly and notify super admin
+      # so it can be reconciled manually.
+      Rails.logger.error(
+        "[SeatSync][REVENUE-LEAK] Stripe error for #{@org.name} (id=#{@org.id}): #{e.message}"
+      )
+      notify_super_admin_of_failure(e)
     end
 
     private
@@ -80,6 +83,15 @@ module Stripe
       stripe_subscription.items.data.find do |item|
         item.price.id == @config[:seat_price_id]
       end
+    end
+
+    def notify_super_admin_of_failure(error)
+      admin = User.super_admin
+      return unless admin&.email
+
+      BillingMailer.seat_sync_failed(@org, error.message).deliver_later
+    rescue StandardError => mailer_error
+      Rails.logger.error "[SeatSync] Failed to notify admin: #{mailer_error.message}"
     end
   end
 end

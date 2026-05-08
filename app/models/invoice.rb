@@ -22,22 +22,26 @@ class Invoice < ApplicationRecord
     status == "paid"
   end
 
-  # Sync invoice from Stripe
+  # Sync invoice from Stripe. Resolves user/org via the canonical
+  # Organization#stripe_customer_id mapping; falls back to the legacy
+  # User#stripe_customer_id column for backwards compatibility.
   def self.sync_from_stripe(stripe_invoice, user: nil, subscription: nil)
     invoice = find_or_initialize_by(stripe_invoice_id: stripe_invoice.id)
 
-    # Find user from customer if not provided
+    organization = nil
     if user.nil? && stripe_invoice.customer
-      user = User.find_by(stripe_customer_id: stripe_invoice.customer)
+      organization = Organization.find_by(stripe_customer_id: stripe_invoice.customer)
+      user = organization&.owner || User.find_by(stripe_customer_id: stripe_invoice.customer)
     end
+    organization ||= user&.current_organization
 
-    # Find subscription if not provided
-    if subscription.nil? && stripe_invoice.subscription
+    if subscription.nil? && stripe_invoice.respond_to?(:subscription) && stripe_invoice.subscription
       subscription = Subscription.find_by(stripe_subscription_id: stripe_invoice.subscription)
     end
 
     invoice.assign_attributes(
       user: user,
+      organization_id: organization&.id || invoice.organization_id,
       subscription: subscription,
       status: stripe_invoice.status,
       amount_due_cents: stripe_invoice.amount_due,

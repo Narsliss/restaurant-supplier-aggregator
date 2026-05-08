@@ -78,6 +78,66 @@ RSpec.describe Subscription, type: :model do
     end
   end
 
+  describe '.sync_from_stripe (period field migration)' do
+    let(:user) { create(:user, :with_organization) }
+
+    def fake_stripe_subscription(period_at_item_level:, period_at_top_level:)
+      item = ::Stripe::SubscriptionItem.construct_from(
+        id: 'si_1',
+        price: { id: 'price_test' },
+        current_period_start: period_at_item_level&.first,
+        current_period_end: period_at_item_level&.last
+      )
+
+      attrs = {
+        id: 'sub_period_test',
+        object: 'subscription',
+        status: 'active',
+        customer: 'cus_x',
+        cancel_at_period_end: false,
+        canceled_at: nil,
+        ended_at: nil,
+        trial_start: nil,
+        trial_end: nil,
+        metadata: { user_id: user.id },
+        items: { data: [item] }
+      }
+      attrs[:current_period_start] = period_at_top_level&.first if period_at_top_level
+      attrs[:current_period_end] = period_at_top_level&.last if period_at_top_level
+
+      ::Stripe::Subscription.construct_from(attrs)
+    end
+
+    it 'reads period fields from the subscription item (new API >= 2025-04)' do
+      starts = 1.day.ago.to_i
+      ends = 29.days.from_now.to_i
+      stripe_sub = fake_stripe_subscription(period_at_item_level: [starts, ends], period_at_top_level: nil)
+
+      sub = described_class.sync_from_stripe(stripe_sub, user: user)
+      expect(sub.current_period_start.to_i).to eq(starts)
+      expect(sub.current_period_end.to_i).to eq(ends)
+    end
+
+    it 'falls back to top-level period fields when item-level is missing (old API)' do
+      starts = 2.days.ago.to_i
+      ends = 28.days.from_now.to_i
+      stripe_sub = fake_stripe_subscription(period_at_item_level: nil, period_at_top_level: [starts, ends])
+
+      sub = described_class.sync_from_stripe(stripe_sub, user: user)
+      expect(sub.current_period_start.to_i).to eq(starts)
+      expect(sub.current_period_end.to_i).to eq(ends)
+    end
+
+    it 'leaves periods nil (does NOT raise TypeError) when neither is present' do
+      stripe_sub = fake_stripe_subscription(period_at_item_level: nil, period_at_top_level: nil)
+
+      expect { described_class.sync_from_stripe(stripe_sub, user: user) }.not_to raise_error
+      sub = Subscription.find_by!(stripe_subscription_id: 'sub_period_test')
+      expect(sub.current_period_start).to be_nil
+      expect(sub.current_period_end).to be_nil
+    end
+  end
+
   describe 'scopes' do
     let!(:active) { create(:subscription, status: 'active') }
     let!(:trialing) { create(:subscription, :trialing) }

@@ -84,5 +84,33 @@ RSpec.describe 'Stripe webhooks', type: :request do
       # Returns 403 (no secret), NOT a redirect to login
       expect(response).not_to redirect_to(new_user_session_path)
     end
+
+    it 'returns 200 (not 422) when the handler raises, so Stripe stops retrying' do
+      allow(Rails.application.config).to receive(:stripe_webhook_secret).and_return('whsec_test')
+
+      fake_event = ::Stripe::Event.construct_from(
+        id: 'evt_handler_crash', object: 'event', type: 'customer.created',
+        data: { object: { id: 'cus_x', object: 'customer', email: 'x@e.com', metadata: {} } }
+      )
+      allow(::Stripe::Webhook).to receive(:construct_event).and_return(fake_event)
+      allow(::Stripe::WebhookHandler).to receive(:handle).and_return(status: :error, message: 'kaboom')
+
+      post '/webhooks/stripe', params: '{}', headers: headers.merge('HTTP_STRIPE_SIGNATURE' => 'sig')
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'returns 200 on :user_not_found / :subscription_not_found' do
+      allow(Rails.application.config).to receive(:stripe_webhook_secret).and_return('whsec_test')
+
+      fake_event = ::Stripe::Event.construct_from(
+        id: 'evt_user_missing', object: 'event', type: 'customer.subscription.created',
+        data: { object: { id: 'sub_x', object: 'subscription' } }
+      )
+      allow(::Stripe::Webhook).to receive(:construct_event).and_return(fake_event)
+      allow(::Stripe::WebhookHandler).to receive(:handle).and_return(status: :user_not_found)
+
+      post '/webhooks/stripe', params: '{}', headers: headers.merge('HTTP_STRIPE_SIGNATURE' => 'sig')
+      expect(response).to have_http_status(:ok)
+    end
   end
 end

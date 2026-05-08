@@ -3,8 +3,9 @@ Rails.application.config.to_prepare do
   Stripe.api_key = ENV.fetch("STRIPE_SECRET_KEY", nil)
 end
 
-# Stripe API version
-Stripe.api_version = "2024-12-18.acacia"
+# Stripe API version — must match the version your webhook endpoints deliver
+# (visible at https://dashboard.stripe.com/webhooks under each endpoint's "API version")
+Stripe.api_version = "2026-02-25.clover"
 
 # Configure webhook signing for security
 Rails.application.config.stripe_webhook_secret = ENV.fetch("STRIPE_WEBHOOK_SECRET", nil)

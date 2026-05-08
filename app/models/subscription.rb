@@ -72,13 +72,18 @@ class Subscription < ApplicationRecord
     subscription = find_or_initialize_by(stripe_subscription_id: stripe_subscription.id)
 
     resolved_user = user || subscription.user
+    first_item = stripe_subscription.items.data.first
+
+    period_start = stripe_subscription_period(stripe_subscription, first_item, :current_period_start)
+    period_end = stripe_subscription_period(stripe_subscription, first_item, :current_period_end)
+
     subscription.assign_attributes(
       user: resolved_user,
       organization_id: resolved_user&.current_organization_id || subscription.organization_id,
-      stripe_price_id: stripe_subscription.items.data.first&.price&.id,
+      stripe_price_id: first_item&.price&.id,
       status: stripe_subscription.status,
-      current_period_start: Time.zone.at(stripe_subscription.current_period_start),
-      current_period_end: Time.zone.at(stripe_subscription.current_period_end),
+      current_period_start: period_start ? Time.zone.at(period_start) : nil,
+      current_period_end: period_end ? Time.zone.at(period_end) : nil,
       cancel_at_period_end: stripe_subscription.cancel_at_period_end,
       canceled_at: stripe_subscription.canceled_at ? Time.zone.at(stripe_subscription.canceled_at) : nil,
       ended_at: stripe_subscription.ended_at ? Time.zone.at(stripe_subscription.ended_at) : nil,
@@ -89,5 +94,15 @@ class Subscription < ApplicationRecord
 
     subscription.save!
     subscription
+  end
+
+  # Period fields moved from subscription level to subscription-item level in
+  # Stripe API version 2025-04-x onwards. Read item-level first; fall back to
+  # the legacy top-level field for older API versions.
+  def self.stripe_subscription_period(stripe_subscription, first_item, field)
+    item_value = first_item.respond_to?(field) ? first_item.public_send(field) : nil
+    return item_value if item_value
+
+    stripe_subscription.respond_to?(field) ? stripe_subscription.public_send(field) : nil
   end
 end

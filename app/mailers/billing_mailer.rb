@@ -55,4 +55,35 @@ class BillingMailer < ApplicationMailer
       subject: "Welcome to EnPlace Pro!"
     )
   end
+
+  # Sent when Stripe needs cardholder action (3D Secure / SCA) to complete a charge.
+  def payment_action_required(invoice)
+    @invoice = invoice
+    @subscription = invoice.subscription
+    @org = @subscription&.organization || @subscription&.user&.current_organization
+    @owner = @org&.owner || invoice.user
+    @amount = invoice.formatted_amount_due
+    @hosted_invoice_url = invoice.hosted_invoice_url
+
+    return unless @owner&.email
+
+    mail(
+      to: @owner.email,
+      subject: "Action required to complete your EnPlace Pro payment"
+    )
+  end
+
+  # Sent to super admin when a SeatSyncService call fails — revenue-leak risk.
+  def seat_sync_failed(organization, error_message)
+    @org = organization
+    @error_message = error_message
+    @admin = User.super_admin
+
+    return unless @admin&.email
+
+    mail(
+      to: @admin.email,
+      subject: "[Action] Seat sync failed for #{@org.name}"
+    )
+  end
 end
