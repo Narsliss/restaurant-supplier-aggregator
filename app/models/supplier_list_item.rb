@@ -35,32 +35,37 @@ class SupplierListItem < ApplicationRecord
   delegate :supplier, to: :supplier_list
   delegate :supplier_credential, to: :supplier_list
 
-  # Link to an existing SupplierProduct, trying (in order):
-  #   1. Exact SKU match
-  #   2. Exact name match (case-insensitive)
-  #   3. Prefix name match — some platforms (e.g. Cut+Dry / WCW) append brand
-  #      names in catalog but not in the order guide, so "Cherries - Amarene In
-  #      Syrup" should match "Cherries - Amarene In Syrup Gelatech".
-  # If no match is found and we have enough data, create a SupplierProduct so
-  # the item can be included in orders.
+  # Link to an existing SupplierProduct.
+  #
+  # When the SLI has a SKU, only match by SKU — the SKU is the supplier's
+  # canonical identifier. Falling back to name matching is unsafe: adjacent
+  # products often share name prefixes ("Spinach - Flat Leaf" vs
+  # "Spinach - Flat Leaf Each", off-by-one SKUs) and the linker would grab the
+  # wrong neighbor. If no SKU match exists yet, leave unlinked — the catalog
+  # importer's back-link sweep (ImportSupplierProductsService#import_batch)
+  # will pick it up when the matching SP gets scraped.
+  #
+  # When the SLI has NO SKU (rare legacy case), fall back to name matching:
+  # exact case-insensitive, then prefix (some platforms append brand names in
+  # catalog but not in the order guide).
+  #
+  # If still no match and we have enough data, create a SupplierProduct so
+  # orders aren't silently dropped. The catalog scraper will upsert this row
+  # when it later sees the same SKU.
   def link_to_supplier_product!
     return if supplier_product_id.present?
 
     sid = supplier_list.supplier_id
 
-    # 1. SKU match
-    sp = SupplierProduct.find_by(supplier_id: sid, supplier_sku: sku) if sku.present?
-
-    if sp.nil? && name.present?
+    if sku.present?
+      sp = SupplierProduct.find_by(supplier_id: sid, supplier_sku: sku)
+    elsif name.present?
       clean_name = name.downcase.strip
 
-      # 2. Exact name match (case-insensitive)
       sp = SupplierProduct.where(supplier_id: sid)
              .where('LOWER(supplier_name) = ?', clean_name)
              .first
 
-      # 3. Prefix match — list name is a prefix of catalog name (brand appended)
-      #    Only if name is long enough to avoid false positives
       if sp.nil? && clean_name.length >= 10
         sp = SupplierProduct.where(supplier_id: sid)
                .where('LOWER(supplier_name) LIKE ?', "#{sanitize_sql_like(clean_name)}%")
@@ -69,7 +74,6 @@ class SupplierListItem < ApplicationRecord
       end
     end
 
-    # 4. Create from list item data so orders aren't silently dropped
     if sp.nil? && name.present? && price.present?
       sp = SupplierProduct.create!(
         supplier_id: sid,

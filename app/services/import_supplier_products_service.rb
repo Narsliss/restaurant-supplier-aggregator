@@ -168,6 +168,13 @@ class ImportSupplierProductsService
       import_new_item(item)
     end
 
+    # Back-link any SupplierListItems whose SKU matches an SP we just touched
+    # but whose supplier_product_id points elsewhere (or nil). Happens when an
+    # SLI was created/synced before the catalog SP existed and got mis-linked
+    # via the legacy name fallback. Runs AFTER sync_prices so back-linked SLIs
+    # keep their order-guide prices instead of being overwritten by catalog.
+    backlink_list_items_to_canonical_sps(items.map { |i| i[:supplier_sku] })
+
     # Batch category backfills
     backfill_categories(category_backfills) if category_backfills.any?
 
@@ -182,11 +189,12 @@ class ImportSupplierProductsService
 
   private
 
-  # Catalog imports run with a super_admin credential that may have different
-  # location/delivery context than individual users. Stock availability is
-  # location-specific, so catalog imports should never downgrade in_stock
-  # from true to false — only the per-user order guide sync (ImportSupplierListsService)
-  # has the right context to mark items out of stock.
+  # Catalog imports run with whichever active credential StaggeredSupplierImportJob
+  # picks, which may have a different location/delivery context than individual
+  # users. Stock availability is location-specific, so catalog imports should
+  # never downgrade in_stock from true to false — only the per-user order guide
+  # sync (ImportSupplierListsService) has the right context to mark items out
+  # of stock.
   #
   # Rules:
   #   nil (scraper didn't set it)  → preserve existing
@@ -357,6 +365,37 @@ class ImportSupplierProductsService
 
     if updated_count > 0
       Rails.logger.info "[ImportProducts] Reverse sync: updated #{updated_count} list items from catalog prices"
+    end
+  end
+
+  # Re-point SupplierListItems to the canonical SP for their SKU.
+  #
+  # An SLI can end up linked to the wrong SP when it was created before the
+  # SKU-matching SP was scraped (legacy name-fallback behavior in
+  # SupplierListItem#link_to_supplier_product!). Once the catalog scraper
+  # touches a SKU, this sweep makes any SLIs in this supplier with that SKU
+  # point at the canonical SP — without modifying price, name, or stock fields.
+  def backlink_list_items_to_canonical_sps(skus)
+    skus = Array(skus).compact.uniq
+    return if skus.empty?
+
+    canonical = SupplierProduct.where(supplier_id: supplier.id, supplier_sku: skus)
+                               .pluck(:supplier_sku, :id).to_h
+    return if canonical.empty?
+
+    relinked = 0
+    canonical.each do |sku, sp_id|
+      affected = SupplierListItem
+        .joins(:supplier_list)
+        .where(supplier_lists: { supplier_id: supplier.id })
+        .where(sku: sku)
+        .where('supplier_list_items.supplier_product_id IS DISTINCT FROM ?', sp_id)
+        .update_all(supplier_product_id: sp_id)
+      relinked += affected
+    end
+
+    if relinked > 0
+      Rails.logger.info "[ImportProducts] #{supplier.name} back-link sweep: re-linked #{relinked} list items to canonical SPs"
     end
   end
 
