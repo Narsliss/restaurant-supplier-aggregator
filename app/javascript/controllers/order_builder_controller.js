@@ -790,6 +790,14 @@ export default class extends Controller {
     }
   }
 
+  // Swallow Enter on inputs so a stray keypress in the search/date/quantity
+  // fields can't submit the order to the verify page. The submit button stays
+  // the only way to advance — chefs press Enter all the time without meaning to.
+  preventEnterSubmit(event) {
+    if (event.key !== "Enter") return
+    if (event.target.tagName === "INPUT") event.preventDefault()
+  }
+
   // === Feature 1: Search/Filter ===
   filterProducts() {
     const query = this.hasSearchInputTarget ? this.searchInputTarget.value.toLowerCase().trim() : ""

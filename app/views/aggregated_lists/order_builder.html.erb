@@ -30,7 +30,7 @@
     </div>
   </div>
 
-  <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "order-form") do |form| %>
+  <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "order-form", data: { action: "keydown->order-builder#preventEnterSubmit" }) do |form| %>
     <%= hidden_field_tag :aggregated_list_id, @aggregated_list.id %>
     <%# When continuing from an existing draft/batch, pass its ID so create can clean it up
         atomically after the new batch is created. See OrdersController#create_from_aggregated_list. %>

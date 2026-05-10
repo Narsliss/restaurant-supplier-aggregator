@@ -62,6 +62,32 @@ RSpec.describe 'AggregatedLists', type: :request do
       }.to change(AggregatedList, :count).by(1)
     end
   end
+
+  describe 'GET /aggregated_lists/:id/order_builder' do
+    let(:matched_list) do
+      AggregatedList.create!(
+        organization: org,
+        location_id: location.id,
+        created_by: owner,
+        name: 'Builder list',
+        list_type: 'matched',
+        match_status: 'matched'
+      )
+    end
+
+    # Regression: chefs typing in the search bar and pressing Enter were jumping
+    # to the verify-order page because the search input lives inside the order
+    # form. The order-builder Stimulus controller now swallows Enter on inputs;
+    # the form must carry the data-action attribute that wires it up.
+    it 'wires the form to swallow Enter so accidental submits cannot escape' do
+      get order_builder_aggregated_list_path(matched_list)
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include('id="order-form"')
+      # form_with HTML-escapes data attribute values, so the Stimulus arrow
+      # appears as `&gt;` in the source. The browser unescapes it at parse time.
+      expect(response.body).to match(/<form[^>]*id="order-form"[^>]*data-action="keydown-&gt;order-builder#preventEnterSubmit"/)
+    end
+  end
 end
 
 RSpec.describe 'CatalogSearches', type: :request do
