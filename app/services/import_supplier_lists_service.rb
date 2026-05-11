@@ -138,7 +138,21 @@ class ImportSupplierListsService
     # check if the numbers make it obvious (e.g., $16.54 for 72 lbs = $0.23/lb)
     infer_per_unit_pricing!(item) if item.price_unit.blank?
 
-    # Try to link to an existing SupplierProduct by SKU
+    # Drop a stale wrong-SKU link before linking. Legacy SLIs created via
+    # the old name-fallback linker can end up pointed at an off-by-one
+    # neighbor SP. Without this, link_to_supplier_product! short-circuits
+    # on the existing link and the SLI stays stranded — for stock display
+    # this means the SLI inherits the wrong neighbor's in_stock state
+    # forever, even when WCW's order guide reports the right SKU as live.
+    if item.supplier_product_id.present? && item.sku.present?
+      linked_sp = item.supplier_product
+      if linked_sp && item.sku.to_s.strip != linked_sp.supplier_sku.to_s.strip
+        item.update_columns(supplier_product_id: nil)
+      end
+    end
+
+    # Try to link to an existing SupplierProduct by SKU (or create a stub
+    # if the catalog hasn't scraped this SKU yet).
     item.link_to_supplier_product! if item.supplier_product_id.nil?
 
     # Propagate latest list data (price, stock, last_scraped_at) to the linked product
