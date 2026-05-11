@@ -1,4 +1,6 @@
 class DashboardController < ApplicationController
+  helper_method :filter_params
+
   def index
     # Super admin has no use for the regular dashboard — send to admin panel
     redirect_to admin_root_path and return if current_user.super_admin?
@@ -405,6 +407,14 @@ class DashboardController < ApplicationController
   def percentage_change(current, previous)
     return nil if previous.nil? || previous.zero?
     ((current - previous).to_f / previous * 100).round(1)
+  end
+
+  # Mobile owner dashboard tiles deep-link to ReportsController#location and
+  # splat these params into the URL so the report respects any active filter.
+  # The dashboard itself has no date/location filter UI, so an empty hash
+  # leaves the report at its defaults.
+  def filter_params
+    {}
   end
 
   # load_chef_onboarding_steps removed — the spotlight wizard's supplier

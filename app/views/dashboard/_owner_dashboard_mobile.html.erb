@@ -128,17 +128,17 @@
   <section class="mt-5">
     <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">By Restaurant</h2>
     <div class="space-y-2">
-      <% @location_stats.each do |loc| %>
-        <%= link_to location_reports_path(location_id: loc[:location_id] || loc[:id], **filter_params), class: "block bg-white rounded-xl border border-gray-100 shadow-sm p-3" do %>
+      <% @location_stats.each do |row| %>
+        <%= link_to location_reports_path(location_id: row[:location].id, **filter_params), class: "block bg-white rounded-xl border border-gray-100 shadow-sm p-3" do %>
           <div class="flex items-center justify-between mb-1.5">
-            <p class="text-sm font-semibold text-gray-900"><%= loc[:name] %></p>
-            <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(loc[:spend]) %></p>
+            <p class="text-sm font-semibold text-gray-900"><%= row[:location].name %></p>
+            <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(row[:monthly_spend]) %></p>
           </div>
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
-              <span class="text-[10px] text-gray-400"><%= loc[:orders] %> orders</span>
-              <% if loc[:savings].to_f > 0 %>
-                <span class="text-[10px] text-green-600 font-medium">Saved <%= number_to_currency(loc[:savings]) %></span>
+              <span class="text-[10px] text-gray-400"><%= row[:order_count] %> orders</span>
+              <% if row[:savings].to_f > 0 %>
+                <span class="text-[10px] text-green-600 font-medium">Saved <%= number_to_currency(row[:savings]) %></span>
               <% end %>
             </div>
             <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>

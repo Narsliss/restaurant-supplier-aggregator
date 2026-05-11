@@ -75,21 +75,35 @@ class SupplierListItem < ApplicationRecord
     end
 
     if sp.nil? && name.present? && price.present?
-      sp = SupplierProduct.create!(
-        supplier_id: sid,
-        supplier_sku: sku.presence || "LIST-#{id}",
-        supplier_name: name,
-        current_price: price,
-        pack_size: pack_size,
-        piece_price: piece_price,
-        piece_pack_size: piece_pack_size,
-        in_stock: in_stock,
-        price_updated_at: Time.current,
-        last_scraped_at: Time.current
-      )
+      effective_sku = sku.presence || "LIST-#{id}"
+      sp = upsert_stub_supplier_product!(sid, effective_sku)
     end
 
     update!(supplier_product_id: sp.id) if sp
+  end
+
+  # Two concurrent list/email imports for the same supplier can both miss the
+  # find_by above and race to create the same (supplier_id, supplier_sku) pair.
+  # Rails uniqueness validation raises RecordInvalid; the DB unique index raises
+  # RecordNotUnique. Treat either as "someone else won — go re-find their row."
+  def upsert_stub_supplier_product!(sid, effective_sku)
+    SupplierProduct.create!(
+      supplier_id: sid,
+      supplier_sku: effective_sku,
+      supplier_name: name,
+      current_price: price,
+      pack_size: pack_size,
+      piece_price: piece_price,
+      piece_pack_size: piece_pack_size,
+      in_stock: in_stock,
+      price_updated_at: Time.current,
+      last_scraped_at: Time.current
+    )
+  rescue ActiveRecord::RecordInvalid => e
+    raise unless e.record.errors[:supplier_sku].any?
+    SupplierProduct.find_by(supplier_id: sid, supplier_sku: effective_sku) or raise
+  rescue ActiveRecord::RecordNotUnique
+    SupplierProduct.find_by(supplier_id: sid, supplier_sku: effective_sku) or raise
   end
 
   # Per-unit price comparison (delegates to UnitParser)

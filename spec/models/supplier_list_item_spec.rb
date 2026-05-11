@@ -103,5 +103,49 @@ RSpec.describe SupplierListItem, type: :model do
       expect(sli.supplier_product_id).to eq(sp.id)
       expect(sli.supplier_product_id).not_to eq(other.id)
     end
+
+    # Regression: two concurrent imports for the same (supplier_id, sku) both
+    # miss the initial find_by and race to create!. The validates :uniqueness
+    # check raises RecordInvalid; the DB unique index raises RecordNotUnique.
+    # Either way the method must recover and link to the winning row instead
+    # of bubbling the exception up and leaving the SLI unlinked.
+    context 'when a concurrent insert wins the (supplier_id, sku) race' do
+      it 'recovers from RecordInvalid (Rails uniqueness check) and links to the winner' do
+        sli = make_sli(sku: 'RACE-1', name: 'Race Item', price: 9.99)
+        winning_sp = nil
+        call_count = 0
+        allow(SupplierProduct).to receive(:find_by).and_wrap_original do |orig, *args|
+          call_count += 1
+          if call_count == 1
+            winning_sp = make_sp(supplier_sku: 'RACE-1', supplier_name: 'Race Winner')
+            nil
+          else
+            orig.call(*args)
+          end
+        end
+
+        expect { sli.link_to_supplier_product! }.not_to raise_error
+        expect(sli.reload.supplier_product_id).to eq(winning_sp.id)
+        expect(SupplierProduct.where(supplier_id: supplier.id, supplier_sku: 'RACE-1').count).to eq(1)
+      end
+
+      it 'recovers from RecordNotUnique (DB index) and links to the winner' do
+        sli = make_sli(sku: 'RACE-2', name: 'Race Item', price: 9.99)
+        winning_sp = make_sp(supplier_sku: 'RACE-2', supplier_name: 'Race Winner')
+
+        allow(SupplierProduct).to receive(:find_by).and_wrap_original do |orig, *args|
+          if args.first == { supplier_id: supplier.id, supplier_sku: 'RACE-2' } && !@found_yet
+            @found_yet = true
+            nil
+          else
+            orig.call(*args)
+          end
+        end
+        allow_any_instance_of(SupplierProduct).to receive(:save).and_raise(ActiveRecord::RecordNotUnique)
+
+        expect { sli.link_to_supplier_product! }.not_to raise_error
+        expect(sli.reload.supplier_product_id).to eq(winning_sp.id)
+      end
+    end
   end
 end
