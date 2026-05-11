@@ -105,4 +105,87 @@ RSpec.describe ImportSupplierProductsService do
         .not_to change { other_sli.reload.supplier_product_id }
     end
   end
+
+  describe '#sync_prices_to_list_items' do
+    let(:supplier) { create(:supplier) }
+    let(:credential) { create(:supplier_credential, supplier: supplier) }
+    let(:supplier_list) do
+      SupplierList.create!(
+        supplier: supplier,
+        supplier_credential: credential,
+        organization_id: credential.organization_id,
+        name: 'Test Order Guide'
+      )
+    end
+    let(:service) { described_class.new(credential) }
+
+    def make_sp(sku:, name: 'Catalog Item', price: 10.0, in_stock: true)
+      SupplierProduct.create!(
+        supplier: supplier,
+        supplier_sku: sku,
+        supplier_name: name,
+        current_price: price,
+        pack_size: '1 case',
+        in_stock: in_stock
+      )
+    end
+
+    def make_sli(sku:, supplier_product:, name: 'List Item', price: 9.0, in_stock: true)
+      supplier_list.supplier_list_items.create!(
+        name: name,
+        sku: sku,
+        price: price,
+        pack_size: '1 case',
+        in_stock: in_stock,
+        supplier_product_id: supplier_product&.id
+      )
+    end
+
+    # Regression: this is the second half of the spinach incident. The
+    # mis-linked SLI (sku 20284 pointing at SP sku 20285) was about to be
+    # repaired by backlink_list_items_to_canonical_sps, but sync_prices_to_list_items
+    # ran first and stamped the wrong SP's $9.15 onto the SLI before the
+    # link was fixed.
+    it 'skips a mis-linked SLI whose SKU does not match the SP being synced' do
+      wrong_sp = make_sp(sku: '20285', name: 'Spinach - Flat Leaf Each', price: 9.15)
+      sli = make_sli(sku: '20284', supplier_product: wrong_sp, name: 'Spinach - Flat Leaf', price: 26.95)
+
+      service.send(:sync_prices_to_list_items, [{ id: wrong_sp.id }])
+
+      sli.reload
+      expect(sli.price).to eq(26.95)
+      expect(sli.previous_price).to be_nil
+    end
+
+    it 'still syncs a correctly-linked SLI when SKU matches the SP' do
+      canonical_sp = make_sp(sku: '20284', name: 'Spinach - Flat Leaf', price: 26.95)
+      sli = make_sli(sku: '20284', supplier_product: canonical_sp, name: 'Spinach - Flat Leaf', price: 24.50)
+
+      service.send(:sync_prices_to_list_items, [{ id: canonical_sp.id }])
+
+      sli.reload
+      expect(sli.price).to eq(26.95)
+      expect(sli.previous_price).to eq(24.50)
+    end
+
+    it 'does not push stock changes to a mis-linked SLI either' do
+      wrong_sp = make_sp(sku: '20285', name: 'Spinach - Flat Leaf Each', in_stock: false)
+      sli = make_sli(sku: '20284', supplier_product: wrong_sp, in_stock: true)
+
+      service.send(:sync_prices_to_list_items, [{ id: wrong_sp.id }])
+
+      # SupplierListItem#in_stock delegates to the linked SP, so we check the
+      # raw column to confirm the sync didn't write through to the SLI itself.
+      expect(sli.reload.read_attribute(:in_stock)).to be(true)
+    end
+
+    it 'syncs SLIs that have no SKU (legacy rows fall through SKU guard)' do
+      sp = make_sp(sku: '20284', name: 'No-SKU List Item', price: 26.95)
+      sli = make_sli(sku: nil, supplier_product: sp, price: 9.99)
+
+      service.send(:sync_prices_to_list_items, [{ id: sp.id }])
+
+      expect(sli.reload.price).to eq(26.95)
+    end
+  end
 end

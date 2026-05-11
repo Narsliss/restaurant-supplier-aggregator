@@ -342,6 +342,16 @@ class ImportSupplierProductsService
 
     SupplierProduct.where(id: sp_ids).includes(:supplier_list_items).find_each do |sp|
       sp.supplier_list_items.each do |sli|
+        # Defensive: a SKU mismatch means this SLI is mis-linked (its link
+        # predates a recent catalog scrape). Pushing this SP's price would
+        # stamp the wrong neighbor's value onto the SLI — e.g. the case SLI
+        # for "Spinach - Flat Leaf" (sku 20284, $26.95) getting overwritten
+        # with the "Spinach - Flat Leaf Each" SP's $9.15 right before
+        # backlink_list_items_to_canonical_sps repoints the link.
+        # The back-link sweep below will fix the link; the next import will
+        # then sync the right price through the now-correct association.
+        next if sli.sku.present? && sli.sku.to_s.strip != sp.supplier_sku.to_s.strip
+
         next if sli.price == sp.current_price && sli.read_attribute(:in_stock) == sp.in_stock
 
         attrs = {}
