@@ -1,5 +1,6 @@
 class Subscription < ApplicationRecord
   belongs_to :user
+  belongs_to :organization, optional: true
   has_many :billing_events, dependent: :nullify
   has_many :invoices, dependent: :nullify
 

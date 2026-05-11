@@ -73,6 +73,20 @@ class BillingMailer < ApplicationMailer
     )
   end
 
+  def new_paid_signup(subscription)
+    @subscription = subscription
+    @org = subscription.organization || subscription.user&.current_organization
+    @owner = @org&.owner || subscription.user
+    @admin = User.super_admin
+
+    return unless @admin&.email
+
+    mail(
+      to: @admin.email,
+      subject: "[EnPlace Pro] New signup: #{@org&.name.presence || @owner&.email}"
+    )
+  end
+
   # Sent to super admin when a SeatSyncService call fails — revenue-leak risk.
   def seat_sync_failed(organization, error_message)
     @org = organization

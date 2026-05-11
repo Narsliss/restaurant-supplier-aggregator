@@ -123,7 +123,10 @@ module Stripe
         subscription = ::Subscription.sync_from_stripe(stripe_subscription, user: user)
       end
 
-      BillingMailer.welcome(subscription).deliver_later if subscription
+      if subscription
+        BillingMailer.welcome(subscription).deliver_later
+        BillingMailer.new_paid_signup(subscription).deliver_later
+      end
 
       { status: :success, user: user, subscription: subscription }
     end
