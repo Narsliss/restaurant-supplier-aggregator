@@ -250,7 +250,6 @@ module Scrapers
         useElasticSearch: true,
         sectionId: nil,
         sectionCategoryId: nil,
-        applyCategorySort: false,
         orderHistoryFilter: 'all'
       })
     end
@@ -769,7 +768,7 @@ module Scrapers
           $offset: Int, $limit: Int, $useElasticSearch: Boolean,
           $sectionId: ID, $sectionCategoryId: ID, $sortView: String,
           $sortDirection: String, $searchString: String,
-          $applyCategorySort: Boolean, $orderHistoryFilter: String
+          $orderHistoryFilter: String
         ) {
           formProducts(id: $formId) {
             sectionsWithCount(
@@ -782,7 +781,6 @@ module Scrapers
               offset: $offset
               limit: $limit
               searchString: $searchString
-              applyCategorySort: $applyCategorySort
               orderHistoryFilter: $orderHistoryFilter
             ) {
               sections {

@@ -636,7 +636,20 @@ module Scrapers
 
       loop do
         data = api_client.get_order_guide_items(limit: 100, offset: offset)
-        sections = data&.dig('data', 'formProducts', 'sectionsWithCount', 'sections') || []
+        # Fail loudly on transport/GraphQL errors so ImportSupplierListsService
+        # marks the list FAILED instead of treating an empty page as "synced
+        # with no items" and silently stranding stock/price data. WCW has
+        # quietly deprecated arguments before; this guard turns that into a
+        # visible failure on the next sync rather than 5 days of staleness.
+        if data.nil?
+          raise ScrapingError, '[WhatChefsWant] order guide API returned no response'
+        end
+        if data['errors']&.any?
+          msg = data['errors'].map { |e| e['message'] }.join('; ')
+          raise ScrapingError, "[WhatChefsWant] order guide GraphQL errors: #{msg}"
+        end
+
+        sections = data.dig('data', 'formProducts', 'sectionsWithCount', 'sections') || []
         page_items = sections.flat_map do |s|
           (s['multiUnitProducts'] || []).map do |mup|
             products = mup['products'] || []
