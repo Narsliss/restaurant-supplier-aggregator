@@ -37,8 +37,6 @@ class ScrapingErrorMailer < ApplicationMailer
 
     return unless @super_admin
 
-    @setup_url = Rails.application.routes.url_helpers.suppliers_url
-
     mail(
       to: @super_admin.email,
       subject: "[ACTION REQUIRED] Missing Credentials for #{supplier.name}"
@@ -91,8 +89,6 @@ class ScrapingErrorMailer < ApplicationMailer
     @super_admin = User.super_admin
 
     return unless @super_admin
-
-    @revalidate_url = Rails.application.routes.url_helpers.edit_supplier_path(supplier)
 
     mail(
       to: @super_admin.email,
