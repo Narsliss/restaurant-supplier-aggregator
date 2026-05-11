@@ -178,8 +178,16 @@ class ImportSupplierListsService
     # Propagate price_unit so order verification can interpret scraped prices
     attrs[:price_unit] = item.price_unit if item.price_unit != sp.price_unit
 
-    # Update stock status
-    attrs[:in_stock] = item.in_stock unless item.in_stock.nil?
+    # Update stock status. SupplierListItem#in_stock is a delegating method
+    # that READS from supplier_product.in_stock (because the catalog is
+    # usually fresher than the order guide); using that method here would
+    # copy the SP's value back to itself — a no-op. We need the SLI's own
+    # raw column, which upsert_item just set from the order-guide API's
+    # `unavailable` flag. Without this, WCW (and any case_pricing supplier
+    # whose catalog returns nil for stock) had no path to flip SP.in_stock
+    # back to true once it ever went false.
+    list_item_stock = item.read_attribute(:in_stock)
+    attrs[:in_stock] = list_item_stock unless list_item_stock.nil?
 
     # Update pack_size if present and different
     attrs[:pack_size] = item.pack_size if item.pack_size.present? && item.pack_size != sp.pack_size
