@@ -593,19 +593,32 @@ module Scrapers
       variant = item['selectedVariant'] || item.dig('variants', 0) || {}
       metadata = variant['metadata'] || {}
 
+      # Availability lives on the VARIANT, not the top-level item. variant['inStock']
+      # is a numeric stock count (e.g. 10.0, 31.0, 0.0); item['inStock'] at the top
+      # level always comes back false in the order-guide response, regardless of
+      # actual availability — likely flags something else (selected-on-list, etc).
+      # If the count is missing we default to true rather than false so a missing
+      # field doesn't strand every item as "out of stock".
+      variant_stock_count = variant['inStock']
+      available = if variant_stock_count.is_a?(Numeric)
+                    variant_stock_count > 0
+                  else
+                    item['inStock'] != false
+                  end
+
       {
         name: item['name'],
         sku: item['productCode']&.sub(/\AJDE_/, ''),
         product_code: item['productCode'],
         pack_size: item['packSize'] || variant['packSize'],
         image_url: item['imageUrl'],
-        in_stock: item['inStock'] != false,
+        in_stock: available,
         variant_code: variant['code'],
         uom: metadata['unitOfMeasure'] || variant['primaryUnitOfMeasureCode'],
         stocking_type: metadata['stockingType'] || variant['stockingType'],
         vendor_id: metadata['vendorId'],
         business_unit_id: variant['businessUnit'] || variant.dig('businessUnitModel', 'id'),
-        stock_count: variant['inStock'],
+        stock_count: variant_stock_count,
         obsolete: item['obsolete'],
         last_ordered_date: item['lastOrderedDate'],
         sell_by_multiple: variant['sellByMultiple'] || 1,
