@@ -43,4 +43,35 @@ RSpec.describe Scrapers::ChefsWarehouseApi do
       expect(api.send(:parse_order_guide_item, item)[:in_stock]).to be(true)
     end
   end
+
+  describe '#parse_search_product' do
+    # The catalog/search endpoint shares the order-guide endpoint's quirk:
+    # variants[0]['inStock'] is a numeric stock count, not a boolean. Passing
+    # the raw count downstream is unsafe — import_new_item does
+    # `item[:in_stock] != false`, which is `true` for 0.0, so new SKUs from
+    # catalog imports were getting in_stock=true regardless of actual stock.
+    it 'returns in_stock=true for a positive variant stock count' do
+      product = { 'name' => 'Live Item', 'sku' => 'X1', 'variants' => [{ 'inStock' => 10.0, 'code' => 'JDE_X1-1', 'metadata' => {} }] }
+      parsed = api.send(:parse_search_product, product)
+      expect(parsed[:in_stock]).to be(true)
+      expect(parsed[:stock_count]).to eq(10.0)
+    end
+
+    it 'returns in_stock=false for zero variant stock count' do
+      product = { 'name' => 'Sold Out', 'sku' => 'X2', 'variants' => [{ 'inStock' => 0.0, 'code' => 'JDE_X2-1', 'metadata' => {} }] }
+      parsed = api.send(:parse_search_product, product)
+      expect(parsed[:in_stock]).to be(false)
+      expect(parsed[:stock_count]).to eq(0.0)
+    end
+
+    it 'defaults to in_stock=true when the variant has no inStock field (avoids stranding fresh SKUs)' do
+      product = { 'name' => 'Unknown', 'sku' => 'X3', 'variants' => [{ 'code' => 'JDE_X3-1', 'metadata' => {} }] }
+      expect(api.send(:parse_search_product, product)[:in_stock]).to be(true)
+    end
+
+    it 'handles a missing variants array gracefully' do
+      product = { 'name' => 'No Variants', 'sku' => 'X4' }
+      expect(api.send(:parse_search_product, product)[:in_stock]).to be(true)
+    end
+  end
 end

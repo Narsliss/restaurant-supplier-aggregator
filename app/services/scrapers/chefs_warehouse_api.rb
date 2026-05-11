@@ -658,6 +658,20 @@ module Scrapers
       category = product['category']
       category_name = category.is_a?(Hash) ? category['text'] : category
 
+      # Same field shape as the order-guide endpoint: variant['inStock'] is a
+      # numeric stock count, not a boolean. Passing the raw count downstream
+      # is unsafe — import_new_item evaluates `item[:in_stock] != false`,
+      # which is `true` for 0.0, so brand-new SKUs from a catalog import
+      # land with in_stock=true regardless of actual availability. Derive a
+      # boolean here; missing/non-numeric falls back to true (treat unknown
+      # as available rather than stranding fresh SKUs as out-of-stock).
+      variant_stock_count = variant['inStock']
+      available = if variant_stock_count.is_a?(Numeric)
+                    variant_stock_count > 0
+                  else
+                    variant_stock_count != false
+                  end
+
       {
         name: product['description'] || product['name'],
         sku: product['sku'],
@@ -670,7 +684,8 @@ module Scrapers
         stocking_type: metadata['stockingType'],
         vendor_id: metadata['vendorId'],
         business_unit_id: variant['businessUnit'] || variant.dig('businessUnitModel', 'id'),
-        in_stock: variant['inStock'],
+        in_stock: available,
+        stock_count: variant_stock_count,
         is_frozen: product['isFrozen']
       }
     end
