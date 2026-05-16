@@ -79,10 +79,24 @@ class ImportSupplierProductsJob < ApplicationJob
   end
 
   def handle_no_credential_error
-    error_msg = "No active credentials found for #{@supplier.name}"
+    # Distinguish two failure modes that both leave @credential nil:
+    #   1. The job was queued with a specific credential_id that has since
+    #      been deleted (typical during signup churn — user re-adds creds,
+    #      old rows get cleaned up before the queued job runs). Other users'
+    #      credentials are unaffected, so the supplier isn't actually down.
+    #   2. The supplier truly has zero active credentials system-wide.
+    # Only (2) warrants emailing super_admin.
+    has_any_active = SupplierCredential.where(supplier: @supplier, status: 'active').exists?
+    error_msg = if has_any_active
+                  "Queued credential missing for #{@supplier.name} (other active credentials exist; skipping email)"
+                else
+                  "No active credentials found for #{@supplier.name}"
+                end
     Rails.logger.error "[ImportProductsJob] #{error_msg}"
 
     @scraping_log&.mark_failed!(error_msg)
+
+    return if has_any_active
 
     ScrapingErrorMailer.no_credentials(@supplier).deliver_later
   end
