@@ -35,9 +35,10 @@ module Scrapers
     # ── Authentication ────────────────────────────────────────────
 
     # Restore API tokens from saved credential session data.
-    # Checks two sources:
+    # Checks three sources in order:
     #   1. Our api_tokens (saved by previous API session)
-    #   2. Browser localStorage (CapacitorStorage.auth-response from soft_refresh)
+    #   2. Browser localStorage CapacitorStorage.auth-response (moxe-exchanged response)
+    #   3. B2C idToken at _ionicAuth.idToken.<guid> — exchanged for moxe tokens here
     def restore_session
       raw = credential.session_data
       return false if raw.blank?
@@ -91,6 +92,20 @@ module Scrapers
             save_session_tokens
             return true
           end
+        end
+      end
+
+      # Final fallback: exchange the B2C idToken for moxe API tokens.
+      # Fresh 2FA logins always populate _ionicAuth.idToken.<guid>, but the
+      # SPA doesn't always write CapacitorStorage.auth-response in time —
+      # without this fallback, the first import after a new login raises
+      # 'USF API session expired' and flips the credential to failed.
+      id_token_key = ls.keys.find { |k| k.to_s.start_with?('_ionicAuth.idToken.') }
+      if id_token_key
+        id_token = ls[id_token_key]
+        if id_token.present? && authenticate_with_id_token(id_token)
+          logger.info '[USF-API] Session bootstrapped via B2C idToken'
+          return true
         end
       end
 

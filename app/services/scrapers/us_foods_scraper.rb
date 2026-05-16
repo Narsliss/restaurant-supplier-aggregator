@@ -616,6 +616,7 @@ module Scrapers
 
         if logged_in?
           save_session
+          bootstrap_api_tokens
           credential.mark_active!
           true
         else
@@ -624,6 +625,32 @@ module Scrapers
           raise AuthenticationError, error_msg
         end
       end
+    end
+
+    # After a fresh 2FA login, eagerly exchange the captured B2C idToken for
+    # moxe API tokens so api_tokens is populated in session_data before the
+    # first import runs. Without this, brand-new credentials get marked
+    # failed seconds after a successful login because the API client's
+    # restore_session can't find usable tokens.
+    def bootstrap_api_tokens
+      raw = credential.session_data
+      return if raw.blank?
+
+      data = JSON.parse(raw) rescue {}
+      ls = data['local_storage'] || {}
+      id_token_key = ls.keys.find { |k| k.to_s.start_with?('_ionicAuth.idToken.') }
+      return unless id_token_key
+
+      id_token = ls[id_token_key]
+      return if id_token.blank?
+
+      if api_client.authenticate_with_id_token(id_token)
+        logger.info '[UsFoods] Bootstrapped API tokens from idToken after login'
+      else
+        logger.warn '[UsFoods] idToken exchange failed — first import may need a retry'
+      end
+    rescue StandardError => e
+      logger.warn "[UsFoods] bootstrap_api_tokens raised: #{e.class}: #{e.message}"
     end
 
     # Browser-based soft refresh (called by the API soft_refresh override).
