@@ -28,6 +28,13 @@ RSpec.describe 'Products', type: :request do
       get products_path
       expect(response).to have_http_status(:ok)
     end
+
+    it 'renders the admin nav (not the user nav) for super_admin' do
+      sign_in super_admin
+      get products_path
+      expect(response.body).to include('Supplier Users')
+      expect(response.body).to include('Exit to App')
+    end
   end
 
   describe 'auth gate' do

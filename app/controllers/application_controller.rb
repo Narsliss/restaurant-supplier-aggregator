@@ -10,7 +10,11 @@ class ApplicationController < ActionController::Base
   before_action :configure_permitted_parameters, if: :devise_controller?
 
   helper_method :current_location, :subscription_required?, :onboarding_incomplete?, :viewing_all_locations?, :impersonating?, :mobile?,
-                :onboarding_wizard_visible?, :onboarding_wizard_progress
+                :onboarding_wizard_visible?, :onboarding_wizard_progress, :current_admin_section
+
+  def current_admin_section
+    controller_name
+  end
 
   # Show a helpful message when CSRF token is stale (e.g. after server restart or long idle)
   rescue_from ActionController::InvalidAuthenticityToken do

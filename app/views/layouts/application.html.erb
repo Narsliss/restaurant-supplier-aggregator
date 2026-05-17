@@ -36,7 +36,7 @@
            data-price-check-lists-url-value="<%= for_select_order_lists_path(format: :json) %>"
          <% end %>>
       <% if user_signed_in? %>
-        <% if controller.class.module_parent_name == 'Admin' %>
+        <% if controller.class.module_parent_name == 'Admin' || (current_user.super_admin? && !impersonating? && controller_name == 'products') %>
           <%= render "admin/shared/navigation" %>
         <% elsif controller.class.module_parent_name == 'Crm' %>
           <%= render "crm/shared/navigation" %>
