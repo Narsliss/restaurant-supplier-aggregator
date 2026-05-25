@@ -29,7 +29,7 @@ class IncrementalProductMatcherService
     @new_supplier_list_ids = Array(new_supplier_list_ids).map(&:to_i)
     @explicit_items = items # pre-filtered items bypass collect_new_items
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
-    @results = { new_matched: 0, new_unmatched: 0, total_new: 0, errors: [] }
+    @results = { new_matched: 0, new_unmatched: 0, total_new: 0, errored: 0, errors: [] }
     @ai_disabled = false
   end
 
@@ -54,65 +54,16 @@ class IncrementalProductMatcherService
     next_position = (aggregated_list.product_matches.maximum(:position) || 0) + 1
 
     new_items.each do |new_item|
-      supplier_id = new_item.supplier_list.supplier_id
-
-      # Try to find a matching existing ProductMatch
-      match, confidence = find_best_match_against_existing(new_item, existing_matches)
-
-      if match
-        # Check if this supplier already has an item in this match
-        unless existing_supplier_ids_by_match[match.id]&.include?(supplier_id)
-          # Create new ProductMatchItem linking new item to existing match
-          match.product_match_items.create!(
-            supplier_list_item: new_item,
-            supplier_id: supplier_id,
-            is_primary: false
-          )
-
-          # Track so we don't create duplicates for same supplier in same match
-          existing_supplier_ids_by_match[match.id] ||= Set.new
-          existing_supplier_ids_by_match[match.id] << supplier_id
-
-          # If the existing match was 'unmatched' (only had one supplier),
-          # upgrade it to 'auto_matched' since it now has cross-supplier data.
-          # NEVER touch confirmed/manual/rejected statuses.
-          if match.match_status == 'unmatched'
-            match.update!(match_status: 'auto_matched')
-          end
-        end
-
-        results[:new_matched] += 1
-      else
-        # No match found — create a new ProductMatch row
-        new_match = aggregated_list.product_matches.create!(
-          canonical_name: new_item.name.truncate(255),
-          match_status: 'unmatched',
-          confidence_score: 0.0,
-          position: next_position
-        )
-        new_match.product_match_items.create!(
-          supplier_list_item: new_item,
-          supplier_id: supplier_id,
-          is_primary: true
-        )
-        next_position += 1
-
-        # Add to existing matches so subsequent new items can match against it
-        existing_matches << new_match
-
-        results[:new_unmatched] += 1
-      end
-
-      results[:total_new] += 1
+      next_position = process_new_item(new_item, existing_matches, existing_supplier_ids_by_match, next_position)
     end
 
     aggregated_list.mark_matched!
     Rails.logger.info "[IncrementalMatcher] Complete: #{results}"
     results
   rescue StandardError => e
-    Rails.logger.error "[IncrementalMatcher] Failed: #{e.class}: #{e.message}"
-    # Only mark failed if there are no existing matches — don't clobber
-    # a working list just because a re-match job errored
+    # Per-item failures are handled inside process_new_item — this outer rescue
+    # only catches fatal pre-/post-loop failures (loading matches, marking status).
+    Rails.logger.error "[IncrementalMatcher] Fatal: #{e.class}: #{e.message}"
     if aggregated_list.product_matches.reload.any?
       Rails.logger.warn "[IncrementalMatcher] Keeping status — list has #{aggregated_list.product_matches.count} existing matches"
       aggregated_list.mark_matched! unless aggregated_list.matched?
@@ -124,6 +75,63 @@ class IncrementalProductMatcherService
   end
 
   private
+
+  # Process a single new_item. One bad item must NOT abort the rest of the
+  # batch — any StandardError is recorded in results and the loop moves on.
+  # Returns the next position to use for new ProductMatches.
+  def process_new_item(new_item, existing_matches, existing_supplier_ids_by_match, next_position)
+    supplier_id = new_item.supplier_list.supplier_id
+
+    match, _confidence = find_best_match_against_existing(new_item, existing_matches)
+
+    if match
+      unless existing_supplier_ids_by_match[match.id]&.include?(supplier_id)
+        match.product_match_items.create!(
+          supplier_list_item: new_item,
+          supplier_id: supplier_id,
+          is_primary: false
+        )
+
+        existing_supplier_ids_by_match[match.id] ||= Set.new
+        existing_supplier_ids_by_match[match.id] << supplier_id
+
+        # If the existing match was 'unmatched' (only had one supplier),
+        # upgrade it to 'auto_matched' since it now has cross-supplier data.
+        # NEVER touch confirmed/manual/rejected statuses.
+        if match.match_status == 'unmatched'
+          match.update!(match_status: 'auto_matched')
+        end
+      end
+
+      results[:new_matched] += 1
+    else
+      new_match = aggregated_list.product_matches.create!(
+        canonical_name: new_item.name.to_s.truncate(255),
+        match_status: 'unmatched',
+        confidence_score: 0.0,
+        position: next_position
+      )
+      new_match.product_match_items.create!(
+        supplier_list_item: new_item,
+        supplier_id: supplier_id,
+        is_primary: true
+      )
+      existing_supplier_ids_by_match[new_match.id] = Set.new([supplier_id])
+      next_position += 1
+
+      existing_matches << new_match
+      results[:new_unmatched] += 1
+    end
+
+    results[:total_new] += 1
+    next_position
+  rescue StandardError => e
+    results[:errored] += 1
+    results[:errors] << "item=#{new_item.id}: #{e.class}: #{e.message.to_s.truncate(200)}"
+    Rails.logger.error "[IncrementalMatcher] item=#{new_item.id} " \
+                       "(#{new_item.name.to_s.truncate(80)}) failed: #{e.class}: #{e.message}"
+    next_position
+  end
 
   # Load all existing ProductMatches with their items preloaded for efficient matching
   def load_existing_matches

@@ -26,7 +26,11 @@ class SyncNewProductsJob < ApplicationJob
 
     Rails.logger.info "[SyncNewProductsJob] List #{aggregated_list_id}: " \
                       "#{result[:new_matched]} matched, #{result[:new_unmatched]} unmatched, " \
-                      "#{result[:total_new]} total new items"
+                      "#{result[:errored]} errored, #{result[:total_new]} total new items"
+    if result[:errored].to_i > 0
+      Rails.logger.warn "[SyncNewProductsJob] List #{aggregated_list_id}: " \
+                        "#{result[:errored]} item(s) errored — first 5: #{result[:errors].first(5).inspect}"
+    end
 
     # Chain catalog search for unmatched items (same as other match jobs)
     if aggregated_list.reload.matched? && aggregated_list.unmatched_count > 0
