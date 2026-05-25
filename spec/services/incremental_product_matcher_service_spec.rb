@@ -69,16 +69,16 @@ RSpec.describe IncrementalProductMatcherService do
       expect(aggregated_list.product_matches.pluck(:canonical_name)).to contain_exactly('Tomato Plum', 'Lettuce Romaine')
     end
 
-    it 'tracks new_match supplier ids so two same-supplier items routed to one new match do not collide' do
-      # If the AI groups two items from the same supplier into one new
-      # ProductMatch within a single run, the uniqueness validation on
-      # ProductMatchItem (supplier_id scoped to product_match_id) would
-      # raise on the second. The service must track new_match supplier
-      # ids and route the second item to a separate ProductMatch.
+    it 'splits a same-supplier match into a separate ProductMatch so it stays visible' do
+      # If the similarity/AI pass groups two items from the same supplier
+      # into the same ProductMatch within a single run, the supplier slot
+      # is already filled when we get to the second item. The service used
+      # to silently drop the second item (counted as "matched" but no
+      # PMItem created — invisible to the user). It must now create a
+      # separate ProductMatch so the item remains visible.
       item_a = make_sli(name: 'Whole Milk', sku: 'M1')
       item_b = make_sli(name: 'Whole Milk 2%', sku: 'M2')
 
-      # Force similarity to high so b matches a's new ProductMatch
       allow(ProductNormalizer).to receive(:best_similarity).and_return(0.99)
 
       service = described_class.new(aggregated_list, items: [item_a, item_b])
@@ -86,6 +86,36 @@ RSpec.describe IncrementalProductMatcherService do
 
       expect(result[:errored]).to eq(0)
       expect(result[:total_new]).to eq(2)
+      expect(result[:split]).to eq(1)
+      expect(aggregated_list.product_matches.count).to eq(2)
+      expect(aggregated_list.unmatched_supplier_items_count).to eq(0)
+    end
+
+    it 'splits a cross-supplier slot conflict into a separate ProductMatch' do
+      # Pre-existing match with one US Foods item already in its slot
+      other_supplier = create(:supplier, name: 'Other Supplier')
+      other_list = SupplierList.create!(supplier: other_supplier, organization_id: organization.id,
+                                         location: location, name: 'Other')
+      existing_sli = other_list.supplier_list_items.create!(name: 'Mozzarella Shredded', sku: 'X', price: 5.0, pack_size: '1 LB')
+      pm = aggregated_list.product_matches.create!(
+        canonical_name: 'Mozzarella Shredded', match_status: 'unmatched', confidence_score: 0.0, position: 1
+      )
+      pm.product_match_items.create!(supplier_list_item: existing_sli, supplier_id: other_supplier.id, is_primary: true)
+
+      # Now add a same-supplier item that the matcher will group with that match
+      new_dupe = other_list.supplier_list_items.create!(name: 'Mozzarella Shredded Bulk', sku: 'Y', price: 6.0, pack_size: '1 LB')
+      allow(ProductNormalizer).to receive(:best_similarity).and_return(0.99)
+
+      service = described_class.new(aggregated_list, items: [new_dupe])
+      result = service.call
+
+      expect(result[:errored]).to eq(0)
+      expect(result[:split]).to eq(1)
+      expect(result[:new_matched]).to eq(0)
+      expect(result[:new_unmatched]).to eq(1)
+      # New item got its own ProductMatch — it's visible, not lost
+      expect(aggregated_list.product_matches.count).to eq(2)
+      expect(aggregated_list.unmatched_supplier_items_count).to eq(0)
     end
   end
 

@@ -25,7 +25,8 @@ class SyncNewProductsJob < ApplicationJob
     result = IncrementalProductMatcherService.new(aggregated_list, items: new_items).call
 
     Rails.logger.info "[SyncNewProductsJob] List #{aggregated_list_id}: " \
-                      "#{result[:new_matched]} matched, #{result[:new_unmatched]} unmatched, " \
+                      "#{result[:new_matched]} matched, #{result[:new_unmatched]} unmatched " \
+                      "(of which #{result[:split]} split from supplier-slot conflicts), " \
                       "#{result[:errored]} errored, #{result[:total_new]} total new items"
     if result[:errored].to_i > 0
       Rails.logger.warn "[SyncNewProductsJob] List #{aggregated_list_id}: " \

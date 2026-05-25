@@ -29,7 +29,7 @@ class IncrementalProductMatcherService
     @new_supplier_list_ids = Array(new_supplier_list_ids).map(&:to_i)
     @explicit_items = items # pre-filtered items bypass collect_new_items
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
-    @results = { new_matched: 0, new_unmatched: 0, total_new: 0, errored: 0, errors: [] }
+    @results = { new_matched: 0, new_unmatched: 0, split: 0, total_new: 0, errored: 0, errors: [] }
     @ai_disabled = false
   end
 
@@ -82,29 +82,32 @@ class IncrementalProductMatcherService
   def process_new_item(new_item, existing_matches, existing_supplier_ids_by_match, next_position)
     supplier_id = new_item.supplier_list.supplier_id
 
-    match, _confidence = find_best_match_against_existing(new_item, existing_matches)
+    match, confidence = find_best_match_against_existing(new_item, existing_matches)
+    slot_taken = match && existing_supplier_ids_by_match[match.id]&.include?(supplier_id)
 
-    if match
-      unless existing_supplier_ids_by_match[match.id]&.include?(supplier_id)
-        match.product_match_items.create!(
-          supplier_list_item: new_item,
-          supplier_id: supplier_id,
-          is_primary: false
-        )
+    if match && !slot_taken
+      # Cross-supplier match: this supplier has no slot yet — add to the existing match.
+      match.product_match_items.create!(
+        supplier_list_item: new_item,
+        supplier_id: supplier_id,
+        is_primary: false
+      )
 
-        existing_supplier_ids_by_match[match.id] ||= Set.new
-        existing_supplier_ids_by_match[match.id] << supplier_id
+      existing_supplier_ids_by_match[match.id] ||= Set.new
+      existing_supplier_ids_by_match[match.id] << supplier_id
 
-        # If the existing match was 'unmatched' (only had one supplier),
-        # upgrade it to 'auto_matched' since it now has cross-supplier data.
-        # NEVER touch confirmed/manual/rejected statuses.
-        if match.match_status == 'unmatched'
-          match.update!(match_status: 'auto_matched')
-        end
+      # Upgrade unmatched → auto_matched now that it has cross-supplier data.
+      # NEVER touch confirmed/manual/rejected statuses.
+      if match.match_status == 'unmatched'
+        match.update!(match_status: 'auto_matched')
       end
 
       results[:new_matched] += 1
     else
+      # Either no match, or the match's supplier slot is already filled.
+      # Create a separate ProductMatch so the item stays visible on the page —
+      # users can manually merge true duplicates from the UI. NEVER drop the
+      # item silently: a hidden item is worse than an over-counted one.
       new_match = aggregated_list.product_matches.create!(
         canonical_name: new_item.name.to_s.truncate(255),
         match_status: 'unmatched',
@@ -121,6 +124,13 @@ class IncrementalProductMatcherService
 
       existing_matches << new_match
       results[:new_unmatched] += 1
+
+      if slot_taken
+        results[:split] += 1
+        Rails.logger.info "[IncrementalMatcher] split item=#{new_item.id} — " \
+                          "supplier #{supplier_id} slot already filled in match=#{match.id} " \
+                          "(confidence=#{confidence})"
+      end
     end
 
     results[:total_new] += 1
