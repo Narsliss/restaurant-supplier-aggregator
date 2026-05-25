@@ -61,4 +61,106 @@ RSpec.describe Scrapers::UsFoodsScraper do
       end
     end
   end
+
+  describe '#refresh_known_skus' do
+    let(:fake_api) { instance_double(Scrapers::UsFoodsApi, ensure_session!: true) }
+
+    before { allow(scraper).to receive(:api_client).and_return(fake_api) }
+
+    it 'returns zero counts and yields nothing for an empty SKU list' do
+      expect(fake_api).not_to receive(:fetch_prices)
+
+      yields = []
+      result = scraper.refresh_known_skus([]) { |r| yields << r }
+
+      expect(yields).to be_empty
+      expect(result).to eq(updated: 0, missed: 0, batches: 0)
+    end
+
+    it 'returns updates with case_price and price_uom for SKUs in the response' do
+      allow(fake_api).to receive(:fetch_prices).with([100, 200]).and_return(
+        100 => { case_price: 12.34, split_price: nil, price_uom: 'CS', catch_weight: false },
+        200 => { case_price: 56.78, split_price: nil, price_uom: 'LB', catch_weight: true }
+      )
+
+      yields = []
+      result = scraper.refresh_known_skus(%w[100 200]) { |r| yields << r }
+
+      expect(yields.size).to eq(1)
+      expect(yields.first[:updates]).to contain_exactly(
+        { supplier_sku: '100', current_price: 12.34, price_unit: 'CS' },
+        { supplier_sku: '200', current_price: 56.78, price_unit: 'LB' }
+      )
+      expect(yields.first[:missed]).to be_empty
+      expect(result).to eq(updated: 2, missed: 0, batches: 1)
+    end
+
+    it 'counts $0 prices as updates (not misses) so no-contract items stay seen' do
+      allow(fake_api).to receive(:fetch_prices).with([300]).and_return(
+        300 => { case_price: 0.0, split_price: nil, price_uom: '', catch_weight: false }
+      )
+
+      result = scraper.refresh_known_skus(['300'])
+
+      expect(result[:updated]).to eq(1)
+      expect(result[:missed]).to eq(0)
+    end
+
+    it 'defaults price_unit to "CS" when the API returns a blank priceUom' do
+      allow(fake_api).to receive(:fetch_prices).with([400]).and_return(
+        400 => { case_price: 9.99, split_price: nil, price_uom: '', catch_weight: false }
+      )
+
+      scraper.refresh_known_skus(['400']) do |batch|
+        expect(batch[:updates].first[:price_unit]).to eq('CS')
+      end
+    end
+
+    it 'reports SKUs absent from the API response as missed' do
+      allow(fake_api).to receive(:fetch_prices).with([500, 600]).and_return(
+        500 => { case_price: 1.23, split_price: nil, price_uom: 'CS', catch_weight: false }
+        # 600 intentionally absent
+      )
+
+      yields = []
+      result = scraper.refresh_known_skus(%w[500 600]) { |r| yields << r }
+
+      expect(yields.first[:updates].map { |u| u[:supplier_sku] }).to eq(['500'])
+      expect(yields.first[:missed]).to eq(['600'])
+      expect(result).to eq(updated: 1, missed: 1, batches: 1)
+    end
+
+    it 'splits large SKU lists into batches and yields once per batch' do
+      skus = (1..120).map(&:to_s)
+
+      allow(fake_api).to receive(:fetch_prices) do |numbers|
+        numbers.to_h { |n| [n, { case_price: 1.0, split_price: nil, price_uom: 'CS', catch_weight: false }] }
+      end
+
+      yields = []
+      result = scraper.refresh_known_skus(skus) { |r| yields << r }
+
+      # batch_size: 50 → 50 + 50 + 20 = 3 batches
+      expect(yields.size).to eq(3)
+      expect(yields.map { |y| y[:updates].size }).to eq([50, 50, 20])
+      expect(result[:batches]).to eq(3)
+      expect(result[:updated]).to eq(120)
+    end
+
+    it 'reports all SKUs in a failing batch as missed and continues to the next batch' do
+      skus = %w[700 701 800 801]
+
+      allow(fake_api).to receive(:fetch_prices).with([700, 701]).and_raise(StandardError, 'boom')
+      allow(fake_api).to receive(:fetch_prices).with([800, 801]).and_return(
+        800 => { case_price: 5.5, split_price: nil, price_uom: 'CS', catch_weight: false },
+        801 => { case_price: 6.6, split_price: nil, price_uom: 'CS', catch_weight: false }
+      )
+
+      result = scraper.refresh_known_skus(skus, batch_size: 2)
+
+      expect(result[:updated]).to eq(2)
+      expect(result[:missed]).to eq(2)
+      expect(result[:batches]).to eq(2)
+    end
+  end
 end

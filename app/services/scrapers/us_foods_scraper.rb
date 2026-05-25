@@ -245,7 +245,82 @@ module Scrapers
       end
     end
 
+    # ── Direct per-SKU refresh ─────────────────────────────────
+    #
+    # Closes the coverage gap when the category-based catalog walk
+    # (scrape_catalog) doesn't return a SKU we already know about — for
+    # example, items whose product_status is non-zero get filtered out by
+    # the Coveo @product_status==0 search filter even though their prices
+    # are still queryable via the price-domain API.
+    #
+    # Mirrors Scrapers::SyscoScraper#refresh_known_skus: yields
+    # { updates:, missed: } per batch and returns { updated:, missed:, batches: }.
+    # Called by ImportSupplierProductsService#refresh_known_products.
+    REFRESH_BATCH_SIZE = 50
+
+    def refresh_known_skus(skus, batch_size: REFRESH_BATCH_SIZE)
+      api_client.ensure_session!
+
+      total_updated = 0
+      total_missed = 0
+      batch_count = 0
+
+      skus.each_slice(batch_size) do |batch|
+        batch_count += 1
+
+        begin
+          updates, missed = refresh_batch(batch)
+        rescue StandardError => e
+          logger.error "[UsFoods] Refresh batch ##{batch_count} failed: #{e.class}: #{e.message}"
+          updates = []
+          missed = batch.map(&:to_s)
+        end
+
+        total_updated += updates.size
+        total_missed += missed.size
+
+        if (batch_count % 20).zero?
+          logger.info "[UsFoods] Refresh progress: batch #{batch_count}, updated=#{total_updated}, missed=#{total_missed}"
+        end
+
+        yield(updates: updates, missed: missed) if block_given?
+      end
+
+      logger.info "[UsFoods] Refresh complete: #{total_updated} updated, #{total_missed} missed across #{batch_count} batches"
+      { updated: total_updated, missed: total_missed, batches: batch_count }
+    end
+
     private
+
+    # SKU returned by the API counts as "seen" even at $0 — matches Sysco
+    # refresh semantics. $0 means "in catalog, no contract price" rather
+    # than discontinued. Only SKUs absent from the response are reported
+    # as missed (and feed into consecutive_misses tracking upstream).
+    def refresh_batch(batch)
+      numbers = batch.map(&:to_i)
+      prices = api_client.fetch_prices(numbers)
+
+      updates = []
+      missed = []
+
+      batch.each do |sku|
+        price = prices[sku.to_i]
+
+        if price.nil?
+          missed << sku.to_s
+          next
+        end
+
+        updates << {
+          supplier_sku: sku.to_s,
+          current_price: price[:case_price],
+          price_unit: price[:price_uom].presence || 'CS'
+        }
+      end
+
+      [updates, missed]
+    end
+
 
     # ── API helpers ─────────────────────────────────────────────
 

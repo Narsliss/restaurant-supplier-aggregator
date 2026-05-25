@@ -39,10 +39,31 @@ class ImportSupplierProductsJob < ApplicationJob
 
     @credential.update!(importing: true)
 
+    scraper = @supplier.scraper_klass.new(@credential)
     service = ImportSupplierProductsService.new(@credential)
-    results = service.import_catalog(search_terms: search_terms)
+    results = service.import_catalog(search_terms: search_terms, scraper: scraper)
 
     Rails.logger.info "[ImportProductsJob] #{@supplier.name}: imported=#{results[:imported]}, updated=#{results[:updated]}, skipped=#{results[:skipped]}, errors=#{results[:errors].size}"
+
+    # Direct per-SKU refresh — closes the coverage gap when the catalog walk
+    # misses known SKUs (e.g., USF items with non-zero product_status that the
+    # Coveo @product_status==0 filter excludes). Scrapers without this method
+    # (CW, WCW, PPO) skip silently. Sysco runs this through SyscoCombinedImportJob.
+    #
+    # Refresh is best-effort: a failure here must not invalidate the catalog
+    # import that already succeeded above. Mirrors SyscoCombinedImportJob's
+    # isolated rescue around refresh_known_products.
+    refresh_results = nil
+    if scraper.respond_to?(:refresh_known_skus)
+      begin
+        Rails.logger.info "[ImportProductsJob] Refreshing known SKUs for #{@supplier.name}..."
+        refresh_results = service.refresh_known_products(scraper: scraper)
+        Rails.logger.info "[ImportProductsJob] #{@supplier.name} refresh: updated=#{refresh_results[:updated]}, missed=#{refresh_results[:missed]}"
+      rescue StandardError => e
+        Rails.logger.error "[ImportProductsJob] #{@supplier.name} refresh failed: #{e.class}: #{e.message}"
+        refresh_results = { error: "#{e.class}: #{e.message}" }
+      end
+    end
 
     # Mark log as completed
     @scraping_log&.mark_completed!(
@@ -55,8 +76,9 @@ class ImportSupplierProductsJob < ApplicationJob
       metadata: {
         skipped: results[:skipped],
         errors_count: results[:errors].size,
-        error_samples: results[:errors].first(5)
-      }
+        error_samples: results[:errors].first(5),
+        refresh: refresh_results
+      }.compact
     )
   rescue StandardError => e
     handle_import_error(e)
