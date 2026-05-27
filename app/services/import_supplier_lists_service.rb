@@ -57,12 +57,16 @@ class ImportSupplierListsService
   def upsert_list(list_data)
     org = credential.organization || credential.user.current_organization
 
-    # Deduplicate by supplier + organization + remote_list_id (NOT by credential).
-    # Multiple users in the same org may have separate credentials for the same
-    # supplier — we don't want duplicate list records for the same remote list.
+    # Deduplicate by supplier + organization + location + remote_list_id.
+    # Two users at the same restaurant share one list (same location_id).
+    # Two restaurants in the same org each keep their own list — even when the
+    # supplier-side scrape returns the same remote_id (some scrapers like WCW
+    # and PPO use a static "order-guide" label, which would otherwise collapse
+    # every location into one row and lose per-location items).
     supplier_list = SupplierList.find_or_initialize_by(
       supplier: credential.supplier,
       organization: org,
+      location_id: credential.location_id,
       remote_list_id: list_data[:remote_id]
     )
 

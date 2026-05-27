@@ -45,7 +45,25 @@ class AggregatedListsController < ApplicationController
                                        .where.not(match_status: 'rejected')
                                        .includes(product_match_items: [:supplier, { supplier_list_item: [:supplier_product, :supplier_list] }])
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
-    @suppliers = sort_suppliers_for_user(@supplier_lists.map(&:supplier).uniq)
+
+    # @suppliers is the union of (suppliers with a list in this agg) and
+    # (suppliers with a credential at this list's location). Credential-based
+    # inclusion guarantees a chef sees a column for every supplier they're set
+    # up with — even before any list has been scraped or when the supplier
+    # side has no order guides yet. Cells without a ProductMatchItem render
+    # empty, ready for the chef to drop matches into.
+    list_supplier_ids = @supplier_lists.map(&:supplier_id).uniq
+    credentialed_supplier_ids = if @aggregated_list.location_id.present?
+      SupplierCredential.where(
+        organization_id: @aggregated_list.organization_id,
+        location_id: @aggregated_list.location_id
+      ).pluck(:supplier_id).uniq
+    else
+      []
+    end
+    @suppliers = sort_suppliers_for_user(
+      Supplier.where(id: (list_supplier_ids + credentialed_supplier_ids).uniq).to_a
+    )
 
     # Pre-compute stats with a single grouped query instead of 3 separate COUNTs
     # Exclude rejected matches — they're hidden from the user (recoverable via Re-match All)

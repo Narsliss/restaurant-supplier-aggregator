@@ -1,6 +1,45 @@
 require 'rails_helper'
 
 RSpec.describe ImportSupplierListsService do
+  describe '#upsert_list — per-location dedup' do
+    let(:user) { create(:user, :with_organization) }
+    let(:org) { user.current_organization }
+    let(:supplier) { create(:supplier) }
+    let(:loc_a) { create(:location, organization: org, user: user, name: 'Alfios') }
+    let(:loc_b) { create(:location, organization: org, user: user, name: 'Noche') }
+    let(:cred_a) { create(:supplier_credential, supplier: supplier, user: user, organization_id: org.id, location_id: loc_a.id) }
+    let(:cred_b) { create(:supplier_credential, supplier: supplier, user: user, organization_id: org.id, location_id: loc_b.id) }
+
+    # Regression: WCW + PPO scrapers emit a static remote_id="order-guide".
+    # Before the location_id was added to the dedup key, two credentials at
+    # different restaurants in the same org collapsed into one SupplierList
+    # row pinned to whichever location scraped first — see the Noche-vs-alfios
+    # incident in the audit report. Each restaurant must keep its own list.
+    it 'creates separate supplier_lists for two credentials at different locations with the same remote_id' do
+      list_data = { remote_id: 'order-guide', name: 'Order Guide', items: [] }
+
+      service_a = described_class.new(cred_a)
+      service_a.send(:upsert_list, list_data)
+
+      service_b = described_class.new(cred_b)
+      service_b.send(:upsert_list, list_data)
+
+      rows = SupplierList.where(supplier: supplier, organization: org, remote_list_id: 'order-guide')
+      expect(rows.count).to eq(2)
+      expect(rows.pluck(:location_id)).to match_array([loc_a.id, loc_b.id])
+    end
+
+    it 'reuses the same supplier_list on repeat scrape of the same credential' do
+      list_data = { remote_id: 'order-guide', name: 'Order Guide', items: [] }
+      service = described_class.new(cred_a)
+      service.send(:upsert_list, list_data)
+      service.send(:upsert_list, list_data)
+
+      rows = SupplierList.where(supplier: supplier, organization: org, remote_list_id: 'order-guide', location_id: loc_a.id)
+      expect(rows.count).to eq(1)
+    end
+  end
+
   describe '#refresh_linked_product (private)' do
     let(:supplier) { create(:supplier) }
     let(:credential) { create(:supplier_credential, supplier: supplier) }
