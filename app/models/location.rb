@@ -21,6 +21,9 @@ class Location < ApplicationRecord
   # Scopes
   scope :default_first, -> { order(is_default: :desc, created_at: :asc) }
 
+  # Callbacks
+  after_create_commit :create_default_matched_list
+
   # Methods
   def full_address
     [address, city, state, zip_code].map(&:presence).compact.join(", ")
@@ -28,5 +31,25 @@ class Location < ApplicationRecord
 
   def assigned_members
     memberships.where(active: true).includes(:user)
+  end
+
+  private
+
+  # Each location automatically gets its own "matched" AggregatedList so chefs
+  # assigned to a single restaurant land on a real (if empty) list instead of
+  # a blank Product Matching page. Org-wide promoted lists can still override.
+  def create_default_matched_list
+    creator = created_by || organization&.owner
+    return unless creator && organization
+
+    organization.aggregated_lists.create!(
+      location_id: id,
+      created_by: creator,
+      name: "#{name} Matched List",
+      list_type: "matched",
+      match_status: "pending"
+    )
+  rescue ActiveRecord::RecordInvalid => e
+    Rails.logger.warn("[Location##{id}] default matched list create failed: #{e.message}")
   end
 end
