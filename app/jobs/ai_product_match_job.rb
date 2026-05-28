@@ -18,5 +18,9 @@ class AiProductMatchJob < ApplicationJob
       aggregated_list.mark_searching_catalog!
       CatalogSearchJob.perform_later(aggregated_list.id)
     end
+
+    # Refresh teaser suggestions (non-credentialed supplier columns).
+    # Runs on :low queue — never competes with ordering or interactive matching.
+    TeaserCatalogSearchJob.perform_later(aggregated_list.id)
   end
 end

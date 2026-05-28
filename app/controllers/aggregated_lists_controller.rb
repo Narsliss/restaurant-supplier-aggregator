@@ -140,48 +140,61 @@ class AggregatedListsController < ApplicationController
       }
     end
 
-    # Teaser columns: show catalog data from suppliers not mapped to this list
+    # Teaser columns: show catalog data from suppliers not mapped to this list.
+    # Primary source is the teaser_matches table, populated by TeaserCatalogSearchJob
+    # via name-similarity matching across the full catalog. Falls back to the
+    # canonical-Product-id JOIN when teaser_matches is empty for this list
+    # (e.g. before the backfill job has run, or for a brand-new list awaiting
+    # its first matching pass).
     connected_ids = @suppliers.map(&:id)
     @unconnected_suppliers = Supplier.where(active: true).where.not(id: connected_ids).order(:name)
+    @teaser_map = {}
 
     if @unconnected_suppliers.any?
-      # Collect canonical product_id for each match (first found wins)
-      match_product_ids = {}
-      @product_matches.each do |match|
-        match.product_match_items.each do |pmi|
-          pid = pmi.supplier_list_item.supplier_product&.product_id
-          next unless pid
-          match_product_ids[match.id] ||= pid
+      teaser_records = TeaserMatch.where(aggregated_list_id: @aggregated_list.id)
+                                  .includes(:supplier_product)
+                                  .to_a
+
+      if teaser_records.any?
+        teaser_records.each do |tm|
+          @teaser_map[tm.product_match_id] ||= {}
+          @teaser_map[tm.product_match_id][tm.supplier_id] ||= tm.supplier_product
+        end
+      else
+        # Fallback path: canonical Product link join (the pre-teaser-matches
+        # behavior). Keeps the page useful for lists that haven't been
+        # processed by TeaserCatalogSearchJob yet.
+        match_product_ids = {}
+        @product_matches.each do |match|
+          match.product_match_items.each do |pmi|
+            pid = pmi.supplier_list_item.supplier_product&.product_id
+            next unless pid
+            match_product_ids[match.id] ||= pid
+          end
+        end
+
+        if match_product_ids.values.any?
+          unconnected_ids = @unconnected_suppliers.map(&:id)
+          teaser_by_product_and_supplier = {}
+          SupplierProduct
+            .where(supplier_id: unconnected_ids, product_id: match_product_ids.values.uniq, discontinued: false)
+            .select(:id, :supplier_id, :product_id, :supplier_name, :pack_size, :current_price, :price_unit, :in_stock)
+            .each do |sp|
+              teaser_by_product_and_supplier[sp.product_id] ||= {}
+              teaser_by_product_and_supplier[sp.product_id][sp.supplier_id] ||= sp
+            end
+
+          match_product_ids.each do |match_id, product_id|
+            @teaser_map[match_id] = teaser_by_product_and_supplier[product_id] || {}
+          end
         end
       end
 
-      # Batch query: catalog items from unconnected suppliers matching these products
-      unconnected_ids = @unconnected_suppliers.map(&:id)
-      teaser_by_product_and_supplier = {}
-
-      if match_product_ids.values.any?
-        SupplierProduct
-          .where(supplier_id: unconnected_ids, product_id: match_product_ids.values.uniq, discontinued: false)
-          .select(:id, :supplier_id, :product_id, :supplier_name, :pack_size, :current_price, :price_unit, :in_stock)
-          .each do |sp|
-            teaser_by_product_and_supplier[sp.product_id] ||= {}
-            teaser_by_product_and_supplier[sp.product_id][sp.supplier_id] ||= sp
-          end
-      end
-
-      # Build lookup: match_id -> { supplier_id -> SupplierProduct }
-      @teaser_map = {}
-      match_product_ids.each do |match_id, product_id|
-        @teaser_map[match_id] = teaser_by_product_and_supplier[product_id] || {}
-      end
-
-      # Only show columns for suppliers that have at least one matching product
+      # Only show columns for suppliers that have at least one teaser
       @unconnected_suppliers = @unconnected_suppliers.select do |supplier|
         @teaser_map.values.any? { |supplier_map| supplier_map.key?(supplier.id) }
       end
     end
-
-    @teaser_map ||= {}
 
     # --- Category grouping for show page ---
     sp_ids = @product_matches.flat_map { |pm|
@@ -698,6 +711,9 @@ class AggregatedListsController < ApplicationController
 
     # Search catalog for matches from other connected suppliers
     CatalogSearchJob.perform_later(@aggregated_list.id, match_ids: [match.id])
+
+    # Refresh teaser cells for the new row (non-credentialed supplier columns)
+    TeaserCatalogSearchJob.perform_later(@aggregated_list.id)
 
     redirect_to @aggregated_list, notice: "Added #{sp.supplier_name.truncate(40)} to list. Searching for matches..."
   end

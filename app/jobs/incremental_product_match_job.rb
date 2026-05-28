@@ -23,5 +23,8 @@ class IncrementalProductMatchJob < ApplicationJob
       aggregated_list.update(catalog_search_status: 'searching')
       CatalogSearchJob.perform_later(aggregated_list.id)
     end
+
+    # Refresh teaser suggestions for non-credentialed supplier columns.
+    TeaserCatalogSearchJob.perform_later(aggregated_list.id)
   end
 end

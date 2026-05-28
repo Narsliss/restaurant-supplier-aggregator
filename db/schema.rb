@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_05_06_214908) do
+ActiveRecord::Schema[7.1].define(version: 2026_05_28_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -974,6 +974,22 @@ ActiveRecord::Schema[7.1].define(version: 2026_05_06_214908) do
     t.index ["organization_id"], name: "index_suppliers_on_organization_id"
   end
 
+  create_table "teaser_matches", force: :cascade do |t|
+    t.bigint "aggregated_list_id", null: false
+    t.bigint "product_match_id", null: false
+    t.bigint "supplier_id", null: false
+    t.bigint "supplier_product_id", null: false
+    t.decimal "confidence_score", precision: 3, scale: 2, default: "0.0"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["aggregated_list_id", "supplier_id"], name: "index_teaser_matches_on_list_and_supplier"
+    t.index ["aggregated_list_id"], name: "index_teaser_matches_on_aggregated_list_id"
+    t.index ["product_match_id", "supplier_id"], name: "index_teaser_matches_on_match_and_supplier", unique: true
+    t.index ["product_match_id"], name: "index_teaser_matches_on_product_match_id"
+    t.index ["supplier_id"], name: "index_teaser_matches_on_supplier_id"
+    t.index ["supplier_product_id"], name: "index_teaser_matches_on_supplier_product_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "email", default: "", null: false
     t.string "encrypted_password", default: "", null: false
@@ -1094,5 +1110,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_05_06_214908) do
   add_foreign_key "supplier_users", "suppliers"
   add_foreign_key "suppliers", "organizations", on_delete: :cascade
   add_foreign_key "suppliers", "users", column: "created_by_id", on_delete: :nullify
+  add_foreign_key "teaser_matches", "aggregated_lists"
+  add_foreign_key "teaser_matches", "product_matches"
+  add_foreign_key "teaser_matches", "supplier_products"
+  add_foreign_key "teaser_matches", "suppliers"
   add_foreign_key "users", "organizations", column: "current_organization_id"
 end
