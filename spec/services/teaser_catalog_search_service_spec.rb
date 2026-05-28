@@ -37,7 +37,8 @@ RSpec.describe TeaserCatalogSearchService do
     # here — otherwise `unconnected_supplier_ids` picks up Sysco-the-seed,
     # WCW-the-seed, etc., and the counts/teasers don't match expectations.
     Supplier.where.not(id: [usf.id, sysco.id, wcw.id]).update_all(active: false)
-    AggregatedListMapping.create!(aggregated_list: aggregated_list, supplier_list: usf_list)
+    AggregatedListMapping
+      .find_or_create_by!(aggregated_list: aggregated_list, supplier_list: usf_list)
   end
 
   def make_sli(name:, sku: 'A1')
