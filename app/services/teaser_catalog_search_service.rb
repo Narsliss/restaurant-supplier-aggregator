@@ -28,6 +28,17 @@ class TeaserCatalogSearchService
   # positive in a non-orderable cell is purely confusing, not actionable.
   TEASER_SIMILARITY_THRESHOLD = 0.60
 
+  # Score above which we stop scanning a supplier's catalog for a given anchor
+  # — it's already a very strong match, additional candidates won't displace it.
+  EARLY_EXIT_SCORE = 0.85
+
+  # Cap on per-anchor candidates we fully evaluate. Built from the inverted
+  # word index and ranked by raw word overlap, so we look at the top-N
+  # syntactically promising candidates and skip the long tail. 50 is a balance
+  # between recall (real matches almost always cluster at the top) and the
+  # per-anchor compute budget on Sysco-scale catalogs (~26K products).
+  CANDIDATE_CAP = 50
+
   attr_reader :aggregated_list, :results
 
   def initialize(aggregated_list)
@@ -61,10 +72,10 @@ class TeaserCatalogSearchService
       next unless anchor_item
 
       unconnected_supplier_ids.each do |sid|
-        entries = catalog_index[sid] || []
-        next if entries.empty?
+        catalog = catalog_index[sid]
+        next if catalog.nil? || catalog[:entries].empty?
 
-        match = find_catalog_match(anchor_item, entries)
+        match = find_catalog_match(anchor_item, catalog)
         next unless match
 
         sp, confidence = match
@@ -115,8 +126,11 @@ class TeaserCatalogSearchService
   end
 
   # Pre-normalize all non-discontinued catalog products grouped by supplier.
-  # Identical structure to CatalogSearchService#build_catalog_index — the
-  # word_set pre-filter eliminates ~95% of comparisons.
+  # For each supplier, build TWO things:
+  #   - :entries — list of { sp:, normalized:, word_set: } (also used for canonical/exact passes)
+  #   - :by_word — inverted index { word => [entry, ...] } for O(anchor_words × avg_postings)
+  #     candidate gathering. Without this, the per-anchor pre-filter has to
+  #     scan all 26K Sysco products; with it, we visit ~300 promising candidates.
   def build_catalog_index(supplier_ids)
     index = {}
     supplier_ids.each do |sid|
@@ -131,46 +145,91 @@ class TeaserCatalogSearchService
           word_set: normalized.downcase.split.to_set
         }
       end
-      index[sid] = entries
+
+      by_word = Hash.new { |h, k| h[k] = [] }
+      entries.each do |entry|
+        entry[:word_set].each { |word| by_word[word] << entry }
+      end
+
+      index[sid] = { entries: entries, by_word: by_word }
     end
     index
   end
 
   # 3-pass match against catalog entries for one anchor item (no AI pass).
   # Returns [SupplierProduct, confidence] or nil.
-  def find_catalog_match(anchor_item, catalog_entries)
+  def find_catalog_match(anchor_item, catalog)
+    entries = catalog[:entries]
+    by_word = catalog[:by_word]
+
     anchor_normalized = ProductNormalizer.normalize(anchor_item.name)
     anchor_word_set = anchor_normalized.downcase.split.to_set
     return nil if anchor_word_set.empty?
 
     # Pass 1: shared canonical Product link
     if anchor_item.supplier_product&.product_id
-      entry = catalog_entries.find { |e| e[:sp].product_id == anchor_item.supplier_product.product_id }
+      entry = entries.find { |e| e[:sp].product_id == anchor_item.supplier_product.product_id }
       return [entry[:sp], 0.95] if entry
     end
 
     # Pass 2: exact normalized name match
     if anchor_normalized.present?
-      entry = catalog_entries.find { |e| e[:normalized].present? && e[:normalized] == anchor_normalized }
+      entry = entries.find { |e| e[:normalized].present? && e[:normalized] == anchor_normalized }
       return [entry[:sp], 0.90] if entry
     end
 
-    # Pass 3: best similarity with word-set pre-filter
+    # Pass 3: best similarity, but only against top-CANDIDATE_CAP candidates
+    # gathered via inverted-index lookup and ranked by raw word overlap.
+    candidates = gather_top_candidates(anchor_word_set, by_word)
+    return nil if candidates.empty?
+
     best_entry = nil
     best_score = 0
-    catalog_entries.each do |entry|
-      next if (anchor_word_set & entry[:word_set]).empty?
+    anchor_size = anchor_word_set.size
 
-      score = ProductNormalizer.best_similarity(anchor_item.name, entry[:sp].supplier_name)
+    candidates.each do |entry, intersection_size|
+      # Pure set ops on pre-computed word_sets — NO ProductNormalizer.new() calls,
+      # which is what made the original loop 100× slower per comparison.
+      set2 = entry[:word_set]
+      union_size = anchor_size + set2.size - intersection_size
+      next if union_size.zero?
+
+      jaccard = intersection_size.to_f / union_size
+      min_size = [anchor_size, set2.size].min
+      score = if intersection_size >= 2 && min_size >= 2
+                [jaccard, (intersection_size.to_f / min_size) * 0.85].max
+              else
+                jaccard
+              end
+
       if score > best_score
         best_score = score
         best_entry = entry
+        break if best_score >= EARLY_EXIT_SCORE
       end
     end
 
     return [best_entry[:sp], best_score] if best_entry && best_score >= TEASER_SIMILARITY_THRESHOLD
 
     nil
+  end
+
+  # Gather candidates by walking the inverted index for each anchor word, then
+  # rank by word overlap and take the top CANDIDATE_CAP. The full-catalog
+  # pre-filter scan is replaced with O(anchor_words × postings_per_word) work.
+  # Returns [[entry, overlap_size], ...] sorted desc by overlap.
+  def gather_top_candidates(anchor_word_set, by_word)
+    overlap_count = Hash.new(0)
+    anchor_word_set.each do |word|
+      postings = by_word[word]
+      next if postings.empty?
+
+      postings.each { |entry| overlap_count[entry] += 1 }
+    end
+
+    return [] if overlap_count.empty?
+
+    overlap_count.sort_by { |_entry, count| -count }.first(CANDIDATE_CAP)
   end
 
   # Atomically replace this list's teasers. Wrap in a transaction so a failed
