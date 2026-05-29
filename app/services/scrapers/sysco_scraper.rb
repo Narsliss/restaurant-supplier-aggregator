@@ -2611,14 +2611,29 @@ module Scrapers
     end
 
     # Build a clean pack_size string from Sysco's packSize API object.
-    # The API returns { pack: "4", size: "3 LB", uom: "LB" } — size often
-    # already contains the unit, so naively joining all three duplicates it.
-    # Strategy: join pack + size, then strip any trailing duplicate unit.
+    # The API returns { pack: "12", size: "12 OZ", uom: "OZ" } — pack is the
+    # case count and size is the per-unit size (which usually already includes
+    # the unit).
+    #
+    # Join them with an explicit "x" multiplier ("12" + "12 OZ" → "12x12 OZ")
+    # so downstream parsing always reads the first number as the case count.
+    # A plain space ("12 12 OZ") is ambiguous: when the count and the per-unit
+    # size are equal, UnitParser can't tell a real case pack from a duplicate-
+    # number artifact, so it silently treats the whole case as a single unit
+    # (e.g. $91.85 / 12 oz = $7.65/oz instead of / 144 oz = $0.64/oz). The "x"
+    # form removes that ambiguity and matches the multiplied-pack parser.
     def build_pack_size(pack_info)
-      raw = [pack_info['pack'], pack_info['size']].compact.join(' ').strip
+      pack = pack_info['pack'].to_s.strip
+      size = pack_info['size'].to_s.strip
+
+      raw = if pack.present? && size.present? && pack.match?(/\A\d+\z/) && size.match?(/\A\d/)
+              "#{pack}x#{size}"
+            else
+              [pack, size].reject(&:blank?).join(' ')
+            end
       return nil if raw.blank?
 
-      # Remove duplicate trailing unit: "4 3 LB LB" → "4 3 LB", "9 32OZ OZ" → "9 32OZ"
+      # Remove duplicate trailing unit: "4x3 LB LB" → "4x3 LB", "9x32OZ OZ" → "9x32OZ"
       raw = raw.sub(/\b(LB|OZ|CT|EA|GAL|KG|CS|IN|ML|DZ|FL)\s+\1\b/i, '\1')
       # Also handle no-space duplication: "32OZOZ" (unlikely but defensive)
       raw = raw.sub(/(LB|OZ|CT|EA|GAL|KG|CS)(LB|OZ|CT|EA|GAL|KG|CS)\z/i) { $1 }
