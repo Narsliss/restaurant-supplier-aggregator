@@ -38,6 +38,34 @@ RSpec.describe UnitParser do
         expect(result[:normalized_unit]).to eq('fl oz')
         expect(result[:normalized_quantity]).to eq(128.0)
       end
+
+      it 'parses "FOZ" as fluid ounces (Sysco abbreviation)' do
+        expect(UnitParser.parse('8 FOZ')[:normalized_quantity]).to eq(8.0)
+        expect(UnitParser.parse('8 FOZ')[:normalized_unit]).to eq('fl oz')
+        expect(UnitParser.parse('24x8 FOZ')[:normalized_quantity]).to eq(192.0)
+        expect(UnitParser.parse('6x96 FOZ')[:normalized_quantity]).to eq(576.0)
+      end
+    end
+
+    context 'leading-dot decimals (no leading zero)' do
+      it 'parses ".5 LB" as 0.5 lb' do
+        expect(UnitParser.parse('.5 LB')[:normalized_quantity]).to eq(8.0)
+      end
+
+      it 'parses "200 .5OZ" as 200 x 0.5 oz = 100 oz (not 5 oz)' do
+        result = UnitParser.parse('200 .5OZ')
+        expect(result[:normalized_quantity]).to eq(100.0)
+        expect(result[:normalized_unit]).to eq('oz')
+      end
+
+      it 'parses "48 .5 PT" as 48 x 0.5 pt = 384 fl oz' do
+        expect(UnitParser.parse('48 .5 PT')[:normalized_quantity]).to eq(384.0)
+      end
+
+      it 'does not alter decimals that already have a leading digit' do
+        expect(UnitParser.parse('2.5 OZ')[:normalized_quantity]).to eq(2.5)
+        expect(UnitParser.parse('12.5 LB')[:normalized_quantity]).to eq(200.0)
+      end
     end
 
     context 'count and dozen' do
@@ -89,6 +117,42 @@ RSpec.describe UnitParser do
         expect(UnitParser.parse('4 5#UP')[:normalized_quantity]).to eq(320.0)
         # "1 10#avg" should parse as 10 lb (160 oz)
         expect(UnitParser.parse('1 10#avg')[:normalized_quantity]).to eq(160.0)
+      end
+    end
+
+    context 'can-size notation (# before number)' do
+      it 'parses "#10" as ~105 oz net weight' do
+        result = UnitParser.parse('#10')
+        expect(result[:normalized_quantity]).to eq(105.0)
+        expect(result[:normalized_unit]).to eq('oz')
+      end
+
+      it 'parses "6 #10" (Sysco) as 6 × 105 = 630 oz, not "6 lb"' do
+        expect(UnitParser.parse('6 #10')[:normalized_quantity]).to eq(630.0)
+      end
+
+      it 'parses "6/#10 CN" (US Foods) and "6 #10 CAN" as 630 oz' do
+        expect(UnitParser.parse('6/#10 CN')[:normalized_quantity]).to eq(630.0)
+        expect(UnitParser.parse('6 #10 CAN')[:normalized_quantity]).to eq(630.0)
+      end
+
+      it 'parses #5 and #300 sizes' do
+        expect(UnitParser.parse('6 #5')[:normalized_quantity]).to eq(336.0)
+        expect(UnitParser.parse('#300')[:normalized_quantity]).to eq(15.0)
+      end
+
+      it 'parses "CASE - 6-#10" (PPO prefix form) as 630 oz' do
+        expect(UnitParser.parse('CASE - 6-#10')[:normalized_quantity]).to eq(630.0)
+      end
+
+      it 'still treats "N#" (# after number) as pounds, not a can' do
+        expect(UnitParser.parse('10#')[:normalized_quantity]).to eq(160.0)  # 10 lb
+        expect(UnitParser.parse('50#')[:normalized_quantity]).to eq(800.0)  # 50 lb
+        expect(UnitParser.parse('4 5#UP')[:normalized_quantity]).to eq(320.0)
+      end
+
+      it 'does not invent a weight for unknown can sizes (scraper noise)' do
+        expect(UnitParser.parse('#3217')[:parseable]).to be(false)
       end
     end
 

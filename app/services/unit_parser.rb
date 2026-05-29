@@ -39,6 +39,7 @@ class UnitParser
   VOLUME_TO_FL_OZ = {
     "fl oz" => 1.0,
     "floz" => 1.0,
+    "foz" => 1.0,    # Sysco abbreviates fluid ounce as "FOZ" (e.g. "24x8 FOZ")
     "fl" => 1.0,
     "pt" => 16.0,
     "pint" => 16.0,
@@ -92,6 +93,19 @@ class UnitParser
     "pint" => "pint"  # pint of berries = count unit in produce
   }.freeze
 
+  # Standard food-service can sizes → approximate net weight in ounces.
+  # "#" PRECEDES the number here ("#10"), unlike pounds notation ("10#").
+  # Net weight varies a few oz by product (#10 of paste is heavier than beans);
+  # #10 ≈ 102-105 oz and US Foods labels the SAME canned goods "105 OZ"/"110 OZ",
+  # so weight oz is the correct cross-supplier comparison basis. Unknown sizes
+  # are intentionally omitted so they fall through to unparseable rather than
+  # being guessed (e.g. the stray "#3217" / "#40" seen in scraped data).
+  CAN_SIZE_TO_OZ = {
+    "10" => 105.0,
+    "5" => 56.0,
+    "300" => 15.0
+  }.freeze
+
   # Legacy set for unit_pattern matching (all recognized units)
   COUNT_UNITS = COUNT_TO_EACH.keys.to_set.freeze
 
@@ -112,6 +126,11 @@ class UnitParser
 
       text = pack_size_str.to_s.strip.downcase
 
+      # Normalize leading-dot decimals so the number regexes (\d+\.?\d*) match
+      # them: ".5 OZ" → "0.5 OZ", "200 .5OZ" → "200 0.5OZ". Only a dot NOT
+      # preceded by a digit or dot, so "2.5" and "1.2.3" are left alone.
+      text = text.gsub(/(?<![\d.])\.(\d)/, '0.\1')
+
       # Normalize US Foods weight suffixes: "LBA" → "LB", "OZA" → "OZ" (the A = Average)
       text = text.gsub(/\blba\b/, 'lb').gsub(/\boza\b/, 'oz')
 
@@ -125,8 +144,10 @@ class UnitParser
       # Strip duplicate trailing units: "4 3 lb lb" → "4 3 lb", "9 32 oz oz" → "9 32 oz"
       text = text.sub(/\b(lb|oz|ct|ea|gal|kg|cs|in|ml|dz|fl)\s+\1\b/, '\1')
 
-      # Try each parsing strategy in order
+      # Try each parsing strategy in order. parse_can_size runs early (before
+      # parse_pound_sign) so "6 #10" reads as 6 cans, not "6 lb".
       result = parse_mixed_fraction(text) ||
+               parse_can_size(text) ||
                parse_case_pack(text) ||
                parse_multiplied_pack(text) ||
                parse_simple_quantity(text) ||
@@ -363,6 +384,22 @@ class UnitParser
       if COUNT_TO_EACH.key?(unit) || PRODUCE_UNITS.key?(unit) || WEIGHT_TO_OZ.key?(unit) || VOLUME_TO_FL_OZ.key?(unit)
         build_result(1.0, unit)
       end
+    end
+
+    # Parses can-size notation where "#" PRECEDES the number: "#10", "6 #10",
+    # "6/#10 CN", "#10 CAN". Distinct from "10#"/"50#" (pounds, # AFTER the
+    # number) handled by parse_pound_sign. Maps the can size to its standard net
+    # weight in oz (see CAN_SIZE_TO_OZ). Unknown sizes return nil (fall through).
+    def parse_can_size(text)
+      # Strip a leading "Case -"/"CS -" prefix (PPO uses "CASE - 6-#10").
+      t = text.sub(/\A\s*(?:case|cs|ea|bag|box|tray|bucket|jar)\s*[\-\s]+/i, "")
+      return nil unless t =~ %r{\A\s*(?:(\d+)\s*[/x\- ]\s*)?#\s*(\d+(?:\.\d+)?)\b}
+
+      size_oz = CAN_SIZE_TO_OZ[$2]
+      return nil unless size_oz
+
+      count = ($1 || 1).to_f
+      build_result(count * size_oz, "oz")
     end
 
     # Parses "40#" (pound sign notation)
