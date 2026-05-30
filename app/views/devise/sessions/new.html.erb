@@ -89,7 +89,7 @@
 
           <% if devise_mapping.rememberable? %>
             <div class="flex items-center">
-              <%= f.check_box :remember_me, class: "rounded border-gray-300 text-brand-green focus:ring-brand-green" %>
+              <%= f.check_box :remember_me, checked: true, class: "rounded border-gray-300 text-brand-green focus:ring-brand-green" %>
               <%= f.label :remember_me, "Keep me signed in", class: "ml-2 block text-sm text-gray-600" %>
             </div>
           <% end %>

@@ -3,6 +3,13 @@ class User < ApplicationRecord
          :recoverable, :rememberable, :validatable,
          :trackable, :lockable, :timeoutable
 
+  # Chefs stay signed in through 7 days of inactivity (overrides Devise's global
+  # 8h timeout_in) so they aren't logged out overnight or between shifts.
+  # SupplierUser keeps the stricter 8h default.
+  def timeout_in
+    7.days
+  end
+
   # Associations
   # Organization memberships
   has_many :memberships, dependent: :destroy

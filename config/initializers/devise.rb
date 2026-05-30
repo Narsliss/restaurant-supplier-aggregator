@@ -11,6 +11,11 @@ Devise.setup do |config|
   config.stretches = Rails.env.test? ? 1 : 12
   config.reconfirmable = false
   config.expire_all_remember_me_on_sign_out = true
+  # Keep chefs signed in: the remember-me cookie lasts 30 days and its expiry
+  # extends on every visit, so a login that's actively used effectively never
+  # lapses. The "Keep me signed in" box defaults to checked on the chef login.
+  config.remember_for = 30.days
+  config.extend_remember_period = true
   config.password_length = 8..128
   config.email_regexp = /\A[^@\s]+@[^@\s]+\z/
   config.reset_password_within = 6.hours
@@ -23,7 +28,9 @@ Devise.setup do |config|
   config.unlock_in = 1.hour
   config.last_attempt_warning = true
 
-  # Timeout: idle sessions expire after 8 hours (one shift length)
+  # Idle-session timeout. This is the global default (applies to SupplierUser);
+  # chefs (User) override it to 7 days via User#timeout_in so a busy chef isn't
+  # logged out overnight or between shifts.
   config.timeout_in = 8.hours
 
   config.navigational_formats = ["*/*", :html, :turbo_stream]

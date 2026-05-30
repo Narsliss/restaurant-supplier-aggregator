@@ -1,6 +1,16 @@
 require 'rails_helper'
 
 RSpec.describe User, type: :model do
+  describe 'session timeout' do
+    it 'keeps chefs signed in through 7 days of inactivity' do
+      expect(User.new.timeout_in).to eq(7.days)
+    end
+
+    it 'leaves SupplierUser on the stricter 8-hour default' do
+      expect(SupplierUser.new.timeout_in).to eq(8.hours)
+    end
+  end
+
   describe 'validations' do
     it 'requires first_name and last_name' do
       user = build(:user, first_name: nil, last_name: nil)
