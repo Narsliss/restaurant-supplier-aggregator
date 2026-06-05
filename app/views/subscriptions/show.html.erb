@@ -79,7 +79,7 @@
               <%= button_to "Manage Billing", billing_portal_subscription_path, method: :post, class: "px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors" %>
 
               <% unless @subscription.cancel_at_period_end? %>
-                <%= button_to "Cancel Subscription", cancel_subscription_subscription_path, method: :post, class: "px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors", data: { confirm: "Are you sure you want to cancel? You'll lose access at the end of your billing period." } %>
+                <%= button_to "Cancel Subscription", cancel_subscription_subscription_path, method: :post, class: "px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors", data: { turbo_confirm: "Are you sure you want to cancel? You'll lose access at the end of your billing period." } %>
               <% end %>
             </div>
           <% else %>

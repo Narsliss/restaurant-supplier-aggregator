@@ -13,6 +13,23 @@ RSpec.describe 'Subscriptions', type: :request do
     end
   end
 
+  # Regression: the Cancel Subscription button previously used data-confirm, which
+  # rails-ujs honors but Turbo ignores. This app loads only Turbo (no rails-ujs in
+  # the importmap), so data-confirm rendered NO confirmation dialog — a chef could
+  # cancel with one click. Turbo requires data-turbo-confirm.
+  describe 'GET /subscription cancel button confirmation' do
+    it 'renders a Turbo-compatible data-turbo-confirm guard, not the dead data-confirm' do
+      create(:subscription, user: owner) # active, cancel_at_period_end: false
+
+      get subscription_path
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include('Cancel Subscription')
+      expect(response.body).to match(/data-turbo-confirm="Are you sure you want to cancel/)
+      expect(response.body).not_to match(/data-confirm="Are you sure you want to cancel/)
+    end
+  end
+
   describe 'GET /subscription/new' do
     it 'returns 200 (or redirects for already-subscribed users)' do
       get new_subscription_path

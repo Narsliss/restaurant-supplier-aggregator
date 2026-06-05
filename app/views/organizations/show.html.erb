@@ -150,7 +150,7 @@
                         </div>
                       <% end %>
                       <div class="border-t border-gray-100 my-1"></div>
-                      <%= button_to "Remove", organization_membership_path(membership), method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50", data: { confirm: "Are you sure you want to remove #{membership.user.full_name} from the organization?" } %>
+                      <%= button_to "Remove", organization_membership_path(membership), method: :delete, class: "block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50", data: { turbo_confirm: "Are you sure you want to remove #{membership.user.full_name} from the organization?" } %>
                     </div>
                   </div>
                 <% end %>

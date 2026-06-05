@@ -11,6 +11,20 @@ RSpec.describe 'Organizations', type: :request do
       get organization_path
       expect(response).to have_http_status(:ok)
     end
+
+    # Regression: the "Remove member" button used data-confirm, which Turbo ignores
+    # (no rails-ujs in the importmap), so this destructive action fired with no
+    # confirmation dialog. Turbo requires data-turbo-confirm.
+    it 'guards the Remove member button with a Turbo-compatible data-turbo-confirm' do
+      teammate = org.users.where.not(id: owner.id).first
+      expect(teammate).to be_present # fully_onboarded creates a teammate
+
+      get organization_path
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to match(/data-turbo-confirm="Are you sure you want to remove/)
+      expect(response.body).not_to match(/data-confirm="Are you sure you want to remove/)
+    end
   end
 
   describe 'GET /organization/edit (owner-only)' do
