@@ -51,4 +51,65 @@ RSpec.describe Scrapers::SyscoScraper do
       expect(build('', '')).to be_nil
     end
   end
+
+  # Regression for the Sysco→Okta login migration (broke ~June 2026): the first
+  # login now lands on the Okta "My Apps" dashboard (secure.sysco.com/app/UserHome),
+  # not the shop. The scraper must then hop to the shop login, which SSOs through
+  # the established Okta session — no password is asked the second time.
+  describe '#perform_login_steps (Okta → shop handoff)' do
+    let(:browser) { instance_double('Ferrum::Browser') }
+
+    before do
+      # Neutralize everything that touches a real browser/session/clock so we can
+      # exercise just the stage routing logic.
+      allow(scraper).to receive(:logger).and_return(Logger.new(File::NULL))
+      allow(scraper).to receive(:sleep)
+      allow(scraper).to receive(:browser).and_return(browser)
+      allow(scraper).to receive(:navigate_to)
+      allow(scraper).to receive(:apply_stealth)
+      allow(scraper).to receive(:fill_login_email).and_return(true)
+      allow(scraper).to receive(:click_next_button)
+      allow(scraper).to receive(:fill_login_password).and_return(true)
+      allow(scraper).to receive(:check_remember_me)
+      allow(scraper).to receive(:click_login_submit)
+      allow(scraper).to receive(:handle_mfa_if_prompted).and_return(false)
+      allow(scraper).to receive(:detect_login_errors)
+      allow(scraper).to receive(:log_page_state)
+      allow(scraper).to receive(:dismiss_promo_modals)
+      allow(scraper).to receive(:diagnose_login_failure)
+      allow(scraper).to receive(:credential).and_return(double(username: 'chef@example.com'))
+    end
+
+    it 'navigates to the shop login when stranded on the Okta dashboard, then succeeds via SSO' do
+      # current_url reads: (1) right after first nav, (2) after first submit = Okta
+      # dashboard, (3) after the shop-login navigation = shop auth page.
+      allow(browser).to receive(:current_url).and_return(
+        'https://secure.sysco.com/',
+        'https://secure.sysco.com/app/UserHome?iss=...&session_hint=AUTHENTICATED',
+        'https://shop.sysco.com/auth/login'
+      )
+      # Not logged in after stage 1 or on landing the shop page; logged in once the
+      # shop SSOs the email through (no password prompt).
+      allow(scraper).to receive(:logged_in?).and_return(false, false, true)
+
+      expect { scraper.send(:perform_login_steps) }.not_to raise_error
+      expect(scraper).to have_received(:navigate_to).with(described_class::SHOP_LOGIN_URL)
+      # SSO path must not fall back to entering a shop password — only the first
+      # (Okta) stage submits a form.
+      expect(scraper).to have_received(:click_login_submit).once
+    end
+
+    it 'still raises when the shop never authenticates (no silent failure)' do
+      allow(browser).to receive(:current_url).and_return(
+        'https://secure.sysco.com/',
+        'https://secure.sysco.com/app/UserHome?session_hint=AUTHENTICATED',
+        'https://shop.sysco.com/auth/login'
+      )
+      allow(scraper).to receive(:logged_in?).and_return(false)
+
+      expect { scraper.send(:perform_login_steps) }
+        .to raise_error(Scrapers::BaseScraper::AuthenticationError, /not authenticated/)
+      expect(scraper).to have_received(:navigate_to).with(described_class::SHOP_LOGIN_URL)
+    end
+  end
 end

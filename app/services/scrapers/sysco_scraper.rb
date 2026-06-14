@@ -2,6 +2,11 @@ module Scrapers
   class SyscoScraper < BaseScraper
     BASE_URL = 'https://shop.sysco.com'.freeze
     LOGIN_URL = 'https://secure.sysco.com/'.freeze
+    # Shop login entry. Since Sysco migrated auth to Okta (~June 2025/2026), the
+    # first login lands on the Okta "My Apps" dashboard (secure.sysco.com/app/UserHome),
+    # not the shop. We must explicitly visit the shop login, which then SSOs through
+    # the established Okta session (usually without asking for a password again).
+    SHOP_LOGIN_URL = 'https://shop.sysco.com/auth/login'.freeze
     CATALOG_URL = 'https://shop.sysco.com/app/catalog'.freeze
     LISTS_URL = 'https://shop.sysco.com/app/lists'.freeze
     ORDER_MINIMUM = 0.00 # No confirmed minimum — Sysco minimums vary by account
@@ -929,32 +934,57 @@ module Scrapers
         return
       end
 
-      # Step 6: Handle second login page (shop.sysco.com/auth/login)
-      # secure.sysco.com often redirects to shop.sysco.com/auth/login
-      # which presents its own email + password form.
+      # Step 6: Complete login at the shop (shop.sysco.com).
+      # Post-Okta migration, the first login lands on the Okta "My Apps" dashboard
+      # (secure.sysco.com/app/UserHome) rather than the shop. When that happens we
+      # must explicitly navigate to the shop login to trigger the SSO handoff.
       current_url = browser.current_url rescue ''
+      stuck_on_okta = current_url.include?('secure.sysco.com') && !current_url.include?('/auth/')
+      if stuck_on_okta
+        logger.info "[Sysco] Authenticated at Okta (#{current_url}) — navigating to shop login for SSO handoff"
+        navigate_to(SHOP_LOGIN_URL)
+        sleep 3
+        current_url = browser.current_url rescue ''
+        # The shop may SSO straight through on navigation, with no form at all.
+        if logged_in?
+          logger.info '[Sysco] Shop SSO completed on navigation — logged in'
+          dismiss_promo_modals
+          return
+        end
+      end
+
+      # The shop login presents its own email → Next form. With the Okta session
+      # established, submitting the email SSOs through and drops us into the app —
+      # no password is asked. (Without an Okta session it falls back to email+password.)
       if current_url.include?('shop.sysco.com/auth/login') || current_url.include?('/auth/')
-        logger.info "[Sysco] Redirected to second login page: #{current_url}"
+        logger.info "[Sysco] Shop login page: #{current_url}"
         sleep 2
-        log_page_state('Second login page')
+        log_page_state('Shop login page')
 
         email_filled = fill_login_email
         if email_filled
-          logger.info '[Sysco] Second login — email entered, clicking Next...'
+          logger.info '[Sysco] Shop login — email entered, clicking Next...'
           sleep 1
 
           click_next_button
-          logger.info '[Sysco] Second login — Next clicked, waiting for password...'
-          sleep 3
+          logger.info '[Sysco] Shop login — Next clicked, waiting for SSO/redirect...'
+          sleep 4
+
+          # SSO through the Okta session lands us in the app with no password prompt.
+          if logged_in?
+            logger.info '[Sysco] Shop SSO completed after Next (no password needed)'
+            dismiss_promo_modals
+            return
+          end
 
           password_filled = fill_login_password
           if password_filled
-            logger.info '[Sysco] Second login — password entered'
+            logger.info '[Sysco] Shop login — password entered'
             check_remember_me
             click_login_submit
-            logger.info '[Sysco] Second login submitted, waiting...'
+            logger.info '[Sysco] Shop login submitted, waiting...'
             sleep 5
-            log_page_state('After second login submit')
+            log_page_state('After shop login submit')
           end
         end
       end
