@@ -109,6 +109,37 @@ RSpec.describe 'SupplierCredentials', type: :request do
     end
   end
 
+  describe 'failed password-auth credential — Reconnect button' do
+    let!(:credential) do
+      create(:supplier_credential, user: owner, supplier: supplier, location: location,
+                                   status: 'failed', last_error: 'Login failed — not authenticated after both login stages')
+    end
+
+    it 'renders a Reconnect button wired to the validate endpoint (re-login with stored password)' do
+      get supplier_credentials_path
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include('Reconnect')
+      # The button drives the existing async validate → 2FA flow via Stimulus.
+      expect(response.body).to include('click->credential-validator#startValidation')
+      # And the card exposes the validate endpoint the button posts to.
+      expect(response.body).to include(validate_supplier_credential_path(credential, format: :json))
+      # The redundant "Update Information" link is gone — Edit (always rendered) covers the password-changed case.
+      expect(response.body).not_to include('Update Information')
+      expect(response.body).to include(edit_supplier_credential_path(credential))
+    end
+
+    it 'POST validate re-runs login with the stored credentials (no password retype required)' do
+      expect {
+        post validate_supplier_credential_path(credential, format: :json)
+      }.to have_enqueued_job(ValidateCredentialsJob).with(credential.id)
+
+      expect(response).to have_http_status(:ok)
+      expect(JSON.parse(response.body)['status']).to eq('validating')
+      expect(credential.reload.status).to eq('pending')
+    end
+  end
+
   describe 'auth gate' do
     it 'redirects unauthenticated to sign in' do
       sign_out owner

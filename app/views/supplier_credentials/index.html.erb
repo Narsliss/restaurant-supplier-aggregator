@@ -154,7 +154,7 @@
           <% if credential.failed? && credential.supplier.password_auth? %>
             <div data-reconnect-banner class="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
               <p class="text-xs font-medium text-red-800">Login failed</p>
-              <p class="text-xs text-red-600 mt-0.5">Your password may have changed. Use <strong>Update Information</strong> below to reconnect.</p>
+              <p class="text-xs text-red-600 mt-0.5">Click <strong>Reconnect</strong> to log in again (enter the code if one is sent). If your password changed, use <strong>Edit</strong> to update it.</p>
             </div>
           <% end %>
 
@@ -164,12 +164,16 @@
           <%# Action buttons — compact grid for card layout %>
           <div class="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
             <% if credential.failed? && credential.supplier.password_auth? %>
-              <%# Failed password login — direct user to Update rather than re-Validate (saving the form re-validates) %>
-              <%= link_to edit_supplier_credential_path(credential),
-                  class: "inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors ring-1 ring-red-700" do %>
-                <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>
-                Update Information
-              <% end %>
+              <%# Failed password login. Reconnect re-runs login with the stored password
+                  (handles an expired session/token and surfaces the 2FA box if the supplier
+                  challenges). If the password actually changed, use Edit to update it. %>
+              <button type="button"
+                      data-credential-validator-target="validateBtn"
+                      data-action="click->credential-validator#startValidation"
+                      class="inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors ring-1 ring-red-700">
+                <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+                Reconnect
+              </button>
             <% else %>
               <button type="button"
                       data-credential-validator-target="validateBtn"
