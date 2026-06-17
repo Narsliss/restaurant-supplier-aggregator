@@ -611,6 +611,7 @@ module Scrapers
                 brandName
                 nameWithoutBrand
                 packSize
+                thumbnail { url }
                 isOutOfStock(locationId: $locationId, deliveryDate: $deliveryDate)
                 unavailable(locationId: $locationId)
                 manufacturer { id name __typename }
@@ -709,6 +710,7 @@ module Scrapers
                 isOutOfStock(locationId: $locationId, deliveryDate: $deliveryDate)
                 unavailable(locationId: $locationId)
                 packSize
+                thumbnail { url }
                 l0category { id name __typename }
                 l1category { id name __typename }
                 unifiedPrice(locationId: $locationId, deliveryDate: $deliveryDate) {

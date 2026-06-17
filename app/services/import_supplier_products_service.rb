@@ -225,8 +225,22 @@ class ImportSupplierProductsService
       piece_pack_size: item[:piece_pack_size].present? ? item[:piece_pack_size] : existing.piece_pack_size,
       consecutive_misses: existing.consecutive_misses,
       discontinued: existing.discontinued,
-      discontinued_at: existing.discontinued_at
+      discontinued_at: existing.discontinued_at,
+      image_source_url: item[:image_url].present? ? item[:image_url] : existing.image_source_url,
+      image_checked_at: existing.image_checked_at
     }
+
+    # Image status: (re)mark pending when the source URL is new or changed, so the
+    # lazy mirror job re-fetches; otherwise preserve the existing status.
+    new_image_url = item[:image_url].presence
+    row[:image_status] =
+      if new_image_url && new_image_url != existing.image_source_url
+        "pending"
+      elsif new_image_url && existing.image_status == "unknown"
+        "pending"
+      else
+        existing.image_status
+      end
 
     # Price change detection
     if item[:current_price].present? && item[:current_price] != existing.current_price
@@ -272,6 +286,7 @@ class ImportSupplierProductsService
         supplier_url in_stock price_updated_at last_scraped_at
         piece_price piece_pack_size consecutive_misses
         discontinued discontinued_at
+        image_source_url image_status image_checked_at
       ]
     )
   end
@@ -424,7 +439,9 @@ class ImportSupplierProductsService
       supplier_url: item[:supplier_url],
       in_stock: item[:in_stock] != false,
       price_updated_at: item[:current_price].present? ? Time.current : nil,
-      last_scraped_at: Time.current
+      last_scraped_at: Time.current,
+      image_source_url: item[:image_url],
+      image_status: (item[:image_url].present? ? "pending" : "none")
     )
 
     product = find_or_create_product(item, @product_index)

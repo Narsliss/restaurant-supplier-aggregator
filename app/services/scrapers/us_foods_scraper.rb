@@ -206,7 +206,8 @@ module Scrapers
             in_stock: nil, # Don't set stock from catalog — only order guide is authoritative
             category: summary['classDescription']&.titleize,
             subcategory: summary['categoryDescription']&.titleize,
-            supplier_url: "#{BASE_URL}/desktop/product/#{pn}"
+            supplier_url: "#{BASE_URL}/desktop/product/#{pn}",
+            image_url: usf_image_url(summary)
           }
         end
 
@@ -230,6 +231,21 @@ module Scrapers
       deduped = results.uniq { |r| r[:supplier_sku] }
       logger.info "[UsFoods] API total unique products: #{deduped.size}"
       deduped
+    end
+
+    # Pick a small product image URL from the USF productAssets block.
+    # Shape: summary.productAssets.productImages.{angle}.renditions.{Small,Medium,...}
+    # We resize to a thumbnail downstream, so prefer a small rendition source.
+    def usf_image_url(summary)
+      images = summary.is_a?(Hash) ? summary.dig('productAssets', 'productImages') : nil
+      return nil unless images.is_a?(Hash)
+
+      renditions = images.values.filter_map { |angle| angle['renditions'] if angle.is_a?(Hash) }.first
+      return nil unless renditions.is_a?(Hash)
+
+      url = renditions['Small'] || renditions['Medium'] || renditions['Thumbnail'] ||
+            renditions.values.find { |v| v.to_s.strip.present? }
+      url.to_s.strip.presence
     end
 
     # ── Soft Refresh (API-based with browser fallback) ──

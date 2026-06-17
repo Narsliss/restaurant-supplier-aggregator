@@ -560,7 +560,8 @@ module Scrapers
         category: category_name,
         subcategory: product[:subcategory],
         brand: product[:brand],
-        supplier_url: "#{BASE_URL}/products/#{product[:sku]}/"
+        supplier_url: "#{BASE_URL}/products/#{product[:sku]}/",
+        image_url: product[:image_url]
       }
     end
 

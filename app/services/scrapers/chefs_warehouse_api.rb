@@ -686,6 +686,7 @@ module Scrapers
         business_unit_id: variant['businessUnit'] || variant.dig('businessUnitModel', 'id'),
         in_stock: available,
         stock_count: variant_stock_count,
+        image_url: product['imageUrl'] || product['image'],
         is_frozen: product['isFrozen']
       }
     end

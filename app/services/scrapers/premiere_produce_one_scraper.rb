@@ -190,7 +190,8 @@ module Scrapers
             pack_size: pack_size,
             in_stock: price_info&.dig('availability_status') != 'OUT_OF_STOCK',
             category: item['category'] || ci['variant_pack_group_display_name'],
-            supplier_url: "#{BASE_URL}/item/#{vp['uuid']}"
+            supplier_url: "#{BASE_URL}/item/#{vp['uuid']}",
+            image_url: (item['photo_url_list'] || []).find { |u| u.to_s.strip.present? }
           }
         end
 

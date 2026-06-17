@@ -2726,6 +2726,7 @@ module Scrapers
         in_stock: in_stock,
         supplier_url: "#{BASE_URL}/app/product/#{product_id}",
         category: category,
+        image_url: (info['images'] || []).find { |u| u.to_s.strip.present? },
         scraped_at: Time.current
       }
     end

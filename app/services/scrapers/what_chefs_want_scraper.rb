@@ -691,6 +691,7 @@ module Scrapers
         in_stock: nil, # Don't set stock from catalog browse — only order guide is authoritative
         category: category || product.dig('l0category', 'name'),
         supplier_url: nil,
+        image_url: product.dig('thumbnail', 'url'),
         scraped_at: Time.current
       }
     end
