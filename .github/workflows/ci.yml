@@ -34,6 +34,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # libvips runtime is required by ruby-vips (image thumbnailing). CI eager-loads
+    # the app (CI=true), so the library must be present at boot.
+    - name: Install libvips
+      run: sudo apt-get update && sudo apt-get install -y libvips42
+
     - name: Set up Ruby
       uses: ruby/setup-ruby@v1
       with:
