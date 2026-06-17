@@ -17,3 +17,8 @@ cloudflare:
   region: auto
   bucket: <%= ENV["R2_BUCKET"] %>
   endpoint: <%= ENV["R2_ENDPOINT"] %>
+  # R2 rejects the aws-sdk-s3 default request checksum (CRC32) with
+  # "You can only specify one non-default checksum at a time". Disable the
+  # default integrity checksums so only the standard ones are sent.
+  request_checksum_calculation: when_required
+  response_checksum_validation: when_required
