@@ -44,6 +44,11 @@ gem "ferrum", "~> 0.14"
 gem "faraday", "~> 2.9"
 gem "nokogiri", "~> 1.16"
 
+# Object storage (Active Storage on Cloudflare R2) + thumbnail resizing
+gem "aws-sdk-s3", "~> 1.0", require: false
+gem "image_processing", "~> 1.12"
+gem "ruby-vips", "~> 2.2"
+
 # Pagination
 gem "kaminari", "~> 1.2"
 

@@ -5,3 +5,15 @@ test:
 local:
   service: Disk
   root: <%= Rails.root.join("storage") %>
+
+# Cloudflare R2 (S3-compatible). Uploads go to the S3 API endpoint; objects are
+# served publicly via the bucket's custom domain (R2_PUBLIC_HOST) — see
+# ProductImagesHelper#product_thumb_url. R2 ignores per-object ACLs, so we do not
+# set `public: true`; bucket-level public access (custom domain) handles serving.
+cloudflare:
+  service: S3
+  access_key_id: <%= ENV["R2_ACCESS_KEY_ID"] %>
+  secret_access_key: <%= ENV["R2_SECRET_ACCESS_KEY"] %>
+  region: auto
+  bucket: <%= ENV["R2_BUCKET"] %>
+  endpoint: <%= ENV["R2_ENDPOINT"] %>

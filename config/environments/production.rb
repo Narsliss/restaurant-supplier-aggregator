@@ -7,7 +7,9 @@ Rails.application.configure do
   config.action_controller.perform_caching = true
   config.cache_store = :solid_cache_store
   config.public_file_server.enabled = ENV['RAILS_SERVE_STATIC_FILES'].present?
-  config.active_storage.service = :local
+  # Product thumbnails live on Cloudflare R2 when configured; fall back to local
+  # disk if R2 env vars are absent (e.g. before R2 is provisioned).
+  config.active_storage.service = ENV['R2_BUCKET'].present? ? :cloudflare : :local
   config.force_ssl = ENV['DISABLE_SSL'].blank?
   config.logger = ActiveSupport::Logger.new(STDOUT)
                                        .tap  { |logger| logger.formatter = ::Logger::Formatter.new }

@@ -6,6 +6,10 @@ class SupplierProduct < ApplicationRecord
   has_many :favorite_products, dependent: :destroy
   has_many :supplier_list_items, dependent: :nullify
 
+  # Mirrored product thumbnail (~200px JPEG on Cloudflare R2). Populated lazily
+  # by MirrorProductImageJob from image_source_url. See ProductImagesHelper.
+  has_one_attached :thumbnail
+
   # Validations
   validates :supplier_sku, presence: true
   validates :supplier_sku, uniqueness: { scope: :supplier_id }
