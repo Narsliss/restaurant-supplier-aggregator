@@ -12,6 +12,9 @@
     <div class="flex items-start justify-between mb-2">
       <div class="flex-1 min-w-0 pr-2">
         <div class="flex items-center gap-1.5">
+          <img src="<%= product_thumb_url(match.canonical_image_source) %>"
+               alt="" loading="lazy" decoding="async"
+               class="w-9 h-9 rounded-md object-cover border border-gray-200 bg-gray-50 shrink-0">
           <button type="button"
                   class="flex-shrink-0 focus:outline-none"
                   data-action="click->order-builder#toggleFavorite"

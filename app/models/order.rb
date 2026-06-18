@@ -80,6 +80,45 @@ class Order < ApplicationRecord
     [remaining.ceil, 0].max
   end
 
+  # Canonical image (from the product match) for a given order item, for display
+  # on the review/placed-order screens. Each line is a specific supplier product;
+  # we resolve back to the ProductMatch that owns it (scoped to this order's org)
+  # and use its canonical image source. Returns a SupplierProduct or nil.
+  def canonical_image_source_for(order_item)
+    canonical_image_sources_by_supplier_product[order_item.supplier_product_id]
+  end
+
+  # Builds supplier_product_id => canonical image source (SupplierProduct) once
+  # per order, so the views avoid N+1 lookups.
+  #
+  # This is decorative (a thumbnail) and runs on the checkout/review + order
+  # pages. It must NEVER be able to break those pages, so any failure degrades
+  # to "no image" rather than raising — image resolution can't block an order.
+  def canonical_image_sources_by_supplier_product
+    @canonical_image_sources_by_supplier_product ||= begin
+      sp_ids = order_items.filter_map(&:supplier_product_id).uniq
+      if sp_ids.empty? || organization_id.blank?
+        {}
+      else
+        by_sp = {}
+        ProductMatchItem
+          .joins(:supplier_list_item, product_match: :aggregated_list)
+          .where(supplier_list_items: { supplier_product_id: sp_ids })
+          .where(aggregated_lists: { organization_id: organization_id })
+          .includes(product_match: [:canonical_image_supplier_product,
+                                    { product_match_items: { supplier_list_item: :supplier_product } }])
+          .each do |pmi|
+            spid = pmi.supplier_list_item.supplier_product_id
+            by_sp[spid] ||= pmi.product_match.canonical_image_source
+          end
+        by_sp
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[Order#canonical_image_sources] order=#{id} failed: #{e.class}: #{e.message}")
+      {}
+    end
+  end
+
   # Methods
   def pending?
     status == "pending"

@@ -6,7 +6,7 @@
 
 <%= turbo_stream.replace "match_thumb_modal_#{@product_match.id}" do %>
   <img id="match_thumb_modal_<%= @product_match.id %>"
-       src="<%= product_thumb_url(@product_match.canonical_image_source) %>"
+       src="<%= product_thumb_url(@product_match.canonical_image_source, mirror: true) %>"
        class="w-12 h-12 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
 <% end %>
 

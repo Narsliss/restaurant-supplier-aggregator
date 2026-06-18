@@ -2,7 +2,7 @@
     canonical image. Locals: match, aggregated_list %>
 <div id="canonical_picker_<%= match.id %>">
   <div class="flex items-center gap-4">
-    <img src="<%= product_thumb_url(match.canonical_image_source) %>"
+    <img src="<%= product_thumb_url(match.canonical_image_source, mirror: true) %>"
          alt="canonical"
          class="w-20 h-20 rounded-lg object-cover border border-gray-200 bg-gray-50 shrink-0">
     <div class="min-w-0">
@@ -23,7 +23,7 @@
               params: { supplier_product_id: sp.id }, method: :post,
               class: "block rounded-lg border-2 p-0.5 transition-colors #{selected ? 'border-brand-orange ring-2 ring-brand-orange/30' : 'border-gray-200 hover:border-gray-400'}",
               title: sp.supplier_name.to_s do %>
-          <img src="<%= product_thumb_url(sp) %>" alt="<%= sp.supplier_name %>"
+          <img src="<%= product_thumb_url(sp, mirror: true) %>" alt="<%= sp.supplier_name %>"
                class="w-14 h-14 rounded object-cover bg-gray-50">
         <% end %>
       <% end %>

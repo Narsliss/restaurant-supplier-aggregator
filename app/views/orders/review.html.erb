@@ -398,10 +398,17 @@
                     data-in-stock="<%= item.supplier_product.in_stock? %>"
                     class="<%= 'bg-red-50' unless item.supplier_product.in_stock? %>">
                   <td class="px-4 py-2 text-sm text-gray-900">
-                    <%= item.supplier_product.supplier_name %>
-                    <% unless item.supplier_product.in_stock? %>
-                      <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
-                    <% end %>
+                    <div class="flex items-center gap-2.5">
+                      <img src="<%= product_thumb_url(order.canonical_image_source_for(item)) %>"
+                           alt="" loading="lazy" decoding="async"
+                           class="w-9 h-9 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
+                      <span>
+                        <%= item.supplier_product.supplier_name %>
+                        <% unless item.supplier_product.in_stock? %>
+                          <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
+                        <% end %>
+                      </span>
+                    </div>
                   </td>
                   <td class="px-4 py-2 text-sm text-gray-500"><%= item.supplier_sku %></td>
                   <td class="px-4 py-2 text-center">
@@ -466,14 +473,19 @@
                  data-sku="<%= item.supplier_sku %>"
                  data-in-stock="<%= item.supplier_product.in_stock? %>">
               <div class="flex justify-between items-start mb-2">
-                <div class="flex-1 min-w-0 mr-3">
-                  <p class="text-sm font-medium text-gray-900">
-                    <%= item.supplier_product.supplier_name %>
-                    <% unless item.supplier_product.in_stock? %>
-                      <span class="inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
-                    <% end %>
-                  </p>
-                  <p class="text-xs text-gray-400">SKU: <%= item.supplier_sku %></p>
+                <div class="flex-1 min-w-0 mr-3 flex items-start gap-2.5">
+                  <img src="<%= product_thumb_url(order.canonical_image_source_for(item)) %>"
+                       alt="" loading="lazy" decoding="async"
+                       class="w-9 h-9 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-gray-900">
+                      <%= item.supplier_product.supplier_name %>
+                      <% unless item.supplier_product.in_stock? %>
+                        <span class="inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
+                      <% end %>
+                    </p>
+                    <p class="text-xs text-gray-400">SKU: <%= item.supplier_sku %></p>
+                  </div>
                 </div>
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-semibold text-gray-900" data-order-review-target="lineTotal" data-item-id="<%= item.id %>">

@@ -17,14 +17,18 @@ module ProductImagesHelper
   FAILED_TTL = 1.day
 
   # Returns a served thumbnail URL for a SupplierProduct, or a placeholder.
-  # On a miss (have a source URL but not mirrored), enqueues the lazy mirror job.
-  def product_thumb_url(supplier_product)
+  #
+  # By default this is DISPLAY-ONLY: a missing thumbnail just yields a placeholder
+  # and does NOT hit the supplier. Only pass `mirror: true` from the matching modal,
+  # where the chef has explicitly opened a row — that's the single place allowed to
+  # enqueue a mirror, so merely loading a list/order page never floods suppliers.
+  def product_thumb_url(supplier_product, mirror: false)
     return PRODUCT_IMAGE_PLACEHOLDER if supplier_product.blank?
 
     if supplier_product.thumbnail.attached?
       served_thumb_url(supplier_product.thumbnail)
     else
-      enqueue_mirror_if_due(supplier_product)
+      enqueue_mirror_if_due(supplier_product) if mirror
       PRODUCT_IMAGE_PLACEHOLDER
     end
   end

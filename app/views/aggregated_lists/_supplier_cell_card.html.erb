@@ -16,12 +16,21 @@
 <% is_cheapest = local_assigns.fetch(:is_cheapest, false) %>
 <% is_most_expensive = local_assigns.fetch(:is_most_expensive, false) %>
 <% readonly = local_assigns.fetch(:readonly, false) %>
+<% show_image = local_assigns.fetch(:show_image, false) %>
 
 <div id="match_<%= product_match.id %>_supplier_<%= supplier.id %>"
      class="rounded-lg relative min-w-0 <%= is_cheapest ? 'border-2 border-green-500/50 bg-green-50' : 'border border-gray-200 bg-gray-50' %>"
      style="padding: 10px;">
   <% if is_cheapest %>
-    <span class="absolute bg-green-600 text-white font-bold rounded-full" style="top:-8px; right:-8px; padding:2px 7px; font-size:9px;">BEST</span>
+    <span class="absolute bg-green-600 text-white font-bold rounded-full z-10" style="top:-8px; right:-8px; padding:2px 7px; font-size:9px;">BEST</span>
+  <% end %>
+
+  <% if show_image %>
+    <%# Supplier product image — gives each cell vertical room.
+        Modal-only surface, so this is allowed to trigger lazy mirroring. %>
+    <img src="<%= product_thumb_url(item&.supplier_product, mirror: true) %>"
+         loading="lazy" decoding="async"
+         class="w-full aspect-square rounded-md object-cover border border-gray-200 bg-white mb-2">
   <% end %>
 
   <%# Supplier name — 9px bold uppercase colored %>

@@ -348,6 +348,10 @@
       }
     }).then(response => {
       if (response.ok) {
+        // Close the matching modal if the remove was triggered from inside it
+        const modalFrame = document.getElementById("match_modal")
+        if (modalFrame) modalFrame.innerHTML = ""
+        document.body.style.overflow = ""
         row.style.transition = "opacity 0.3s ease"
         row.style.opacity = "0"
         setTimeout(() => row.remove(), 300)

@@ -158,13 +158,18 @@
       <% @order.order_items.includes(:supplier_product).each do |item| %>
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
           <div class="flex items-center justify-between">
-            <div class="flex-1 min-w-0 pr-3">
-              <p class="text-sm font-semibold text-gray-900 truncate"><%= item.product_name %></p>
-              <div class="flex items-center gap-2 mt-0.5">
-                <% if item.supplier_product&.supplier_sku.present? %>
-                  <span class="text-[10px] text-gray-400">SKU: <%= item.supplier_product.supplier_sku %></span>
-                <% end %>
-                <span class="text-[10px] text-gray-400">Qty: <%= item.quantity %><%= " #{item.uom}" if item.uom.present? %></span>
+            <div class="flex-1 min-w-0 pr-3 flex items-center gap-2.5">
+              <img src="<%= product_thumb_url(@order.canonical_image_source_for(item)) %>"
+                   alt="" loading="lazy" decoding="async"
+                   class="w-9 h-9 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-gray-900 truncate"><%= item.product_name %></p>
+                <div class="flex items-center gap-2 mt-0.5">
+                  <% if item.supplier_product&.supplier_sku.present? %>
+                    <span class="text-[10px] text-gray-400">SKU: <%= item.supplier_product.supplier_sku %></span>
+                  <% end %>
+                  <span class="text-[10px] text-gray-400">Qty: <%= item.quantity %><%= " #{item.uom}" if item.uom.present? %></span>
+                </div>
               </div>
             </div>
             <div class="text-right flex-shrink-0">

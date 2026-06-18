@@ -34,24 +34,32 @@ RSpec.describe ProductImagesHelper, type: :helper do
     expect(helper.product_thumb_url(sp)).to include('/rails/active_storage')
   end
 
-  it 'enqueues the mirror job on a pending miss and returns a placeholder' do
+  it 'is display-only by default: a pending miss returns a placeholder and enqueues NOTHING' do
+    # The default path is used by lists, the order builder/cart, and order pages.
+    # It must never hit a supplier just because a page rendered.
     expect { @result = helper.product_thumb_url(sp) }
+      .not_to have_enqueued_job(MirrorProductImageJob)
+    expect(@result).to start_with('data:image/svg+xml')
+  end
+
+  it 'enqueues the mirror job on a pending miss when mirror: true (modal only) and returns a placeholder' do
+    expect { @result = helper.product_thumb_url(sp, mirror: true) }
       .to have_enqueued_job(MirrorProductImageJob).with(sp.id)
     expect(@result).to start_with('data:image/svg+xml')
   end
 
-  it 'does not enqueue when the feature flag is off' do
+  it 'does not enqueue when the feature flag is off, even with mirror: true' do
     ENV['PRODUCT_IMAGES_ENABLED'] = 'false'
-    expect { helper.product_thumb_url(sp) }.not_to have_enqueued_job(MirrorProductImageJob)
+    expect { helper.product_thumb_url(sp, mirror: true) }.not_to have_enqueued_job(MirrorProductImageJob)
   end
 
-  it 'does not re-enqueue a recent "none"' do
+  it 'does not re-enqueue a recent "none" (mirror: true)' do
     sp.update!(image_status: 'none', image_checked_at: 1.hour.ago)
-    expect { helper.product_thumb_url(sp) }.not_to have_enqueued_job(MirrorProductImageJob)
+    expect { helper.product_thumb_url(sp, mirror: true) }.not_to have_enqueued_job(MirrorProductImageJob)
   end
 
-  it 're-enqueues a "failed" older than the failed TTL' do
+  it 're-enqueues a "failed" older than the failed TTL (mirror: true)' do
     sp.update!(image_status: 'failed', image_checked_at: 2.days.ago)
-    expect { helper.product_thumb_url(sp) }.to have_enqueued_job(MirrorProductImageJob)
+    expect { helper.product_thumb_url(sp, mirror: true) }.to have_enqueued_job(MirrorProductImageJob)
   end
 end
