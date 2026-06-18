@@ -28,6 +28,12 @@ RSpec.describe ProductImagesHelper, type: :helper do
     expect(url).to eq("https://images.enplacepro.app/#{sp.thumbnail.key}")
   end
 
+  it 'falls back to the Active Storage URL in dev (no R2 host)' do
+    ENV['R2_PUBLIC_HOST'] = nil
+    sp.thumbnail.attach(io: StringIO.new('x'), filename: 't.jpg', content_type: 'image/jpeg')
+    expect(helper.product_thumb_url(sp)).to include('/rails/active_storage')
+  end
+
   it 'enqueues the mirror job on a pending miss and returns a placeholder' do
     expect { @result = helper.product_thumb_url(sp) }
       .to have_enqueued_job(MirrorProductImageJob).with(sp.id)

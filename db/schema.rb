@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_06_17_120000) do
+ActiveRecord::Schema[7.1].define(version: 2026_06_18_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -509,8 +509,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_06_17_120000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "category"
+    t.bigint "canonical_image_supplier_product_id"
     t.index ["aggregated_list_id", "position"], name: "index_product_matches_on_aggregated_list_id_and_position"
     t.index ["aggregated_list_id"], name: "index_product_matches_on_aggregated_list_id"
+    t.index ["canonical_image_supplier_product_id"], name: "idx_product_matches_on_canonical_image_sp"
     t.index ["category"], name: "index_product_matches_on_category"
     t.index ["match_status"], name: "index_product_matches_on_match_status"
   end

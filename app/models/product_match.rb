@@ -3,11 +3,15 @@ class ProductMatch < ApplicationRecord
   belongs_to :aggregated_list
   has_many :product_match_items, dependent: :destroy
   has_many :supplier_list_items, through: :product_match_items
+  # Chef-chosen source of the canonical thumbnail (one of this match's own
+  # suppliers' products). Nil → falls back to the primary item's product.
+  belongs_to :canonical_image_supplier_product, class_name: 'SupplierProduct', optional: true
 
   # Validations
   validates :match_status, inclusion: {
     in: %w[auto_matched confirmed rejected manual unmatched]
   }
+  validate :canonical_image_belongs_to_match
 
   # Scopes
   scope :confirmed, -> { where(match_status: 'confirmed') }
@@ -127,10 +131,31 @@ class ProductMatch < ApplicationRecord
     canonical_name.presence || primary_item&.name || 'Unnamed Product'
   end
 
+  # The SupplierProduct whose mirrored thumbnail represents this match.
+  # Explicit chef choice wins; otherwise fall back to the primary item's product.
+  # Views render it via ProductImagesHelper#product_thumb_url.
+  def canonical_image_source
+    canonical_image_supplier_product || primary_item&.supplier_product
+  end
+
+  # SupplierProducts available to choose the canonical image from (this match's
+  # own matched suppliers), as [SupplierProduct] — used by the modal picker.
+  def canonical_image_choices
+    product_match_items.filter_map { |pmi| pmi.supplier_list_item&.supplier_product }.uniq
+  end
+
   private
 
   # Uses detect on the preloaded collection instead of find_by (which always hits DB)
   def primary_item
     product_match_items.detect { |pmi| pmi.is_primary }&.supplier_list_item
+  end
+
+  # The canonical image must come from one of this match's own matched suppliers.
+  def canonical_image_belongs_to_match
+    return if canonical_image_supplier_product_id.blank?
+    return if canonical_image_choices.map(&:id).include?(canonical_image_supplier_product_id)
+
+    errors.add(:canonical_image_supplier_product_id, 'must be one of this match\'s supplier products')
   end
 end

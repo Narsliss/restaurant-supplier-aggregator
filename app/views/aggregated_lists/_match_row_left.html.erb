@@ -5,6 +5,10 @@
 %>
 <div class="sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100">
   <div class="flex items-start gap-1.5">
+    <img src="<%= product_thumb_url(match.canonical_image_source) %>"
+         alt="<%= match.display_name %>"
+         class="w-10 h-10 rounded object-cover bg-gray-50 border border-gray-200 shrink-0"
+         loading="lazy">
     <div class="flex-1 min-w-0">
       <% if aggregated_list.promoted? %>
         <h3 class="text-sm font-semibold text-gray-900 leading-tight"><%= match.display_name %></h3>

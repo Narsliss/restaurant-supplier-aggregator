@@ -22,7 +22,7 @@ module ProductImagesHelper
     return PRODUCT_IMAGE_PLACEHOLDER if supplier_product.blank?
 
     if supplier_product.thumbnail.attached?
-      r2_public_url(supplier_product.thumbnail.key) || PRODUCT_IMAGE_PLACEHOLDER
+      served_thumb_url(supplier_product.thumbnail)
     else
       enqueue_mirror_if_due(supplier_product)
       PRODUCT_IMAGE_PLACEHOLDER
@@ -31,10 +31,14 @@ module ProductImagesHelper
 
   private
 
-  # Objects are served through the bucket's custom domain at /<key>.
-  def r2_public_url(key)
+  # Prod: serve through R2's custom domain at /<key>. Dev/local (Disk service,
+  # no R2_PUBLIC_HOST): fall back to Active Storage's own URL so thumbnails
+  # render locally too.
+  def served_thumb_url(thumbnail)
     host = ENV["R2_PUBLIC_HOST"]
-    host.present? ? "https://#{host}/#{key}" : nil
+    return "https://#{host}/#{thumbnail.key}" if host.present?
+
+    url_for(thumbnail)
   end
 
   def enqueue_mirror_if_due(sp)
