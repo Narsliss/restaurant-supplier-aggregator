@@ -50,7 +50,7 @@
       <% end %>
 
       <div class="mt-8">
-        <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "space-y-5" }) do |f| %>
+        <%= form_for(resource, as: resource_name, url: session_path(resource_name), html: { class: "space-y-5", data: { turbo: false } }) do |f| %>
           <div>
             <%= f.label :email, class: "block text-sm font-medium text-gray-700" %>
             <div class="mt-1.5">
