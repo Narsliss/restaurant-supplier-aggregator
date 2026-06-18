@@ -1,6 +1,9 @@
 SecureHeaders::Configuration.default do |config|
+  # Secure cookies only over HTTPS. In local dev/test the app is served over
+  # http, so a Secure flag would make the browser drop the session cookie and
+  # bounce every request back to the login page.
   config.cookies = {
-    secure: true,
+    secure: Rails.env.local? ? SecureHeaders::OPT_OUT : true,
     httponly: true,
     samesite: { lax: true }
   }
@@ -15,7 +18,8 @@ SecureHeaders::Configuration.default do |config|
     default_src: %w['self'],
     script_src: %w['self' 'unsafe-inline'],
     style_src: %w['self' 'unsafe-inline'],
-    img_src: %w['self' data:],
+    # Allow mirrored product thumbnails served from the R2 custom domain.
+    img_src: (%w['self' data:] + [ENV['R2_PUBLIC_HOST'].presence && "https://#{ENV['R2_PUBLIC_HOST']}"].compact),
     connect_src: %w['self' ws: wss:],
     font_src: %w['self'],
     base_uri: %w['self'],
