@@ -6,7 +6,7 @@
 <% cheapest = match.cheapest_supplier&.dig(:supplier) %>
 <% readonly = aggregated_list.promoted? %>
 <turbo-frame id="match_modal">
-  <div data-controller="match-modal"
+  <div data-controller="match-modal image-poll"
        data-action="click->match-modal#backdrop"
        class="fixed inset-0 z-50 flex items-start justify-center pt-[6vh] px-4 bg-black/50">
     <div class="relative bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-5xl max-h-[88vh] overflow-y-auto">
@@ -15,6 +15,7 @@
         <div class="flex items-center gap-3 min-w-0">
           <img id="match_thumb_modal_<%= match.id %>"
                src="<%= product_thumb_url(match.canonical_image_source, mirror: true) %>"
+               data-product-thumb-id="<%= match.canonical_image_source&.id %>"
                class="w-12 h-12 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
           <div class="min-w-0">
             <h2 id="match_title_<%= match.id %>" class="text-base font-semibold text-gray-900 truncate"><%= match.display_name %></h2>

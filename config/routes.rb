@@ -188,6 +188,10 @@ Rails.application.routes.draw do
     end
   end
 
+  # Lazy thumbnail resolution — matching modal polls this to swap placeholders
+  # for mirrored images live (mirror runs async on the worker).
+  get "product_images/resolve", to: "product_images#resolve"
+
   # Global Price Check (catalog search from nav bar)
   resource :catalog_search, only: [:show], controller: 'catalog_searches' do
     post :add_to_list

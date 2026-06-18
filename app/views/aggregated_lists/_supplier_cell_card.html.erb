@@ -30,6 +30,7 @@
         Modal-only surface, so this is allowed to trigger lazy mirroring. %>
     <img src="<%= product_thumb_url(item&.supplier_product, mirror: true) %>"
          loading="lazy" decoding="async"
+         data-product-thumb-id="<%= item&.supplier_product&.id %>"
          class="w-full aspect-square rounded-md object-cover border border-gray-200 bg-white mb-2">
   <% end %>
 

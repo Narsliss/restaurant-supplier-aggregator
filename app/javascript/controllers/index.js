@@ -35,6 +35,7 @@ import RequirementGridController from "./requirement_grid_controller"
 import CatalogModalController from "./catalog_modal_controller"
 import MatchModalController from "./match_modal_controller"
 import OpenMatchModalController from "./open_match_modal_controller"
+import ImagePollController from "./image_poll_controller"
 import PriceCheckController from "./price_check_controller"
 import FeedbackController from "./feedback_controller"
 import CrmKanbanController from "./crm_kanban_controller"
@@ -81,6 +82,7 @@ application.register("requirement-grid", RequirementGridController)
 application.register("catalog-modal", CatalogModalController)
 application.register("match-modal", MatchModalController)
 application.register("open-match-modal", OpenMatchModalController)
+application.register("image-poll", ImagePollController)
 application.register("price-check", PriceCheckController)
 application.register("feedback", FeedbackController)
 application.register("crm-kanban", CrmKanbanController)

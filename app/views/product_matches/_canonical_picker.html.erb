@@ -4,6 +4,7 @@
   <div class="flex items-center gap-4">
     <img src="<%= product_thumb_url(match.canonical_image_source, mirror: true) %>"
          alt="canonical"
+         data-product-thumb-id="<%= match.canonical_image_source&.id %>"
          class="w-20 h-20 rounded-lg object-cover border border-gray-200 bg-gray-50 shrink-0">
     <div class="min-w-0">
       <p class="text-sm font-medium text-gray-900">Canonical image</p>
@@ -24,6 +25,7 @@
               class: "block rounded-lg border-2 p-0.5 transition-colors #{selected ? 'border-brand-orange ring-2 ring-brand-orange/30' : 'border-gray-200 hover:border-gray-400'}",
               title: sp.supplier_name.to_s do %>
           <img src="<%= product_thumb_url(sp, mirror: true) %>" alt="<%= sp.supplier_name %>"
+               data-product-thumb-id="<%= sp.id %>"
                class="w-14 h-14 rounded object-cover bg-gray-50">
         <% end %>
       <% end %>
