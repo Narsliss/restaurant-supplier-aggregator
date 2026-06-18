@@ -15,7 +15,17 @@
                supplier_id: @old_supplier.id,
                is_cheapest: false,
                is_most_expensive: false,
-               readonly: @aggregated_list.promoted? %>
+               readonly: true %>
+  <% end %>
+<% end %>
+
+<%# Modal: close it if the match is gone, otherwise refresh it %>
+<% if @product_match_destroyed %>
+  <%= turbo_stream.update "match_modal", "" %>
+<% else %>
+  <% @product_match.product_match_items.reload %>
+  <%= turbo_stream.replace "match_modal" do %>
+    <%= render "product_matches/modal", match: @product_match, aggregated_list: @aggregated_list %>
   <% end %>
 <% end %>
 
@@ -43,7 +53,7 @@
                            supplier_id: supplier.id,
                            is_cheapest: false,
                            is_most_expensive: false,
-                           readonly: false %>
+                           readonly: true %>
               <% else %>
                 <%= render "aggregated_lists/supplier_cell_card",
                            product_match: @new_orphan_match,
@@ -54,7 +64,7 @@
                            supplier_id: supplier.id,
                            is_cheapest: false,
                            is_most_expensive: false,
-                           readonly: false %>
+                           readonly: true %>
               <% end %>
             <% end %>
           </div>

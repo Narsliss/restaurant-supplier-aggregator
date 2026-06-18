@@ -35,6 +35,7 @@ class ProductMatchesController < ApplicationController
     @product_match.update!(canonical_name: name&.truncate(255))
 
     respond_to do |format|
+      format.turbo_stream
       format.json { render json: { name: @product_match.display_name } }
       format.html { redirect_to aggregated_list_path(@aggregated_list) }
     end

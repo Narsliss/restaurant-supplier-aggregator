@@ -22,7 +22,7 @@
                        supplier_id: supplier.id,
                        is_cheapest: is_cheapest,
                        is_most_expensive: is_most_expensive,
-                       readonly: false %>
+                       readonly: true %>
           <% end %>
         </div>
       </div>
@@ -33,4 +33,10 @@
 <%# Remove any duplicate rows that were cleaned up %>
 <% @removed_match_ids.each do |removed_id| %>
   <%= turbo_stream.remove "product_match_#{removed_id}" %>
+<% end %>
+
+<%# Refresh the open modal (matching happens there now) %>
+<% @product_match.product_match_items.reload %>
+<%= turbo_stream.replace "match_modal" do %>
+  <%= render "product_matches/modal", match: @product_match, aggregated_list: @aggregated_list %>
 <% end %>

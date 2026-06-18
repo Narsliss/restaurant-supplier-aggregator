@@ -3,7 +3,7 @@
       match           — the ProductMatch
       aggregated_list — the AggregatedList (for routes + promoted? check)
 %>
-<div class="sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100">
+<div id="match_left_<%= match.id %>" class="sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100">
   <div class="flex items-start gap-1.5">
     <% if aggregated_list.promoted? %>
       <%= render "product_matches/match_thumb", match: match %>

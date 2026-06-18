@@ -20,6 +20,9 @@
       <div class="divide-y divide-gray-200">
         <% @items.each do |item| %>
           <div class="px-4 py-3 flex items-center justify-between gap-3">
+            <img src="<%= product_thumb_url(item.product_match&.canonical_image_source) %>"
+                 alt="" loading="lazy" decoding="async"
+                 class="w-9 h-9 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
             <div class="min-w-0 flex-1">
               <p class="text-sm font-medium text-gray-900"><%= item.display_name %></p>
               <% if item.display_unit_info.present? %>

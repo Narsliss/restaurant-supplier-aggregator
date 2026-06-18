@@ -1,0 +1,6 @@
+<%# Update the page row's name/left cell and the modal title after a rename. %>
+<%= turbo_stream.replace "match_left_#{@product_match.id}" do %>
+  <%= render "aggregated_lists/match_row_left", match: @product_match, aggregated_list: @aggregated_list %>
+<% end %>
+
+<%= turbo_stream.update "match_title_#{@product_match.id}", @product_match.display_name %>
