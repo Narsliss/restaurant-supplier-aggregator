@@ -315,6 +315,9 @@
   <% end %>
 
   <%= render "aggregated_lists/catalog_browse_modal" %>
+
+  <%# Matching modal target — row clicks load the modal body into this frame %>
+  <turbo-frame id="match_modal"></turbo-frame>
 </div>
 
 <script>

@@ -1,0 +1,15 @@
+<%# Update the modal picker (highlight + big preview), the modal header thumb,
+    and the row thumbnail behind the modal. %>
+<%= turbo_stream.replace "canonical_picker_#{@product_match.id}" do %>
+  <%= render "product_matches/canonical_picker", match: @product_match, aggregated_list: @aggregated_list %>
+<% end %>
+
+<%= turbo_stream.replace "match_thumb_modal_#{@product_match.id}" do %>
+  <img id="match_thumb_modal_<%= @product_match.id %>"
+       src="<%= product_thumb_url(@product_match.canonical_image_source) %>"
+       class="w-12 h-12 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
+<% end %>
+
+<%= turbo_stream.replace "match_thumb_#{@product_match.id}" do %>
+  <%= render "product_matches/match_thumb", match: @product_match %>
+<% end %>

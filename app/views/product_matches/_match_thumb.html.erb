@@ -1,0 +1,6 @@
+<%# Canonical thumbnail for a match row (id so set_canonical_image can swap it).
+    Locals: match %>
+<img id="match_thumb_<%= match.id %>"
+     src="<%= product_thumb_url(match.canonical_image_source) %>"
+     alt="<%= match.display_name %>"
+     class="w-10 h-10 rounded object-cover bg-gray-50 border border-gray-200 shrink-0">

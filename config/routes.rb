@@ -161,6 +161,8 @@ Rails.application.routes.draw do
         post :confirm
         post :reject
         patch :rename
+        get :edit
+        post :set_canonical_image
       end
       collection do
         post :confirm_all

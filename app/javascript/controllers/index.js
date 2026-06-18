@@ -33,6 +33,7 @@ import SpendingTrendController from "./spending_trend_controller"
 import DatePresetController from "./date_preset_controller"
 import RequirementGridController from "./requirement_grid_controller"
 import CatalogModalController from "./catalog_modal_controller"
+import MatchModalController from "./match_modal_controller"
 import PriceCheckController from "./price_check_controller"
 import FeedbackController from "./feedback_controller"
 import CrmKanbanController from "./crm_kanban_controller"
@@ -77,6 +78,7 @@ application.register("spending-trend", SpendingTrendController)
 application.register("date-preset", DatePresetController)
 application.register("requirement-grid", RequirementGridController)
 application.register("catalog-modal", CatalogModalController)
+application.register("match-modal", MatchModalController)
 application.register("price-check", PriceCheckController)
 application.register("feedback", FeedbackController)
 application.register("crm-kanban", CrmKanbanController)

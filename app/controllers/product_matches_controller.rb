@@ -1,8 +1,8 @@
 class ProductMatchesController < ApplicationController
   before_action :require_location_context!
   before_action :set_aggregated_list
-  before_action :set_product_match, only: %i[confirm reject rename]
-  before_action :require_list_write_access!, only: %i[confirm reject rename confirm_all]
+  before_action :set_product_match, only: %i[confirm reject rename edit set_canonical_image]
+  before_action :require_list_write_access!, only: %i[confirm reject rename confirm_all set_canonical_image]
 
   def index
     @product_matches = @aggregated_list.product_matches
@@ -44,6 +44,26 @@ class ProductMatchesController < ApplicationController
     count = @aggregated_list.product_matches.auto_matched.high_confidence.update_all(match_status: 'confirmed')
     redirect_to aggregated_list_product_matches_path(@aggregated_list),
                 notice: "Confirmed #{count} high-confidence matches."
+  end
+
+  # Renders the matching modal body (loaded into a Turbo Frame on row click).
+  def edit
+    @product_match = @aggregated_list.product_matches
+                                     .includes(product_match_items: { supplier_list_item: :supplier_product })
+                                     .find(params[:id])
+    render partial: "product_matches/modal", locals: { match: @product_match, aggregated_list: @aggregated_list }
+  end
+
+  # Sets which matched supplier's product provides the canonical thumbnail.
+  # supplier_product_id blank → clear (revert to primary-item default).
+  def set_canonical_image
+    sp_id = params[:supplier_product_id].presence
+    @product_match.update!(canonical_image_supplier_product_id: sp_id)
+
+    respond_to do |format|
+      format.turbo_stream
+      format.html { redirect_to aggregated_list_path(@aggregated_list) }
+    end
   end
 
   private
