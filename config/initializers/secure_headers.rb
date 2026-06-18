@@ -1,12 +1,12 @@
 SecureHeaders::Configuration.default do |config|
-  # Secure cookies only over HTTPS. In local dev/test the app is served over
-  # http, so a Secure flag would make the browser drop the session cookie and
-  # bounce every request back to the login page.
-  config.cookies = {
-    secure: Rails.env.local? ? SecureHeaders::OPT_OUT : true,
-    httponly: true,
-    samesite: { lax: true }
-  }
+  # Opt out of secure_headers' cookie rewriting entirely. On Rack 3 it mangles
+  # responses that set multiple Set-Cookie headers — e.g. logging in with
+  # "remember me" (session + remember_user_token) — silently dropping the
+  # session cookie, so the user authenticates but immediately bounces back to
+  # the login page. Rails already applies httponly + samesite=lax natively, and
+  # secure is enforced in production via config.force_ssl, so this rewriting is
+  # both redundant and harmful.
+  config.cookies = SecureHeaders::OPT_OUT
 
   config.x_frame_options = "SAMEORIGIN"
   config.x_content_type_options = "nosniff"
