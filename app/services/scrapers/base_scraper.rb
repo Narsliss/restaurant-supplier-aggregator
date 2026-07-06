@@ -33,6 +33,18 @@ module Scrapers
       end
     end
 
+    # Raised when the supplier's cart contents don't match the order we intend to
+    # place (extra/orphaned lines, missing items, or quantity mismatches). Fails
+    # the order CLOSED so we never submit something the chef didn't order.
+    class CartMismatchError < StandardError
+      attr_reader :discrepancies
+
+      def initialize(message, discrepancies:)
+        @discrepancies = discrepancies
+        super(message)
+      end
+    end
+
     class CaptchaDetectedError < StandardError; end
     class AccountHoldError < StandardError; end
     class DeliveryUnavailableError < StandardError; end

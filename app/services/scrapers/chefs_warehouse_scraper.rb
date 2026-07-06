@@ -368,12 +368,86 @@ module Scrapers
       { removed: removed, still_present: still_present }
     end
 
+    # Empty the CW server-side cart and VERIFY it is actually empty.
+    #
+    # CW's `delete_cart` has been observed to report success while leaving lines
+    # in the cart (session/cart-context desync under rapid retries). If we trust
+    # that false success, a stale line from a prior attempt rides along on the
+    # next submit — which is exactly how a removed item once shipped. So we
+    # delete, then re-read, remove any leftovers individually, and FAIL CLOSED if
+    # the cart still isn't empty rather than building an order on a dirty cart.
     def clear_cart
       api_client.ensure_session!
-      api_client.delete_cart
+
+      begin
+        api_client.delete_cart
+      rescue StandardError => e
+        logger.warn "[ChefsWarehouse] delete_cart errored: #{e.message} — verifying/clearing individually"
+      end
+
+      leftovers = cart_line_ids
+      if leftovers.any?
+        logger.warn "[ChefsWarehouse] delete_cart left #{leftovers.size} line(s); removing individually"
+        leftovers.each do |id|
+          begin
+            api_client.remove_cart_item(id)
+          rescue StandardError => e
+            logger.warn "[ChefsWarehouse] remove_cart_item #{id} failed: #{e.message}"
+          end
+        end
+      end
+
+      remaining = cart_line_ids
+      if remaining.any?
+        raise ScrapingError, "CW cart could not be emptied — #{remaining.size} line(s) remain after clear"
+      end
+
       logger.info '[ChefsWarehouse] API cart cleared'
-    rescue StandardError => e
-      logger.warn "[ChefsWarehouse] API clear_cart failed: #{e.message}"
+    end
+
+    # Guard rail run AFTER add_to_cart and BEFORE checkout: assert the CW cart
+    # contains exactly the items we intend to order (by normalized SKU and
+    # quantity). Raises CartMismatchError on any extra/orphaned line, missing
+    # item, or quantity mismatch so OrderPlacementService can halt the submit.
+    #
+    # expected_items: array of hashes with :sku and :quantity (as built by
+    # OrderPlacementService#build_cart_items).
+    def verify_cart_matches!(expected_items)
+      api_client.ensure_session!
+      cart = tally_by_sku(extract_cart_lines(api_client.get_cart))
+      expected = tally_by_sku(expected_items.map { |i| { sku: normalize_sku(i[:sku]), uom: i[:uom], quantity: i[:quantity] } })
+
+      discrepancies = []
+      (cart.keys - expected.keys).sort.each do |sku|
+        discrepancies << { type: 'extra_in_cart', sku: sku, cart_qty: cart[sku][:qty] }
+      end
+      (expected.keys - cart.keys).sort.each do |sku|
+        discrepancies << { type: 'missing_from_cart', sku: sku, expected_qty: expected[sku][:qty] }
+      end
+      (cart.keys & expected.keys).sort.each do |sku|
+        if cart[sku][:qty] != expected[sku][:qty]
+          discrepancies << { type: 'quantity_mismatch', sku: sku, cart_qty: cart[sku][:qty], expected_qty: expected[sku][:qty] }
+        end
+
+        # Piece-vs-case: only flag when BOTH sides confidently resolve to piece
+        # or case and disagree. Unknown/other UOMs (e.g. LB variable-weight) are
+        # left alone so normal orders never false-positive. This is what guards a
+        # PC order from being charged the case price (and vice-versa).
+        cu = cart[sku][:pc_case]
+        eu = expected[sku][:pc_case]
+        if cu && eu && cu != eu
+          discrepancies << { type: 'uom_mismatch', sku: sku, cart_uom: cu, expected_uom: eu }
+        end
+      end
+
+      if discrepancies.any?
+        raise Scrapers::BaseScraper::CartMismatchError.new(
+          "CW cart does not match order (#{discrepancies.size} discrepancy(ies)): #{discrepancies.inspect}",
+          discrepancies: discrepancies
+        )
+      end
+
+      true
     end
 
     def checkout(dry_run: false)
@@ -453,6 +527,76 @@ module Scrapers
     end
 
     private
+
+    # ── Cart reconciliation helpers ──────────────────────────────
+
+    # Normalize any CW product/variant code to the bare supplier SKU we store on
+    # SupplierProduct (e.g. "JDE_NP120-800001" or "JDE_NP120" → "NP120").
+    def normalize_sku(code)
+      code.to_s.strip.sub(/\AJDE_/i, '').sub(/-\d+\z/, '').upcase
+    end
+
+    # Walk an arbitrary CW cart payload and pull out the product line items.
+    # CW nests lines under cartGroups → subCarts → … with a variable shape, so we
+    # recurse and treat any hash carrying a positive numeric quantity AND a
+    # product code as a line. Non-product nodes (delivery dates, shipping
+    # selectors, totals) have no product code and are ignored.
+    # Returns: [{ id:, sku:, uom:, quantity: }]
+    def extract_cart_lines(cart, acc = [])
+      case cart
+      when Hash
+        code = cart['itemCode'] || cart['code'] || cart['variantCode']
+        qty  = cart['quantity']
+        if code.is_a?(String) && code.present? && qty.is_a?(Numeric) && qty.positive?
+          acc << {
+            id: cart['id'],
+            sku: normalize_sku(code),
+            uom: cart['unitOfMeasure'] || cart['uom'],
+            quantity: qty
+          }
+          # Don't recurse into a line's own children — a nested price/uom object
+          # carrying its own quantity+code would otherwise be double-counted.
+        else
+          cart.each_value { |v| extract_cart_lines(v, acc) }
+        end
+      when Array
+        cart.each { |v| extract_cart_lines(v, acc) }
+      end
+      acc
+    end
+
+    # Ids of every product line currently in the CW cart.
+    def cart_line_ids
+      extract_cart_lines(api_client.get_cart).map { |l| l[:id] }.compact
+    end
+
+    # Aggregate line rows ({ sku:, uom:, quantity: }) into
+    # sku => { qty: <int>, pc_case: :piece | :case | nil }.
+    # pc_case is nil unless every line for that SKU agrees on piece-or-case, so a
+    # mixed or unknown UOM never triggers a spurious mismatch.
+    def tally_by_sku(rows)
+      grouped = Hash.new { |h, k| h[k] = { qty: 0, cats: [] } }
+      rows.each do |r|
+        g = grouped[r[:sku]]
+        g[:qty] += r[:quantity].to_i
+        g[:cats] << pc_case_category(r[:uom])
+      end
+      grouped.transform_values do |g|
+        known = g[:cats].compact.uniq
+        { qty: g[:qty], pc_case: (known.size == 1 ? known.first : nil) }
+      end
+    end
+
+    # Coarsely classify a UOM as :piece or :case, or nil when we can't be sure.
+    # Handles both our stored codes ("PC"/"CS") and CW's cart display strings
+    # ("Piece"/"Case"). Variable-weight and unknown UOMs return nil (not flagged).
+    def pc_case_category(uom)
+      s = uom.to_s.strip.downcase
+      return :piece if s == 'pc' || s.include?('piece')
+      return :case  if s == 'cs' || s.include?('case')
+
+      nil
+    end
 
     # ── API helpers ─────────────────────────────────────────────
 

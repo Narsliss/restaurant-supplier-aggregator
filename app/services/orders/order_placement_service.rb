@@ -51,6 +51,14 @@ module Orders
         # Re-check: if item removal dropped us below the order minimum, fail early
         recheck_order_minimum_after_removals!
 
+        # Safety gate: never submit a supplier cart that doesn't match this order.
+        # Catches orphaned lines left in the supplier's server-side cart by a
+        # prior failed attempt (and anything the chef removed). Supplier-specific
+        # — only scrapers that expose cart contents implement it. Fails CLOSED.
+        if scraper.respond_to?(:verify_cart_matches!)
+          scraper.verify_cart_matches!(build_cart_items)
+        end
+
         # Step 5: Attempt checkout
         # Production always places real orders; development always dry-runs.
         # The per-supplier checkout_enabled flag is only checked in production
@@ -105,6 +113,8 @@ module Orders
         handle_order_minimum_error(e)
       rescue Scrapers::BaseScraper::ItemUnavailableError => e
         handle_item_unavailable_error(e)
+      rescue Scrapers::BaseScraper::CartMismatchError => e
+        handle_cart_mismatch_error(e)
       rescue Scrapers::BaseScraper::PriceChangedError => e
         handle_price_changed_error(e, accept_price_changes)
       rescue Scrapers::BaseScraper::AccountHoldError => e
@@ -392,6 +402,25 @@ module Orders
         error_type: 'price_changed',
         error: error.message,
         details: { price_changes: error.changes },
+        requires_review: true
+      }
+    end
+
+    def handle_cart_mismatch_error(error)
+      order.update!(
+        status: 'pending_review',
+        error_message: 'Supplier cart did not match your order, so we did not submit it. ' \
+                       'This usually means a leftover item from a previous attempt. ' \
+                       'Please review and try again.'
+      )
+
+      Rails.logger.error "[OrderPlacement] Order #{order.id} HALTED (cart mismatch): #{error.discrepancies.inspect}"
+
+      {
+        success: false,
+        error_type: 'cart_mismatch',
+        error: error.message,
+        details: { discrepancies: error.discrepancies },
         requires_review: true
       }
     end

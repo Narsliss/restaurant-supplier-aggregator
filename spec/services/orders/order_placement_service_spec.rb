@@ -17,6 +17,7 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
       'FakeScraper',
       clear_cart: nil,
       add_to_cart: { added: [], failed: [] },
+      verify_cart_matches!: true,
       checkout: scraper_checkout_result,
       close_order_browser!: nil
     )
@@ -119,6 +120,54 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
 
       expect(order.reload.status).to eq('failed')
       expect(order.error_message).to include('No active credentials')
+    end
+  end
+
+  describe 'cart reconciliation gate' do
+    it 'reconciles the supplier cart before checkout' do
+      expect(fake_scraper).to receive(:verify_cart_matches!).with(kind_of(Array)).ordered
+      expect(fake_scraper).to receive(:checkout).ordered.and_return(scraper_checkout_result)
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+    end
+
+    # Regression: an orphaned line in the supplier cart (an item the chef
+    # removed) must NEVER be submitted. The order halts for review instead.
+    it 'halts without checking out when the cart does not match the order' do
+      allow(Rails.env).to receive(:production?).and_return(true)
+      supplier.update!(checkout_enabled: true)
+
+      mismatch = Scrapers::BaseScraper::CartMismatchError.new(
+        'orphaned line',
+        discrepancies: [{ type: 'extra_in_cart', sku: 'NP120', cart_qty: 1 }]
+      )
+      allow(fake_scraper).to receive(:verify_cart_matches!).and_raise(mismatch)
+      expect(fake_scraper).not_to receive(:checkout)
+
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result).to include(success: false, error_type: 'cart_mismatch', requires_review: true)
+      expect(result[:details][:discrepancies]).to include(hash_including(type: 'extra_in_cart', sku: 'NP120'))
+      expect(order.reload.status).to eq('pending_review')
+      expect(order.confirmation_number).to be_nil
+      expect(order.submitted_at).to be_nil
+    end
+
+    it 'skips the gate for scrapers that do not expose cart contents' do
+      # A real object that genuinely does not respond to verify_cart_matches!
+      # (unlike a loose double) — proves the respond_to? guard skips the gate so
+      # suppliers without server-side carts (USF/WCW/PPO) are unaffected.
+      result = scraper_checkout_result
+      bare_scraper = Class.new do
+        define_method(:clear_cart) {}
+        define_method(:add_to_cart) { |*_args, **_kw| { added: [], failed: [] } }
+        define_method(:checkout) { |**_kw| result }
+        define_method(:close_order_browser!) {}
+      end.new
+      allow(fake_scraper_class).to receive(:new).with(credential).and_return(bare_scraper)
+
+      expect(bare_scraper).not_to respond_to(:verify_cart_matches!)
+      expect(described_class.new(order).place_order(skip_pre_validation: true)).to include(success: true)
     end
   end
 
