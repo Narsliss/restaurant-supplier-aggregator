@@ -115,6 +115,9 @@ module Orders
         handle_item_unavailable_error(e)
       rescue Scrapers::BaseScraper::CartMismatchError => e
         handle_cart_mismatch_error(e)
+      # Defensive: no scraper currently raises PriceChangedError at submit time
+      # (price drift is caught earlier by verification). Kept so a scraper that
+      # detects an at-checkout price change routes to review instead of failing.
       rescue Scrapers::BaseScraper::PriceChangedError => e
         handle_price_changed_error(e, accept_price_changes)
       rescue Scrapers::BaseScraper::AccountHoldError => e

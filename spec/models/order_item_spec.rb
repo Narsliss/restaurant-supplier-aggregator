@@ -74,6 +74,51 @@ RSpec.describe OrderItem, type: :model do
     end
   end
 
+  # Regression: a piece (PC) line must be compared against the piece price, not
+  # the case price. Comparing $85.48 (piece) to $466.32 (case) reported a bogus
+  # +445% "price changed" and blocked a real order.
+  describe '#price_changed? with piece (PC) pricing' do
+    let(:supplier_product) { create(:supplier_product, current_price: 466.32, piece_price: 85.48) }
+
+    it 'compares a PC line against the piece price, not the case price' do
+      item = create(:order_item, supplier_product: supplier_product, uom: 'PC', quantity: 1, unit_price: 85.48)
+
+      expect(item.current_supplier_unit_price).to eq(85.48)
+      expect(item.price_changed?).to be false
+      expect(item.current_price_difference).to eq(0)
+    end
+
+    it 'still detects a genuine change on a PC line (vs the piece price)' do
+      item = create(:order_item, supplier_product: supplier_product, uom: 'PC', quantity: 1, unit_price: 80.00)
+
+      expect(item.price_changed?).to be true
+      expect(item.current_price_difference).to eq(5.48)
+    end
+
+    it 'compares a case line against the case price' do
+      item = create(:order_item, supplier_product: supplier_product, uom: 'CS', quantity: 1, unit_price: 466.32)
+
+      expect(item.current_supplier_unit_price).to eq(466.32)
+      expect(item.price_changed?).to be false
+    end
+
+    it 'falls back to the case price for a PC line when no piece price is stored' do
+      sp = create(:supplier_product, current_price: 466.32, piece_price: nil)
+      item = create(:order_item, supplier_product: sp, uom: 'PC', quantity: 1, unit_price: 466.32)
+
+      expect(item.current_supplier_unit_price).to eq(466.32)
+      expect(item.price_changed?).to be false
+    end
+
+    it 'updates a PC line to the piece price' do
+      item = create(:order_item, supplier_product: supplier_product, uom: 'PC', quantity: 2, unit_price: 80.00)
+      item.update_to_current_price!
+
+      expect(item.reload.unit_price).to eq(85.48)
+      expect(item.line_total).to eq(170.96)
+    end
+  end
+
   describe 'verified price helpers' do
     let(:item) { create(:order_item, quantity: 2, unit_price: 10.00, verified_price: 11.00) }
 

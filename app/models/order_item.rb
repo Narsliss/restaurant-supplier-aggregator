@@ -65,17 +65,30 @@ class OrderItem < ApplicationRecord
     update!(status: "skipped", notes: reason)
   end
 
+  # The current supplier price that corresponds to THIS line's chosen unit.
+  # A piece (PC) line must be compared against the piece price, not the case
+  # price — otherwise an $85.48 piece looks like a +445% jump from the $466.32
+  # case and trips a false "price changed" alarm. Falls back to the case price
+  # when no distinct piece price is stored (or the line isn't piece-ordered).
+  def current_supplier_unit_price
+    if uom == "PC" && supplier_product.piece_price.present? && supplier_product.piece_price.positive?
+      supplier_product.piece_price
+    else
+      supplier_product.current_price
+    end
+  end
+
   def price_changed?
-    supplier_product.current_price != unit_price
+    current_supplier_unit_price != unit_price
   end
 
   def current_price_difference
     return 0 unless price_changed?
-    supplier_product.current_price - unit_price
+    current_supplier_unit_price - unit_price
   end
 
   def update_to_current_price!
-    new_price = supplier_product.current_price
+    new_price = current_supplier_unit_price
     update!(
       unit_price: new_price,
       line_total: new_price * quantity

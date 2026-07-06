@@ -246,12 +246,15 @@ module Orders
         sp = item.supplier_product
 
         if item.price_changed?
-          change_pct = ((sp.current_price - item.unit_price) / item.unit_price * 100).round(2)
+          # Compare against the price for the line's chosen unit (piece vs case),
+          # not always the case price — otherwise PC lines report a bogus swing.
+          current = item.current_supplier_unit_price
+          change_pct = ((current - item.unit_price) / item.unit_price * 100).round(2)
 
           price_changes << {
             product_name: sp.supplier_name,
             old_price: item.unit_price,
-            new_price: sp.current_price,
+            new_price: current,
             change_percent: change_pct
           }
         end
