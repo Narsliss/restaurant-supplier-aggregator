@@ -220,6 +220,50 @@ module Scrapers
     #   2. Search each leaf category via the CMS search endpoint (paginated)
     #   3. Fetch prices in batches
     # No browser needed.
+    # Safety ceiling against an API that never returns a blank page_token.
+    DEEP_MAX_PAGES_PER_CATEGORY = 200
+
+    # Full-catalog crawl: paginate EVERY leaf category to exhaustion (until the
+    # API stops returning a next-page token), yielding batches for incremental DB
+    # writes. Called by DeepCatalogImportJob; the daily import keeps using the
+    # shallow scrape_catalog. Additive — per-category failures are logged/skipped
+    # and never discontinue anything.
+    def scrape_catalog_deep(&on_batch)
+      api_client.ensure_session!
+      results = []
+      leaf_categories = discover_leaf_categories
+      logger.info "[ChefsWarehouse] DEEP: crawling #{leaf_categories.size} leaf categories (full pagination)"
+
+      leaf_categories.each do |category|
+        begin
+          page_token = ''
+          pages = 0
+          count = 0
+          loop do
+            search_result = api_client.search_category(category[:path], page_size: 50, page_token: page_token)
+            batch = search_result[:products]
+            break if batch.empty?
+
+            formatted = batch.map { |p| format_catalog_product(p, category[:name]) }
+            on_batch ? on_batch.call(formatted) : results.concat(formatted) if formatted.any?
+            count += formatted.size
+
+            page_token = search_result[:page_token].to_s
+            pages += 1
+            break if page_token.blank?
+            break if pages >= DEEP_MAX_PAGES_PER_CATEGORY
+
+            rate_limit_delay # be polite between pages
+          end
+          logger.info "[ChefsWarehouse] DEEP '#{category[:name]}': #{count} products"
+        rescue StandardError => e
+          logger.warn "[ChefsWarehouse] DEEP '#{category[:name]}' failed: #{e.class}: #{e.message}"
+        end
+      end
+
+      on_batch ? [] : results.uniq { |r| r[:supplier_sku] }
+    end
+
     def scrape_catalog(search_terms, max_per_term: 100, &on_batch)
       api_client.ensure_session!
       results = []

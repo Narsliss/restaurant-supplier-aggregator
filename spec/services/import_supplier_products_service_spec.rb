@@ -188,4 +188,49 @@ RSpec.describe ImportSupplierProductsService do
       expect(sli.reload.price).to eq(26.95)
     end
   end
+
+  describe '#import_catalog_deep' do
+    let(:supplier) { create(:supplier) }
+    let(:credential) { create(:supplier_credential, supplier: supplier) }
+    let(:service) { described_class.new(credential) }
+
+    def deep_scraper(batches = [])
+      scraper = instance_double('DeepScraper')
+      allow(scraper).to receive(:scrape_catalog_deep) do |&blk|
+        batches.each { |b| blk.call(b) }
+        []
+      end
+      scraper
+    end
+
+    it 'never runs miss tracking — a deep crawl must not discontinue anything' do
+      expect(service).not_to receive(:record_misses_for_unseen_products)
+
+      service.import_catalog_deep(scraper: deep_scraper)
+    end
+
+    it 'no-ops for a scraper that does not support deep import' do
+      plain = Object.new # genuinely does not respond to scrape_catalog_deep
+
+      result = service.import_catalog_deep(scraper: plain)
+
+      expect(result[:imported]).to eq(0)
+    end
+
+    # The user-facing win: a full crawl re-sees items that had gone stale and
+    # reinstates them (un-discontinues), so e.g. WCW snapper reappears in search.
+    it 'reinstates a previously discontinued product that reappears in the crawl' do
+      sp = SupplierProduct.create!(
+        supplier: supplier, supplier_sku: 'SNAP1', supplier_name: 'Snapper',
+        current_price: 20.0, pack_size: '1 case',
+        discontinued: true, discontinued_at: 1.week.ago, in_stock: false
+      )
+      batch = [{ supplier_sku: 'SNAP1', supplier_name: 'Snapper Red', current_price: 22.0,
+                 pack_size: '1 LB', in_stock: true, category: 'Seafood' }]
+
+      service.import_catalog_deep(scraper: deep_scraper([batch]))
+
+      expect(sp.reload.discontinued).to be(false)
+    end
+  end
 end

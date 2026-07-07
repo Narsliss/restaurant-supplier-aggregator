@@ -269,26 +269,55 @@ module Scrapers
 
     # ── Catalog (API) ─────────────────────────────────────────────
 
+    # Safety ceiling so a misbehaving API (never returning an empty page) can't
+    # loop forever. 200 pages x 50 = 10,000 products per category — far above any
+    # real WCW category.
+    DEEP_MAX_PAGES_PER_CATEGORY = 200
+
+    # Full-catalog crawl: paginate EVERY leaf category to exhaustion (no
+    # per-category cap), yielding batches for incremental DB writes. This is what
+    # DeepCatalogImportJob calls; the daily import still uses the shallow
+    # scrape_catalog. Per-category failures are logged and skipped (the import is
+    # additive, so a skipped category never discontinues anything).
+    def scrape_catalog_deep(&on_batch)
+      api_client.ensure_session!
+      results = []
+      leaves = catalog_leaf_categories
+      logger.info "[WhatChefsWant] DEEP: crawling #{leaves.size} leaf categories (full pagination)"
+
+      leaves.each do |leaf|
+        begin
+          offset = 0
+          pages = 0
+          loop do
+            data = api_client.browse_category(leaf[:category_id], limit: 50, offset: offset, subcategory_id: leaf[:subcategory_id])
+            contextual = data&.dig('data', 'catalogProductsRootQuery', 'contextualProducts') || []
+            break if contextual.empty?
+
+            batch = contextual.map { |cp| format_api_product(cp['canonicalProduct'], leaf[:name]) }.compact
+            on_batch ? on_batch.call(batch) : results.concat(batch) if batch.any?
+
+            offset += 50
+            pages += 1
+            break if pages >= DEEP_MAX_PAGES_PER_CATEGORY
+
+            rate_limit_delay # be polite between pages
+          end
+          logger.info "[WhatChefsWant] DEEP '#{leaf[:name]}': ~#{offset} products scanned"
+        rescue StandardError => e
+          logger.warn "[WhatChefsWant] DEEP '#{leaf[:name]}' failed: #{e.class}: #{e.message}"
+        end
+      end
+
+      on_batch ? [] : results.uniq { |r| r[:supplier_sku] }
+    end
+
     def scrape_catalog(search_terms, max_per_term: 50, &on_batch)
       api_client.ensure_session!
       results = []
 
-      # Discover category tree and build leaf list (subcategories)
-      categories = api_client.get_categories
-      category_options = categories&.dig('data', 'catalogCategoryOptions') || []
-      logger.info "[WhatChefsWant] API: Found #{category_options.size} top-level categories"
-
-      leaves = category_options.flat_map do |opt|
-        cat = opt['category'] || {}
-        subcats = (opt['subcategories'] || []).map { |s| s['subcategory'] }.compact
-        if subcats.any?
-          subcats.map { |sc| { category_id: cat['id'], subcategory_id: sc['id'], name: "#{cat['name']} > #{sc['name']}" } }
-        else
-          [{ category_id: cat['id'], subcategory_id: nil, name: cat['name'] }]
-        end
-      end
-
-      logger.info "[WhatChefsWant] API: Crawling #{leaves.size} leaf categories"
+      leaves = catalog_leaf_categories
+      logger.info "[WhatChefsWant] API: Crawling #{leaves.size} leaf categories (shallow, max #{max_per_term}/cat)"
 
       leaves.each do |leaf|
         begin
@@ -323,6 +352,24 @@ module Scrapers
     end
 
     private
+
+    # Discover the category tree and flatten it to leaf categories (category or
+    # category>subcategory pairs) that browse_category can page through.
+    def catalog_leaf_categories
+      categories = api_client.get_categories
+      category_options = categories&.dig('data', 'catalogCategoryOptions') || []
+      logger.info "[WhatChefsWant] API: Found #{category_options.size} top-level categories"
+
+      category_options.flat_map do |opt|
+        cat = opt['category'] || {}
+        subcats = (opt['subcategories'] || []).map { |s| s['subcategory'] }.compact
+        if subcats.any?
+          subcats.map { |sc| { category_id: cat['id'], subcategory_id: sc['id'], name: "#{cat['name']} > #{sc['name']}" } }
+        else
+          [{ category_id: cat['id'], subcategory_id: nil, name: cat['name'] }]
+        end
+      end
+    end
 
     # ── Login helpers (browser-only, used by #login) ──────────────
 

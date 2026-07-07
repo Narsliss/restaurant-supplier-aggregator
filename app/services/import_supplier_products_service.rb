@@ -35,13 +35,7 @@ class ImportSupplierProductsService
     Rails.logger.info "[ImportProducts] Starting catalog import for #{supplier.name} with #{search_terms.size} search terms"
 
     # Pre-load indexes BEFORE scraping starts so we can write incrementally
-    @existing_by_sku = SupplierProduct
-                       .where(supplier: supplier)
-                       .index_by(&:supplier_sku)
-    all_products = Product.select(:id, :name, :normalized_name).to_a
-    @product_index = build_product_index(all_products)
-    @items_processed = 0
-    @seen_skus = Set.new
+    prepare_import_indexes!
 
     credential.update_columns(import_status_text: "Searching #{supplier.name} catalog...")
 
@@ -80,6 +74,45 @@ class ImportSupplierProductsService
     Rails.logger.info "[ImportProducts] #{supplier.name} import complete: " \
                       "#{results[:imported]} imported, #{results[:updated]} updated, " \
                       "#{results[:skipped]} skipped, #{results[:discontinued]} discontinued, " \
+                      "#{results[:reinstated]} reinstated"
+    results
+  end
+
+  # Deep (full-catalog) import: paginate every category/term to exhaustion via
+  # the supplier's API. Unlike the daily shallow import, this is ADDITIVE and
+  # REINSTATE-ONLY — it deliberately does NOT run miss tracking. A deep crawl can
+  # fail partway (a category erroring out), and using an incomplete crawl to
+  # decide what's "gone" would wrongly mass-discontinue real products. Products
+  # the crawl sees are reinstated by import_batch; genuinely-gone products are
+  # still handled by the daily shallow path's miss tracking.
+  def import_catalog_deep(scraper: nil)
+    scraper ||= supplier.scraper_klass.new(credential)
+
+    unless scraper.respond_to?(:scrape_catalog_deep)
+      Rails.logger.warn "[ImportProducts] #{supplier.name} does not support deep import — skipping"
+      return results
+    end
+
+    Rails.logger.info "[ImportProducts] Starting DEEP catalog import for #{supplier.name}"
+    prepare_import_indexes!
+    credential.update_columns(import_status_text: "Deep crawl: #{supplier.name} full catalog...")
+
+    begin
+      scraper.scrape_catalog_deep do |batch|
+        import_batch(batch)
+      end
+    rescue Scrapers::BaseScraper::AuthenticationError => e
+      credential.mark_failed!(e.message)
+      results[:errors] << "Authentication failed: #{e.message}"
+      return results
+    rescue StandardError => e
+      results[:errors] << "Deep scrape failed: #{e.class.name} — #{e.message}"
+      Rails.logger.error "[ImportProducts] Deep scrape failed for #{supplier.name}: #{e.message}"
+      # Keep whatever was imported incrementally — do NOT discontinue anything.
+    end
+
+    Rails.logger.info "[ImportProducts] #{supplier.name} DEEP import complete: " \
+                      "#{results[:imported]} imported, #{results[:updated]} updated, " \
                       "#{results[:reinstated]} reinstated"
     results
   end
@@ -570,6 +603,16 @@ class ImportSupplierProductsService
   #
   # Safety: we skip this entirely if the scrape returned too few products,
   # which suggests a partial failure rather than genuine catalog changes.
+  # Load the per-supplier SKU index and the global product index used for
+  # incremental writes + reinstatement. Shared by the shallow and deep imports.
+  def prepare_import_indexes!
+    @existing_by_sku = SupplierProduct.where(supplier: supplier).index_by(&:supplier_sku)
+    all_products = Product.select(:id, :name, :normalized_name).to_a
+    @product_index = build_product_index(all_products)
+    @items_processed = 0
+    @seen_skus = Set.new
+  end
+
   def record_misses_for_unseen_products
     total_seen = @seen_skus.size
     total_existing = @existing_by_sku.size

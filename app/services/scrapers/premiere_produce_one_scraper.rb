@@ -154,12 +154,23 @@ module Scrapers
     # ── Catalog ─────────────────────────────────────────────────
 
     def scrape_catalog(search_terms, max_per_term: 50, &on_batch)
+      fetch_full_catalog(item_limit: 5000, &on_batch)
+    end
+
+    # PPO returns its entire catalog in a single API call, so it has no shallow/
+    # deep distinction — "deep" just raises the ceiling in case the catalog ever
+    # grows past the default limit. Kept so DeepCatalogImportJob covers PPO too.
+    def scrape_catalog_deep(&on_batch)
+      fetch_full_catalog(item_limit: 20_000, &on_batch)
+    end
+
+    def fetch_full_catalog(item_limit:, &on_batch)
       api_client.ensure_session!
 
       delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
 
       # Get full catalog
-      catalog_result = api_client.get_catalog(item_limit: 5000)
+      catalog_result = api_client.get_catalog(item_limit: item_limit)
       catalog_items = catalog_result&.dig('getSupplierVariantPackGroupItems') || []
 
       # Get pricing

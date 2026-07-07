@@ -163,4 +163,28 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
       expect { scraper.clear_cart }.to raise_error(Scrapers::BaseScraper::ScrapingError)
     end
   end
+
+  # Deep catalog crawl must paginate a category past the old 100-item cap.
+  describe '#scrape_catalog_deep' do
+    before do
+      allow(scraper).to receive(:rate_limit_delay)
+      allow(scraper).to receive(:discover_leaf_categories).and_return([{ path: '/seafood', name: 'Seafood' }])
+      allow(scraper).to receive(:format_catalog_product) { |p, _n| { supplier_sku: p[:code] } }
+    end
+
+    it 'paginates via page_token past the old 100-item cap until the token runs out' do
+      allow(api).to receive(:search_category) do |_path, **kw|
+        case kw[:page_token]
+        when '' then { products: Array.new(50) { |i| { code: "A#{i}" } }, page_token: 't1' }
+        when 't1' then { products: Array.new(50) { |i| { code: "B#{i}" } }, page_token: 't2' }
+        when 't2' then { products: Array.new(50) { |i| { code: "C#{i}" } }, page_token: '' } # 150 total
+        end
+      end
+
+      collected = []
+      scraper.scrape_catalog_deep { |batch| collected.concat(batch) }
+
+      expect(collected.size).to eq(150) # old cap would have stopped at 100
+    end
+  end
 end

@@ -65,4 +65,52 @@ RSpec.describe Scrapers::WhatChefsWantScraper do
       expect(items.first['itemCode']).to eq('20284')
     end
   end
+
+  # Regression: the shallow scrape_catalog capped each category at 50 products,
+  # so items deep in a large category (e.g. snapper in Seafood) were never
+  # imported. scrape_catalog_deep must paginate the whole category.
+  describe '#scrape_catalog_deep' do
+    before do
+      allow(scraper).to receive(:rate_limit_delay) # no real sleeps
+      allow(api_client).to receive(:get_categories).and_return(
+        'data' => { 'catalogCategoryOptions' => [
+          { 'category' => { 'id' => 'c1', 'name' => 'Seafood' }, 'subcategories' => [] }
+        ] }
+      )
+      allow(scraper).to receive(:format_api_product) { |cp, _name| { supplier_sku: cp['itemCode'] } }
+    end
+
+    def page(count, start)
+      { 'data' => { 'catalogProductsRootQuery' => {
+        'contextualProducts' => Array.new(count) { |i| { 'canonicalProduct' => { 'itemCode' => "SKU#{start + i}" } } }
+      } } }
+    end
+
+    it 'paginates a category past the old 50-item cap until the API is exhausted' do
+      allow(api_client).to receive(:browse_category) do |_cat, **kw|
+        case kw[:offset]
+        when 0   then page(50, 0)
+        when 50  then page(50, 50)
+        when 100 then page(20, 100) # 120 total — far past the old 50 cap
+        else page(0, 0)
+        end
+      end
+
+      collected = []
+      scraper.scrape_catalog_deep { |batch| collected.concat(batch) }
+
+      expect(collected.size).to eq(120)
+      expect(collected.map { |p| p[:supplier_sku] }).to include('SKU0', 'SKU75', 'SKU119')
+    end
+
+    it 'stops a category at the safety ceiling instead of looping forever' do
+      # API never returns an empty page → the DEEP_MAX_PAGES_PER_CATEGORY guard trips.
+      allow(api_client).to receive(:browse_category) { |_cat, **kw| page(50, kw[:offset]) }
+
+      collected = []
+      scraper.scrape_catalog_deep { |batch| collected.concat(batch) }
+
+      expect(collected.size).to eq(described_class::DEEP_MAX_PAGES_PER_CATEGORY * 50)
+    end
+  end
 end
