@@ -22,7 +22,7 @@ class CatalogSearchesController < ApplicationController
           .where("LOWER(supplier_name) LIKE ?", "%#{query.downcase}%")
           .includes(:supplier)
           .order(:supplier_name)
-          .limit(20)
+          .limit(200)
 
         render json: results.map { |sp| serialize_product(sp) }
       end
@@ -130,13 +130,13 @@ class CatalogSearchesController < ApplicationController
   private
 
   def connected_supplier_ids
-    # Include suppliers from both the matched list AND active credentials,
-    # since a supplier may have catalog products without an imported order guide.
-    ids = Set.new
-    matched_list = current_location_matched_list
-    ids.merge(matched_list.supplier_lists.pluck(:supplier_id)) if matched_list
-    ids.merge(scoped_credentials.active.pluck(:supplier_id))
-    ids.to_a
+    # "Connected" = suppliers the searcher has an ACTIVE login for — i.e. the
+    # ones they can actually place an order against. This is a quick-order tool,
+    # so we deliberately do NOT include suppliers that merely have an imported
+    # order guide on the matched list: a stale or removed credential there would
+    # surface products the chef can't order. Active credential is the only
+    # signal that a supplier is truly connected.
+    scoped_credentials.active.distinct.pluck(:supplier_id)
   end
 
   def current_location_matched_list
