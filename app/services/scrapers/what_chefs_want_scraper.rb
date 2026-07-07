@@ -287,6 +287,7 @@ module Scrapers
 
       leaves.each do |leaf|
         begin
+          cat_started = Time.current
           offset = 0
           pages = 0
           loop do
@@ -303,7 +304,7 @@ module Scrapers
 
             rate_limit_delay # be polite between pages
           end
-          logger.info "[WhatChefsWant] DEEP '#{leaf[:name]}': ~#{offset} products scanned"
+          logger.info "[WhatChefsWant] DEEP '#{leaf[:name]}': ~#{offset} products in #{format('%.1f', Time.current - cat_started)}s"
         rescue StandardError => e
           logger.warn "[WhatChefsWant] DEEP '#{leaf[:name]}' failed: #{e.class}: #{e.message}"
         end

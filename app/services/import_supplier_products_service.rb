@@ -93,7 +93,8 @@ class ImportSupplierProductsService
       return results
     end
 
-    Rails.logger.info "[ImportProducts] Starting DEEP catalog import for #{supplier.name}"
+    started_at = Time.current
+    Rails.logger.info "[ImportProducts] Starting DEEP catalog import for #{supplier.name} at #{started_at.iso8601}"
     prepare_import_indexes!
     credential.update_columns(import_status_text: "Deep crawl: #{supplier.name} full catalog...")
 
@@ -111,9 +112,11 @@ class ImportSupplierProductsService
       # Keep whatever was imported incrementally — do NOT discontinue anything.
     end
 
-    Rails.logger.info "[ImportProducts] #{supplier.name} DEEP import complete: " \
+    elapsed = Time.current - started_at
+    Rails.logger.info "[ImportProducts] #{supplier.name} DEEP import complete in " \
+                      "#{format('%.1f', elapsed)}s (#{(elapsed / 60).round(1)} min): " \
                       "#{results[:imported]} imported, #{results[:updated]} updated, " \
-                      "#{results[:reinstated]} reinstated"
+                      "#{results[:reinstated]} reinstated, #{@seen_skus&.size || 0} products seen"
     results
   end
 

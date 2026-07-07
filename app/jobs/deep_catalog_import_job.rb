@@ -47,14 +47,19 @@ class DeepCatalogImportJob < ApplicationJob
       return
     end
 
-    Rails.logger.info "[DeepCatalogImport] Starting deep catalog import for #{supplier.name}"
+    started_at = Time.current
+    Rails.logger.info "[DeepCatalogImport] Starting deep catalog import for #{supplier.name} at #{started_at.iso8601}"
     credential.update_columns(importing: true, import_status_text: "Deep catalog import: #{supplier.name}...")
 
     results = ImportSupplierProductsService.new(credential).import_catalog_deep(scraper: scraper)
-    Rails.logger.info "[DeepCatalogImport] #{supplier.name} complete: " \
+
+    elapsed = Time.current - started_at
+    Rails.logger.info "[DeepCatalogImport] #{supplier.name} complete in " \
+                      "#{format('%.1f', elapsed)}s (#{(elapsed / 60).round(1)} min): " \
                       "#{results[:imported]} new, #{results[:updated]} updated, #{results[:reinstated]} reinstated"
   rescue StandardError => e
-    Rails.logger.error "[DeepCatalogImport] Failed: #{e.class.name}: #{e.message}"
+    elapsed = started_at ? " after #{format('%.1f', Time.current - started_at)}s" : ''
+    Rails.logger.error "[DeepCatalogImport] Failed#{elapsed}: #{e.class.name}: #{e.message}"
     Rails.logger.error e.backtrace&.first(10)&.join("\n")
   ensure
     if credential&.persisted?

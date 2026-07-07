@@ -236,6 +236,7 @@ module Scrapers
 
       leaf_categories.each do |category|
         begin
+          cat_started = Time.current
           page_token = ''
           pages = 0
           count = 0
@@ -255,7 +256,7 @@ module Scrapers
 
             rate_limit_delay # be polite between pages
           end
-          logger.info "[ChefsWarehouse] DEEP '#{category[:name]}': #{count} products"
+          logger.info "[ChefsWarehouse] DEEP '#{category[:name]}': #{count} products in #{format('%.1f', Time.current - cat_started)}s"
         rescue StandardError => e
           logger.warn "[ChefsWarehouse] DEEP '#{category[:name]}' failed: #{e.class}: #{e.message}"
         end
