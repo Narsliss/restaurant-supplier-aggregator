@@ -155,6 +155,37 @@ RSpec.describe 'Orders', type: :request do
       get order_path(foreign_order)
       expect(response.status).not_to eq(200) # 302 redirect or 404 — the org scope must reject
     end
+
+    context 'supplier exception alert' do
+      let(:usf) { Supplier.find_by(code: 'usfoods') || create(:supplier, code: 'usfoods') }
+      let(:usf_order) do
+        create(:order, user: user, supplier: usf, organization: org, location: location,
+                       status: 'submitted', submitted_at: 1.minute.ago, confirmation_number: 'USF-9',
+                       supplier_exceptions: [
+                         { 'type' => 'out_of_stock', 'sku' => '4572251', 'name' => 'Chuck Tail Flap', 'ordered' => 2, 'filled' => 0, 'message' => 'Out of stock' },
+                         { 'type' => 'short_fill', 'sku' => '763300', 'name' => 'Olive Oil', 'ordered' => 10, 'filled' => 6 }
+                       ]).tap { |o| create(:order_item, order: o, supplier_product: supplier_product) }
+      end
+
+      it 'renders the exception banner with items and a US Foods deep-link' do
+        get order_path(usf_order)
+
+        expect(response).to have_http_status(:ok)
+        expect(response.body).to include('flagged 2 issues')
+        expect(response.body).to include('Out of stock')
+        expect(response.body).to include('Chuck Tail Flap')
+        expect(response.body).to include('order.usfoods.com')
+      end
+
+      it 'shows no banner when the order has no exceptions' do
+        clean = create(:order, user: user, supplier: usf, organization: org, location: location,
+                               status: 'submitted', supplier_exceptions: [])
+                .tap { |o| create(:order_item, order: o, supplier_product: supplier_product) }
+
+        get order_path(clean)
+        expect(response.body).not_to include('flagged')
+      end
+    end
   end
 
   describe 'DELETE /orders/:id' do

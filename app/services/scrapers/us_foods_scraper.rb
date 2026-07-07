@@ -2219,6 +2219,20 @@ module Scrapers
       end
     end
 
+    # Re-fetch a previously-submitted order by its confirmation (tandem number
+    # or orderId) so we can inspect post-submission exceptions. READ-ONLY — never
+    # mutates the order. Returns the raw order hash, or nil if not found.
+    def fetch_submitted_order(confirmation)
+      return nil if confirmation.to_s.strip.empty?
+
+      api_client.ensure_session!
+      orders = api_client.get_recent_orders
+      orders = orders.is_a?(Array) ? orders : [orders].compact
+      conf = confirmation.to_s
+      orders.select { |o| o.is_a?(Hash) }
+            .find { |o| o['tandemOrderNumber'].to_s == conf || o['orderId'].to_s == conf }
+    end
+
     def checkout(dry_run: false)
       logger.info "[UsFoods] API checkout (dry_run=#{dry_run})"
       api_client.ensure_session!

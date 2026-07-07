@@ -206,7 +206,10 @@ class OrdersController < ApplicationController
     render json: {
       id: @order.id,
       status: @order.status,
-      processing: @order.processing?
+      processing: @order.processing?,
+      exceptions_checked: @order.exceptions_checked_at.present?,
+      has_exceptions: @order.has_supplier_exceptions?,
+      exception_count: @order.supplier_exceptions.size
     }
   end
 

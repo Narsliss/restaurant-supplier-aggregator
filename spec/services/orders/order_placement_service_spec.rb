@@ -95,6 +95,44 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
     end
   end
 
+  describe 'US Foods post-submission exception check' do
+    before { allow(Rails.env).to receive(:production?).and_return(true) }
+
+    it 'enqueues CheckOrderExceptionsJob after a live US Foods submit' do
+      supplier.update!(checkout_enabled: true)
+      allow(supplier).to receive(:code).and_return('usfoods')
+      scraper_checkout_result.merge!(dry_run: false, confirmation_number: 'USF-1')
+      allow(fake_scraper).to receive(:checkout).with(dry_run: false).and_return(scraper_checkout_result)
+
+      expect { described_class.new(order).place_order(skip_pre_validation: true) }
+        .to have_enqueued_job(CheckOrderExceptionsJob).with(order.id)
+    end
+
+    it 'does not enqueue for a non-US-Foods live submit' do
+      supplier.update!(checkout_enabled: true) # code stays non-usfoods
+      scraper_checkout_result.merge!(dry_run: false, confirmation_number: 'X')
+      allow(fake_scraper).to receive(:checkout).and_return(scraper_checkout_result)
+
+      expect { described_class.new(order).place_order(skip_pre_validation: true) }
+        .not_to have_enqueued_job(CheckOrderExceptionsJob)
+    end
+
+    # Safety: the order is already placed before we schedule the check, so a
+    # failure to enqueue must never flip a real, submitted order to failed.
+    it 'keeps the order submitted even if scheduling the exception check raises' do
+      supplier.update!(checkout_enabled: true)
+      allow(supplier).to receive(:code).and_return('usfoods')
+      scraper_checkout_result.merge!(dry_run: false, confirmation_number: 'USF-2')
+      allow(fake_scraper).to receive(:checkout).with(dry_run: false).and_return(scraper_checkout_result)
+      allow(CheckOrderExceptionsJob).to receive(:set).and_raise(StandardError, 'queue down')
+
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result[:success]).to be true
+      expect(order.reload.status).to eq('submitted')
+    end
+  end
+
   describe 'email supplier dispatch' do
     let(:supplier) { create(:supplier, :email, contact_email: 'orders@example.com') }
     let!(:credential) { nil }

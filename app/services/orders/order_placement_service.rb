@@ -105,6 +105,19 @@ module Orders
           )
           order.order_items.update_all(status: 'added')
 
+          # US Foods finalizes exceptions (out of stock, subs, short-fills) shortly
+          # after submit. Kick off a fast re-check so the chef is alerted within
+          # ~a minute, while they're still in the app. Isolated in its own rescue:
+          # the order is already submitted, so a failure to enqueue must NOT bubble
+          # into the generic rescue below (which would wrongly mark it failed).
+          if order.supplier.code == 'usfoods'
+            begin
+              CheckOrderExceptionsJob.set(wait: 20.seconds).perform_later(order.id)
+            rescue StandardError => e
+              Rails.logger.warn "[OrderPlacement] Order #{order.id} submitted, but scheduling the exception check failed: #{e.message}"
+            end
+          end
+
           Rails.logger.info "[OrderPlacement] Order #{order.id} submitted: #{result[:confirmation_number]}"
 
           { success: true, order: order.reload }

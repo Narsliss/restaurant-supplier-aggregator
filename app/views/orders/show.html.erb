@@ -2,11 +2,14 @@
      data-controller="order-status<%= ' order-edit' if @order.pending? %>"
      data-order-status-url-value="<%= placement_status_order_path(@order) %>"
      data-order-status-processing-value="<%= @order.processing? %>"
+     data-order-status-awaiting-exceptions-value="<%= @order.awaiting_exception_check? %>"
      <% if @order.pending? %>
        data-order-edit-order-id-value="<%= @order.id %>"
        data-order-edit-minimum-value="<%= @minimum || 0 %>"
        data-order-edit-case-minimum-value="<%= @case_minimum || 0 %>"
      <% end %>>
+  <%= render "orders/exception_alert", order: @order %>
+
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Order #<%= @order.id %></h1>

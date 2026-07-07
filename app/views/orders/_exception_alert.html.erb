@@ -1,0 +1,33 @@
+<% if order.has_supplier_exceptions? %>
+  <div class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4" data-order-status-target="exceptionAlert">
+    <div class="flex items-start gap-3">
+      <svg class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+      </svg>
+      <div class="flex-1 min-w-0">
+        <p class="font-semibold text-amber-800">
+          <%= order.display_supplier_name %> flagged <%= pluralize(order.supplier_exceptions.size, "issue") %> with this order
+        </p>
+        <ul class="mt-2 space-y-1 text-sm text-amber-800">
+          <% order.supplier_exceptions.first(12).each do |ex| %>
+            <li>
+              <span class="font-medium"><%= exception_type_label(ex["type"]) %>:</span>
+              <%= ex["name"].presence || ex["sku"] || "Item" %><%
+                if ex["type"] == "short_fill" && ex["filled"] && ex["ordered"] %> (<%= ex["filled"] %> of <%= ex["ordered"] %>)<%
+                elsif ex["message"].present? %> — <%= ex["message"] %><% end %>
+            </li>
+          <% end %>
+        </ul>
+        <% if order.supplier_order_url.present? %>
+          <a href="<%= order.supplier_order_url %>" target="_blank" rel="noopener"
+             class="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700">
+            Open in <%= order.display_supplier_name %> to resolve
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+            </svg>
+          </a>
+        <% end %>
+      </div>
+    </div>
+  </div>
+<% end %>

@@ -14,11 +14,12 @@ export default class extends Controller {
   static values = {
     url: String,
     processing: Boolean,
+    awaitingExceptions: { type: Boolean, default: false },
     interval: { type: Number, default: 3000 }
   }
 
   connect() {
-    if (this.processingValue) {
+    if (this.processingValue || this.awaitingExceptionsValue) {
       this._startPolling()
     }
   }
@@ -58,20 +59,32 @@ export default class extends Controller {
 
       const data = await response.json()
 
-      if (!data.processing) {
-        // Order is no longer processing — refresh the page to show final state
-        this._stopPolling()
-
-        // Use Turbo to seamlessly replace the page content
-        if (window.Turbo) {
-          window.Turbo.visit(window.location.href, { action: "replace" })
-        } else {
-          window.location.reload()
+      if (this.processingValue) {
+        if (!data.processing) {
+          // Order is no longer processing — refresh to show the final state
+          this._stopPolling()
+          this._refresh()
         }
+        return
+      }
+
+      // Not processing, but waiting for the supplier exception check to land.
+      // Once it's done, refresh only if there's actually something to show.
+      if (this.awaitingExceptionsValue && data.exceptions_checked) {
+        this._stopPolling()
+        if (data.has_exceptions) this._refresh()
       }
     } catch (e) {
       // Network error — don't stop polling, just skip this tick
       console.warn("[order-status] Poll failed:", e.message)
+    }
+  }
+
+  _refresh() {
+    if (window.Turbo) {
+      window.Turbo.visit(window.location.href, { action: "replace" })
+    } else {
+      window.location.reload()
     }
   }
 

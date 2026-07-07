@@ -80,6 +80,29 @@ class Order < ApplicationRecord
     [remaining.ceil, 0].max
   end
 
+  # True when the supplier flagged issues after submission (out of stock,
+  # substitutions, short-fills, price change). See CheckOrderExceptionsJob.
+  def has_supplier_exceptions?
+    supplier_exceptions.present?
+  end
+
+  # Deep-link to fix an exception order on the supplier's own site. The chef
+  # logs in there (we can't SSO through 2FA) and resolves it. US Foods only.
+  def supplier_order_url
+    return nil unless supplier&.code == "usfoods"
+
+    "https://order.usfoods.com/desktop/order"
+  end
+
+  # True while we're still waiting on the post-submission exception check for a
+  # freshly-submitted USF order — the order page keeps polling until it lands.
+  def awaiting_exception_check?
+    supplier&.code == "usfoods" &&
+      status == "submitted" &&
+      exceptions_checked_at.nil? &&
+      submitted_at.present? && submitted_at > 10.minutes.ago
+  end
+
   # Canonical image (from the product match) for a given order item, for display
   # on the review/placed-order screens. Each line is a specific supplier product;
   # we resolve back to the ProductMatch that owns it (scoped to this order's org)
