@@ -71,13 +71,25 @@ class DeepCatalogImportJob < ApplicationJob
 
   private
 
+  # Prefer a super_admin credential (broadest catalog access), but fall back to
+  # the best available active credential. Catalog browsing works with any
+  # logged-in account, and in practice there are no super_admin credentials —
+  # without this fallback every deep import would silently skip.
   def find_credential(supplier)
-    super_admin = User.super_admin
-    return nil unless super_admin
+    sa_cred = User.super_admin&.credential_for(supplier)
+    return sa_cred if sa_cred&.active? || sa_cred&.status == 'pending'
 
-    cred = super_admin.credential_for(supplier)
-    return nil unless cred&.active? || cred&.status == 'pending'
+    best_active_credential(supplier)
+  end
 
-    cred
+  # Mirrors StaggeredSupplierImportJob#best_credential_for: prefer a credential
+  # with a live session, else the most recently used active one.
+  def best_active_credential(supplier)
+    active = SupplierCredential.where(supplier: supplier, status: 'active')
+    return nil unless active.exists?
+
+    with_session = active.select(&:session_valid?)
+    candidates = with_session.any? ? with_session : active.to_a
+    candidates.max_by { |c| c.last_login_at || c.created_at }
   end
 end
