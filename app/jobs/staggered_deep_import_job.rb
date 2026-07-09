@@ -1,12 +1,13 @@
 # frozen_string_literal: true
 
 # Nightly driver for full-catalog deep imports. Deep crawls are heavy (minutes to
-# a few hours each), so instead of running them all at once we rotate: ONE
-# deep-capable supplier per night. With N such suppliers, each refreshes roughly
-# every N days — one deep crawl running at a time, no overlap, minimal API load.
+# a couple hours each), so we run at most ONE per evening on a WEEKLY cadence:
+# each deep-capable supplier gets one fixed weekday (supplier i → weekday i), so
+# it deep-crawls once a week. Evenings past the supplier count are idle. One crawl
+# at a time, no overlap, minimal API load.
 #
 # The daily shallow import (StaggeredSupplierImportJob) still runs for every
-# supplier every day; this only supplements it with the full catalog.
+# supplier every day; this only supplements it with the full catalog weekly.
 class StaggeredDeepImportJob < ApplicationJob
   queue_as :scraping
 
@@ -17,11 +18,17 @@ class StaggeredDeepImportJob < ApplicationJob
       return
     end
 
-    # Rotate through the (stable, id-ordered) list one per day.
-    supplier = suppliers[Date.current.yday % suppliers.size]
-    Rails.logger.info "[StaggeredDeepImport] Tonight's deep crawl: #{supplier.name} " \
-                      "(#{suppliers.size} deep-capable suppliers in rotation)"
+    # Weekly cadence, at most one supplier per evening: supplier i deep-crawls on
+    # weekday i (Sun=0 .. Sat=6). Each supplier runs once a week; evenings past
+    # the supplier count are idle. This job is scheduled nightly.
+    supplier = suppliers[Date.current.wday]
+    unless supplier
+      Rails.logger.info "[StaggeredDeepImport] No deep crawl scheduled for #{Date.current.strftime('%A')} " \
+                        "(#{suppliers.size} suppliers, one per weekday)"
+      return
+    end
 
+    Rails.logger.info "[StaggeredDeepImport] #{Date.current.strftime('%A')} deep crawl: #{supplier.name}"
     DeepCatalogImportJob.perform_later(supplier.id)
   end
 

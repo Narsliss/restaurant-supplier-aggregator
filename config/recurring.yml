@@ -52,12 +52,12 @@ production:
     schedule: "30 4 * * *"
     description: "Delete expired draft orders daily at 12:30 AM EST (4:30 AM UTC)"
 
-  # Nightly full-catalog deep import — rotates ONE deep-capable supplier per night
-  # (What Chefs Want, Chef's Warehouse, Premiere Produce One), so each refreshes
-  # every few days. US Foods is excluded: its daily API import already crawls the
-  # full catalog. Paginates every category to exhaustion via the supplier API —
-  # additive/reinstate-only, never discontinues. Runs at midnight (well before
-  # the 6 AM shallow import), one supplier at a time.
+  # Nightly driver for full-catalog deep imports (What Chefs Want, Chef's
+  # Warehouse, Premiere Produce One). Each supplier deep-crawls ONCE A WEEK on a
+  # fixed weekday, at most one per evening (other evenings idle). US Foods is
+  # excluded: its daily API import already crawls the full catalog. Paginates
+  # every category to exhaustion — additive/reinstate-only, never discontinues.
+  # Runs at midnight (well before the 6 AM shallow import), one at a time.
   staggered_deep_import:
     class: StaggeredDeepImportJob
     queue: scraping
