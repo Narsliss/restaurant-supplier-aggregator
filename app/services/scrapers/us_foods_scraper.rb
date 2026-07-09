@@ -814,33 +814,12 @@ module Scrapers
       results
     end
 
-    # US Foods catalog import — hybrid strategy (2025 site redesign):
-    #
-    # FAST (scrape_catalog): Empty search (searchText=) returns ~2,000 products
-    # available to this customer in ~8.5 minutes. Used for regular imports.
-    #
-    # DEEP (scrape_catalog_deep): Browses all 11 food categories and their
-    # subcategories for comprehensive coverage. Takes 1-3 hours but finds
-    # tens of thousands of products. Run as a separate daily background job.
-
-    # Top-level food categories on the US Foods browse page.
-    # Excludes non-food categories (Equipment & Supplies, Disposables,
-    # Chemicals & Cleaning) to keep import focused on food products.
-    FOOD_CATEGORIES = %w[
-      beef
-      beverages
-      dairy-and-eggs
-      dry-storage
-      fresh-produce
-      frozen-foods
-      pork
-      poultry
-      prepared-foods-and-deli
-      seafood
-      specialty-meats
-    ].freeze
-
-    # Browser-based catalog import (fallback).
+    # US Foods catalog import is API-based — see #scrape_catalog above, which
+    # crawls the full catalog category-by-category via Coveo (splitting oversized
+    # categories by subcategory). There is intentionally NO deep-crawl variant:
+    # the API crawl is already comprehensive, so US Foods is not part of the
+    # nightly deep-import rotation. The method below is a legacy browser fallback
+    # (empty-search + scroll) kept only for emergencies.
     def browser_scrape_catalog(_search_terms, max_per_term: 100, &on_batch)
       results = []
       total_yielded = 0
@@ -894,81 +873,6 @@ module Scrapers
       deduped = results.uniq { |r| r[:supplier_sku] }
       logger.info "[UsFoods] Total unique products: #{deduped.size} (from #{results.size} raw)"
       deduped
-    end
-
-    # Deep catalog import: browse all food categories and subcategories.
-    # This finds products the empty search misses (tens of thousands total).
-    # Takes 1-3 hours — designed to run as a daily background job.
-    def scrape_catalog_deep(&on_batch)
-      total_yielded = 0
-
-      with_browser do
-        session_restored = false
-        if restore_session
-          browser.refresh
-          sleep 3
-          if logged_in?
-            logger.info '[UsFoods] Session restored for deep import'
-            session_restored = true
-          end
-        end
-
-        unless session_restored
-          perform_login_steps
-          sleep 3
-          raise AuthenticationError, 'Could not log in for deep catalog import' unless logged_in?
-        end
-
-        save_session
-
-        import_start = Time.current
-        FOOD_CATEGORIES.each do |category|
-          subcategories = discover_subcategories(category)
-          display_name = category.gsub('-', ' ').split.map(&:capitalize).join(' ')
-
-          if subcategories.any?
-            logger.info "[UsFoods] #{display_name}: #{subcategories.size} subcategories"
-            subcategories.each do |subcat|
-              path = "/desktop/search2/product-listing/#{category}/#{subcat[:slug]}"
-              products = browse_category_page(path)
-              products.each { |p| p[:category] ||= display_name }
-
-              if on_batch
-                on_batch.call(products)
-                total_yielded += products.size
-              end
-
-              logger.info "[UsFoods] #{display_name}/#{subcat[:name]}: #{products.size} products (total: #{total_yielded})"
-            rescue StandardError => e
-              logger.warn "[UsFoods] Failed #{display_name}/#{subcat[:name]}: #{e.class}: #{e.message}"
-            end
-          else
-            # No subcategories found — browse the top-level category directly
-            begin
-              path = "/desktop/search2/product-listing/#{category}"
-              products = browse_category_page(path)
-              products.each { |p| p[:category] ||= display_name }
-
-              if on_batch
-                on_batch.call(products)
-                total_yielded += products.size
-              end
-
-              logger.info "[UsFoods] #{display_name}: #{products.size} products (total: #{total_yielded})"
-            rescue StandardError => e
-              logger.warn "[UsFoods] Failed #{display_name}: #{e.class}: #{e.message}"
-            end
-          end
-
-          # Save session periodically to keep it alive during long import
-          save_session
-        end
-
-        elapsed_min = ((Time.current - import_start) / 60).round(1)
-        logger.info "[UsFoods] Deep category browsing complete: #{total_yielded} products in #{elapsed_min} min"
-      end
-
-      total_yielded
     end
 
     # Scrape saved order lists from US Foods /desktop/lists page.
@@ -1183,96 +1087,6 @@ module Scrapers
           position: position
         }
       end
-    end
-
-    # Discover subcategories for a top-level category by visiting its landing page.
-    # Returns an array of { name:, slug: } hashes.
-    def discover_subcategories(category)
-      navigate_to("#{BASE_URL}/desktop/category-landing/#{category}")
-      sleep 5 # Wait for Angular SPA to render the subcategory tiles
-
-      subcats_json = browser.evaluate(<<~JS)
-        (function() {
-          var result = [];
-          // Subcategory tiles use .image-bubble-text class
-          var bubbles = document.querySelectorAll('.image-bubble-text, [class*=image-bubble] p');
-          for (var i = 0; i < bubbles.length; i++) {
-            var text = (bubbles[i].innerText || '').trim();
-            if (text.length > 1 && text.length < 80) result.push(text);
-          }
-          // Fallback: ion-card elements with short text
-          if (result.length === 0) {
-            var cards = document.querySelectorAll('ion-card');
-            for (var i = 0; i < cards.length; i++) {
-              var text = (cards[i].innerText || '').trim();
-              if (text.length > 1 && text.length < 80 && !text.match(/^#/) && !text.match(/^\\$/) && text !== 'Shop All Products') {
-                result.push(text);
-              }
-            }
-          }
-          return JSON.stringify(result);
-        })()
-      JS
-
-      subcats = JSON.parse(subcats_json)
-      subcats.map do |name|
-        slug = name.downcase.gsub(/[^a-z0-9\s]/, '').strip.gsub(/\s+/, '-')
-        { name: name, slug: slug }
-      end
-    rescue StandardError => e
-      logger.warn "[UsFoods] Failed to discover subcategories for #{category}: #{e.message}"
-      []
-    end
-
-    # Browse a category/subcategory product listing page and scroll through
-    # the CDK virtual scroll to extract all products.
-    def browse_category_page(path)
-      navigate_to("#{BASE_URL}#{path}")
-      sleep 4
-
-      card_count = begin
-        browser.evaluate("document.querySelectorAll('.product-wrapper').length")
-      rescue StandardError
-        0
-      end
-      if card_count == 0
-        sleep 3
-        card_count = begin
-          browser.evaluate("document.querySelectorAll('.product-wrapper').length")
-        rescue StandardError
-          0
-        end
-        return [] if card_count == 0
-      end
-
-      # Scroll through CDK virtual scroll, extracting products as we go
-      all_products = {}
-      stale_rounds = 0
-
-      200.times do |_attempt|
-        page_products = extract_products_from_page
-        new_count = 0
-        page_products.each do |p|
-          next if p[:supplier_sku].blank?
-
-          unless all_products.key?(p[:supplier_sku])
-            all_products[p[:supplier_sku]] = p
-            new_count += 1
-          end
-        end
-
-        if new_count == 0
-          stale_rounds += 1
-          break if stale_rounds >= 4
-        else
-          stale_rounds = 0
-        end
-
-        scroll_virtual_list
-        sleep 1
-      end
-
-      all_products.values
     end
 
     # US Foods uses an Order-based workflow:

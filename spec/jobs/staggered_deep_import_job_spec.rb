@@ -12,6 +12,11 @@ RSpec.describe StaggeredDeepImportJob, type: :job do
     expect(picked.scraper_klass.instance_methods).to include(:scrape_catalog_deep)
   end
 
+  it 'excludes US Foods (its daily API import already crawls the full catalog)' do
+    usf = Supplier.find_by(code: 'usfoods') || create(:supplier, code: 'usfoods', scraper_class: 'Scrapers::UsFoodsScraper')
+    expect(usf.scraper_klass.instance_methods).not_to include(:scrape_catalog_deep)
+  end
+
   it 'enqueues nothing when no active supplier is deep-capable' do
     base_only = create(:supplier, scraper_class: 'Scrapers::BaseScraper', active: true)
     allow(Supplier).to receive(:active).and_return(Supplier.where(id: base_only.id))

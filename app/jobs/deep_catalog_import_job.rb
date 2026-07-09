@@ -5,21 +5,22 @@
 # misses (it caps each category). Additive + reinstate-only: it never marks
 # products discontinued, so a partial crawl can't wrongly wipe the catalog.
 #
-# Supported by any scraper implementing `scrape_catalog_deep` (US Foods, What
-# Chefs Want, Chef's Warehouse, Premiere Produce One). Runs long (minutes to a
-# few hours) — scheduled one-supplier-per-night by StaggeredDeepImportJob.
+# Supported by any scraper implementing `scrape_catalog_deep` (What Chefs Want,
+# Chef's Warehouse, Premiere Produce One). US Foods is NOT included — its daily
+# API import already crawls the full catalog category-by-category. Runs long
+# (minutes to a couple hours) — scheduled one-supplier-per-night by
+# StaggeredDeepImportJob.
 #
 # Triggered:
 #   - Nightly, rotating one supplier at a time (StaggeredDeepImportJob)
 #   - Manually: DeepCatalogImportJob.perform_later(supplier_id)
-#     (no arg defaults to US Foods for backward compatibility)
 class DeepCatalogImportJob < ApplicationJob
   queue_as :scraping
 
   discard_on ActiveRecord::RecordNotFound
 
-  def perform(supplier_id = nil)
-    supplier = supplier_id ? Supplier.find(supplier_id) : Supplier.find_by(code: 'usfoods')
+  def perform(supplier_id)
+    supplier = Supplier.find_by(id: supplier_id)
     return unless supplier
 
     credential = find_credential(supplier)
