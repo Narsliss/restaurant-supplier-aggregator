@@ -103,27 +103,41 @@
   </div>
 <% end %>
 
-<!-- Stat Cards Row (Horizontal Scroll) -->
-<div class="mt-4 flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4">
-  <%= link_to orders_path, class: "bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100" do %>
-    <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">This Week</p>
-    <p class="text-2xl font-heading font-bold text-brand-navy mt-1"><%= @stats[:orders_this_week] %></p>
-    <p class="text-gray-500 text-xs">orders placed</p>
+<!-- Start an Order CTA (primary action — links straight into the builder) -->
+<div class="mt-4">
+  <%= link_to start_order_aggregated_lists_path, class: "block bg-brand-green active:bg-brand-green-dark text-white rounded-2xl px-5 py-4 shadow-lg shadow-brand-green/25" do %>
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="font-heading text-lg font-semibold tracking-wide">Start an Order</p>
+        <p class="text-sm text-white/75">Search every supplier at once</p>
+      </div>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </div>
   <% end %>
-  <%= link_to orders_path, class: "bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100" do %>
-    <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Next Delivery</p>
-    <% if @stats[:next_delivery] %>
-      <% delivery_date = @stats[:next_delivery].delivery_date %>
-      <p class="text-lg font-heading font-bold text-brand-navy mt-1"><%= delivery_date == Date.current ? "Today" : delivery_date == Date.tomorrow ? "Tomorrow" : delivery_date.strftime("%a, %b %-d") %></p>
-      <p class="text-green-600 text-xs font-medium"><%= @stats[:next_delivery].supplier.name %></p>
-    <% else %>
-      <p class="text-sm font-heading font-bold text-gray-400 mt-1">None scheduled</p>
-    <% end %>
-  <% end %>
-  <%= link_to supplier_credentials_path, class: "bg-white rounded-xl p-3 min-w-[120px] flex-shrink-0 shadow-sm border border-gray-100" do %>
-    <p class="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Pending</p>
-    <p class="text-2xl font-heading font-bold <%= @stats[:pending_verifications] > 0 ? 'text-amber-500' : 'text-brand-navy' %> mt-1"><%= @stats[:pending_verifications] %></p>
-    <p class="text-gray-500 text-xs">verification<%= @stats[:pending_verifications] == 1 ? '' : 's' %></p>
+</div>
+
+<!-- Spend this week -->
+<div class="mt-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+  <div class="flex items-start justify-between">
+    <div>
+      <p class="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Spend this week</p>
+      <p class="text-3xl font-heading font-extrabold text-brand-navy mt-1"><%= number_to_currency(@daily_orders.sum { |d| d[:total] }) %></p>
+      <p class="text-xs text-gray-500 mt-0.5"><%= pluralize(@stats[:orders_this_week], "order") %> placed</p>
+    </div>
+    <% max_total = [@daily_orders.map { |d| d[:total] }.max.to_f, 1].max %>
+    <div class="flex items-end gap-1 h-16 mt-1">
+      <% @daily_orders.each do |day| %>
+        <div class="w-4 rounded-t <%= day[:date] == Date.current ? 'bg-brand-green' : (day[:total].positive? ? 'bg-brand-green/25' : 'bg-brand-stone border border-dashed border-gray-200') %>"
+             style="height: <%= day[:total].positive? ? [(day[:total] / max_total * 100).round, 8].max : 8 %>%"
+             title="<%= day[:label] %> <%= number_to_currency(day[:total]) %>"></div>
+      <% end %>
+    </div>
+  </div>
+  <% if @weekly_savings.to_f.positive? %>
+    <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+      <span class="text-gray-500">Saved by price comparison</span>
+      <span class="font-bold text-green-700"><%= number_to_currency(@weekly_savings) %> this week 🎉</span>
+    </div>
   <% end %>
 </div>
 
@@ -167,76 +181,9 @@
   <% else %>
     <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 text-center">
       <p class="text-sm text-gray-500">No upcoming deliveries.</p>
-      <p class="mt-1"><%= link_to "Place an order", select_list_orders_path, class: "text-brand-orange text-xs font-semibold" %></p>
+      <p class="mt-1"><%= link_to "Place an order", start_order_aggregated_lists_path, class: "text-brand-orange text-xs font-semibold" %></p>
     </div>
   <% end %>
 </section>
 
-<!-- This Week's Orders (Bar Chart) -->
-<section class="mt-4">
-  <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide mb-3">This Week's Orders</h2>
-  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-    <% max_total = [@daily_orders.map { |d| d[:total] }.max.to_f, 1].max %>
-    <% if @daily_orders.any? { |d| d[:total] > 0 } %>
-      <div class="flex items-end justify-between gap-2 h-28">
-        <% @daily_orders.each do |day| %>
-          <div class="flex flex-col items-center gap-1 flex-1">
-            <div class="w-full rounded-t-md <%= day[:date] == Date.current ? 'bg-brand-orange' : 'bg-brand-green/20' %>"
-                 style="height: <%= day[:total] > 0 ? [(day[:total] / max_total * 100).round, 4].max : 0 %>%"></div>
-            <span class="text-[10px] <%= day[:date] == Date.current ? 'text-brand-orange font-bold' : 'text-gray-400' %>"><%= day[:label] %></span>
-          </div>
-        <% end %>
-      </div>
-      <div class="mt-2 pt-2 border-t border-gray-100 flex justify-between text-xs">
-        <span class="text-gray-500">Week total</span>
-        <span class="font-semibold text-brand-navy"><%= number_to_currency(@daily_orders.sum { |d| d[:total] }) %></span>
-      </div>
-    <% else %>
-      <div class="flex items-center justify-center h-28 text-xs text-gray-400">No orders this week yet</div>
-    <% end %>
-  </div>
-</section>
-
-<!-- Recent Orders -->
-<section class="mt-6 mb-6">
-  <div class="flex items-center justify-between mb-3">
-    <h2 class="font-heading text-base font-semibold text-brand-navy tracking-wide">Recent Orders</h2>
-    <%= link_to "View all", orders_path, class: "text-brand-green text-xs font-semibold" %>
-  </div>
-
-  <% if @recent_orders.any? %>
-    <div class="space-y-2">
-      <% @recent_orders.each do |order| %>
-        <%= link_to order, class: "bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center gap-3 block" do %>
-          <div class="w-2 h-10 rounded-full flex-shrink-0
-            <%= case order.status
-                when 'submitted', 'confirmed' then 'bg-green-400'
-                when 'processing', 'verifying' then 'bg-blue-400'
-                when 'failed' then 'bg-red-400'
-                when 'price_changed' then 'bg-amber-400'
-                else 'bg-brand-orange'
-                end %>"></div>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-gray-900"><%= order.display_supplier_name %></p>
-            <p class="text-xs text-gray-400"><%= pluralize(order.item_count, "item") %> &middot; <%= time_ago_in_words(order.created_at) %> ago</p>
-          </div>
-          <div class="text-right">
-            <p class="text-sm font-bold text-brand-navy"><%= number_to_currency(order.total_amount) %></p>
-            <p class="text-[10px] font-medium
-              <%= case order.status
-                  when 'submitted', 'confirmed' then 'text-green-600'
-                  when 'failed' then 'text-red-600'
-                  when 'price_changed' then 'text-amber-600'
-                  else 'text-gray-500'
-                  end %>"><%= order.status.titleize %></p>
-          </div>
-        <% end %>
-      <% end %>
-    </div>
-  <% else %>
-    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 text-center">
-      <p class="text-sm text-gray-500">No orders yet.</p>
-      <p class="mt-1"><%= link_to "Create your first order", select_list_orders_path, class: "text-brand-orange text-xs font-semibold" %></p>
-    </div>
-  <% end %>
-</section>
+<div class="mb-6"></div>

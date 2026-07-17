@@ -43,6 +43,8 @@ import CrmTaskController from "./crm_task_controller"
 import CrmStageSelectController from "./crm_stage_select_controller"
 import MobileTabBarController from "./mobile_tab_bar_controller"
 import MobileSearchController from "./mobile_search_controller"
+import MobileOrderBuilderController from "./mobile_order_builder_controller"
+import MobileReviewController from "./mobile_review_controller"
 import MatchFilterController from "./match_filter_controller"
 import DeliveryScheduleGridController from "./delivery_schedule_grid_controller"
 import OnboardingWizardController from "./onboarding_wizard_controller"
@@ -90,6 +92,8 @@ application.register("crm-task", CrmTaskController)
 application.register("crm-stage-select", CrmStageSelectController)
 application.register("mobile-tab-bar", MobileTabBarController)
 application.register("mobile-search", MobileSearchController)
+application.register("mobile-order-builder", MobileOrderBuilderController)
+application.register("mobile-review", MobileReviewController)
 application.register("match-filter", MatchFilterController)
 application.register("delivery-schedule-grid", DeliveryScheduleGridController)
 application.register("onboarding-wizard", OnboardingWizardController)

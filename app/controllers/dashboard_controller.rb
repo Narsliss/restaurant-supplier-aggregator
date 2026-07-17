@@ -294,6 +294,11 @@ class DashboardController < ApplicationController
       { date: day, label: day.strftime("%a"), total: row ? row[1] : 0, count: row ? row[2] : 0 }
     end
 
+    # Savings from price comparison this week (mobile "Spend this week" card)
+    @weekly_savings = base_orders.kpi_eligible
+      .where("orders.created_at >= ?", week_start)
+      .sum(:savings_amount)
+
     # Recent orders
     @recent_orders = base_orders
       .includes(:supplier, :location)

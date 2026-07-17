@@ -146,7 +146,12 @@ class ApplicationController < ActionController::Base
   end
 
   def set_mobile_variant
-    if Rails.env.development? && params[:mobile] == "1"
+    # Dev override is sticky across redirects: ?mobile=1 turns it on, ?mobile=0 off
+    if Rails.env.development? && params[:mobile].present?
+      session[:mobile_preview] = (params[:mobile] == "1")
+    end
+
+    if Rails.env.development? && session[:mobile_preview]
       request.variant = :mobile
     elsif request.user_agent =~ /Mobile|Android|webOS|iPhone|iPod|BlackBerry|Opera Mini|IEMobile/i
       request.variant = :mobile

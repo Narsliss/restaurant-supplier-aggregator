@@ -1,0 +1,12 @@
+<%# Mobile Cart tab — empty state (no in-progress batch) %>
+<div class="-mx-4 -mt-2 min-h-screen bg-brand-cream px-6 text-center">
+  <div class="pt-24">
+    <div class="w-20 h-20 mx-auto rounded-full bg-white border border-gray-200 flex items-center justify-center mb-4">
+      <svg class="text-gray-300" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h2l2.4 12.2a2 2 0 002 1.8h7.9a2 2 0 002-1.6L21 7H6"/></svg>
+    </div>
+    <h1 class="font-heading text-xl font-semibold text-brand-navy">Cart is empty</h1>
+    <p class="text-sm text-gray-500 mt-1 mb-6">Search your suppliers and tap a price to start an order.</p>
+    <%= link_to "Start an Order", start_order_aggregated_lists_path,
+          class: "inline-block bg-brand-green active:bg-brand-green-dark text-white font-bold rounded-xl px-8 py-3.5" %>
+  </div>
+</div>

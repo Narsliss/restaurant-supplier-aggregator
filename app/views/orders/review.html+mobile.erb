@@ -1,0 +1,148 @@
+<%# ============================================================================ %>
+<%# MOBILE CART / REVIEW — Comp A cart from mockups/mobile-first/cart.html        %>
+<%# Renders the same @review_orders/@summary the desktop review action builds.    %>
+<%# Placing posts the existing submit_batch endpoint — pipeline untouched.        %>
+<%# ============================================================================ %>
+
+<% if @verifying %>
+  <%# Lightweight v1 polling: refresh until price verification settles %>
+  <meta http-equiv="refresh" content="6">
+<% end %>
+
+<div data-controller="mobile-review" class="-mx-4 -mt-2 min-h-screen bg-brand-cream pb-56 px-2">
+
+  <header class="px-2 pt-4 pb-3 flex items-center gap-3">
+    <% builder_path = @aggregated_list_id ? order_builder_aggregated_list_path(@aggregated_list_id, batch_id: @batch_id) : orders_path %>
+    <%= link_to builder_path, class: "w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-600 shrink-0" do %>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>
+    <% end %>
+    <div class="min-w-0">
+      <h1 class="font-heading text-2xl font-semibold text-brand-navy tracking-wide">Your Cart</h1>
+      <p class="text-xs text-gray-500"><%= pluralize(@summary[:total_items], "item") %> across <%= pluralize(@summary[:order_count], "supplier") %></p>
+    </div>
+  </header>
+
+  <% if @verifying %>
+    <div class="mb-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center gap-3">
+      <svg class="w-5 h-5 text-blue-500 animate-spin shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+      <div>
+        <p class="text-sm font-bold text-blue-800">Checking current prices…</p>
+        <p class="text-[11px] text-blue-600">This page refreshes automatically.</p>
+      </div>
+    </div>
+  <% end %>
+
+  <div class="space-y-3">
+    <% @review_orders.each do |r| %>
+      <% order = r[:order] %>
+      <% met = r[:meets_minimum] && r[:meets_case_minimum] %>
+      <% pct = r[:minimum].to_f.positive? ? [(r[:subtotal].to_f / r[:minimum]) * 100, 100].min : 100 %>
+      <div class="bg-white rounded-2xl border <%= met ? 'border-gray-200' : 'border-red-200' %> overflow-hidden">
+        <div class="px-4 pt-3.5 pb-3 border-b border-gray-100">
+          <div class="flex items-center gap-2.5 mb-2">
+            <div class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center shrink-0">
+              <span class="text-[10px] font-bold <%= r[:supplier].brand_color_class %>"><%= r[:supplier].short_name.first(3).upcase %></span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="font-bold text-brand-navy text-sm leading-tight truncate"><%= r[:supplier].name %></p>
+              <p class="text-[11px] font-semibold <%= met ? 'text-green-700' : 'text-red-600' %>">
+                <% if r[:minimum].blank? %>
+                  No minimum
+                <% elsif r[:meets_minimum] %>
+                  ✓ <%= number_to_currency(r[:minimum]) %> minimum met
+                <% else %>
+                  <%= number_to_currency(r[:amount_to_minimum]) %> below <%= number_to_currency(r[:minimum]) %> minimum
+                <% end %>
+                <% unless r[:meets_case_minimum] %>
+                  · <%= pluralize(r[:cases_to_minimum], "case") %> below case minimum
+                <% end %>
+              </p>
+            </div>
+            <div class="text-right shrink-0">
+              <p class="font-extrabold <%= met ? 'text-brand-navy' : 'text-red-600' %>"><%= number_to_currency(r[:subtotal]) %></p>
+              <% if order.price_changed? && r[:price_change_amount].present? %>
+                <p class="text-[10px] font-bold text-amber-600">prices moved <%= number_to_currency(r[:price_change_amount]) %></p>
+              <% end %>
+            </div>
+          </div>
+          <% if r[:minimum].to_f.positive? %>
+            <div class="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+              <div class="h-full rounded-full <%= met ? 'bg-green-500' : 'bg-red-400' %>" style="width: <%= pct.round %>%"></div>
+            </div>
+          <% end %>
+          <% unless r[:has_credentials] %>
+            <p class="mt-2 text-[11px] font-bold text-red-600">No active credential for this supplier — connect it before placing.</p>
+          <% end %>
+        </div>
+
+        <% r[:items].each do |item| %>
+          <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-50 last:border-0">
+            <div class="flex-1 min-w-0">
+              <p class="text-[14px] font-bold text-brand-navy truncate"><%= item.supplier_name %></p>
+              <p class="text-[11px] text-gray-400">
+                <%= item.quantity.to_f == item.quantity.to_i ? item.quantity.to_i : item.quantity %> × <%= number_to_currency(item.unit_price) %><%= " · #{item.uom}" if item.uom.present? && item.uom != "CS" %>
+              </p>
+            </div>
+            <span class="text-[13px] font-extrabold text-brand-navy shrink-0"><%= number_to_currency(item.line_total) %></span>
+          </div>
+        <% end %>
+
+        <%# Per-order delivery date (native picker — the OS sheet on phones) %>
+        <div class="px-4 py-3 bg-brand-stone flex items-center gap-2">
+          <svg class="shrink-0 text-brand-green" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+          <span class="text-xs font-bold text-gray-500 shrink-0">Deliver</span>
+          <%= date_field_tag "delivery_date_#{order.id}", order.delivery_date,
+                min: Date.tomorrow, max: Date.today + 30.days,
+                class: "flex-1 bg-transparent text-sm font-extrabold text-brand-navy border-0 focus:ring-0 p-0 #{'ring-2 ring-amber-400 rounded' if order.delivery_date.blank?}",
+                data: { order_id: order.id, mobile_review_target: "deliveryDate", action: "change->mobile-review#updateDeliveryDate" } %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+  <%# Sticky footer %>
+  <div class="fixed inset-x-0 z-40" style="bottom: 76px;">
+    <div class="px-2">
+      <div class="bg-white border border-gray-200 rounded-2xl shadow-2xl shadow-black/20 p-3.5">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm text-gray-500">Total (<%= pluralize(@summary[:total_items], "item") %>)</span>
+          <span class="text-xl font-extrabold text-brand-navy"><%= number_to_currency(@summary[:total_amount]) %></span>
+        </div>
+        <% if @summary[:total_savings].to_f.positive? %>
+          <div class="flex items-center justify-between mb-2.5">
+            <span class="text-xs text-gray-500">Saved by comparing prices</span>
+            <span class="text-sm font-extrabold text-green-700">💰 <%= number_to_currency(@summary[:total_savings]) %></span>
+          </div>
+        <% end %>
+        <%= form_with(url: submit_batch_orders_path, method: :post) do %>
+          <input type="hidden" name="batch_id" value="<%= @batch_id %>">
+          <% if @aggregated_list_id %><input type="hidden" name="aggregated_list_id" value="<%= @aggregated_list_id %>"><% end %>
+          <button type="submit"
+                  data-mobile-review-target="placeButton"
+                  data-minimums-met="<%= @summary[:all_minimums_met] %>"
+                  data-action="mobile-review#place"
+                  <%= "disabled" if @verifying %>
+                  class="w-full bg-brand-green active:bg-brand-green-dark disabled:opacity-40 text-white font-heading font-semibold tracking-wide text-lg rounded-xl py-3.5">
+            Place <%= @summary[:order_count] == 1 ? "Order" : "#{@summary[:order_count]} Orders" %>
+          </button>
+        <% end %>
+        <% unless @summary[:all_minimums_met] %>
+          <p class="text-[11px] text-red-600 font-semibold text-center mt-2">
+            Some suppliers are below their order minimum —
+            <%= link_to "add items", builder_path, class: "underline font-bold" %>
+          </p>
+        <% end %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%# Fallback: ensure controller is registered even if importmap cache is stale %>
+<script type="module">
+  import { Application } from "@hotwired/stimulus"
+  const app = window.Stimulus || Application.start()
+  if (!app.router.modulesByIdentifier.has("mobile-review")) {
+    const mod = await import("controllers/mobile_review_controller")
+    app.register("mobile-review", mod.default)
+  }
+</script>

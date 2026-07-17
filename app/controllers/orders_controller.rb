@@ -303,6 +303,22 @@ class OrdersController < ApplicationController
       notice: "New order created with #{new_order.order_items.count} items at current prices. Review and submit when ready."
   end
 
+  # Mobile "Cart" tab entry point: resolve to the review page for the user's
+  # in-progress batch, or show the empty-cart state when there isn't one.
+  def cart
+    latest = scoped_orders.where(status: %w[pending verifying price_changed draft])
+                          .where.not(batch_id: nil)
+                          .order(created_at: :desc)
+                          .first
+    if latest
+      redirect_to review_orders_path(batch_id: latest.batch_id)
+    elsif request.variant&.include?(:mobile)
+      render :cart
+    else
+      redirect_to orders_path
+    end
+  end
+
   # Create pending orders from an aggregated list's product matches
   # SAFETY: Only creates status: "pending" orders. Never submits.
   def create_from_aggregated_list

@@ -7,6 +7,21 @@ class AggregatedListsController < ApplicationController
   before_action :require_not_promoted!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide add_product]
   before_action :require_list_location_access!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide catalog_browse add_product]
 
+  # Mobile "Order" tab entry point: resolve straight to the user's primary
+  # order builder (promoted org-wide list, else their location's matched list).
+  # Falls back to the list picker when nothing is matched yet.
+  def start_order
+    matched = current_organization_aggregated_lists.matched_lists.where(match_status: "matched")
+    list = matched.find(&:promoted?) ||
+           (current_location && matched.find { |l| l.location_id == current_location.id }) ||
+           matched.first
+    if list
+      redirect_to order_builder_aggregated_list_path(list)
+    else
+      redirect_to select_list_orders_path
+    end
+  end
+
   def index
     @aggregated_lists = current_organization_aggregated_lists
                           .includes(supplier_lists: :supplier)

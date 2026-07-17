@@ -3,6 +3,43 @@
 
 <nav class="bg-white border-t border-gray-200" style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;"
      data-controller="mobile-tab-bar">
+  <% if chef? %>
+    <%# Chefs get the ordering-centric 3-tab bar: Home / Order / Cart %>
+    <div class="flex items-center py-2">
+      <%= link_to root_path, class: "flex-1 flex flex-col items-center gap-0.5 pb-1 mobile-tab-link",
+          data: { mobile_tab_bar_target: "tab", path: "/" } do %>
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>
+        <span class="text-[11px] font-semibold">Home</span>
+      <% end %>
+
+      <% if ops_disabled %>
+        <span class="flex-1 flex flex-col items-center gap-0.5 pb-1 cursor-not-allowed" style="position: relative; top: -0.75rem;">
+          <div class="bg-gray-300 rounded-full p-3 shadow-lg">
+            <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+          </div>
+          <span class="text-[10px] font-semibold text-gray-300">Order</span>
+        </span>
+        <span class="flex-1 flex flex-col items-center gap-0.5 pb-1 text-gray-300 cursor-not-allowed">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l2.4 12.2a2 2 0 002 1.8h7.9a2 2 0 002-1.6L21 7H6"/></svg>
+          <span class="text-[11px] font-medium">Cart</span>
+        </span>
+      <% else %>
+        <%= link_to start_order_aggregated_lists_path, class: "flex-1 flex flex-col items-center gap-0.5 pb-1",
+            style: "position: relative; top: -0.75rem;",
+            data: { mobile_tab_bar_target: "tab", path: "/aggregated_lists" } do %>
+          <div class="bg-brand-green rounded-full p-3 shadow-lg" data-mobile-tab-bar-target="fabCircle">
+            <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+          </div>
+          <span class="text-[10px] font-semibold text-brand-green">Order</span>
+        <% end %>
+        <%= link_to cart_orders_path, class: "flex-1 flex flex-col items-center gap-0.5 pb-1 mobile-tab-link",
+            data: { mobile_tab_bar_target: "tab", path: "/orders" } do %>
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l2.4 12.2a2 2 0 002 1.8h7.9a2 2 0 002-1.6L21 7H6"/></svg>
+          <span class="text-[11px] font-medium">Cart</span>
+        <% end %>
+      <% end %>
+    </div>
+  <% else %>
   <div class="flex items-center py-2">
     <%# Home %>
     <%= link_to root_path, class: "flex-1 flex flex-col items-center gap-0.5 pb-1 mobile-tab-link",
@@ -72,6 +109,7 @@
       <% end %>
     <% end %>
   </div>
+  <% end %>
 </nav>
 
 <%# Fallback: ensure mobile-tab-bar controller is registered even if importmap cache is stale %>

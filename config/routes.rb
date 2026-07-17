@@ -144,6 +144,9 @@ Rails.application.routes.draw do
 
   # Aggregated Lists (matched lists + ad-hoc comparison lists)
   resources :aggregated_lists do
+    collection do
+      get :start_order
+    end
     member do
       post :run_matching
       post :sync_new_products
@@ -231,6 +234,7 @@ Rails.application.routes.draw do
       post :mark_unreceived
     end
     collection do
+      get :cart
       get :select_list
       get :split_preview
       post :split_create
