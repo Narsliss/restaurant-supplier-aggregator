@@ -1,64 +1,70 @@
 import { Controller } from "@hotwired/stimulus"
+import { openCalendar, dateLabel, confettiBurst } from "controllers/mobile_calendar"
 
-// Mobile cart/review page. Delivery date edits PATCH the order (same JSON
-// endpoint the desktop review uses); Place submits the existing submit_batch
-// form. Keeps a celebratory confetti burst on placement.
+// Mobile cart/review page (Comp A). Delivery dates use the comp's bottom-sheet
+// calendar and PATCH the order (same JSON endpoint desktop uses). Line
+// quantities edit through the existing nested order_items endpoints. Place
+// submits the existing submit_batch form with a confetti send-off.
 export default class extends Controller {
-  static targets = ["deliveryDate", "placeButton"]
+  static targets = ["dateButton", "dateText", "placeButton"]
 
-  connect() {
-    this.updatePlaceState()
+  headers() {
+    return {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content,
+      "Accept": "application/json"
+    }
   }
 
-  updateDeliveryDate(event) {
-    const input = event.currentTarget
-    fetch(`/orders/${input.dataset.orderId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": document.querySelector('meta[name="csrf-token"]')?.content,
-        "Accept": "application/json"
-      },
-      body: JSON.stringify({ order: { delivery_date: input.value } })
+  // ---- Delivery date (bottom-sheet calendar) ----
+
+  openDatePicker(event) {
+    const btn = event.currentTarget
+    openCalendar(btn.dataset.date, async iso => {
+      await fetch(`/orders/${btn.dataset.orderId}`, {
+        method: "PATCH",
+        headers: this.headers(),
+        body: JSON.stringify({ order: { delivery_date: iso } })
+      })
+      btn.dataset.date = iso
+      btn.classList.remove("ring-2", "ring-inset", "ring-amber-400")
+      btn.querySelector("[data-mobile-review-target='dateText']").textContent = dateLabel(iso)
+      this.updatePlaceState()
     })
-    input.classList.remove("ring-2", "ring-amber-400")
-    this.updatePlaceState()
+  }
+
+  // ---- Line quantity steppers (existing order_items endpoints) ----
+
+  incrementItem(event) { this.changeItem(event, +1) }
+  decrementItem(event) { this.changeItem(event, -1) }
+
+  async changeItem(event, delta) {
+    const btn = event.currentTarget
+    const { orderId, itemId } = btn.dataset
+    const newQty = parseInt(btn.dataset.quantity, 10) + delta
+    btn.disabled = true
+
+    if (newQty <= 0) {
+      await fetch(`/orders/${orderId}/order_items/${itemId}`, { method: "DELETE", headers: this.headers() })
+    } else {
+      await fetch(`/orders/${orderId}/order_items/${itemId}`, {
+        method: "PATCH",
+        headers: this.headers(),
+        body: JSON.stringify({ quantity: newQty })
+      })
+    }
+    // Totals, minimums, and savings are server-computed — refresh the page state
+    window.Turbo ? window.Turbo.visit(window.location.href, { action: "replace" }) : window.location.reload()
   }
 
   updatePlaceState() {
     if (!this.hasPlaceButtonTarget) return
-    const missing = this.deliveryDateTargets.some(i => !i.value)
+    const missing = this.dateButtonTargets.some(btn => !btn.dataset.date)
     const blockedByMinimum = this.placeButtonTarget.dataset.minimumsMet !== "true"
     this.placeButtonTarget.disabled = missing || blockedByMinimum
   }
 
   place(event) {
-    this.confetti(event.currentTarget)
-  }
-
-  confetti(fromEl, count = 22) {
-    const rect = fromEl.getBoundingClientRect()
-    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2
-    const colors = ["#16A34A", "#4A7C59", "#D4943A", "#FACC15", "#60A5FA"]
-    for (let i = 0; i < count; i++) {
-      const p = document.createElement("div")
-      const size = 6 + (i % 3) * 3
-      p.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${size}px;height:${size * (i % 2 ? 1 : 0.6)}px;` +
-        `background:${colors[i % colors.length]};z-index:89;pointer-events:none;` +
-        `border-radius:${i % 2 ? "50%" : "2px"};opacity:1;will-change:transform,opacity;`
-      document.body.appendChild(p)
-      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5
-      const vx = Math.cos(angle) * (50 + Math.random() * 70)
-      const launch = -(38 + Math.random() * 55)
-      const fall = 110 + Math.random() * 80
-      const rot = (Math.random() - 0.5) * 720
-      const dur = 1400 + Math.random() * 400
-      p.animate([
-        { transform: "translate(0,0) rotate(0deg)", opacity: 1 },
-        { transform: `translate(${vx * 0.55}px, ${launch}px) rotate(${rot * 0.4}deg)`, opacity: 1, offset: 0.3, easing: "cubic-bezier(.2,.9,.5,1)" },
-        { transform: `translate(${vx}px, ${fall}px) rotate(${rot}deg)`, opacity: 0 },
-      ], { duration: dur, easing: "linear", fill: "forwards" })
-      setTimeout(() => p.remove(), dur + 50)
-    }
+    confettiBurst(event.currentTarget, 24)
   }
 }

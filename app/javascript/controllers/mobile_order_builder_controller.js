@@ -1,49 +1,55 @@
 import { Controller } from "@hotwired/stimulus"
+import { openCalendar, tomorrowIso, dateLabel, flySavings, confettiBurst } from "controllers/mobile_calendar"
 
-// Mobile order builder (Comp A). One selected supplier + qty (+ CS/PC uom) per
-// product match — mirroring AggregatedListOrderService's contract exactly.
-// On submit, state is serialized into quantities[] / supplier_overrides[] /
-// uom_overrides[] hidden fields; the server-side ordering path is unchanged.
+// Mobile order builder — matches the approved Comp A exactly:
+// tapping a price cell turns THAT cell into a stepper (or a CASE/PIECE chooser
+// when the supplier offers a piece price); an "In this order" section lists the
+// built order below the results; the ribbon shows per-supplier totals vs
+// minimums with a bottom-sheet calendar; best-price adds fire the savings
+// fly-up + confetti.
+//
+// One selected supplier + qty (+ CS/PC uom) per product match — the
+// AggregatedListOrderService contract. On submit, state serializes into
+// quantities[] / supplier_overrides[] / uom_overrides[] hidden fields; the
+// server-side ordering path is unchanged.
 export default class extends Controller {
   static targets = ["form", "hiddenFields", "search", "categoryChip", "emptyState", "noResults",
-                    "card", "cell", "stepperRow", "qtyDisplay", "uomToggle", "selectedLabel",
-                    "lineTotal", "ribbon", "ribbonPills", "ribbonTotal", "deliveryDate", "submitButton"]
+                    "card", "cell", "orderSection", "orderCount", "orderLines",
+                    "ribbon", "ribbonPills", "ribbonTotal", "dateLabel", "deliveryDate", "submitButton"]
   static values = { minimums: Object }
 
   connect() {
-    // state: matchId -> { supplierId, qty, uom }
-    this.state = {}
+    this.state = {}    // matchId -> { supplierId, qty, uom }
+    this.chooser = null // {matchId, supplierId} showing CASE/PIECE picker
     this.category = "all"
-    this.supplierNames = {}
-    this.cellTargets.forEach(cell => {
-      const card = cell.closest("[data-mobile-order-builder-target=card]")
-      this.supplierNames[cell.dataset.supplierId] ||= cell.querySelector("div").textContent.replace(" ★", "").trim()
-    })
+
+    if (!this.deliveryDateTarget.value) this.deliveryDateTarget.value = tomorrowIso()
+
     // Prefill from server-rendered quantities (returning from review)
     this.cardTargets.forEach(card => {
       const qty = parseInt(card.dataset.initialQty || "0", 10)
       if (qty > 0 && card.dataset.cheapestSupplierId) {
         this.state[card.dataset.matchId] = { supplierId: card.dataset.cheapestSupplierId, qty, uom: "CS" }
-        this.renderCard(card)
       }
     })
+
+    this.cellTargets.forEach(cell => this.renderCell(cell))
     this.filter()
+    this.renderOrderSection()
     this.refreshRibbon()
   }
 
-  // ---- Filtering (blank search => only in-order items, else empty state) ----
+  // ---- Filtering: blank search + All => results hidden (comp behavior) ----
 
   filter() {
     const q = (this.searchTarget.value || "").trim().toLowerCase()
     const blank = q === "" && this.category === "all"
     let visible = 0
-    let inOrderVisible = 0
 
     this.cardTargets.forEach(card => {
-      const inOrder = (this.state[card.dataset.matchId]?.qty || 0) > 0
       let show
       if (blank) {
-        show = inOrder
+        show = false
       } else {
         const matchesQuery = q === "" || card.dataset.name.includes(q)
         const matchesCat = this.category === "all" ||
@@ -51,10 +57,11 @@ export default class extends Controller {
         show = matchesQuery && matchesCat
       }
       card.classList.toggle("hidden", !show)
-      if (show) { visible++; if (inOrder) inOrderVisible++ }
+      if (show) visible++
     })
 
-    this.emptyStateTarget.classList.toggle("hidden", !(blank && visible === 0))
+    const hasLines = Object.keys(this.state).length > 0
+    this.emptyStateTarget.classList.toggle("hidden", !(blank && !hasLines))
     this.noResultsTarget.classList.toggle("hidden", blank || visible > 0)
   }
 
@@ -72,112 +79,167 @@ export default class extends Controller {
     this.filter()
   }
 
-  // ---- Cell selection / steppers ----
+  // ---- Cell interaction (comp: the cell itself morphs) ----
 
   tapCell(event) {
-    const cell = event.currentTarget
-    const matchId = cell.dataset.matchId
-    const supplierId = cell.dataset.supplierId
+    const cell = event.currentTarget.closest("[data-supplier-id]")
+    const { matchId, supplierId } = cell.dataset
     const existing = this.state[matchId]
 
     if (existing && existing.supplierId === supplierId) {
       existing.qty += 1
-    } else {
-      // New selection (or switching supplier — qty carries over)
-      const qty = existing ? existing.qty : 1
-      this.state[matchId] = { supplierId, qty, uom: "CS" }
-      if (!existing) this.celebrateIfBest(cell)
+      this.afterChange(matchId)
+      return
     }
-    this.renderCard(cell.closest("[data-mobile-order-builder-target=card]"))
-    this.refreshRibbon()
+    // Piece option → show CASE/PIECE chooser first (comp behavior)
+    if (cell.dataset.piecePrice) {
+      this.chooser = { matchId, supplierId }
+      this.renderMatchCells(matchId)
+      return
+    }
+    this.select(cell, "CS")
   }
 
-  increment(event) { this.bumpQty(event, +1) }
-  decrement(event) { this.bumpQty(event, -1) }
+  pickUom(event) {
+    const cell = event.currentTarget.closest("[data-supplier-id]")
+    this.chooser = null
+    this.select(cell, event.params.uom)
+  }
 
-  bumpQty(event, delta) {
-    const card = event.currentTarget.closest("[data-mobile-order-builder-target=card]")
-    const s = this.state[card.dataset.matchId]
+  select(cell, uom) {
+    const { matchId, supplierId } = cell.dataset
+    const existing = this.state[matchId]
+    const qty = existing ? existing.qty : 1
+    const isNew = !existing
+    this.state[matchId] = { supplierId, qty, uom }
+    if (isNew) this.celebrateIfBest(cell)
+    this.afterChange(matchId)
+  }
+
+  increment(event) { this.bump(event, +1) }
+  decrement(event) { this.bump(event, -1) }
+
+  bump(event, delta) {
+    const matchId = event.currentTarget.closest("[data-supplier-id]")?.dataset.matchId ||
+                    event.currentTarget.dataset.matchId
+    const s = this.state[matchId]
     if (!s) return
     s.qty = Math.max(0, s.qty + delta)
-    if (s.qty === 0) delete this.state[card.dataset.matchId]
-    this.renderCard(card)
+    if (s.qty === 0) delete this.state[matchId]
+    this.afterChange(matchId)
+  }
+
+  afterChange(matchId) {
+    this.renderMatchCells(matchId)
+    this.renderOrderSection()
     this.refreshRibbon()
     this.filter()
   }
 
-  setUom(event) {
-    const card = event.currentTarget.closest("[data-mobile-order-builder-target=card]")
-    const s = this.state[card.dataset.matchId]
-    if (!s) return
-    s.uom = event.currentTarget.dataset.uom
-    this.renderCard(card)
-    this.refreshRibbon()
+  // ---- Cell rendering: price | chooser | stepper ----
+
+  cellsFor(matchId) {
+    return this.cellTargets.filter(c => c.dataset.matchId === matchId)
   }
 
-  // ---- Rendering ----
-
-  cellFor(card, supplierId) {
-    return card.querySelector(`[data-supplier-id="${supplierId}"][data-match-id]`)
+  renderMatchCells(matchId) {
+    this.cellsFor(matchId).forEach(cell => this.renderCell(cell))
   }
+
+  renderCell(cell) {
+    const d = cell.dataset
+    const s = this.state[d.matchId]
+    const selected = s && s.supplierId === d.supplierId
+    const choosing = this.chooser && this.chooser.matchId === d.matchId && this.chooser.supplierId === d.supplierId
+    const inStock = d.inStock !== "false"
+
+    if (choosing) {
+      cell.innerHTML = `
+        <div class="rounded-lg border-2 border-brand-navy overflow-hidden text-center bg-white">
+          <button type="button" data-action="mobile-order-builder#pickUom" data-mobile-order-builder-uom-param="CS"
+                  class="w-full py-1 border-b border-gray-100 leading-tight">
+            <span class="text-[9px] font-bold text-gray-400 block">CASE</span>
+            <span class="text-[12px] font-extrabold text-brand-navy">${d.priceDisplay}</span>
+          </button>
+          <button type="button" data-action="mobile-order-builder#pickUom" data-mobile-order-builder-uom-param="PC"
+                  class="w-full py-1 leading-tight">
+            <span class="text-[9px] font-bold text-gray-400 block">PIECE</span>
+            <span class="text-[12px] font-extrabold text-brand-navy">${d.pieceDisplay}</span>
+          </button>
+        </div>`
+      return
+    }
+
+    if (selected) {
+      cell.innerHTML = `
+        <div class="rounded-lg border-2 border-brand-green bg-green-50 text-center pop">
+          <div class="flex items-stretch justify-between">
+            <button type="button" data-action="mobile-order-builder#decrement" class="w-6 py-1.5 text-base font-bold text-brand-green">−</button>
+            <span class="text-[15px] font-extrabold text-brand-navy self-center">${s.qty}</span>
+            <button type="button" data-action="mobile-order-builder#increment" class="w-6 py-1.5 text-base font-bold text-brand-green">+</button>
+          </div>
+          <div class="text-[9px] font-bold -mt-1 pb-1 text-brand-green">${d.short}${s.uom === "PC" ? " · PC" : ""}</div>
+        </div>`
+      return
+    }
+
+    const best = d.best === "true"
+    cell.innerHTML = `
+      <button type="button" data-action="mobile-order-builder#tapCell" ${inStock ? "" : "disabled"}
+              class="w-full rounded-lg border py-1 px-0.5 text-center transition-transform active:scale-95
+                     ${inStock ? "" : "opacity-50"}
+                     ${best ? "border-green-500 bg-green-50" : "border-gray-200 bg-white"}">
+        <div class="text-[9px] font-bold leading-none truncate ${best ? "text-green-700" : "text-gray-500"}">${d.short}${best ? ' <span class="text-green-600">★</span>' : ""}</div>
+        <div class="text-[12px] font-extrabold leading-tight mt-0.5 ${best ? "text-green-800" : "text-brand-navy"}">${d.priceDisplay}</div>
+        <div class="text-[9px] font-semibold text-gray-500 leading-tight truncate">${d.perUnit || ""}</div>
+        <div class="text-[9px] text-gray-400 leading-tight truncate">${d.pack || (inStock ? "" : "Out")}</div>
+      </button>`
+  }
+
+  // ---- "In this order" section (comp: separate line items with steppers) ----
+
+  renderOrderSection() {
+    const entries = Object.entries(this.state)
+    this.orderSectionTarget.classList.toggle("hidden", entries.length === 0)
+    this.orderCountTarget.textContent = entries.reduce((a, [, s]) => a + s.qty, 0)
+
+    this.orderLinesTarget.innerHTML = entries.map(([matchId, s]) => {
+      const card = this.cardTargets.find(c => c.dataset.matchId === matchId)
+      const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === s.supplierId)
+      if (!card || !cell) return ""
+      const price = this.effectivePrice(cell, s.uom)
+      return `
+        <div class="bg-white rounded-xl border border-gray-200 px-3 py-2.5 flex items-center gap-2.5">
+          <img src="${card.dataset.thumb}" alt="" class="w-9 h-9 rounded-lg object-cover border border-gray-100 bg-brand-stone shrink-0">
+          <div class="flex-1 min-w-0">
+            <p class="text-[15px] font-bold text-brand-navy truncate">${card.dataset.displayName}</p>
+            <p class="text-[11px] text-gray-500"><span class="font-bold">${cell.dataset.short}</span>${s.uom === "PC" ? " · PC" : ""} · ${this.currency(price)} ea</p>
+          </div>
+          <div class="flex items-center gap-0.5">
+            <button type="button" data-action="mobile-order-builder#decrement" data-match-id="${matchId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">−</button>
+            <span class="w-7 text-center text-sm font-extrabold">${s.qty}</span>
+            <button type="button" data-action="mobile-order-builder#increment" data-match-id="${matchId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">+</button>
+          </div>
+          <span class="text-sm font-extrabold text-brand-navy w-[62px] text-right">${this.currency(price * s.qty)}</span>
+        </div>`
+    }).join("")
+  }
+
+  // ---- Ribbon ----
 
   effectivePrice(cell, uom) {
     if (uom === "PC" && cell.dataset.piecePrice) return parseFloat(cell.dataset.piecePrice)
     return parseFloat(cell.dataset.price)
   }
 
-  renderCard(card) {
-    const s = this.state[card.dataset.matchId]
-    const stepperRow = card.querySelector("[data-mobile-order-builder-target='stepperRow']")
-
-    // Cell highlight
-    card.querySelectorAll("button[data-supplier-id]").forEach(cell => {
-      const selected = s && cell.dataset.supplierId === s.supplierId
-      cell.classList.toggle("ring-2", selected)
-      cell.classList.toggle("ring-brand-green", selected)
-      cell.classList.toggle("border-brand-green", selected)
-    })
-
-    if (!s) {
-      stepperRow.classList.add("hidden")
-      stepperRow.classList.remove("flex")
-      return
-    }
-
-    stepperRow.classList.remove("hidden")
-    stepperRow.classList.add("flex")
-    const cell = this.cellFor(card, s.supplierId)
-    card.querySelector("[data-mobile-order-builder-target='qtyDisplay']").textContent = s.qty
-
-    // CS/PC toggle only when the selected supplier offers a piece price
-    const uomToggle = card.querySelector("[data-mobile-order-builder-target='uomToggle']")
-    if (cell?.dataset.piecePrice) {
-      uomToggle.classList.remove("hidden")
-      uomToggle.querySelectorAll("button").forEach(btn => {
-        const active = btn.dataset.uom === s.uom
-        btn.classList.toggle("bg-brand-navy", active)
-        btn.classList.toggle("text-white", active)
-        btn.classList.toggle("text-gray-500", !active)
-      })
-    } else {
-      uomToggle.classList.add("hidden")
-      s.uom = "CS"
-    }
-
-    const price = cell ? this.effectivePrice(cell, s.uom) : 0
-    card.querySelector("[data-mobile-order-builder-target='selectedLabel']").textContent =
-      `${this.supplierNames[s.supplierId] || ""}${s.uom === "PC" ? " · PIECE" : ""}`
-    card.querySelector("[data-mobile-order-builder-target='lineTotal']").textContent =
-      this.currency(price * s.qty)
-  }
-
   refreshRibbon() {
     const totals = {}
+    const names = {}
     Object.entries(this.state).forEach(([matchId, s]) => {
-      const card = this.cardTargets.find(c => c.dataset.matchId === matchId)
-      const cell = card && this.cellFor(card, s.supplierId)
+      const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === s.supplierId)
       if (!cell) return
       totals[s.supplierId] = (totals[s.supplierId] || 0) + this.effectivePrice(cell, s.uom) * s.qty
+      names[s.supplierId] = cell.dataset.short
     })
 
     const supplierIds = Object.keys(totals)
@@ -188,75 +250,42 @@ export default class extends Controller {
       const total = totals[id]
       const min = this.minimumsValue[id]
       const met = min == null || total >= min
-      const name = this.supplierNames[id] || ""
       return `<div class="shrink-0 rounded-lg px-2.5 py-1.5 border ${met ? "bg-green-500/15 border-green-400/60" : "bg-red-500/15 border-red-400/60"}">
         <div class="flex items-center gap-1.5">
-          <span class="text-[11px] font-bold text-white">${name}</span>
+          <span class="text-[11px] font-bold text-white">${names[id]}</span>
           <span class="text-[12px] font-extrabold ${met ? "text-green-300" : "text-red-300"}">${this.currency(total)}</span>
         </div>
         <div class="text-[9px] ${met ? "text-green-300/80" : "text-red-300"}">${met ? "✓ min met" : this.currency(min - total) + " to " + this.currency(min) + " min"}</div>
       </div>`
     }).join("")
 
-    const grand = Object.values(totals).reduce((a, b) => a + b, 0)
-    this.ribbonTotalTarget.textContent = this.currency(grand)
+    this.ribbonTotalTarget.textContent = this.currency(Object.values(totals).reduce((a, b) => a + b, 0))
+    this.dateLabelTarget.textContent = dateLabel(this.deliveryDateTarget.value)
     this.submitButtonTarget.disabled = !this.deliveryDateTarget.value
   }
 
-  // ---- Fun: savings celebration when picking the best price ----
+  // ---- Calendar bottom sheet (comp component) ----
+
+  openDatePicker() {
+    openCalendar(this.deliveryDateTarget.value, iso => {
+      this.deliveryDateTarget.value = iso
+      this.refreshRibbon()
+    })
+  }
+
+  // ---- Savings celebration: always fires when adding the ★ best-price cell ----
 
   celebrateIfBest(cell) {
-    const card = cell.closest("[data-mobile-order-builder-target=card]")
-    const spread = parseFloat(card.dataset.spread || "0")
-    if (cell.dataset.best !== "true" || !(spread > 0)) return
-    this.flySavings(cell, spread)
-    this.confetti(cell)
-  }
-
-  flySavings(fromEl, amount) {
-    const rect = fromEl.getBoundingClientRect()
-    const el = document.createElement("div")
-    el.textContent = `+${this.currency(amount)} saved`
-    el.style.cssText = `position:fixed;left:${rect.left + rect.width / 2}px;top:${rect.top - 12}px;` +
-      "transform:translateX(-50%);z-index:90;background:#16A34A;color:#fff;font-weight:800;" +
-      "font-size:15px;padding:7px 16px;border-radius:999px;pointer-events:none;" +
-      "box-shadow:0 6px 20px rgba(22,163,74,.5);opacity:0;will-change:transform,opacity;"
-    document.body.appendChild(el)
-    el.animate([
-      { transform: "translateX(-50%) translateY(6px) scale(.5)", opacity: 0 },
-      { transform: "translateX(-50%) translateY(-12px) scale(1.18)", opacity: 1, offset: 0.14 },
-      { transform: "translateX(-50%) translateY(-18px) scale(1)", opacity: 1, offset: 0.28 },
-      { transform: "translateX(-50%) translateY(-34px) scale(1)", opacity: 1, offset: 0.62 },
-      { transform: "translateX(-50%) translateY(-96px) scale(.92)", opacity: 0 },
-    ], { duration: 1900, easing: "cubic-bezier(.25,.8,.35,1)", fill: "forwards" })
-    setTimeout(() => el.remove(), 1950)
-  }
-
-  confetti(fromEl, count = 14) {
-    const rect = fromEl.getBoundingClientRect()
-    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2
-    const colors = ["#16A34A", "#4A7C59", "#D4943A", "#FACC15", "#60A5FA"]
-    for (let i = 0; i < count; i++) {
-      const p = document.createElement("div")
-      const size = 6 + (i % 3) * 3
-      p.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${size}px;height:${size * (i % 2 ? 1 : 0.6)}px;` +
-        `background:${colors[i % colors.length]};z-index:89;pointer-events:none;` +
-        `border-radius:${i % 2 ? "50%" : "2px"};opacity:1;will-change:transform,opacity;`
-      document.body.appendChild(p)
-      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5
-      const vx = Math.cos(angle) * (50 + Math.random() * 70)
-      const launch = -(38 + Math.random() * 55)
-      const fall = 110 + Math.random() * 80
-      const rot = (Math.random() - 0.5) * 720
-      const dur = 1500 + Math.random() * 500
-      p.animate([
-        { transform: "translate(0,0) rotate(0deg) scale(1)", opacity: 1 },
-        { transform: `translate(${vx * 0.55}px, ${launch}px) rotate(${rot * 0.4}deg) scale(1.05)`, opacity: 1, offset: 0.3, easing: "cubic-bezier(.2,.9,.5,1)" },
-        { transform: `translate(${vx * 0.9}px, ${launch * 0.2}px) rotate(${rot * 0.7}deg) scale(1)`, opacity: 1, offset: 0.55, easing: "cubic-bezier(.5,0,.8,.4)" },
-        { transform: `translate(${vx}px, ${fall}px) rotate(${rot}deg) scale(.85)`, opacity: 0 },
-      ], { duration: dur, easing: "linear", fill: "forwards" })
-      setTimeout(() => p.remove(), dur + 50)
-    }
+    if (cell.dataset.best !== "true") return
+    const prices = this.cellsFor(cell.dataset.matchId)
+      .filter(c => c.dataset.inStock !== "false")
+      .map(c => parseFloat(c.dataset.price))
+      .filter(p => p > 0)
+    if (prices.length < 2) return
+    const saved = Math.max(...prices) - parseFloat(cell.dataset.price)
+    if (saved <= 0) return
+    flySavings(cell, `+${this.currency(saved)} saved`)
+    confettiBurst(cell, 14)
   }
 
   // ---- Submit: serialize state into the form the server already understands ----

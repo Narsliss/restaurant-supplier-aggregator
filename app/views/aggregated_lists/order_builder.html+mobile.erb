@@ -1,6 +1,9 @@
 <%# ============================================================================ %>
 <%# MOBILE ORDER BUILDER — Comp A ("Cards") from mockups/mobile-first/order-a.html %>
-<%# Search-first: blank search shows only in-progress order items (or empty state). %>
+<%# Matches the approved comp: tap a price cell → the cell becomes a stepper      %>
+<%# (CASE/PIECE chooser when a piece price exists), "In this order" section below  %>
+<%# results, floating ribbon with per-supplier minimums + bottom-sheet calendar,   %>
+<%# savings fly-up + confetti on best-price adds.                                  %>
 <%# Posts the SAME fields to the SAME endpoint as the desktop builder —            %>
 <%# quantities / supplier_overrides / uom_overrides / delivery_date —              %>
 <%# so the ordering pipeline is untouched.                                          %>
@@ -21,6 +24,7 @@
     <input type="hidden" name="aggregated_list_id" value="<%= @aggregated_list.id %>">
     <% if @order_list %><input type="hidden" name="order_list_id" value="<%= @order_list.id %>"><% end %>
     <% if @batch_id %><input type="hidden" name="previous_batch_id" value="<%= @batch_id %>"><% end %>
+    <input type="hidden" name="delivery_date" value="<%= @delivery_date %>" data-mobile-order-builder-target="deliveryDate">
     <div data-mobile-order-builder-target="hiddenFields"></div>
 
     <%# --- Sticky search header --- %>
@@ -54,8 +58,8 @@
     <%# --- Empty state (blank search, nothing in order) --- %>
     <div data-mobile-order-builder-target="emptyState" class="text-center pt-14 pb-6 px-8 hidden">
       <svg class="mx-auto mb-3 text-gray-300" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-      <p class="font-heading text-lg font-semibold text-brand-navy">Search your suppliers</p>
-      <p class="text-sm text-gray-500 mt-1">Type an item — chicken, cream, limes — or pick a category above. Items you add stay visible here.</p>
+      <p class="font-heading text-lg font-semibold text-brand-navy">Search every supplier at once</p>
+      <p class="text-sm text-gray-500 mt-1">Type an item — chicken, cream, limes — or pick a category above.</p>
     </div>
     <p data-mobile-order-builder-target="noResults" class="text-center text-sm text-gray-400 py-10 hidden">No items match your search</p>
 
@@ -65,32 +69,34 @@
         <%
           cheapest = match.cheapest_supplier
           cheapest_id = cheapest&.dig(:supplier)&.id
-          spread = match.price_spread.to_f
           current_qty = (@quantities[match.id.to_s] || 0).to_i
           category = @match_category[match.id] || "Other"
+          thumb = product_thumb_url(match.canonical_image_source)
         %>
-        <div class="bg-white rounded-2xl border border-gray-200 p-2.5 <%= 'hidden' if current_qty.zero? %>"
+        <div class="bg-white rounded-2xl border border-gray-200 p-2.5 hidden"
              data-mobile-order-builder-target="card"
              data-match-id="<%= match.id %>"
              data-name="<%= match.display_name.downcase %>"
+             data-display-name="<%= match.display_name %>"
+             data-thumb="<%= thumb %>"
              data-category="<%= category %>"
              data-frequent="<%= @frequently_ordered[match.id] ? 'true' : 'false' %>"
              data-cheapest-supplier-id="<%= cheapest_id %>"
-             data-spread="<%= spread %>"
              data-initial-qty="<%= current_qty %>">
-          <div class="flex gap-3 mb-2 items-center">
-            <img src="<%= product_thumb_url(match.canonical_image_source) %>" alt="" loading="lazy" decoding="async"
-                 class="w-16 h-16 rounded-xl object-cover border border-gray-100 bg-brand-stone shrink-0">
+          <div class="flex gap-3 mb-2.5 items-center">
+            <img src="<%= thumb %>" alt="" loading="lazy" decoding="async"
+                 class="w-20 h-20 rounded-xl object-cover border border-gray-100 bg-brand-stone shrink-0">
             <div class="min-w-0 flex-1">
-              <p class="font-bold text-brand-navy text-[16px] leading-snug"><%= match.display_name %></p>
-              <p class="text-xs text-gray-400 mt-0.5"><%= category %></p>
+              <p class="font-bold text-brand-navy text-lg leading-snug"><%= match.display_name %></p>
+              <p class="text-sm text-gray-500 mt-0.5"><%= category %></p>
             </div>
             <% if @frequently_ordered[match.id] %>
               <svg class="w-4 h-4 text-brand-orange shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
             <% end %>
           </div>
 
-          <%# Supplier price cells — fixed order, N/A when not carried %>
+          <%# Supplier price cells — fixed order, N/A when not carried. JS swaps a %>
+          <%# cell between price / CASE-PIECE chooser / stepper (comp behavior).   %>
           <div class="grid gap-1.5" style="grid-template-columns: repeat(<%= supplier_count %>, minmax(0, 1fr));">
             <% @suppliers.each do |supplier| %>
               <% item = match.item_for_supplier(supplier) %>
@@ -107,46 +113,36 @@
                   in_stock = sp ? sp.in_stock : item.in_stock
                   pack = item.pack_size || sp&.pack_size
                   is_best = cheapest_id == supplier.id
+                  piece = item.piece_price if item.piece_price.present? && item.piece_price.positive?
                 %>
-                <button type="button"
-                        <%= "disabled" unless in_stock %>
-                        data-action="mobile-order-builder#tapCell"
-                        data-mobile-order-builder-target="cell"
-                        data-match-id="<%= match.id %>"
-                        data-supplier-id="<%= supplier.id %>"
-                        data-price="<%= case_price %>"
-                        data-piece-price="<%= item.piece_price if item.piece_price.present? && item.piece_price.positive? %>"
-                        data-best="<%= is_best %>"
-                        class="rounded-lg border py-1 px-0.5 text-center transition-transform active:scale-95
-                               <%= in_stock ? '' : 'opacity-50' %>
-                               <%= is_best ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-white' %>">
-                  <div class="text-[9px] font-bold leading-none truncate <%= supplier.brand_color_class %>"><%= supplier.short_name %><%= ' ★' if is_best && spread.positive? %></div>
-                  <div class="text-[12px] font-extrabold leading-tight mt-0.5 <%= is_best ? 'text-green-800' : 'text-brand-navy' %>"><%= estimated ? '~' : '' %><%= number_to_currency(case_price) %></div>
-                  <div class="text-[9px] font-semibold text-gray-500 leading-tight truncate"><%= item.formatted_per_unit_price %></div>
-                  <div class="text-[9px] text-gray-400 leading-tight truncate"><%= pack.presence || (in_stock ? "" : "Out") %></div>
-                </button>
+                <div data-mobile-order-builder-target="cell"
+                     data-match-id="<%= match.id %>"
+                     data-supplier-id="<%= supplier.id %>"
+                     data-short="<%= supplier.short_name %>"
+                     data-price="<%= case_price %>"
+                     data-price-display="<%= estimated ? '~' : '' %><%= number_to_currency(case_price) %>"
+                     data-per-unit="<%= item.formatted_per_unit_price %>"
+                     data-pack="<%= pack %>"
+                     data-piece-price="<%= piece %>"
+                     data-piece-display="<%= number_to_currency(piece) if piece %>"
+                     data-best="<%= is_best %>"
+                     data-in-stock="<%= in_stock %>"></div>
               <% end %>
             <% end %>
-          </div>
-
-          <%# Stepper row — appears once a supplier is selected %>
-          <div class="hidden items-center gap-2 mt-2 pt-2 border-t border-gray-100" data-mobile-order-builder-target="stepperRow">
-            <div class="flex items-center rounded-xl border border-gray-200 overflow-hidden">
-              <button type="button" data-action="mobile-order-builder#decrement" class="w-10 h-10 bg-brand-stone flex items-center justify-center text-lg font-bold text-gray-600">−</button>
-              <span class="w-9 text-center text-[15px] font-extrabold" data-mobile-order-builder-target="qtyDisplay">0</span>
-              <button type="button" data-action="mobile-order-builder#increment" class="w-10 h-10 bg-brand-stone flex items-center justify-center text-lg font-bold text-gray-600">+</button>
-            </div>
-            <div class="hidden rounded-lg border border-gray-200 overflow-hidden text-[10px] font-bold" data-mobile-order-builder-target="uomToggle">
-              <button type="button" data-action="mobile-order-builder#setUom" data-uom="CS" class="px-2.5 py-2">CS</button><button type="button" data-action="mobile-order-builder#setUom" data-uom="PC" class="px-2.5 py-2">PC</button>
-            </div>
-            <div class="flex-1 min-w-0 text-right">
-              <p class="text-[10px] font-bold text-gray-400" data-mobile-order-builder-target="selectedLabel"></p>
-              <p class="text-[15px] font-extrabold text-brand-navy" data-mobile-order-builder-target="lineTotal"></p>
-            </div>
           </div>
         </div>
       <% end %>
     </main>
+
+    <%# --- In this order (comp: separate section below results) --- %>
+    <section class="px-2 pt-5 hidden" data-mobile-order-builder-target="orderSection">
+      <div class="flex items-center gap-2 mb-2">
+        <div class="h-px bg-gray-300 flex-1"></div>
+        <h2 class="font-heading text-sm font-semibold text-gray-500 tracking-widest uppercase">In this order · <span data-mobile-order-builder-target="orderCount">0</span></h2>
+        <div class="h-px bg-gray-300 flex-1"></div>
+      </div>
+      <div class="space-y-2" data-mobile-order-builder-target="orderLines"></div>
+    </section>
 
     <%# --- Floating ribbon --- %>
     <div class="fixed inset-x-0 z-40 hidden" style="bottom: 76px;" data-mobile-order-builder-target="ribbon">
@@ -154,12 +150,11 @@
         <div class="bg-brand-navy text-white rounded-2xl shadow-2xl shadow-black/30 p-3">
           <div class="flex gap-1.5 overflow-x-auto hide-scrollbar mb-2.5" data-mobile-order-builder-target="ribbonPills"></div>
           <div class="flex items-center gap-2">
-            <div class="flex-1 min-w-0 flex items-center gap-1.5 border border-white/25 rounded-xl px-3 py-1.5">
-              <svg class="shrink-0 text-white/80" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
-              <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true,
-                    class: "w-full bg-transparent text-white text-xs font-bold border-0 focus:ring-0 p-0 [color-scheme:dark]",
-                    data: { mobile_order_builder_target: "deliveryDate", action: "change->mobile-order-builder#refreshRibbon" } %>
-            </div>
+            <button type="button" data-action="mobile-order-builder#openDatePicker"
+                    class="flex-1 min-w-0 flex items-center gap-1.5 text-white/90 border border-white/25 rounded-xl px-3 py-2.5 text-left">
+              <svg class="shrink-0" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+              <span class="text-xs font-bold truncate" data-mobile-order-builder-target="dateLabel"></span>
+            </button>
             <button type="submit" data-mobile-order-builder-target="submitButton"
                     class="shrink-0 bg-brand-green active:bg-brand-green-dark disabled:opacity-40 text-white font-bold text-sm rounded-xl px-4 py-2.5 flex items-center gap-1.5">
               Review <span data-mobile-order-builder-target="ribbonTotal" class="font-extrabold"></span>

@@ -692,3 +692,17 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
   object-fit: cover;
   object-position: top;
 }
+
+/* Mobile order builder (Comp A): springy scale-in when a price cell becomes a stepper */
+@keyframes mobile-pop {
+  0% { transform: scale(.92); }
+  35% { transform: scale(1.14); }
+  65% { transform: scale(.97); }
+  100% { transform: scale(1); }
+}
+.pop { animation: mobile-pop .5s cubic-bezier(.34,1.56,.64,1); }
+
+/* Mobile calendar sheet: muted (disabled) days need explicit dark handling —
+   text-gray-300 has no global dark override and reads as bright on dark. */
+#mobile-cal-sheet .cal-muted { color: #D1D5DB; }
+.dark #mobile-cal-sheet .cal-muted { color: #4B5563; }
