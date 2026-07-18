@@ -17,6 +17,8 @@
 
 <div data-controller="mobile-order-builder"
      data-mobile-order-builder-minimums-value="<%= minimums_json %>"
+     data-mobile-order-builder-list-id-value="<%= @aggregated_list.id %>"
+     data-mobile-order-builder-has-batch-value="<%= @batch_id.present? %>"
      class="-mx-4 -mt-2 min-h-screen bg-brand-cream pb-56">
 
   <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "mobile-order-form",
@@ -82,7 +84,9 @@
              data-category="<%= category %>"
              data-frequent="<%= @frequently_ordered[match.id] ? 'true' : 'false' %>"
              data-cheapest-supplier-id="<%= cheapest_id %>"
-             data-initial-qty="<%= current_qty %>">
+             data-initial-qty="<%= current_qty %>"
+             data-initial-supplier-id="<%= @prefill_suppliers[match.id.to_s] %>"
+             data-initial-uom="<%= @prefill_uoms[match.id.to_s] %>">
           <div class="flex gap-3 mb-2.5 items-center">
             <img src="<%= thumb %>" alt="" loading="lazy" decoding="async"
                  class="w-20 h-20 rounded-xl object-cover border border-gray-100 bg-brand-stone shrink-0">

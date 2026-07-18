@@ -45,6 +45,23 @@ RSpec.describe "Mobile chef flow", type: :request do
       get start_order_aggregated_lists_path, headers: MOBILE_UA
       expect(response).to redirect_to(select_list_orders_path)
     end
+
+    it "resumes the in-progress batch (one cart) and prefills the chef's supplier pick" do
+      match = aggregated_list.product_matches.first
+      post create_from_aggregated_list_orders_path, params: {
+        aggregated_list_id: aggregated_list.id,
+        quantities: { match.id.to_s => "2" },
+        supplier_overrides: { match.id.to_s => supplier.id.to_s }
+      }, headers: MOBILE_UA
+      batch_id = Order.last.batch_id
+
+      get start_order_aggregated_lists_path, headers: MOBILE_UA
+      expect(response).to redirect_to(order_builder_aggregated_list_path(aggregated_list, batch_id: batch_id))
+
+      follow_redirect!(headers: MOBILE_UA.dup)
+      expect(response.body).to include(%(data-initial-qty="2"))
+      expect(response.body).to include(%(data-initial-supplier-id="#{supplier.id}"))
+    end
   end
 
   describe "GET order_builder" do

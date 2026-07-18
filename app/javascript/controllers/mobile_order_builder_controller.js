@@ -16,7 +16,7 @@ export default class extends Controller {
   static targets = ["form", "hiddenFields", "search", "categoryChip", "emptyState", "noResults",
                     "card", "cell", "orderSection", "orderCount", "orderLines",
                     "ribbon", "ribbonPills", "ribbonTotal", "dateLabel", "deliveryDate", "submitButton"]
-  static values = { minimums: Object }
+  static values = { minimums: Object, listId: Number, hasBatch: Boolean }
 
   connect() {
     this.state = {}    // matchId -> { supplierId, qty, uom }
@@ -25,18 +25,53 @@ export default class extends Controller {
 
     if (!this.deliveryDateTarget.value) this.deliveryDateTarget.value = tomorrowIso()
 
-    // Prefill from server-rendered quantities (returning from review)
-    this.cardTargets.forEach(card => {
-      const qty = parseInt(card.dataset.initialQty || "0", 10)
-      if (qty > 0 && card.dataset.cheapestSupplierId) {
-        this.state[card.dataset.matchId] = { supplierId: card.dataset.cheapestSupplierId, qty, uom: "CS" }
-      }
-    })
+    if (this.hasBatchValue) {
+      // Returning to an in-progress batch: the server prefill is the cart's
+      // source of truth — restore the chef's actual supplier + uom picks.
+      this.cardTargets.forEach(card => {
+        const qty = parseInt(card.dataset.initialQty || "0", 10)
+        if (qty <= 0) return
+        const supplierId = card.dataset.initialSupplierId || card.dataset.cheapestSupplierId
+        if (!supplierId) return
+        this.state[card.dataset.matchId] = { supplierId, qty, uom: card.dataset.initialUom || "CS" }
+      })
+      this.saveDraft()
+    } else {
+      // No batch yet: restore un-reviewed edits from the local draft so
+      // navigating Home/Cart and back doesn't lose the cart (comp behavior).
+      this.restoreDraft()
+    }
 
     this.cellTargets.forEach(cell => this.renderCell(cell))
     this.filter()
     this.renderOrderSection()
     this.refreshRibbon()
+  }
+
+  // ---- Local draft persistence (one cart across navigation) ----
+
+  draftKey() { return `enplace-mobile-order-${this.listIdValue}` }
+
+  saveDraft() {
+    try {
+      localStorage.setItem(this.draftKey(), JSON.stringify({ state: this.state, date: this.deliveryDateTarget.value }))
+    } catch {}
+  }
+
+  restoreDraft() {
+    try {
+      const draft = JSON.parse(localStorage.getItem(this.draftKey()))
+      if (!draft?.state) return
+      Object.entries(draft.state).forEach(([matchId, s]) => {
+        const cell = this.cellTargets.find(c => c.dataset.matchId === matchId && c.dataset.supplierId === s.supplierId)
+        if (cell && s.qty > 0) this.state[matchId] = s
+      })
+      if (draft.date) this.deliveryDateTarget.value = draft.date
+    } catch {}
+  }
+
+  clearDraft() {
+    try { localStorage.removeItem(this.draftKey()) } catch {}
   }
 
   // ---- Filtering: blank search + All => results hidden (comp behavior) ----
@@ -134,6 +169,7 @@ export default class extends Controller {
     this.renderOrderSection()
     this.refreshRibbon()
     this.filter()
+    this.saveDraft()
   }
 
   // ---- Cell rendering: price | chooser | stepper ----
@@ -270,6 +306,7 @@ export default class extends Controller {
     openCalendar(this.deliveryDateTarget.value, iso => {
       this.deliveryDateTarget.value = iso
       this.refreshRibbon()
+      this.saveDraft()
     })
   }
 
@@ -291,7 +328,11 @@ export default class extends Controller {
   // ---- Submit: serialize state into the form the server already understands ----
 
   formTargetConnected(form) {
-    form.addEventListener("submit", () => this.writeHiddenFields())
+    form.addEventListener("submit", () => {
+      this.writeHiddenFields()
+      // The batch becomes the cart's source of truth from here
+      this.clearDraft()
+    })
   }
 
   writeHiddenFields() {

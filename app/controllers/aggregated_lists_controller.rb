@@ -16,7 +16,13 @@ class AggregatedListsController < ApplicationController
            (current_location && matched.find { |l| l.location_id == current_location.id }) ||
            matched.first
     if list
-      redirect_to order_builder_aggregated_list_path(list)
+      # One-cart behavior: if a batch is already in progress, resume it in the
+      # builder (prefills its quantities) instead of starting a second cart.
+      batch = scoped_orders.where(status: %w[pending verifying price_changed draft])
+                           .where.not(batch_id: nil)
+                           .order(created_at: :desc)
+                           .first
+      redirect_to order_builder_aggregated_list_path(list, batch_id: batch&.batch_id)
     else
       redirect_to select_list_orders_path
     end
@@ -530,6 +536,8 @@ class AggregatedListsController < ApplicationController
     # their draft must survive. The old batch is destroyed only on successful form submission
     # (see OrdersController#create_from_aggregated_list).
     @quantities = {}
+    @prefill_suppliers = {}  # match_id(str) → supplier_id (mobile: restore the chef's actual pick, not cheapest)
+    @prefill_uoms = {}       # match_id(str) → "CS"/"PC"
     @delivery_date = nil
     @batch_id = params[:batch_id].presence
     if @batch_id
@@ -552,7 +560,10 @@ class AggregatedListsController < ApplicationController
         batch_orders.each do |order|
           order.order_items.each do |oi|
             match_id = sp_to_match[oi.supplier_product_id]
-            @quantities[match_id.to_s] = oi.quantity if match_id
+            next unless match_id
+            @quantities[match_id.to_s] = oi.quantity
+            @prefill_suppliers[match_id.to_s] = order.supplier_id
+            @prefill_uoms[match_id.to_s] = oi.uom if oi.uom.present?
           end
         end
       end
