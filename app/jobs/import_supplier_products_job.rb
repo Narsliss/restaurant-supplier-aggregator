@@ -84,6 +84,9 @@ class ImportSupplierProductsJob < ApplicationJob
     handle_import_error(e)
     raise e # Re-raise to trigger discard, but error is already handled
   ensure
+    # Free the catalog indexes + compact the heap — otherwise this worker
+    # process idles at the import's peak memory forever (Railway bills RSS).
+    service&.release_import_indexes!
     cleanup_credential if @credential&.persisted?
   end
 

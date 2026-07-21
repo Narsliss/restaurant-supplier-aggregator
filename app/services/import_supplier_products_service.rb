@@ -223,6 +223,24 @@ class ImportSupplierProductsService
     Rails.logger.info "[ImportProducts] #{supplier.name}: #{@items_processed} products processed (#{results[:imported]} new, #{results[:updated]} updated)"
   end
 
+
+  # Memory hygiene: the SKU index holds every SupplierProduct for the supplier
+  # as full AR objects, and the product index spans the whole catalog. Ruby
+  # keeps heap at high-water mark, so a worker that ran one import idles at the
+  # import's PEAK memory forever. Calling this after a job's final use of the
+  # service (see ImportSupplierProductsJob / SyscoCombinedImportJob /
+  # DeepCatalogImportJob ensure blocks) frees + compacts the heap so jemalloc
+  # (dirty_decay configured in the Dockerfile) returns the pages to the OS.
+  # NOT called inside import_catalog itself — refresh_known_products legitimately
+  # reuses @seen_skus/@existing_by_sku from the preceding import_catalog run.
+  def release_import_indexes!
+    @existing_by_sku = nil
+    @product_index = nil
+    @seen_skus = nil
+    GC.start
+    GC.compact if GC.respond_to?(:compact)
+  end
+
   private
 
   # Catalog imports run with whichever active credential StaggeredSupplierImportJob
@@ -480,7 +498,7 @@ class ImportSupplierProductsService
       image_status: (item[:image_url].present? ? "pending" : "none")
     )
 
-    product = find_or_create_product(item, @product_index)
+    product = find_or_create_product(item, product_index)
     supplier_product.product = product if product
 
     if supplier_product.save
@@ -610,10 +628,16 @@ class ImportSupplierProductsService
   # incremental writes + reinstatement. Shared by the shallow and deep imports.
   def prepare_import_indexes!
     @existing_by_sku = SupplierProduct.where(supplier: supplier).index_by(&:supplier_sku)
-    all_products = Product.select(:id, :name, :normalized_name).to_a
-    @product_index = build_product_index(all_products)
     @items_processed = 0
     @seen_skus = Set.new
+  end
+
+  # The canonical-Product word index spans the ENTIRE products table and is only
+  # needed when the import encounters a NEW sku (find_or_create_product). Daily
+  # shallow imports and list syncs are overwhelmingly existing-product updates,
+  # so build it lazily — most runs never pay its memory cost at all.
+  def product_index
+    @product_index ||= build_product_index(Product.select(:id, :name, :normalized_name).to_a)
   end
 
   def record_misses_for_unseen_products

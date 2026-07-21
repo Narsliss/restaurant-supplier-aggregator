@@ -52,7 +52,8 @@ class DeepCatalogImportJob < ApplicationJob
     Rails.logger.info "[DeepCatalogImport] Starting deep catalog import for #{supplier.name} at #{started_at.iso8601}"
     credential.update_columns(importing: true, import_status_text: "Deep catalog import: #{supplier.name}...")
 
-    results = ImportSupplierProductsService.new(credential).import_catalog_deep(scraper: scraper)
+    import_service = ImportSupplierProductsService.new(credential)
+    results = import_service.import_catalog_deep(scraper: scraper)
 
     elapsed = Time.current - started_at
     Rails.logger.info "[DeepCatalogImport] #{supplier.name} complete in " \
@@ -63,6 +64,8 @@ class DeepCatalogImportJob < ApplicationJob
     Rails.logger.error "[DeepCatalogImport] Failed#{elapsed}: #{e.class.name}: #{e.message}"
     Rails.logger.error e.backtrace&.first(10)&.join("\n")
   ensure
+    # Free the catalog indexes + compact the heap (see ImportSupplierProductsJob)
+    import_service&.release_import_indexes!
     if credential&.persisted?
       attrs = { importing: false, import_progress: 0, import_total: 0, import_status_text: nil }
       attrs[:last_deep_import_at] = Time.current if credential.respond_to?(:last_deep_import_at)

@@ -62,6 +62,7 @@ RSpec.describe ImportSupplierProductsJob, type: :job do
     before do
       allow(ImportSupplierProductsService).to receive(:new).with(credential).and_return(service)
       allow(service).to receive(:import_catalog).and_return(catalog_results)
+      allow(service).to receive(:release_import_indexes!)
     end
 
     context 'when the supplier scraper implements refresh_known_skus' do

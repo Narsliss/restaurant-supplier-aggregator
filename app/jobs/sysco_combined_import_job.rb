@@ -113,6 +113,8 @@ class SyscoCombinedImportJob < ApplicationJob
     @credential&.mark_failed!(e.message)
     raise
   ensure
+    # Free the catalog indexes + compact the heap (see ImportSupplierProductsJob)
+    products_service&.release_import_indexes!
     if @credential&.persisted?
       @credential.update_columns(
         importing: false,
