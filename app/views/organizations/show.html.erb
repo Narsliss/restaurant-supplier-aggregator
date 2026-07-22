@@ -199,6 +199,44 @@
           </ul>
         </div>
       <% end %>
+
+      <% if manager_or_owner? && @expired_invitations.any? %>
+        <!-- Expired Invitations (never accepted) — re-invitable -->
+        <div class="mt-6 bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden">
+          <div class="px-6 py-5 border-b border-amber-200 bg-amber-50/60">
+            <h2 class="text-lg font-semibold text-gray-900">Expired Invitations</h2>
+            <p class="text-sm text-amber-700 mt-0.5">These invites lapsed before they were accepted — re-invite to send a fresh link.</p>
+          </div>
+          <ul class="divide-y divide-gray-200">
+            <% @expired_invitations.each do |invitation| %>
+              <li class="px-6 py-4 flex items-center justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-gray-900"><%= invitation.email %></p>
+                  <p class="text-sm text-gray-500">
+                    Invited as <%= invitation.role.titleize %> ·
+                    Expired <%= time_ago_in_words(invitation.expires_at) %> ago
+                    <% if invitation.role == 'chef' && invitation.location.present? %>
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700"><%= invitation.location.name %></span>
+                    <% end %>
+                  </p>
+                </div>
+                <div class="flex items-center gap-3 shrink-0">
+                  <%= button_to "Re-invite", organization_invitations_path,
+                        method: :post,
+                        params: { organization_invitation: {
+                          email: invitation.email,
+                          role: invitation.role,
+                          location_id: invitation.location_id,
+                          location_ids: invitation.location_ids || []
+                        } },
+                        class: "text-sm font-semibold text-white bg-brand-green hover:bg-brand-green-dark rounded-lg px-3 py-1.5" %>
+                  <%= button_to "Remove", organization_invitation_path(invitation), method: :delete, class: "text-sm text-red-600 hover:text-red-700" %>
+                </div>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+      <% end %>
     </div>
 
     <!-- Sidebar -->

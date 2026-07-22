@@ -27,6 +27,14 @@ module Organizations
         return
       end
 
+      # Re-invite semantics: clear stale rows (expired, never accepted) for this
+      # email so the new invitation replaces them instead of accumulating.
+      @organization.organization_invitations
+                   .where(accepted_at: nil)
+                   .where("expires_at <= ?", Time.current)
+                   .where("LOWER(email) = ?", @invitation.email.to_s.downcase)
+                   .destroy_all
+
       if @invitation.save
         OrganizationInvitationMailer.invite(@invitation).deliver_later
         if params[:from_wizard].present?

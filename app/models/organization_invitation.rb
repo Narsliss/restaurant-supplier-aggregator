@@ -6,7 +6,16 @@ class OrganizationInvitation < ApplicationRecord
   ROLES = %w[manager chef].freeze # Can't invite as owner
 
   validates :email, presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }
-  validates :email, uniqueness: { scope: :organization_id, message: "has already been invited to this organization" }
+  # Only a LIVE (pending) invitation blocks a duplicate. Expired un-accepted
+  # rows and accepted rows must not block a re-invite — otherwise a lapsed
+  # invitation (or a removed ex-member) makes the email permanently
+  # un-invitable while being invisible in the Pending Invitations UI.
+  # Actual current members are rejected by the controller's member check.
+  validates :email, uniqueness: {
+    scope: :organization_id,
+    conditions: -> { where(accepted_at: nil).where("expires_at > ?", Time.current) },
+    message: "has already been invited to this organization"
+  }
   validates :role, presence: true, inclusion: { in: ROLES }
   validates :token, presence: true, uniqueness: true
   validate :chef_requires_location

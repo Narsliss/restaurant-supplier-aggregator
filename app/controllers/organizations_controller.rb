@@ -8,6 +8,11 @@ class OrganizationsController < ApplicationController
   def show
     @members = @organization.memberships.active.includes(:user, :locations).order(:role, :created_at)
     @pending_invitations = @organization.organization_invitations.pending.includes(:location)
+    @expired_invitations = @organization.organization_invitations
+                                        .where(accepted_at: nil)
+                                        .expired
+                                        .includes(:location)
+                                        .order(expires_at: :desc)
     @locations = @organization.locations
     @seat_count = @organization.seat_count
     @seat_limit = @organization.seat_limit
