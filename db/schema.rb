@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_07_07_140212) do
+ActiveRecord::Schema[7.1].define(version: 2026_07_24_071506) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -71,6 +71,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_07_140212) do
     t.index ["organization_id", "list_type", "location_id"], name: "idx_aggregated_lists_master_unique", unique: true, where: "((list_type)::text = 'master'::text)"
     t.index ["organization_id", "name"], name: "index_aggregated_lists_on_organization_id_and_name", unique: true
     t.index ["organization_id"], name: "index_aggregated_lists_on_organization_id"
+  end
+
+  create_table "baseline_link_snapshots", force: :cascade do |t|
+    t.string "record_type", null: false
+    t.bigint "record_id", null: false
+    t.bigint "previous_product_id"
+    t.string "run_tag", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["run_tag", "record_type", "record_id"], name: "index_baseline_snapshots_on_run_and_record", unique: true
   end
 
   create_table "billing_events", force: :cascade do |t|
@@ -897,10 +907,13 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_07_140212) do
     t.string "image_source_url"
     t.string "image_status", default: "unknown", null: false
     t.datetime "image_checked_at"
+    t.string "match_source"
+    t.string "match_confidence"
     t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
     t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["image_status"], name: "index_supplier_products_on_image_status"
     t.index ["in_stock"], name: "index_supplier_products_on_in_stock"
+    t.index ["match_source"], name: "index_supplier_products_on_match_source"
     t.index ["product_id"], name: "index_supplier_products_on_product_id"
     t.index ["supplier_id", "supplier_sku"], name: "index_supplier_products_on_supplier_id_and_supplier_sku", unique: true
     t.index ["supplier_id"], name: "index_supplier_products_on_supplier_id"
