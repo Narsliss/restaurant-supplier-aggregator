@@ -44,6 +44,16 @@ production:
     schedule: "0 5 * * *"
     description: "Reset demo environment to golden state (1 AM EST / 5 AM UTC)"
 
+  # Nightly cleanup of finished Solid Queue job rows. Solid Queue 0.9.0 does NOT
+  # auto-clear these; because the queue lives in Postgres they pile up on the DB
+  # volume (they reached 81% once — 30k+ finished rows). Cutoff is 1 day
+  # (SolidQueue.clear_finished_jobs_after); cascade removes associated executions.
+  clear_finished_jobs:
+    class: ClearFinishedJobsJob
+    queue: low
+    schedule: "15 4 * * *"
+    description: "Clear finished Solid Queue jobs daily at 12:15 AM EST (4:15 AM UTC)"
+
   # Daily cleanup: delete drafts older than Order::DRAFT_EXPIRY_DAYS (14 days by default)
   # Timer resets when the chef returns to checkout — see OrdersController#review.
   expire_drafts:
