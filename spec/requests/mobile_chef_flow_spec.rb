@@ -135,6 +135,15 @@ RSpec.describe "Mobile chef flow", type: :request do
     end
   end
 
+  describe "minimum-suggestion data on the builder" do
+    it "renders ordered-count and non-perishable flags for the suggestion sheet" do
+      get order_builder_aggregated_list_path(aggregated_list), headers: MOBILE_UA
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("data-ordered-count=")
+      expect(response.body).to include("data-non-perishable=")
+    end
+  end
+
   describe "mobile dashboard" do
     it "renders the ordering-centric chef dashboard with the 3-tab bar" do
       get root_path, headers: MOBILE_UA

@@ -621,6 +621,9 @@ class AggregatedListsController < ApplicationController
                                 .where("orders.created_at >= ?", 6.months.ago)
                                 .group(:supplier_product_id)
                                 .count
+    # Per-product order counts, exposed to the builder for the
+    # minimum-suggestion sheet ("you usually order this from X")
+    @ordered_counts = frequency_counts
 
     # User's manually-favorited supplier_product IDs (single query)
     favorited_sp_ids = current_user.favorite_products.pluck(:supplier_product_id).to_set

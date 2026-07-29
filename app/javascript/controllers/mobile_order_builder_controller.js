@@ -43,6 +43,7 @@ export default class extends Controller {
   }
 
   disconnect() {
+    this.closeSuggestions()
     // Flush any pending save before the page goes away
     if (this._syncTimer) {
       clearTimeout(this._syncTimer)
@@ -311,18 +312,144 @@ export default class extends Controller {
       const total = totals[id]
       const min = this.minimumsValue[id]
       const met = min == null || total >= min
-      return `<div class="shrink-0 rounded-lg px-2.5 py-1.5 border ${met ? "bg-green-500/15 border-green-400/60" : "bg-red-500/15 border-red-400/60"}">
+      if (met) {
+        return `<div class="shrink-0 rounded-lg px-2.5 py-1.5 border bg-green-500/15 border-green-400/60">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[11px] font-bold text-white">${names[id]}</span>
+            <span class="text-[12px] font-extrabold text-green-300">${this.currency(total)}</span>
+          </div>
+          <div class="text-[9px] text-green-300/80">✓ min met</div>
+        </div>`
+      }
+      // Unmet minimum: the pill is tappable and opens the suggestion sheet
+      return `<button type="button" data-action="mobile-order-builder#openSuggestions" data-supplier-id="${id}"
+                      class="shrink-0 rounded-lg px-2.5 py-1.5 border bg-red-500/15 border-red-400/60 text-left active:bg-red-500/25">
         <div class="flex items-center gap-1.5">
           <span class="text-[11px] font-bold text-white">${names[id]}</span>
-          <span class="text-[12px] font-extrabold ${met ? "text-green-300" : "text-red-300"}">${this.currency(total)}</span>
+          <span class="text-[12px] font-extrabold text-red-300">${this.currency(total)}</span>
         </div>
-        <div class="text-[9px] ${met ? "text-green-300/80" : "text-red-300"}">${met ? "✓ min met" : this.currency(min - total) + " to " + this.currency(min) + " min"}</div>
-      </div>`
+        <div class="text-[9px] text-red-300">${this.currency(min - total)} to ${this.currency(min)} min · <span class="underline font-bold">add items</span></div>
+      </button>`
     }).join("")
 
     this.ribbonTotalTarget.textContent = this.currency(Object.values(totals).reduce((a, b) => a + b, 0))
     this.dateLabelTarget.textContent = dateLabel(this.deliveryDateTarget.value)
     this.submitButtonTarget.disabled = !this.deliveryDateTarget.value
+  }
+
+  // ---- Minimum-suggestion sheet: tap an unmet supplier pill to fill the gap ----
+  // Priority per Carmin's spec: items you usually order from that supplier,
+  // then non-perishables it carries, then items where it has the best price.
+
+  openSuggestions(event) {
+    const supplierId = event.currentTarget.dataset.supplierId
+    this.closeSuggestions()
+    const sections = this.buildSuggestions(supplierId)
+    const short = this.supplierShortName(supplierId)
+
+    const sheet = document.createElement("div")
+    sheet.className = "fixed inset-0 z-[60]"
+    sheet.innerHTML = `
+      <div class="absolute inset-0 bg-black/40" data-suggestion-backdrop></div>
+      <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl max-h-[75vh] flex flex-col">
+        <div class="px-4 pt-3 pb-2 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <p class="font-heading font-bold text-brand-navy text-base">Fill ${short} minimum</p>
+            <p class="text-[12px] text-gray-500" data-suggestion-gap></p>
+          </div>
+          <button type="button" data-suggestion-done class="text-sm font-bold text-brand-green px-3 py-1.5">Done</button>
+        </div>
+        <div class="overflow-y-auto px-3 pb-6 pt-1" data-suggestion-body>
+          ${sections.length ? "" : '<p class="text-sm text-gray-400 text-center py-8">No more items from this supplier to suggest.</p>'}
+        </div>
+      </div>`
+
+    const body = sheet.querySelector("[data-suggestion-body]")
+    sections.forEach(section => {
+      const header = document.createElement("p")
+      header.className = "text-[11px] font-bold text-gray-400 uppercase tracking-widest mt-3 mb-1.5 px-1"
+      header.textContent = section.title
+      body.appendChild(header)
+      section.items.forEach(({ card, cell }) => {
+        const row = document.createElement("div")
+        row.className = "flex items-center gap-2.5 bg-white border border-gray-200 rounded-xl px-2.5 py-2 mb-1.5"
+        row.innerHTML = `
+          <img src="${card.dataset.thumb}" alt="" class="w-9 h-9 rounded-lg object-cover border border-gray-100 bg-brand-stone shrink-0">
+          <div class="flex-1 min-w-0">
+            <p class="text-[13px] font-bold text-brand-navy truncate">${card.dataset.displayName}</p>
+            <p class="text-[11px] text-gray-500">${cell.dataset.priceDisplay}${cell.dataset.pack ? " · " + cell.dataset.pack : ""}</p>
+          </div>
+          <button type="button" class="shrink-0 w-9 h-9 rounded-lg bg-brand-green text-white font-bold text-lg flex items-center justify-center active:bg-brand-green-dark">+</button>`
+        row.querySelector("button").addEventListener("click", btnEvent => {
+          this.select(cell, "CS")
+          const btn = btnEvent.currentTarget
+          btn.textContent = "✓"
+          btn.disabled = true
+          btn.classList.remove("bg-brand-green")
+          btn.classList.add("bg-gray-300")
+          this.updateSuggestionGap(supplierId)
+        })
+        body.appendChild(row)
+      })
+    })
+
+    sheet.querySelector("[data-suggestion-backdrop]").addEventListener("click", () => this.closeSuggestions())
+    sheet.querySelector("[data-suggestion-done]").addEventListener("click", () => this.closeSuggestions())
+    document.body.appendChild(sheet)
+    this._suggestionSheet = sheet
+    this._suggestionSupplierId = supplierId
+    this.updateSuggestionGap(supplierId)
+  }
+
+  closeSuggestions() {
+    if (this._suggestionSheet) {
+      this._suggestionSheet.remove()
+      this._suggestionSheet = null
+    }
+  }
+
+  buildSuggestions(supplierId) {
+    const usual = [], pantry = [], best = []
+    this.cardTargets.forEach(card => {
+      const matchId = card.dataset.matchId
+      if (this.state[matchId]) return
+      const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === supplierId)
+      if (!cell || cell.dataset.inStock === "false" || !(parseFloat(cell.dataset.price) > 0)) return
+      const count = parseInt(cell.dataset.orderedCount || "0", 10)
+      if (count >= 2) usual.push({ card, cell, count })
+      else if (card.dataset.nonPerishable === "true") pantry.push({ card, cell, count })
+      else if (cell.dataset.best === "true") best.push({ card, cell, count })
+    })
+    usual.sort((a, b) => b.count - a.count)
+    return [
+      { title: "You usually order", items: usual.slice(0, 6) },
+      { title: "Pantry staples", items: pantry.slice(0, 6) },
+      { title: "Best price here", items: best.slice(0, 6) }
+    ].filter(s => s.items.length > 0)
+  }
+
+  supplierShortName(supplierId) {
+    const cell = this.cellTargets.find(c => c.dataset.supplierId === supplierId)
+    return cell ? cell.dataset.short : "supplier"
+  }
+
+  updateSuggestionGap(supplierId) {
+    if (!this._suggestionSheet) return
+    const gapEl = this._suggestionSheet.querySelector("[data-suggestion-gap]")
+    const min = this.minimumsValue[supplierId]
+    let total = 0
+    Object.entries(this.state).forEach(([matchId, s]) => {
+      if (s.supplierId !== supplierId) return
+      const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === supplierId)
+      if (cell) total += this.effectivePrice(cell, s.uom) * s.qty
+    })
+    if (min == null || total >= min) {
+      gapEl.textContent = "✓ Minimum met"
+      gapEl.classList.remove("text-gray-500")
+      gapEl.classList.add("text-brand-green", "font-bold")
+    } else {
+      gapEl.textContent = `${this.currency(min - total)} more to reach the ${this.currency(min)} minimum`
+    }
   }
 
   // ---- Calendar bottom sheet (comp component) ----

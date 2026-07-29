@@ -87,6 +87,7 @@
              data-thumb="<%= thumb %>"
              data-category="<%= category %>"
              data-frequent="<%= @frequently_ordered[match.id] ? 'true' : 'false' %>"
+             data-non-perishable="<%= Orders::MinimumSuggestionService::NON_PERISHABLE_CATEGORIES.include?(category) %>"
              data-cheapest-supplier-id="<%= cheapest_id %>"
              data-initial-qty="<%= current_qty %>"
              data-initial-supplier-id="<%= @prefill_suppliers[match.id.to_s] %>"
@@ -137,6 +138,7 @@
                      data-piece-price="<%= piece %>"
                      data-piece-display="<%= number_to_currency(piece) if piece %>"
                      data-best="<%= is_best %>"
+                     data-ordered-count="<%= @ordered_counts[sp&.id] || 0 %>"
                      data-in-stock="<%= in_stock %>"></div>
               <% end %>
             <% end %>
