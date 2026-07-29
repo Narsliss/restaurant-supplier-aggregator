@@ -145,10 +145,9 @@
             Retry Order
           <% end %>
         <% end %>
-        <%= button_to reorder_order_path(@order), method: :post,
-            class: "w-full bg-gray-700 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-sm" do %>
-          Reorder
-        <% end %>
+        <%# No Reorder on mobile (Carmin: mobile is intentionally limited —
+            rebuilding an order happens through the Order tab; desktop keeps
+            the Reorder button) %>
       <% end %>
     </div>
   <% end %>
