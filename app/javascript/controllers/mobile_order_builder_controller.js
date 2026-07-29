@@ -15,6 +15,7 @@ import { openCalendar, tomorrowIso, dateLabel, flySavings, confettiBurst } from 
 export default class extends Controller {
   static targets = ["form", "hiddenFields", "search", "searchClear", "categoryChip", "emptyState", "noResults",
                     "card", "cell", "orderSection", "orderCount", "orderLines",
+                    "listSectionHeader", "otherSectionHeader",
                     "ribbon", "ribbonPills", "ribbonTotal", "dateLabel", "deliveryDate", "submitButton"]
   static values = { minimums: Object, listId: Number }
 
@@ -106,6 +107,8 @@ export default class extends Controller {
     if (this.hasSearchClearTarget) this.searchClearTarget.classList.toggle("hidden", this.searchTarget.value === "")
     const blank = q === "" && this.category === "all"
     let visible = 0
+    let visibleOnList = 0
+    let visibleOther = 0
 
     this.cardTargets.forEach(card => {
       let show
@@ -118,8 +121,24 @@ export default class extends Controller {
         show = matchesQuery && matchesCat
       }
       card.classList.toggle("hidden", !show)
-      if (show) visible++
+      if (show) {
+        visible++
+        if (card.dataset.onList === "true") visibleOnList++
+        else visibleOther++
+      }
     })
+
+    // Section headers appear only when results span both groups — order-list
+    // items float on top (CSS order), everything else below.
+    const showHeaders = !blank && visibleOnList > 0 && visibleOther > 0
+    if (this.hasListSectionHeaderTarget) {
+      this.listSectionHeaderTarget.classList.toggle("hidden", !showHeaders)
+      this.listSectionHeaderTarget.classList.toggle("flex", showHeaders)
+    }
+    if (this.hasOtherSectionHeaderTarget) {
+      this.otherSectionHeaderTarget.classList.toggle("hidden", !showHeaders)
+      this.otherSectionHeaderTarget.classList.toggle("flex", showHeaders)
+    }
 
     const hasLines = Object.keys(this.state).length > 0
     this.emptyStateTarget.classList.toggle("hidden", !(blank && !hasLines))

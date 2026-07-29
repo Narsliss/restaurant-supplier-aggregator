@@ -70,7 +70,17 @@
     <p data-mobile-order-builder-target="noResults" class="text-center text-sm text-gray-400 py-10 hidden">No items match your search</p>
 
     <%# --- Product cards --- %>
-    <main class="px-2 pt-3 space-y-2.5">
+    <%# flex + CSS order: cards from the chef's order lists float above the
+        rest during search, under their own header, without DOM reshuffling %>
+    <main class="px-2 pt-3 flex flex-col gap-2.5">
+      <div class="hidden items-center gap-2" style="order: -3;" data-mobile-order-builder-target="listSectionHeader">
+        <h2 class="font-heading text-[11px] font-semibold text-brand-green tracking-widest uppercase shrink-0">From your order lists</h2>
+        <div class="h-px bg-brand-green/30 flex-1"></div>
+      </div>
+      <div class="hidden items-center gap-2 pt-1" style="order: 0;" data-mobile-order-builder-target="otherSectionHeader">
+        <h2 class="font-heading text-[11px] font-semibold text-gray-400 tracking-widest uppercase shrink-0">Everything else</h2>
+        <div class="h-px bg-gray-300 flex-1"></div>
+      </div>
       <% @product_matches.each do |match| %>
         <%
           cheapest = match.cheapest_supplier
@@ -79,8 +89,11 @@
           category = @match_category[match.id] || "Other"
           thumb = product_thumb_url(match.canonical_image_source)
         %>
+        <% on_list = @all_list_match_ids.include?(match.id) %>
         <div class="bg-white rounded-2xl border border-gray-200 p-2.5 hidden"
+             style="order: <%= on_list ? -2 : 1 %>;"
              data-mobile-order-builder-target="card"
+             data-on-list="<%= on_list %>"
              data-match-id="<%= match.id %>"
              data-name="<%= match.display_name.downcase %>"
              data-display-name="<%= match.display_name %>"

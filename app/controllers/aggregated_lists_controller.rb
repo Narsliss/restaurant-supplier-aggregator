@@ -469,6 +469,15 @@ class AggregatedListsController < ApplicationController
       @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) || s.email_supplier? }
     )
 
+    # Matches on ANY of the user's order lists — search results surface these
+    # first in their own section (chef punch item), regardless of which list
+    # (if any) the builder was entered through.
+    @all_list_match_ids = scoped_order_lists
+      .joins(:order_list_items)
+      .where.not(order_list_items: { product_match_id: nil })
+      .pluck("order_list_items.product_match_id")
+      .to_set
+
     # --- Optional order list context (unified builder) ---
     @order_list = nil
     @order_list_match_ids = Set.new
