@@ -204,6 +204,29 @@ class SupplierListItem < ApplicationRecord
     UnitParser.format_per_unit(piece_per_unit_price, per_piece[:unit])
   end
 
+  # True when the price is per-weight (explicit or inferred) — catch-weight
+  # billing where the invoice depends on delivered weight, so any case total
+  # we show is an estimate.
+  def priced_per_weight?
+    unit = price_unit.presence || inferred_price_unit
+    return false if unit.blank?
+
+    UnitParser::WEIGHT_TO_OZ.key?(UnitParser.normalize_unit_key(unit))
+  end
+
+  # Display note for catch-weight items: "~est. 49.8 lb @ $2.00/lb".
+  # Nil for anything not priced per weight or with an unparseable pack.
+  def catch_weight_note
+    return nil unless priced_per_weight?
+    return nil unless effective_price.present?
+
+    parsed = parsed_pack_size
+    return nil unless parsed[:parseable] && parsed[:unit] == "lb"
+
+    qty = parsed[:quantity] % 1 == 0 ? parsed[:quantity].to_i : parsed[:quantity].round(1)
+    "~est. #{qty} lb @ #{format('$%.2f', effective_price)}/lb"
+  end
+
   # Estimated total price for the full pack.
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.

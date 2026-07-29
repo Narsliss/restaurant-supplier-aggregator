@@ -278,11 +278,13 @@ class OrdersController < ApplicationController
           next
         end
 
+        # estimated_case_price: catch-weight products store current_price per LB
+        case_price = sp.estimated_case_price
         new_order.order_items.create!(
           supplier_product: sp,
           quantity: original_item.quantity,
-          unit_price: sp.current_price,
-          line_total: sp.current_price * original_item.quantity,
+          unit_price: case_price,
+          line_total: case_price * original_item.quantity,
           status: "pending"
         )
       end

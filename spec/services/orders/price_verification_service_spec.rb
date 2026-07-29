@@ -116,6 +116,69 @@ RSpec.describe Orders::PriceVerificationService, type: :service do
       end
     end
 
+    # Regression: order #145 — catch-weight pork verified per-LB ($2.00) against
+    # a case-priced line (~$100), reported a phantom price drop, and accepting
+    # it wrote the per-pound price into the submitted order.
+    context 'catch-weight (per-LB) items' do
+      let(:supplier_product) do
+        create(:supplier_product, supplier: supplier, current_price: 2.00,
+               price_unit: 'LB', pack_size: '4/10 LB', price_updated_at: 2.hours.ago)
+      end
+      let(:order) do
+        create(:order,
+               user: user,
+               supplier: supplier,
+               organization: user.current_organization,
+               subtotal: 240.00,
+               total_amount: 240.00).tap do |o|
+          create(:order_item, order: o, supplier_product: supplier_product, quantity: 3, unit_price: 80.00, uom: 'CS')
+        end
+      end
+
+      it 'converts the per-LB verified price to the case equivalent (no phantom change)' do
+        allow(fake_scraper).to receive(:scrape_prices).and_return([
+          { supplier_sku: supplier_product.supplier_sku, current_price: 2.00, price_unit: 'LB', in_stock: true, supplier_name: 'Pork' }
+        ])
+
+        result = described_class.new(order).verify!
+
+        expect(result[:has_price_changes]).to be false
+        expect(order.order_items.first.reload.verified_price).to eq(80.00)
+        expect(order.reload.verification_status).to eq('verified')
+      end
+
+      it 'stores the RAW per-LB price in the supplier_product cache on a real change' do
+        allow(fake_scraper).to receive(:scrape_prices).and_return([
+          { supplier_sku: supplier_product.supplier_sku, current_price: 2.10, price_unit: 'LB', in_stock: true, supplier_name: 'Pork' }
+        ])
+
+        described_class.new(order).verify!
+
+        expect(order.order_items.first.reload.verified_price).to eq(84.00)
+        expect(supplier_product.reload.current_price).to eq(2.10)
+      end
+
+      it 'treats an implausible verified price as unverified instead of offering it' do
+        # Simulate a scraper that fails to report the unit AND a product with no
+        # stored price_unit — the raw $2.00 would face the $80.00 line directly.
+        supplier_product.update!(price_unit: nil)
+        allow(fake_scraper).to receive(:scrape_prices).and_return([
+          { supplier_sku: supplier_product.supplier_sku, current_price: 2.00, in_stock: true, supplier_name: 'Pork' }
+        ])
+
+        result = described_class.new(order).verify!
+
+        expect(result[:has_price_changes]).to be false
+        expect(order.reload.verification_status).to eq('verified')
+        # Line keeps its imported price — nothing offers the chef a $2.00 case
+        item = order.order_items.first.reload
+        expect(item.verified_price).to eq(80.00)
+        expect(item.unit_price).to eq(80.00)
+        expect(result[:results].first[:unverified]).to be true
+        expect(result[:results].first[:implausible]).to be true
+      end
+    end
+
     context 'when scraper raises CaptchaDetectedError' do
       it 'skips verification rather than failing' do
         allow(fake_scraper).to receive(:scrape_prices).and_raise(Scrapers::BaseScraper::CaptchaDetectedError, 'captcha')

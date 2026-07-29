@@ -118,6 +118,28 @@ class SupplierProduct < ApplicationRecord
     @parsed_pack_size ||= UnitParser.parse(pack_size)
   end
 
+  # Case-equivalent price for a product whose stored price may be per-unit.
+  # Catch-weight items (e.g. US Foods pork at $2.00/LB, price_unit "LB") store
+  # the per-pound price in current_price; order lines are priced per case, so
+  # comparing or charging the raw figure understates the case by ~50x.
+  # Only weight/volume price units convert — count units ("EA", "CS") mean the
+  # price already covers the pack. Unparseable pack sizes return the raw price.
+  def estimated_case_price(price: current_price, unit: price_unit)
+    return price if price.blank? || unit.blank?
+
+    unit_key = UnitParser.normalize_unit_key(unit)
+    return price unless UnitParser::WEIGHT_TO_OZ.key?(unit_key) || UnitParser::VOLUME_TO_FL_OZ.key?(unit_key)
+
+    UnitParser.estimated_total(price, unit_key, pack_size) || price
+  end
+
+  # True when the stored price is per-weight (catch-weight style billing).
+  def priced_per_weight?
+    return false if price_unit.blank?
+
+    UnitParser::WEIGHT_TO_OZ.key?(UnitParser.normalize_unit_key(price_unit))
+  end
+
   def per_unit_price
     return nil unless current_price && parsed_pack_size[:parseable]
     return nil if parsed_pack_size[:normalized_quantity] <= 0

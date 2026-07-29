@@ -24,11 +24,13 @@ module Orders
         # Skip items not available at this supplier
         next unless supplier_product&.current_price
 
+        # estimated_case_price: catch-weight products store current_price per LB
+        case_price = supplier_product.estimated_case_price
         order.order_items.build(
           supplier_product: supplier_product,
           quantity: list_item.quantity,
-          unit_price: supplier_product.current_price,
-          line_total: supplier_product.current_price * list_item.quantity,
+          unit_price: case_price,
+          line_total: case_price * list_item.quantity,
           status: "pending"
         )
       end

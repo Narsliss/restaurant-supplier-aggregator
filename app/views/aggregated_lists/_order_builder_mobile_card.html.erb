@@ -53,7 +53,7 @@
                         <%= is_cheapest ? 'best-price' : '' %>
                         <%= in_stock == false ? 'opacity-50' : '' %>"
                  data-action="click->order-builder#selectSupplier"
-                 data-supplier-price="<%= item.price_unit.present? ? item.estimated_total_price : effective_price %>"
+                 data-supplier-price="<%= item.estimated_total_price || effective_price %>"
                  data-supplier-id-value="<%= supplier.id %>"
                  data-match-id="<%= match.id %>"
                  data-order-builder-target="supplierCell"
@@ -61,7 +61,9 @@
               <p class="text-[9px] font-bold uppercase <%= is_default ? 'text-brand-green' : 'text-gray-400' %>"><%= supplier.name.first(3).upcase %></p>
               <p class="text-xs font-bold text-gray-900">
                 <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
-                <% if item.formatted_per_unit_price %>
+                <% if item.catch_weight_note %>
+                  <span class="text-[9px] text-amber-600 font-normal"><%= item.catch_weight_note %></span>
+                <% elsif item.formatted_per_unit_price %>
                   <span class="text-[9px] text-gray-400 font-normal"><%= item.formatted_per_unit_price %></span>
                 <% end %>
               </p>

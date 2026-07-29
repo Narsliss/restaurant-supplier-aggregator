@@ -60,6 +60,10 @@ class ProductMatch < ApplicationRecord
         supplier: pmi.supplier,
         item: item,
         price: item.price || sp&.current_price,
+        # Case-equivalent price: converts per-unit prices (explicit or inferred
+        # catch-weight) to the full case cost. Use this for totals/selection —
+        # raw :price is $2.00/lb for catch-weight pork, not the ~$100 case.
+        estimated_price: item.estimated_total_price || item.price || sp&.current_price,
         pack_size: item.pack_size || sp&.pack_size,
         per_unit_price: item.per_unit_price,
         normalized_unit: item.normalized_unit,
@@ -92,7 +96,8 @@ class ProductMatch < ApplicationRecord
         comparable_group.min_by { |p| p[:per_unit_price] }
       else
         prices = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
-        prices.min_by { |p| p[:price] } if prices.any?
+        # Compare case-equivalents — a raw per-lb price would always "win"
+        prices.min_by { |p| p[:estimated_price] || p[:price] } if prices.any?
       end
     end
   end
@@ -103,7 +108,8 @@ class ProductMatch < ApplicationRecord
         comparable_group.max_by { |p| p[:per_unit_price] }
       else
         prices = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
-        prices.max_by { |p| p[:price] } if prices.any?
+        # Compare case-equivalents — a raw per-lb price would always "lose"
+        prices.max_by { |p| p[:estimated_price] || p[:price] } if prices.any?
       end
     end
   end

@@ -439,6 +439,9 @@
                   </td>
                   <td class="px-4 py-2 text-sm text-right">
                     <span class="text-gray-900" data-order-review-target="unitPriceDisplay" data-item-id="<%= item.id %>"><%= number_to_currency(item.unit_price) %></span>
+                    <% if item.supplier_product&.priced_per_weight? %>
+                      <span class="block text-xs text-amber-600 mt-0.5">est. (billed by weight)</span>
+                    <% end %>
                     <span class="hidden block text-xs mt-0.5" data-order-review-target="priceDiff" data-item-id="<%= item.id %>"></span>
                   </td>
                   <td class="px-4 py-2 text-sm font-medium text-gray-900 text-right" data-order-review-target="lineTotal" data-item-id="<%= item.id %>">
@@ -506,6 +509,9 @@
               <div class="flex items-center justify-between">
                 <div>
                   <span class="text-xs text-gray-500" data-order-review-target="unitPriceDisplay" data-item-id="<%= item.id %>"><%= number_to_currency(item.unit_price) %> each</span>
+                  <% if item.supplier_product&.priced_per_weight? %>
+                    <span class="text-xs text-amber-600">· est. (billed by weight)</span>
+                  <% end %>
                   <span class="hidden text-xs" data-order-review-target="priceDiff" data-item-id="<%= item.id %>"></span>
                 </div>
                 <div class="inline-flex items-center gap-1">

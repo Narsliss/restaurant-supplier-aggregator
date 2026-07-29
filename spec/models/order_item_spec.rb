@@ -140,4 +140,59 @@ RSpec.describe OrderItem, type: :model do
       expect(item.verified_price_changed?).to be false
     end
   end
+
+  # Regression: order #145 — US Foods catch-weight pork ($2.00/LB, "3/2/8.3 LBA")
+  # verified at the raw per-LB price, tripped a phantom "price dropped" alarm,
+  # and accepting it wrote $2.00 into a case that costs ~$100.
+  describe 'catch-weight (per-LB priced) lines' do
+    let(:sp) { create(:supplier_product, current_price: 2.00, price_unit: 'LB', pack_size: '4/10 LB') }
+    let(:item) { create(:order_item, supplier_product: sp, uom: 'CS', quantity: 3, unit_price: 80.00) }
+
+    it '#current_supplier_unit_price returns the case-equivalent, not the raw per-LB price' do
+      expect(item.current_supplier_unit_price).to eq(80.00)
+      expect(item.price_changed?).to be false
+    end
+
+    describe '#comparable_verified_price' do
+      it 'converts a per-LB verified price using the scraper-reported unit' do
+        expect(item.comparable_verified_price(2.00, 'LB')).to eq(80.00)
+      end
+
+      it 'falls back to the supplier_product price_unit when no hint is given' do
+        expect(item.comparable_verified_price(2.50, nil)).to eq(100.00)
+      end
+
+      it 'returns the raw price for PC lines' do
+        item.update!(uom: 'PC')
+        expect(item.comparable_verified_price(2.00, 'LB')).to eq(2.00)
+      end
+
+      it 'returns the raw price for case-priced products' do
+        cs = create(:supplier_product, current_price: 32.19, price_unit: 'CS', pack_size: '12/200 EA')
+        cs_item = create(:order_item, supplier_product: cs, quantity: 1, unit_price: 32.19)
+        expect(cs_item.comparable_verified_price(33.00, 'CS')).to eq(33.00)
+      end
+    end
+
+    describe '#implausible_verified_price?' do
+      it 'flags a raw per-LB price masquerading as a case price' do
+        expect(item.implausible_verified_price?(2.00)).to be true
+      end
+
+      it 'accepts a normal price change' do
+        expect(item.implausible_verified_price?(85.00)).to be false
+      end
+
+      it 'ignores large-percentage swings on cheap items (under the dollar floor)' do
+        cheap = create(:order_item, quantity: 1, unit_price: 3.00)
+        expect(cheap.implausible_verified_price?(1.00)).to be false
+      end
+
+      it 'is false when the candidate is blank or unit_price is zero' do
+        expect(item.implausible_verified_price?(nil)).to be false
+        zero = build(:order_item, unit_price: 0)
+        expect(zero.implausible_verified_price?(50.00)).to be false
+      end
+    end
+  end
 end

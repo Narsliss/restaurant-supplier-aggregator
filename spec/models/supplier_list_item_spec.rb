@@ -148,4 +148,30 @@ RSpec.describe SupplierListItem, type: :model do
       end
     end
   end
+
+  # Regression: order #145 — catch-weight items need an explicit "estimated"
+  # signal on builder/review screens since the invoice depends on actual weight.
+  describe '#priced_per_weight? and #catch_weight_note' do
+    it 'builds the note for an explicit per-LB item' do
+      sli = build(:supplier_list_item, price: 2.00, price_unit: 'LB', pack_size: '4/10 LB')
+      expect(sli.priced_per_weight?).to be true
+      expect(sli.catch_weight_note).to eq('~est. 40 lb @ $2.00/lb')
+    end
+
+    it 'shows one decimal for fractional pack weights' do
+      sli = build(:supplier_list_item, price: 2.00, price_unit: 'LB', pack_size: '2/8.3 LB')
+      expect(sli.catch_weight_note).to eq('~est. 16.6 lb @ $2.00/lb')
+    end
+
+    it 'is nil for case-priced items' do
+      sli = build(:supplier_list_item, price: 32.19, price_unit: 'CS', pack_size: '12/200 EA')
+      expect(sli.priced_per_weight?).to be false
+      expect(sli.catch_weight_note).to be_nil
+    end
+
+    it 'is nil when the pack cannot be parsed into pounds' do
+      sli = build(:supplier_list_item, price: 2.00, price_unit: 'LB', pack_size: 'MARKET WEIGHT')
+      expect(sli.catch_weight_note).to be_nil
+    end
+  end
 end

@@ -1,7 +1,7 @@
 <% cheapest = match.cheapest_supplier %>
 <% most_expensive = match.most_expensive_supplier %>
 <% comparable = match.per_unit_comparable? %>
-<% cheapest_price = cheapest&.dig(:price) || 0 %>
+<% cheapest_price = cheapest&.dig(:estimated_price) || cheapest&.dig(:price) || 0 %>
 <% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
 
 <% is_ol = local_assigns.fetch(:order_list_item, false) %>
@@ -46,7 +46,7 @@
           <div class="cursor-pointer rounded-md px-1.5 py-1 -mx-1.5 -my-1 transition-all
                       <%= is_default ? 'ring-2 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
                data-action="click->order-builder#selectSupplier"
-               data-supplier-price="<%= item.price_unit.present? ? item.estimated_total_price : effective_price %>"
+               data-supplier-price="<%= item.estimated_total_price || effective_price %>"
                data-supplier-id-value="<%= supplier.id %>"
                data-match-id="<%= match.id %>"
                data-order-builder-target="supplierCell"
@@ -54,13 +54,15 @@
             <span class="text-sm font-semibold <%= is_cheapest ? 'text-green-700' : is_most_expensive ? 'text-red-600' : 'text-gray-900' %>">
               <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
             </span>
-            <% if item.price_unit.present? && item.estimated_total_price != item.price %>
+            <% if item.estimated_total_price.present? && item.estimated_total_price != effective_price %>
               <span class="block text-xs text-gray-500">~<%= number_to_currency(item.estimated_total_price) %> est. total</span>
             <% end %>
             <% if effective_pack_size.present? %>
               <span class="block text-xs text-gray-500"><%= effective_pack_size %></span>
             <% end %>
-            <% if item.formatted_per_unit_price %>
+            <% if item.catch_weight_note %>
+              <span class="block text-xs text-amber-600"><%= item.catch_weight_note %></span>
+            <% elsif item.formatted_per_unit_price %>
               <span class="block text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
                 <%= item.formatted_per_unit_price %>
               </span>

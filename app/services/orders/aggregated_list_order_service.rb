@@ -133,7 +133,7 @@ module Orders
           quantity: qty,
           unit_price: unit_price,
           uom: uom,
-          worst_price: most_expensive&.dig(:price)
+          worst_price: most_expensive&.dig(:estimated_price) || most_expensive&.dig(:price)
         }
       end
 

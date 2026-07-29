@@ -42,16 +42,28 @@ class VerifyItemPriceJob < ApplicationJob
     result = results&.first
 
     if result && result[:current_price]
-      item.update!(verified_price: result[:current_price])
+      # Catch-weight items verify per-LB — convert to the line's case basis
+      # before storing, or the review page reports a phantom price drop.
+      comparable = item.comparable_verified_price(result[:current_price], result[:price_unit])
 
-      # Update cached price on the supplier product if it changed — but only
-      # for case-priced verifications. supplier_product.current_price is the
-      # case price by convention; writing a per-piece price would corrupt it.
+      if item.implausible_verified_price?(comparable)
+        Rails.logger.error "[VerifyItemPrice] Item ##{item.id} (#{sku}): implausible verified price " \
+                           "$#{comparable} vs expected $#{item.unit_price} (raw $#{result[:current_price]}, " \
+                           "unit #{result[:price_unit].inspect}) — keeping imported price"
+        item.update!(verified_price: item.unit_price)
+        return
+      end
+
+      item.update!(verified_price: comparable)
+
+      # Update cached price on the supplier product with the RAW value — the
+      # cache convention is per price_unit (per-LB for catch-weight). Only for
+      # case verifications; writing a per-piece price would corrupt it.
       if item.uom != "PC" && result[:current_price] != item.supplier_product.current_price
         item.supplier_product.update_price!(result[:current_price], in_stock: result[:in_stock])
       end
 
-      Rails.logger.info "[VerifyItemPrice] Item ##{item.id} (#{sku}): verified at $#{result[:current_price]}"
+      Rails.logger.info "[VerifyItemPrice] Item ##{item.id} (#{sku}): verified at $#{comparable}"
     else
       Rails.logger.warn "[VerifyItemPrice] Item ##{item.id} (#{sku}): could not verify price"
     end

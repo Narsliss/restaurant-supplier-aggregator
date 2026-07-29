@@ -115,9 +115,10 @@ module Scrapers
 
     def scrape_prices(product_skus)
       api_client.ensure_session!
-      product_skus = normalize_price_queries(product_skus).map { |q| q[:sku] }
+      queries = normalize_price_queries(product_skus)
+      uom_by_number = queries.each_with_object({}) { |q, h| h[q[:sku].to_i] = q[:uom] }
 
-      product_numbers = product_skus.map(&:to_i)
+      product_numbers = queries.map { |q| q[:sku].to_i }
       products_by_number = fetch_products_map(product_numbers)
       prices_by_number = api_client.fetch_prices(product_numbers)
 
@@ -126,9 +127,22 @@ module Scrapers
         price = prices_by_number[pn]
         summary = product&.dig('summary') || product || {}
 
+        # PC (split/each) lines verify against splitPrice; case lines report the
+        # priceUom so callers can convert per-LB catch-weight prices to a case
+        # equivalent before comparing (see OrderItem#comparable_verified_price).
+        if uom_by_number[pn] == 'PC' && price&.dig(:split_price)&.positive?
+          current_price = price[:split_price]
+          price_unit = 'PC'
+        else
+          current_price = price&.dig(:case_price)
+          price_unit = price&.dig(:price_uom)
+        end
+
         {
           supplier_sku: pn.to_s,
-          current_price: price&.dig(:case_price),
+          current_price: current_price,
+          price_unit: price_unit,
+          catch_weight: price&.dig(:catch_weight),
           in_stock: product.present?,
           supplier_name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - ')
         }

@@ -80,7 +80,7 @@
             <div class="flex-1 min-w-0">
               <p class="text-[15px] font-bold text-brand-navy truncate"><%= item.supplier_name %></p>
               <p class="text-[11px] text-gray-400">
-                <%= number_to_currency(item.unit_price) %> ea<%= " · #{item.uom}" if item.uom.present? && item.uom != "CS" %>
+                <%= number_to_currency(item.unit_price) %> ea<%= " · #{item.uom}" if item.uom.present? && item.uom != "CS" %><% if item.supplier_product&.priced_per_weight? %> <span class="text-amber-600">· est. (billed by weight)</span><% end %>
               </p>
             </div>
             <div class="flex items-center gap-0.5 shrink-0">

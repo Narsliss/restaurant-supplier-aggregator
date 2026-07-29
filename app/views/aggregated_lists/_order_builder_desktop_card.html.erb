@@ -89,7 +89,7 @@
             <% if effective_price %>
               <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
               <% is_default = cheapest && cheapest[:supplier] == supplier %>
-              <% cell_price = item.price_unit.present? ? item.estimated_total_price : effective_price %>
+              <% cell_price = item.estimated_total_price || effective_price %>
               <div class="rounded-lg relative min-w-0 cursor-pointer transition-all
                           <%= is_default ? 'ring-2 ring-brand-orange' : '' %>
                           <%= is_cheapest ? 'border-2 border-green-500/50 bg-green-50' : 'border border-gray-200 bg-gray-50' %>"
@@ -132,12 +132,16 @@
                 <div data-price-label class="<%= is_cheapest ? 'text-green-600' : 'text-gray-900' %>" style="font-size:14px; font-weight:700; margin-top:4px;">
                   <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                 </div>
-                <% if item.price_unit.present? && item.estimated_total_price != item.price %>
+                <% if item.estimated_total_price.present? && item.estimated_total_price != effective_price %>
                   <span class="text-gray-500" style="font-size:10px;">~<%= number_to_currency(item.estimated_total_price) %></span>
                 <% end %>
 
                 <%# Per-unit — 10px %>
-                <% if item.formatted_per_unit_price %>
+                <% if item.catch_weight_note %>
+                  <div data-per-unit-price class="text-amber-600" style="font-size:10px; margin-top:1px;">
+                    <%= item.catch_weight_note %>
+                  </div>
+                <% elsif item.formatted_per_unit_price %>
                   <div data-per-unit-price class="<%= is_cheapest ? 'text-green-600' : 'text-gray-500' %>" style="font-size:10px; margin-top:1px;">
                     <%= item.formatted_per_unit_price %>
                   </div>

@@ -74,8 +74,37 @@ class OrderItem < ApplicationRecord
     if uom == "PC" && supplier_product.piece_price.present? && supplier_product.piece_price.positive?
       supplier_product.piece_price
     else
-      supplier_product.current_price
+      # Case lines must compare against the case-equivalent price: catch-weight
+      # products store current_price per LB, which is not what the line charges.
+      supplier_product.estimated_case_price
     end
+  end
+
+  # Convert a freshly scraped supplier price into this line's pricing basis
+  # before comparing it to unit_price. Catch-weight items come back per-LB
+  # (e.g. $2.00 for a ~$100 case) — comparing raw trips a phantom "price
+  # dropped" alarm, and accepting it writes the per-pound price into the order.
+  # price_unit_hint is the scraper-reported unit (USF priceUom); falls back to
+  # the product's stored price_unit.
+  def comparable_verified_price(raw_price, price_unit_hint = nil)
+    return raw_price if raw_price.blank? || uom == "PC" || supplier_product.nil?
+
+    unit = price_unit_hint.presence || supplier_product.price_unit
+    supplier_product.estimated_case_price(price: raw_price, unit: unit)
+  end
+
+  # Sanity check for verified prices: a swing this large is far more likely a
+  # unit mismatch (per-LB vs case, piece vs case) than a real price change.
+  # Callers should treat the verification as failed rather than offer the
+  # chef an "accept new price" that corrupts the order.
+  IMPLAUSIBLE_SWING_RATIO = 0.7
+  IMPLAUSIBLE_SWING_MIN_DOLLARS = 5.0
+
+  def implausible_verified_price?(candidate_price)
+    return false if candidate_price.blank? || unit_price.blank? || unit_price.zero?
+
+    diff = (candidate_price - unit_price).abs
+    diff > IMPLAUSIBLE_SWING_MIN_DOLLARS && (diff / unit_price) > IMPLAUSIBLE_SWING_RATIO
   end
 
   def price_changed?

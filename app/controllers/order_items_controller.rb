@@ -28,11 +28,13 @@ class OrderItemsController < ApplicationController
       @order_item = existing
       is_existing = true
     else
+      # estimated_case_price: catch-weight products store current_price per LB
+      case_price = supplier_product.estimated_case_price
       @order_item = @order.order_items.create!(
         supplier_product: supplier_product,
         quantity: qty,
-        unit_price: supplier_product.current_price,
-        line_total: supplier_product.current_price * qty,
+        unit_price: case_price,
+        line_total: case_price * qty,
         status: "pending"
       )
     end

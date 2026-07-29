@@ -128,6 +128,7 @@ module Orders
       results.each do |result|
         prices[result[:supplier_sku]] = {
           price: result[:current_price],
+          price_unit: result[:price_unit],
           in_stock: result[:in_stock] != false,
           name: result[:supplier_name]
         }
@@ -142,12 +143,39 @@ module Orders
         verified = verified_prices[sku]
 
         if verified && verified[:price]
-          item.update!(verified_price: verified[:price])
+          # Convert to this line's pricing basis first: catch-weight items come
+          # back per-LB (e.g. $2.00 for a ~$100 case) and must not be compared
+          # raw against the case-priced unit_price.
+          comparable = item.comparable_verified_price(verified[:price], verified[:price_unit])
 
-          # Also update the supplier product's cached price — but only when
-          # we verified at the case price (the convention for current_price).
-          # PC verifications return the per-piece price, which would corrupt
-          # the cache used by catalog/builder/comparison views.
+          if item.implausible_verified_price?(comparable)
+            # A swing this large is almost certainly a unit mismatch, not a real
+            # price change. Keep the imported price instead of offering an
+            # "accept" that would write a wrong price into the order.
+            Rails.logger.error "[PriceVerification] Order ##{order.id} item ##{item.id} (#{sku}): " \
+                               "implausible verified price $#{comparable} vs expected $#{item.unit_price} " \
+                               "(raw $#{verified[:price]}, unit #{verified[:price_unit].inspect}) — keeping imported price"
+            item.update!(verified_price: item.unit_price)
+            @results << {
+              item_id: item.id,
+              sku: sku,
+              name: item.supplier_product.supplier_name,
+              expected_price: item.unit_price,
+              verified_price: nil,
+              difference: 0,
+              in_stock: verified[:in_stock],
+              unverified: true,
+              implausible: true
+            }
+            next
+          end
+
+          item.update!(verified_price: comparable)
+
+          # Also update the supplier product's cached price with the RAW value —
+          # current_price convention is per price_unit (per-LB for catch-weight),
+          # so the unconverted figure is what belongs in the cache. PC
+          # verifications return the per-piece price, which would corrupt it.
           if item.uom != "PC" && verified[:price] != item.supplier_product.current_price
             item.supplier_product.update_price!(verified[:price], in_stock: verified[:in_stock])
           end
@@ -157,8 +185,8 @@ module Orders
             sku: sku,
             name: item.supplier_product.supplier_name,
             expected_price: item.unit_price,
-            verified_price: verified[:price],
-            difference: verified[:price] - item.unit_price,
+            verified_price: comparable,
+            difference: comparable - item.unit_price,
             in_stock: verified[:in_stock]
           }
         else
