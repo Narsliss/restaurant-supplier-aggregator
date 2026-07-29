@@ -16,7 +16,7 @@ export default class extends Controller {
   static targets = ["form", "hiddenFields", "search", "categoryChip", "emptyState", "noResults",
                     "card", "cell", "orderSection", "orderCount", "orderLines",
                     "ribbon", "ribbonPills", "ribbonTotal", "dateLabel", "deliveryDate", "submitButton"]
-  static values = { minimums: Object, listId: Number, hasBatch: Boolean }
+  static values = { minimums: Object, listId: Number }
 
   connect() {
     this.state = {}    // matchId -> { supplierId, qty, uom }
@@ -25,22 +25,16 @@ export default class extends Controller {
 
     if (!this.deliveryDateTarget.value) this.deliveryDateTarget.value = tomorrowIso()
 
-    if (this.hasBatchValue) {
-      // Returning to an in-progress batch: the server prefill is the cart's
-      // source of truth — restore the chef's actual supplier + uom picks.
-      this.cardTargets.forEach(card => {
-        const qty = parseInt(card.dataset.initialQty || "0", 10)
-        if (qty <= 0) return
-        const supplierId = card.dataset.initialSupplierId || card.dataset.cheapestSupplierId
-        if (!supplierId) return
-        this.state[card.dataset.matchId] = { supplierId, qty, uom: card.dataset.initialUom || "CS" }
-      })
-      this.saveDraft()
-    } else {
-      // No batch yet: restore un-reviewed edits from the local draft so
-      // navigating Home/Cart and back doesn't lose the cart (comp behavior).
-      this.restoreDraft()
-    }
+    // The server-rendered prefill IS the chef's singular working order
+    // (CurrentOrder) — it saved on every change last time and repopulates
+    // here. There is deliberately no client-side draft store.
+    this.cardTargets.forEach(card => {
+      const qty = parseInt(card.dataset.initialQty || "0", 10)
+      if (qty <= 0) return
+      const supplierId = card.dataset.initialSupplierId || card.dataset.cheapestSupplierId
+      if (!supplierId) return
+      this.state[card.dataset.matchId] = { supplierId, qty, uom: card.dataset.initialUom || "CS" }
+    })
 
     this.cellTargets.forEach(cell => this.renderCell(cell))
     this.filter()
@@ -48,30 +42,54 @@ export default class extends Controller {
     this.refreshRibbon()
   }
 
-  // ---- Local draft persistence (one cart across navigation) ----
-
-  draftKey() { return `enplace-mobile-order-${this.listIdValue}` }
-
-  saveDraft() {
-    try {
-      localStorage.setItem(this.draftKey(), JSON.stringify({ state: this.state, date: this.deliveryDateTarget.value }))
-    } catch {}
+  disconnect() {
+    // Flush any pending save before the page goes away
+    if (this._syncTimer) {
+      clearTimeout(this._syncTimer)
+      this.pushOrder()
+    }
   }
 
-  restoreDraft() {
-    try {
-      const draft = JSON.parse(localStorage.getItem(this.draftKey()))
-      if (!draft?.state) return
-      Object.entries(draft.state).forEach(([matchId, s]) => {
-        const cell = this.cellTargets.find(c => c.dataset.matchId === matchId && c.dataset.supplierId === s.supplierId)
-        if (cell && s.qty > 0) this.state[matchId] = s
+  // ---- Working-order persistence: every change saves to the server ----
+
+  syncOrder() {
+    clearTimeout(this._syncTimer)
+    this._syncTimer = setTimeout(() => {
+      this._syncTimer = null
+      this.pushOrder()
+    }, 400)
+  }
+
+  pushOrder() {
+    const token = document.querySelector('meta[name="csrf-token"]')?.content
+    fetch("/current_order", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token },
+      keepalive: true,
+      body: JSON.stringify({
+        aggregated_list_id: this.listIdValue,
+        state: this.state,
+        delivery_date: this.deliveryDateTarget.value
       })
-      if (draft.date) this.deliveryDateTarget.value = draft.date
-    } catch {}
+    }).catch(() => {})
   }
 
-  clearDraft() {
-    try { localStorage.removeItem(this.draftKey()) } catch {}
+  // "Clear order" — the one manual way to empty the working order.
+  clearOrder() {
+    if (!confirm("Clear your entire order?")) return
+    clearTimeout(this._syncTimer)
+    this._syncTimer = null
+    this.state = {}
+    this.chooser = null
+    const token = document.querySelector('meta[name="csrf-token"]')?.content
+    fetch(`/current_order?aggregated_list_id=${this.listIdValue}`, {
+      method: "DELETE",
+      headers: { "X-CSRF-Token": token }
+    }).catch(() => {})
+    this.cellTargets.forEach(cell => this.renderCell(cell))
+    this.renderOrderSection()
+    this.refreshRibbon()
+    this.filter()
   }
 
   // ---- Filtering: blank search + All => results hidden (comp behavior) ----
@@ -169,7 +187,7 @@ export default class extends Controller {
     this.renderOrderSection()
     this.refreshRibbon()
     this.filter()
-    this.saveDraft()
+    this.syncOrder()
   }
 
   // ---- Cell rendering: price | chooser | stepper ----
@@ -306,7 +324,7 @@ export default class extends Controller {
     openCalendar(this.deliveryDateTarget.value, iso => {
       this.deliveryDateTarget.value = iso
       this.refreshRibbon()
-      this.saveDraft()
+      this.syncOrder()
     })
   }
 
@@ -330,8 +348,12 @@ export default class extends Controller {
   formTargetConnected(form) {
     form.addEventListener("submit", () => {
       this.writeHiddenFields()
-      // The batch becomes the cart's source of truth from here
-      this.clearDraft()
+      // Create Cart does NOT clear the working order — chefs go back for
+      // forgotten items. Only placing the order (server-side) clears it.
+      // Flush the latest state so the server copy matches what was reviewed.
+      clearTimeout(this._syncTimer)
+      this._syncTimer = null
+      this.pushOrder()
     })
   }
 

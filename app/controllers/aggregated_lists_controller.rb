@@ -540,7 +540,20 @@ class AggregatedListsController < ApplicationController
     @prefill_uoms = {}       # match_id(str) → "CS"/"PC"
     @delivery_date = nil
     @batch_id = params[:batch_id].presence
-    if @batch_id
+
+    # The chef's singular working order is the source of truth for the builder:
+    # it saves on every change and survives Create Cart. Batch prefill below is
+    # the fallback for in-flight carts that predate the CurrentOrder (or other
+    # users' location carts the chef opens via review).
+    current_order = CurrentOrder.find_by(user: current_user, aggregated_list: @aggregated_list)
+    if current_order && !current_order.empty?
+      @delivery_date = current_order.delivery_date
+      current_order.sanitized_state.each do |match_id, entry|
+        @quantities[match_id] = entry["qty"]
+        @prefill_suppliers[match_id] = entry["supplierId"].to_i
+        @prefill_uoms[match_id] = entry["uom"] if entry["uom"].present?
+      end
+    elsif @batch_id
       batch_orders = scoped_orders.for_batch(@batch_id)
                        .where(status: %w[pending verifying price_changed draft])
                        .includes(order_items: :supplier_product)

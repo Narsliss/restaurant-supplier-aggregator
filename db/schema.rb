@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_07_24_071506) do
+ActiveRecord::Schema[7.1].define(version: 2026_07_29_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -192,6 +192,18 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_24_071506) do
     t.index ["assigned_to_id"], name: "index_crm_tasks_on_assigned_to_id"
     t.index ["lead_id", "due_date"], name: "index_crm_tasks_on_lead_id_and_due_date"
     t.index ["lead_id"], name: "index_crm_tasks_on_lead_id"
+  end
+
+  create_table "current_orders", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "aggregated_list_id", null: false
+    t.jsonb "state", default: {}, null: false
+    t.date "delivery_date"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["aggregated_list_id"], name: "index_current_orders_on_aggregated_list_id"
+    t.index ["user_id", "aggregated_list_id"], name: "index_current_orders_on_user_id_and_aggregated_list_id", unique: true
+    t.index ["user_id"], name: "index_current_orders_on_user_id"
   end
 
   create_table "event_plan_messages", force: :cascade do |t|
@@ -1061,6 +1073,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_24_071506) do
   add_foreign_key "crm_onboardings", "organizations"
   add_foreign_key "crm_tasks", "crm_leads", column: "lead_id"
   add_foreign_key "crm_tasks", "users", column: "assigned_to_id"
+  add_foreign_key "current_orders", "aggregated_lists"
+  add_foreign_key "current_orders", "users"
   add_foreign_key "event_plan_messages", "event_plans"
   add_foreign_key "event_plans", "organizations"
   add_foreign_key "event_plans", "users"

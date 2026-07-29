@@ -407,6 +407,52 @@ export default class extends Controller {
 
     // Update per-supplier delivery status badges
     this._updateDeliveryStatus(supplierTotals)
+
+    // Persist the working order (CurrentOrder) — skip the initial render so
+    // page loads don't rewrite an unchanged state.
+    if (this._initializedTotals) {
+      this._syncCurrentOrder()
+    } else {
+      this._initializedTotals = true
+    }
+  }
+
+  // ---- Working-order persistence (same contract as the mobile builder) ----
+
+  _collectOrderState() {
+    const state = {}
+    const inputs = this._cachedQuantityInputs || this.quantityInputTargets
+    inputs.forEach(input => {
+      const matchId = input.dataset.matchId
+      const qty = parseInt(input.value) || 0
+      if (!matchId || qty <= 0 || state[matchId]) return
+      const uomInput = this.element.querySelector(`input[name="uom_overrides[${matchId}]"]`)
+      state[matchId] = {
+        supplierId: input.dataset.supplierId,
+        qty,
+        uom: uomInput?.value || "CS"
+      }
+    })
+    return state
+  }
+
+  _syncCurrentOrder() {
+    clearTimeout(this._orderSyncTimer)
+    this._orderSyncTimer = setTimeout(() => {
+      const listId = window.location.pathname.match(/aggregated_lists\/(\d+)/)?.[1]
+      if (!listId) return
+      const allDates = [...(this._fixedDeliveryDates || []), ...(this.hasDeliveryDateTarget ? this.deliveryDateTargets : [])]
+      fetch("/current_order", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": this._csrfToken },
+        keepalive: true,
+        body: JSON.stringify({
+          aggregated_list_id: listId,
+          state: this._collectOrderState(),
+          delivery_date: allDates.find(d => d.value)?.value
+        })
+      }).catch(() => {})
+    }, 500)
   }
 
   _hasValidDeliveryDate() {

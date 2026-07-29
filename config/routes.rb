@@ -222,6 +222,9 @@ Rails.application.routes.draw do
     end
   end
 
+  # The chef's singular working order (builder auto-save)
+  resource :current_order, only: [:update, :destroy]
+
   # Orders
   resources :orders do
     member do

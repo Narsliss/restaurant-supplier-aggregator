@@ -18,14 +18,12 @@
 <div data-controller="mobile-order-builder"
      data-mobile-order-builder-minimums-value="<%= minimums_json %>"
      data-mobile-order-builder-list-id-value="<%= @aggregated_list.id %>"
-     data-mobile-order-builder-has-batch-value="<%= @batch_id.present? %>"
      class="-mx-4 -mt-2 min-h-screen bg-brand-cream pb-56">
 
   <%= form_with(url: create_from_aggregated_list_orders_path, method: :post, id: "mobile-order-form",
                 data: { mobile_order_builder_target: "form" }) do %>
     <input type="hidden" name="aggregated_list_id" value="<%= @aggregated_list.id %>">
     <% if @order_list %><input type="hidden" name="order_list_id" value="<%= @order_list.id %>"><% end %>
-    <% if @batch_id %><input type="hidden" name="previous_batch_id" value="<%= @batch_id %>"><% end %>
     <input type="hidden" name="delivery_date" value="<%= @delivery_date %>" data-mobile-order-builder-target="deliveryDate">
     <div data-mobile-order-builder-target="hiddenFields"></div>
 
@@ -147,6 +145,10 @@
         <div class="h-px bg-gray-300 flex-1"></div>
         <h2 class="font-heading text-sm font-semibold text-gray-500 tracking-widest uppercase">In this order · <span data-mobile-order-builder-target="orderCount">0</span></h2>
         <div class="h-px bg-gray-300 flex-1"></div>
+        <button type="button" data-action="mobile-order-builder#clearOrder"
+                class="shrink-0 text-[11px] font-bold text-red-500 uppercase tracking-wide px-2 py-1 rounded-lg border border-red-200 bg-red-50 active:bg-red-100">
+          Clear
+        </button>
       </div>
       <div class="space-y-2" data-mobile-order-builder-target="orderLines"></div>
     </section>

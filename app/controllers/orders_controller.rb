@@ -348,14 +348,14 @@ class OrdersController < ApplicationController
       order_builder_aggregated_list_path(aggregated_list)
 
     if orders.any?
-      # If this submission came from "Continue Adding Items" on an existing draft/batch,
-      # the old batch's in-progress orders are now stale — remove them so the user doesn't see
-      # duplicates in Order History. We only do this AFTER the new batch is confirmed created.
-      if params[:previous_batch_id].present? && params[:previous_batch_id] != batch_id
-        scoped_orders.for_batch(params[:previous_batch_id])
-                     .where(status: %w[pending verifying price_changed draft])
-                     .destroy_all
-      end
+      # Create Cart ALWAYS rebuilds the cart from the working order: any other
+      # in-progress batches this user built are now stale duplicates — remove
+      # them AFTER the new batch is confirmed created. Scoped to current_user
+      # (NOT scoped_orders, which for owners spans the whole org).
+      current_user.orders
+                  .where(status: %w[pending verifying price_changed draft])
+                  .where.not(batch_id: [nil, batch_id])
+                  .destroy_all
 
       redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: aggregated_list.id),
         notice: "#{orders.size} order(s) ready for review across #{orders.map { |o| o.supplier.name }.join(', ')}."
@@ -656,6 +656,10 @@ class OrdersController < ApplicationController
         PlaceOrderJob.set(wait: delay).perform_later(order.id)
       end
     end
+
+    # Placing the order is what clears the chef's working order (Create Cart
+    # deliberately does not — chefs go back for forgotten items).
+    CurrentOrder.where(user: current_user).destroy_all
 
     # Single order: redirect to show page so user sees real-time processing status
     # Multiple orders: redirect to batch progress page for real-time tracking
