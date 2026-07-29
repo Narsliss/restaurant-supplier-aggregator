@@ -243,7 +243,15 @@ export default class extends Controller {
   // ---- Cell rendering: price | chooser | stepper ----
 
   cellsFor(matchId) {
-    return this.cellTargets.filter(c => c.dataset.matchId === matchId)
+    // Indexed once — filtering all cells per lookup is O(cards × cells) and
+    // visibly freezes phones on 1000+ product lists (suggestion sheet build)
+    if (!this._cellIndex) {
+      this._cellIndex = {}
+      this.cellTargets.forEach(c => {
+        (this._cellIndex[c.dataset.matchId] ||= []).push(c)
+      })
+    }
+    return this._cellIndex[matchId] || []
   }
 
   renderMatchCells(matchId) {
@@ -386,9 +394,11 @@ export default class extends Controller {
   openSuggestions(event) {
     const supplierId = event.currentTarget.dataset.supplierId
     this.closeSuggestions()
-    const sections = this.buildSuggestions(supplierId)
     const short = this.supplierShortName(supplierId)
 
+    // The sheet opens IMMEDIATELY with a spinner; the suggestion list builds
+    // after a yield so the animation + spinner paint first — on big lists the
+    // build takes long enough that a silent tap feels broken (chef feedback).
     const sheet = document.createElement("div")
     sheet.className = "fixed inset-0 z-[60]"
     sheet.innerHTML = `
@@ -402,11 +412,37 @@ export default class extends Controller {
           <button type="button" data-suggestion-done class="text-sm font-bold text-brand-green px-3 py-1.5">Done</button>
         </div>
         <div class="overflow-y-auto px-3 pb-6 pt-1" data-suggestion-body>
-          ${sections.length ? "" : '<p class="text-sm text-gray-400 text-center py-8">No more items from this supplier to suggest.</p>'}
+          <div class="flex items-center justify-center gap-2 py-10 text-gray-400">
+            <svg class="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+            <span class="text-sm font-medium">Finding items…</span>
+          </div>
         </div>
       </div>`
 
+    sheet.querySelector("[data-suggestion-backdrop]").addEventListener("click", () => this.closeSuggestions())
+    sheet.querySelector("[data-suggestion-done]").addEventListener("click", () => this.closeSuggestions())
+    document.body.appendChild(sheet)
+    this._suggestionSheet = sheet
+    this._suggestionSupplierId = supplierId
+    this.updateSuggestionGap(supplierId)
+
+    // Slide up + fade in just after insertion. setTimeout (not rAF): fires
+    // even in throttled tabs.
+    setTimeout(() => {
+      sheet.querySelector("[data-suggestion-panel]")?.classList.remove("translate-y-full")
+      sheet.querySelector("[data-suggestion-backdrop]")?.classList.remove("opacity-0")
+    }, 20)
+
+    // Populate after the sheet is visibly opening
+    setTimeout(() => this.populateSuggestions(sheet, supplierId), 60)
+  }
+
+  populateSuggestions(sheet, supplierId) {
+    if (this._suggestionSheet !== sheet) return // closed before build finished
+    const sections = this.buildSuggestions(supplierId)
     const body = sheet.querySelector("[data-suggestion-body]")
+    body.innerHTML = sections.length ? "" : '<p class="text-sm text-gray-400 text-center py-8">No more items from this supplier to suggest.</p>'
+
     sections.forEach(section => {
       const header = document.createElement("p")
       header.className = "text-[11px] font-bold text-gray-400 uppercase tracking-widest mt-3 mb-1.5 px-1"
@@ -434,20 +470,6 @@ export default class extends Controller {
         body.appendChild(row)
       })
     })
-
-    sheet.querySelector("[data-suggestion-backdrop]").addEventListener("click", () => this.closeSuggestions())
-    sheet.querySelector("[data-suggestion-done]").addEventListener("click", () => this.closeSuggestions())
-    document.body.appendChild(sheet)
-    this._suggestionSheet = sheet
-    this._suggestionSupplierId = supplierId
-    this.updateSuggestionGap(supplierId)
-
-    // Slide up + fade in just after insertion — instant visible response to
-    // tapping the pill. setTimeout (not rAF): fires even in throttled tabs.
-    setTimeout(() => {
-      sheet.querySelector("[data-suggestion-panel]")?.classList.remove("translate-y-full")
-      sheet.querySelector("[data-suggestion-backdrop]")?.classList.remove("opacity-0")
-    }, 20)
   }
 
   closeSuggestions() {
