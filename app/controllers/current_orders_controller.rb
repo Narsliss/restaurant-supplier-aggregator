@@ -23,12 +23,21 @@ class CurrentOrdersController < ApplicationController
   end
 
   # DELETE /current_order — "Clear order"
+  # A full reset: the Order is the single source of truth, so any in-progress
+  # cart (batch seeded from a previous Create Cart) is stale the moment the
+  # Order is cleared — destroy it too, or the Cart tab shows ghost items and
+  # the builder could resurrect them. Scoped to current_user's own orders.
   def destroy
     scope = CurrentOrder.where(user: current_user)
     if params[:aggregated_list_id].present?
       scope = scope.where(aggregated_list_id: params[:aggregated_list_id])
     end
     scope.destroy_all
+
+    current_user.orders
+                .where(status: %w[pending verifying price_changed draft])
+                .where.not(batch_id: nil)
+                .destroy_all
 
     head :no_content
   end

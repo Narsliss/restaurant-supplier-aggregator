@@ -46,21 +46,25 @@ RSpec.describe "Mobile chef flow", type: :request do
       expect(response).to redirect_to(select_list_orders_path)
     end
 
-    it "resumes the in-progress batch (one cart) and prefills the chef's supplier pick" do
+    # Regression (chef report 2026-07-29, flat leaf parsley): the Order tab
+    # must NOT resume an in-progress cart batch — after clearing the Order,
+    # the batch fallback resurrected the cleared items into the builder.
+    # The working order (CurrentOrder) is the builder's only prefill source.
+    it "goes straight to the builder without resuming any in-progress batch" do
       match = aggregated_list.product_matches.first
       post create_from_aggregated_list_orders_path, params: {
         aggregated_list_id: aggregated_list.id,
         quantities: { match.id.to_s => "2" },
         supplier_overrides: { match.id.to_s => supplier.id.to_s }
       }, headers: MOBILE_UA
-      batch_id = Order.last.batch_id
+      expect(Order.last.batch_id).to be_present
 
       get start_order_aggregated_lists_path, headers: MOBILE_UA
-      expect(response).to redirect_to(order_builder_aggregated_list_path(aggregated_list, batch_id: batch_id))
+      expect(response).to redirect_to(order_builder_aggregated_list_path(aggregated_list))
 
-      follow_redirect!(headers: MOBILE_UA.dup)
-      expect(response.body).to include(%(data-initial-qty="2"))
-      expect(response.body).to include(%(data-initial-supplier-id="#{supplier.id}"))
+      # Even with an explicit batch_id param, the builder ignores the batch
+      get order_builder_aggregated_list_path(aggregated_list, batch_id: Order.last.batch_id), headers: MOBILE_UA
+      expect(response.body).not_to include(%(data-initial-qty="2"))
     end
   end
 

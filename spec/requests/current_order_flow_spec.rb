@@ -80,6 +80,37 @@ RSpec.describe "Current order flow", type: :request do
       expect(response).to have_http_status(:no_content)
       expect(CurrentOrder.where(user: chef)).to be_empty
     end
+
+    # Regression (chef report 2026-07-29): after clearing the Order, a stale
+    # cart batch still showed the cleared items ("flat leaf parsley") and
+    # could resurrect them. Clear is a FULL reset: Order + in-progress cart.
+    it "also destroys the chef's in-progress cart batch" do
+      put_current_order
+      post create_from_aggregated_list_orders_path, params: {
+        aggregated_list_id: aggregated_list.id,
+        quantities: { match.id.to_s => "2" },
+        supplier_overrides: { match.id.to_s => supplier.id.to_s }
+      }, headers: MOBILE_UA_CO
+      expect(chef.orders.where(status: "pending")).to exist
+
+      delete current_order_path, params: { aggregated_list_id: aggregated_list.id }
+
+      expect(chef.orders.where(status: %w[pending verifying price_changed draft])).to be_empty
+    end
+
+    it "does not touch submitted orders or other users' carts" do
+      other_chef = create(:user, current_organization: organization)
+      create(:membership, user: other_chef, organization: organization, role: "chef", active: true)
+      other_cart = create(:order, user: other_chef, organization: organization, supplier: supplier,
+                                  location: location, status: "pending", batch_id: SecureRandom.uuid)
+      submitted = create(:order, user: chef, organization: organization, supplier: supplier,
+                                 location: location, status: "submitted", batch_id: SecureRandom.uuid)
+
+      delete current_order_path, params: { aggregated_list_id: aggregated_list.id }
+
+      expect(Order.exists?(other_cart.id)).to be true
+      expect(Order.exists?(submitted.id)).to be true
+    end
   end
 
   describe "Create Cart semantics" do

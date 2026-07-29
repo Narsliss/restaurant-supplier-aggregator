@@ -16,13 +16,10 @@ class AggregatedListsController < ApplicationController
            (current_location && matched.find { |l| l.location_id == current_location.id }) ||
            matched.first
     if list
-      # One-cart behavior: if a batch is already in progress, resume it in the
-      # builder (prefills its quantities) instead of starting a second cart.
-      batch = scoped_orders.where(status: %w[pending verifying price_changed draft])
-                           .where.not(batch_id: nil)
-                           .order(created_at: :desc)
-                           .first
-      redirect_to order_builder_aggregated_list_path(list, batch_id: batch&.batch_id)
+      # The chef's working order (CurrentOrder) is the builder's only source
+      # of truth — no batch resume: prefilling from an in-progress cart could
+      # resurrect items the chef explicitly cleared from their Order.
+      redirect_to order_builder_aggregated_list_path(list)
     else
       redirect_to select_list_orders_path
     end
@@ -540,20 +537,16 @@ class AggregatedListsController < ApplicationController
 
     # Pre-fill quantities from existing pending/draft/verifying batch orders (when returning from review page).
     # Draft orders are what a completed verification produces; also include verifying & price_changed
-    # so "Continue Adding Items" works at any point in the pre-submission flow.
-    # IMPORTANT: we do NOT destroy the old batch here — if the user navigates away without submitting,
-    # their draft must survive. The old batch is destroyed only on successful form submission
-    # (see OrdersController#create_from_aggregated_list).
     @quantities = {}
     @prefill_suppliers = {}  # match_id(str) → supplier_id (mobile: restore the chef's actual pick, not cheapest)
     @prefill_uoms = {}       # match_id(str) → "CS"/"PC"
     @delivery_date = nil
     @batch_id = params[:batch_id].presence
 
-    # The chef's singular working order is the source of truth for the builder:
-    # it saves on every change and survives Create Cart. Batch prefill below is
-    # the fallback for in-flight carts that predate the CurrentOrder (or other
-    # users' location carts the chef opens via review).
+    # The chef's singular working order (CurrentOrder) is the builder's ONLY
+    # prefill source. Deliberately no batch fallback: prefilling from an
+    # in-progress cart resurrected items the chef had explicitly cleared from
+    # their Order (chef bug report 2026-07-29, flat leaf parsley).
     current_order = CurrentOrder.find_by(user: current_user, aggregated_list: @aggregated_list)
     if current_order && !current_order.empty?
       @delivery_date = current_order.delivery_date
@@ -561,33 +554,6 @@ class AggregatedListsController < ApplicationController
         @quantities[match_id] = entry["qty"]
         @prefill_suppliers[match_id] = entry["supplierId"].to_i
         @prefill_uoms[match_id] = entry["uom"] if entry["uom"].present?
-      end
-    elsif @batch_id
-      batch_orders = scoped_orders.for_batch(@batch_id)
-                       .where(status: %w[pending verifying price_changed draft])
-                       .includes(order_items: :supplier_product)
-      if batch_orders.any?
-        @delivery_date = batch_orders.first.delivery_date
-
-        # Build lookup: supplier_product_id → product_match_id
-        sp_to_match = {}
-        @product_matches.each do |pm|
-          pm.product_match_items.each do |pmi|
-            sp = pmi.supplier_list_item&.supplier_product
-            sp_to_match[sp.id] = pm.id if sp
-          end
-        end
-
-        # Map order items back to product matches
-        batch_orders.each do |order|
-          order.order_items.each do |oi|
-            match_id = sp_to_match[oi.supplier_product_id]
-            next unless match_id
-            @quantities[match_id.to_s] = oi.quantity
-            @prefill_suppliers[match_id.to_s] = order.supplier_id
-            @prefill_uoms[match_id.to_s] = oi.uom if oi.uom.present?
-          end
-        end
       end
     end
 
