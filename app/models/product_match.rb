@@ -68,20 +68,59 @@ class ProductMatch < ApplicationRecord
         per_unit_price: item.per_unit_price,
         normalized_unit: item.normalized_unit,
         formatted_per_unit: item.formatted_per_unit_price,
+        comparison_per_oz: item.comparison_per_oz,
         in_stock: sp ? sp.in_stock : item.in_stock
       }
     end
   end
 
-  # Find the largest group of items that share the same normalized unit
-  # and have per-unit prices — these can be compared apples-to-apples.
-  # Treats "oz" (weight) and "fl oz" (volume) as equivalent since they're
-  # close enough for price comparison in food service (~1:1 for most items).
+  # Find the group of items that can be compared apples-to-apples, tagging
+  # each entry with :comparison_metric (the value cheapest/most-expensive
+  # rank by) and :comparison_estimated.
+  #
+  # When suppliers MIX units on the same product (48 CT limes vs a 10 LB
+  # case), count/pint produce converts to estimated $/oz via
+  # ProduceWeightEstimator so every supplier competes — the old behavior
+  # silently dropped whichever unit group was smaller. When units are
+  # homogeneous (or no estimate exists), same-unit grouping applies as
+  # before: "oz" and "fl oz" merge (~1:1 in food service), other units
+  # (each, bunch, head…) compare only within their own kind.
   def comparable_group
     return @comparable_group if defined?(@comparable_group)
-    items = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] && p[:per_unit_price].present? && p[:per_unit_price] > 0 && p[:normalized_unit].present? }
-    groups = items.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
-    @comparable_group = groups.max_by { |_unit, g| g.size }&.last || []
+
+    items = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
+    units = items.map { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }.compact.uniq
+    convertible = items.select { |p| p[:comparison_per_oz].present? }
+
+    @comparable_group =
+      if units.size > 1 && convertible.size >= 2
+        convertible.each do |p|
+          p[:comparison_metric] = p[:comparison_per_oz][:value]
+          p[:comparison_estimated] = p[:comparison_per_oz][:estimated]
+        end
+        convertible
+      else
+        grouped = items.select { |p| p[:per_unit_price].present? && p[:per_unit_price] > 0 && p[:normalized_unit].present? }
+        groups = grouped.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
+        best = groups.max_by { |_unit, g| g.size }&.last || []
+        best.each do |p|
+          p[:comparison_metric] = p[:per_unit_price]
+          p[:comparison_estimated] = false
+        end
+        best
+      end
+  end
+
+  # Display per-unit string for one supplier's item, using the estimated
+  # $/oz conversion when this match compares mixed units ("~$0.06/oz est"),
+  # otherwise the item's own exact per-unit string.
+  def display_per_unit_for(item)
+    entry = comparable_group.find { |p| p[:item] == item }
+    if entry && entry[:comparison_estimated]
+      "~#{UnitParser.format_per_unit(entry[:comparison_metric], 'oz')} est"
+    else
+      item.formatted_per_unit_price
+    end
   end
 
   # Are per-unit prices comparable across suppliers? (at least 2 items share the same unit)
@@ -93,7 +132,7 @@ class ProductMatch < ApplicationRecord
   def cheapest_supplier
     @cheapest_supplier ||= begin
       if per_unit_comparable?
-        comparable_group.min_by { |p| p[:per_unit_price] }
+        comparable_group.min_by { |p| p[:comparison_metric] || p[:per_unit_price] }
       else
         prices = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
         # Compare case-equivalents — a raw per-lb price would always "win"
@@ -105,7 +144,7 @@ class ProductMatch < ApplicationRecord
   def most_expensive_supplier
     @most_expensive_supplier ||= begin
       if per_unit_comparable?
-        comparable_group.max_by { |p| p[:per_unit_price] }
+        comparable_group.max_by { |p| p[:comparison_metric] || p[:per_unit_price] }
       else
         prices = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
         # Compare case-equivalents — a raw per-lb price would always "lose"

@@ -1,4 +1,6 @@
 class SupplierProduct < ApplicationRecord
+  include UnitComparable
+
   # Associations
   belongs_to :product, optional: true
   belongs_to :supplier
@@ -140,9 +142,28 @@ class SupplierProduct < ApplicationRecord
     UnitParser::WEIGHT_TO_OZ.key?(UnitParser.normalize_unit_key(price_unit))
   end
 
+  # UnitComparable inputs
+  def comparison_price
+    current_price
+  end
+
+  def comparison_name
+    supplier_name
+  end
+
   def per_unit_price
-    return nil unless current_price && parsed_pack_size[:parseable]
-    return nil if parsed_pack_size[:normalized_quantity] <= 0
+    return nil unless current_price
+
+    # When the stored price is per-unit (catch-weight "$2.00/LB"), the
+    # per-normalized-unit price comes straight from the unit factor —
+    # dividing by the pack quantity would treat $2.00 as the case price.
+    if price_unit.present?
+      unit_key = UnitParser.normalize_unit_key(price_unit)
+      factor = UnitParser::WEIGHT_TO_OZ[unit_key] || UnitParser::VOLUME_TO_FL_OZ[unit_key]
+      return (current_price / factor).round(4) if factor
+    end
+
+    return nil unless parsed_pack_size[:parseable] && parsed_pack_size[:normalized_quantity] > 0
 
     (current_price / parsed_pack_size[:normalized_quantity]).round(4)
   end

@@ -1,4 +1,6 @@
 class SupplierListItem < ApplicationRecord
+  include UnitComparable
+
   # Associations
   belongs_to :supplier_list
   belongs_to :supplier_product, optional: true
@@ -202,6 +204,15 @@ class SupplierListItem < ApplicationRecord
     per_piece = UnitParser.per_piece_normalized(pack_size)
     return nil unless per_piece
     UnitParser.format_per_unit(piece_per_unit_price, per_piece[:unit])
+  end
+
+  # UnitComparable inputs
+  def comparison_price
+    effective_price
+  end
+
+  def comparison_name
+    name
   end
 
   # True when the price is per-weight (explicit or inferred) — catch-weight

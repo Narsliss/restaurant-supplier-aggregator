@@ -63,8 +63,8 @@
                 <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                 <% if item.catch_weight_note %>
                   <span class="text-[9px] text-amber-600 font-normal"><%= item.catch_weight_note %></span>
-                <% elsif item.formatted_per_unit_price %>
-                  <span class="text-[9px] text-gray-400 font-normal"><%= item.formatted_per_unit_price %></span>
+                <% elsif (per_unit_display = match.display_per_unit_for(item)) %>
+                  <span class="text-[9px] text-gray-400 font-normal"><%= per_unit_display %></span>
                 <% end %>
               </p>
               <% if effective_pack_size.present? %>

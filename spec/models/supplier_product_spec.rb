@@ -36,6 +36,21 @@ RSpec.describe SupplierProduct, type: :model do
     end
   end
 
+  # Regression: the price-comparison page computed pork at $2.00 ÷ 796.8 oz
+  # (pack quantity) = a fictional $0.0025/oz. When the stored price is
+  # per-unit, the per-oz price comes from the unit factor.
+  describe '#per_unit_price with a per-unit price_unit' do
+    it 'derives $/oz from the unit factor for per-LB prices' do
+      sp = build(:supplier_product, current_price: 2.00, price_unit: 'LB', pack_size: '4/10 LB')
+      expect(sp.per_unit_price).to eq(0.125)
+    end
+
+    it 'divides by pack quantity for case-priced items as before' do
+      sp = build(:supplier_product, current_price: 32.00, price_unit: 'CS', pack_size: '4/10 LB')
+      expect(sp.per_unit_price).to eq((32.00 / 640).round(4))
+    end
+  end
+
   describe '#priced_per_weight?' do
     it 'is true for weight price units' do
       expect(build(:supplier_product, price_unit: 'LB').priced_per_weight?).to be true

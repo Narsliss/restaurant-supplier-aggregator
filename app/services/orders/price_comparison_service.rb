@@ -72,8 +72,18 @@ module Orders
       best_unit, best_count = unit_groups.max_by { |_unit, count| count } || [nil, 0]
       comparable_unit = best_count >= 2 ? best_unit : nil
 
+      # Mixed units (48 CT limes vs a 10 LB case): convert count/pint produce
+      # to estimated $/oz via UnitComparable so every supplier competes,
+      # instead of dropping whichever unit group is smaller.
+      distinct_units = unit_groups.keys.map { |u| u == "fl oz" ? "oz" : u }.uniq
+      conversions = supplier_pairs.to_h { |sup, sp| [sup.id, sp&.comparison_per_oz] }
+      mixed_mode = distinct_units.size > 1 && conversions.values.compact.size >= 2
+
       supplier_pairs.map do |supplier, supplier_product|
         if supplier_product&.current_price
+          conversion = mixed_mode ? conversions[supplier.id] : nil
+          # estimated_case_price: catch-weight products store current_price per LB
+          case_price = supplier_product.estimated_case_price
           {
             supplier: {
               id: supplier.id,
@@ -82,14 +92,15 @@ module Orders
             },
             supplier_product_id: supplier_product.id,
             supplier_sku: supplier_product.supplier_sku,
-            unit_price: supplier_product.current_price,
-            line_total: supplier_product.current_price * quantity,
+            unit_price: case_price,
+            line_total: case_price * quantity,
             pack_size: supplier_product.pack_size,
-            per_unit_price: supplier_product.per_unit_price,
-            normalized_unit: supplier_product.normalized_unit,
-            formatted_per_unit: supplier_product.formatted_per_unit_price,
-            comparable: comparable_unit.present? && supplier_product.normalized_unit == comparable_unit,
-            comparison_unit: comparable_unit,
+            per_unit_price: conversion ? conversion[:value] : supplier_product.per_unit_price,
+            normalized_unit: conversion ? "oz" : supplier_product.normalized_unit,
+            formatted_per_unit: conversion ? supplier_product.formatted_comparison_per_oz : supplier_product.formatted_per_unit_price,
+            per_unit_estimated: conversion ? conversion[:estimated] : false,
+            comparable: conversion.present? || (comparable_unit.present? && supplier_product.normalized_unit == comparable_unit),
+            comparison_unit: conversion ? "oz" : comparable_unit,
             in_stock: supplier_product.in_stock?,
             last_updated: supplier_product.price_updated_at,
             price_changed: supplier_product.price_changed?,
@@ -137,7 +148,9 @@ module Orders
 
       # Use per-unit price when comparable, otherwise fall back to pack price
       best = if available.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
-               available.select { |sp| sp[:per_unit_price] }.min_by { |sp| sp[:per_unit_price] }
+               # Only rank entries on the same comparison basis — an unconverted
+               # $/each must not be ranked against $/oz values.
+               available.select { |sp| sp[:comparable] && sp[:per_unit_price] }.min_by { |sp| sp[:per_unit_price] }
              else
                available.min_by { |sp| sp[:unit_price] }
              end
@@ -157,7 +170,7 @@ module Orders
       return nil if available.empty?
 
       worst = if available.any? { |sp| sp[:comparable] && sp[:per_unit_price] }
-                available.select { |sp| sp[:per_unit_price] }.max_by { |sp| sp[:per_unit_price] }
+                available.select { |sp| sp[:comparable] && sp[:per_unit_price] }.max_by { |sp| sp[:per_unit_price] }
               else
                 available.max_by { |sp| sp[:unit_price] }
               end

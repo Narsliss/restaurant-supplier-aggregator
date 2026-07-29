@@ -128,7 +128,7 @@
                      data-short="<%= supplier.short_name %>"
                      data-price="<%= case_price %>"
                      data-price-display="<%= estimated ? '~' : '' %><%= number_to_currency(case_price) %>"
-                     data-per-unit="<%= item.catch_weight_note || item.formatted_per_unit_price %>"
+                     data-per-unit="<%= item.catch_weight_note || match.display_per_unit_for(item) %>"
                      data-pack="<%= pack %>"
                      data-piece-price="<%= piece %>"
                      data-piece-display="<%= number_to_currency(piece) if piece %>"

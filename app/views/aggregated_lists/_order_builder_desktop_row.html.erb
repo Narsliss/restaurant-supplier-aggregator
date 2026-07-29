@@ -62,9 +62,9 @@
             <% end %>
             <% if item.catch_weight_note %>
               <span class="block text-xs text-amber-600"><%= item.catch_weight_note %></span>
-            <% elsif item.formatted_per_unit_price %>
+            <% elsif (per_unit_display = match.display_per_unit_for(item)) %>
               <span class="block text-xs <%= is_cheapest ? 'text-green-600 font-medium' : 'text-gray-400' %>">
-                <%= item.formatted_per_unit_price %>
+                <%= per_unit_display %>
               </span>
             <% end %>
             <% unless sp ? sp.in_stock : item.in_stock %>
