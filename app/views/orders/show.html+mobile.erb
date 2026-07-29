@@ -17,9 +17,12 @@
   <!-- Header -->
   <header class="bg-brand-green-dark px-4 pb-4 pt-2">
     <div class="flex items-center gap-3 mb-3">
-      <%= link_to orders_path, class: "text-white/80" do %>
+      <%# Go back to wherever the chef came from (dashboard, history, cart);
+          fall back to order history when opened directly (no in-app history) %>
+      <a href="<%= orders_path %>" class="text-white/80"
+         onclick="if (history.length > 1) { event.preventDefault(); history.back(); }">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-      <% end %>
+      </a>
       <div class="flex-1">
         <h1 class="text-white text-base font-heading font-semibold tracking-wide">Order #<%= @order.id %></h1>
       </div>
@@ -163,7 +166,9 @@
                    alt="" loading="lazy" decoding="async"
                    class="w-9 h-9 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
               <div class="min-w-0">
-                <p class="text-sm font-semibold text-gray-900 truncate"><%= item.product_name %></p>
+                <%# supplier_name falls back to the live supplier_product when
+                    the snapshot is missing (pre-fix bulk-inserted orders) %>
+                <p class="text-sm font-semibold text-gray-900 truncate"><%= item.supplier_name %></p>
                 <div class="flex items-center gap-2 mt-0.5">
                   <% if item.supplier_product&.supplier_sku.present? %>
                     <span class="text-[10px] text-gray-400">SKU: <%= item.supplier_product.supplier_sku %></span>

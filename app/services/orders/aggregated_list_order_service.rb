@@ -62,6 +62,10 @@ module Orders
               line_total: line_total,
               uom: item[:uom],
               status: "pending",
+              # insert_all skips the snapshot_product_info callback — set the
+              # name/sku snapshot explicitly or order views show bare SKUs
+              product_name: item[:product_name],
+              product_sku: item[:product_sku],
               created_at: now,
               updated_at: now
             }
@@ -133,6 +137,8 @@ module Orders
           quantity: qty,
           unit_price: unit_price,
           uom: uom,
+          product_name: supplier_product.supplier_name,
+          product_sku: supplier_product.supplier_sku,
           worst_price: most_expensive&.dig(:estimated_price) || most_expensive&.dig(:price)
         }
       end

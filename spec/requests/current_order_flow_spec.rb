@@ -97,6 +97,16 @@ RSpec.describe "Current order flow", type: :request do
       expect(CurrentOrder.where(user: chef)).to exist
     end
 
+    # Regression: the builder path bulk-inserts order items (insert_all skips
+    # the snapshot callback), which left product_name nil — order views showed
+    # bare SKUs instead of item names.
+    it "snapshots product names onto bulk-inserted order items" do
+      create_cart
+      item = Order.order(:id).last.order_items.first
+      expect(item.product_name).to eq(item.supplier_product.supplier_name)
+      expect(item.product_sku).to eq(item.supplier_product.supplier_sku)
+    end
+
     it "always destroys the user's previous in-progress batch (reseed)" do
       create_cart
       first_batch = Order.order(:id).last.batch_id
