@@ -273,9 +273,11 @@ class UnitParser
         quantity = whole + (numerator / denominator)
         build_result(quantity, unit)
 
-      # Simple fraction: "1/2 BUSHEL", "1/9 BUSH"
-      # Only for bushel units — other units like "4/5 LB" are case packs (4×5), not fractions.
-      elsif text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*\/\s*(\d+)\s*(bushel|bush|bu)\b/i
+      # Simple fraction: "1/2 BUSHEL", "1/9 BUSH", "1/4 POUND" (WCW herbs)
+      # Only for bushel units and SPELLED-OUT "pound" — abbreviated "1/22 LB"
+      # is a case pack (1 primal × 22 lb) at WCW/USF, never a fraction, and
+      # "4/5 LB" is 4×5. Verified against prod pack strings 2026-07.
+      elsif text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*\/\s*(\d+)\s*(bushel|bush|bu|pound|pounds)\b/i
         numerator = $1.to_f
         denominator = $2.to_f
         unit = normalize_unit_str($3)

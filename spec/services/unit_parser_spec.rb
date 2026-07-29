@@ -113,6 +113,23 @@ RSpec.describe UnitParser do
         result = UnitParser.parse('7/12/3 OZ')
         expect(result[:normalized_quantity]).to eq(252.0)
       end
+
+      # WCW herbs use spelled-out fractions; abbreviated "1/N LB" is a case
+      # pack everywhere (WCW "1/22 LB" ribeye = one 22-lb primal).
+      it 'parses "1/4 POUND" as a quarter pound' do
+        result = UnitParser.parse('1/4 POUND')
+        expect(result[:quantity]).to eq(0.25)
+        expect(result[:normalized_quantity]).to eq(4.0)
+      end
+
+      it 'still parses abbreviated "1/22 LB" as one 22-lb pack' do
+        result = UnitParser.parse('1/22 LB')
+        expect(result[:quantity]).to eq(22.0)
+      end
+
+      it 'still parses "1/10 LB" as one 10-lb case' do
+        expect(UnitParser.parse('1/10 LB')[:quantity]).to eq(10.0)
+      end
     end
 
     context 'pound sign and weight qualifier suffixes' do
