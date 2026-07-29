@@ -38,7 +38,13 @@
         <input type="search" placeholder="Search all suppliers…" autocomplete="off" inputmode="search"
                data-mobile-order-builder-target="search"
                data-action="input->mobile-order-builder#filter"
-               class="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-brand-green/40 focus:border-brand-green shadow-sm">
+               class="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-11 py-3 text-[15px] focus:outline-none focus:ring-2 focus:ring-brand-green/40 focus:border-brand-green shadow-sm">
+        <button type="button" data-mobile-order-builder-target="searchClear"
+                data-action="mobile-order-builder#clearSearch"
+                aria-label="Clear search"
+                class="hidden absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
       </div>
       <div class="flex gap-2 overflow-x-auto hide-scrollbar pt-2 pb-1 -mx-3 px-3">
         <button type="button" data-action="mobile-order-builder#setCategory" data-category="all"

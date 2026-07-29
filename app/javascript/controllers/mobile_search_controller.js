@@ -1,16 +1,23 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["input", "results", "empty", "placeholder"]
+  static targets = ["input", "results", "empty", "placeholder", "clearButton"]
   static values = { url: String, addUrl: String, csrf: String, orderLists: Array }
 
   connect() {
     this._debounce = null
   }
 
+  clearSearch() {
+    this.inputTarget.value = ""
+    this.search()
+    this.inputTarget.focus()
+  }
+
   search() {
     clearTimeout(this._debounce)
     const query = this.inputTarget.value.trim()
+    if (this.hasClearButtonTarget) this.clearButtonTarget.classList.toggle("hidden", this.inputTarget.value === "")
 
     if (query.length < 2) {
       this.resultsTarget.innerHTML = ""

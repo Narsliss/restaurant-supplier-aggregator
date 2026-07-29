@@ -13,7 +13,7 @@ import { openCalendar, tomorrowIso, dateLabel, flySavings, confettiBurst } from 
 // quantities[] / supplier_overrides[] / uom_overrides[] hidden fields; the
 // server-side ordering path is unchanged.
 export default class extends Controller {
-  static targets = ["form", "hiddenFields", "search", "categoryChip", "emptyState", "noResults",
+  static targets = ["form", "hiddenFields", "search", "searchClear", "categoryChip", "emptyState", "noResults",
                     "card", "cell", "orderSection", "orderCount", "orderLines",
                     "ribbon", "ribbonPills", "ribbonTotal", "dateLabel", "deliveryDate", "submitButton"]
   static values = { minimums: Object, listId: Number }
@@ -94,8 +94,15 @@ export default class extends Controller {
 
   // ---- Filtering: blank search + All => results hidden (comp behavior) ----
 
+  clearSearch() {
+    this.searchTarget.value = ""
+    this.filter()
+    this.searchTarget.focus()
+  }
+
   filter() {
     const q = (this.searchTarget.value || "").trim().toLowerCase()
+    if (this.hasSearchClearTarget) this.searchClearTarget.classList.toggle("hidden", this.searchTarget.value === "")
     const blank = q === "" && this.category === "all"
     let visible = 0
 

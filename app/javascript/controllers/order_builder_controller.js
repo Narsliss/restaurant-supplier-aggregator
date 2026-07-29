@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "categorySection", "mobileSupplierDetail", "uomToggle"]
+  static targets = ["quantityInput", "lineTotal", "runningTotal", "itemCount", "supplierCount", "submitButton", "deliveryDate", "supplierCell", "searchInput", "searchClear", "categorySection", "mobileSupplierDetail", "uomToggle"]
   static values = { supplierMinimums: Object, deliverySchedules: Object, apiDeliveryDates: Object }
 
   connect() {
@@ -845,8 +845,16 @@ export default class extends Controller {
   }
 
   // === Feature 1: Search/Filter ===
+  clearSearch() {
+    if (!this.hasSearchInputTarget) return
+    this.searchInputTarget.value = ""
+    this.filterProducts()
+    this.searchInputTarget.focus()
+  }
+
   filterProducts() {
     const query = this.hasSearchInputTarget ? this.searchInputTarget.value.toLowerCase().trim() : ""
+    if (this.hasSearchClearTarget) this.searchClearTarget.classList.toggle("hidden", query === "")
 
     this.element.querySelectorAll("[data-order-builder-row]").forEach(row => {
       const name = row.dataset.productName || ""

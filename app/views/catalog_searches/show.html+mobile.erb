@@ -19,10 +19,16 @@
     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
     <input type="text" placeholder="Search by product name..."
            autofocus
-           class="w-full pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green"
+           class="w-full pr-11 py-3 bg-white border border-gray-200 rounded-xl text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green"
            style="padding-left: 2.75rem;"
            data-mobile-search-target="input"
            data-action="input->mobile-search#search">
+    <button type="button" data-mobile-search-target="clearButton"
+            data-action="mobile-search#clearSearch"
+            aria-label="Clear search"
+            class="hidden absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
   </div>
 
   <!-- Results -->

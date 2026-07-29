@@ -68,7 +68,13 @@
             <input type="text" placeholder="Search products to add..."
                    data-list-filter-target="input"
                    data-action="input->list-filter#filter"
-                   class="block w-full rounded-lg border-gray-300 pl-10 py-2.5 text-sm shadow-sm focus:border-brand-green focus:ring-brand-green" />
+                   class="block w-full rounded-lg border-gray-300 pl-10 pr-10 py-2.5 text-sm shadow-sm focus:border-brand-green focus:ring-brand-green" />
+            <button type="button" data-list-filter-target="clearButton"
+                    data-action="list-filter#clear"
+                    aria-label="Clear search"
+                    class="hidden absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
           </div>
         </div>
       <% end %>

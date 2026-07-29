@@ -18,6 +18,12 @@
       <div class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full whitespace-nowrap border border-gray-200">
         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
         <%= form.text_field :search, value: params[:search], placeholder: "Search", class: "bg-transparent border-none text-[11px] w-16 p-0 focus:ring-0 focus:outline-none", size: 8 %>
+        <% if params[:search].present? %>
+          <%= link_to orders_path(supplier_id: params[:supplier_id].presence, status: params[:status].presence),
+              aria: { label: "Clear search" }, class: "flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 text-gray-600" do %>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          <% end %>
+        <% end %>
       </div>
       <%= form.select :supplier_id,
           [["All Suppliers", ""]] + @suppliers.map { |s| [s.name, s.id] },
