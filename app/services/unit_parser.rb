@@ -289,15 +289,18 @@ class UnitParser
     # Parses "Case - 12-2#" → 12 packs × 2 lb = 24 lb
     # Also: "Case 12/2 LB", "CS 6-5 LB", "12/2 LB", "4 3 LB" (space-separated)
     def parse_case_pack(text)
-      # Pattern 0: triple-number — "8/2/1.9 LB" → 8 pieces × 1.9 lb each = 15.2 lb
-      # US Foods uses this for protein: count/pieces-per-sub/weight-each.
-      # The middle number is sub-pack count; total = first × last.
+      # Pattern 0: triple-number — "8/2/1.9 LB" → 8 packs × 2 pieces × 1.9 lb = 30.4 lb
+      # US Foods count/sub-count/weight-each format: total = first × middle × last.
+      # Validated against USF's own netWeight field (2026-07): "7/12/3 OZ" →
+      # 252 oz = 15.75 lb = netWeight exactly; "7/2/5.35 LBA" → 74.9 ≈ 75.4;
+      # "3/2/8.3 LBA" → 49.8 lb (chef-confirmed ~50 lb cases). The previous
+      # first × last reading understated every triple pack ~2x.
       if text =~ /(?:case|cs)?\s*[\-\s]*(\d+)\s*[\/\-]\s*(\d+)\s*[\/\-]\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
         count = $1.to_f
-        _sub_count = $2.to_f
+        sub_count = $2.to_f
         per_piece = $3.to_f
         unit = normalize_unit_str($4)
-        total = count * per_piece
+        total = count * sub_count * per_piece
         return build_result(total, unit)
       end
 

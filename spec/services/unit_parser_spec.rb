@@ -96,9 +96,22 @@ RSpec.describe UnitParser do
         expect(result[:quantity]).to eq(24.0)
       end
 
-      it 'parses triple-number "8/2/1.9 LB" as 8 × 1.9 = 15.2 lb' do
+      # Validated against US Foods netWeight (2026-07): triple packs are
+      # count × sub-count × per-piece. The old first × last reading understated
+      # every triple pack ~2x (order #145 pork regression).
+      it 'parses triple-number "8/2/1.9 LB" as 8 × 2 × 1.9 = 30.4 lb' do
         result = UnitParser.parse('8/2/1.9 LB')
-        expect(result[:quantity]).to be_within(0.001).of(15.2)
+        expect(result[:quantity]).to be_within(0.001).of(30.4)
+      end
+
+      it 'parses catch-weight "3/2/8.3 LBA" as 49.8 lb (order #145 pork)' do
+        result = UnitParser.parse('3/2/8.3 LBA ')
+        expect(result[:quantity]).to be_within(0.001).of(49.8)
+      end
+
+      it 'parses "7/12/3 OZ" as 252 oz (matches USF netWeight 15.75 lb)' do
+        result = UnitParser.parse('7/12/3 OZ')
+        expect(result[:normalized_quantity]).to eq(252.0)
       end
     end
 
