@@ -135,7 +135,9 @@
         <% end %>
         <%= button_to cancel_order_path(@order), method: :post,
             class: "w-full text-gray-600 text-xs font-medium px-4 py-2.5 rounded-xl border border-gray-200 bg-white",
-            data: { turbo_confirm: "Cancel this order?" } do %>
+            form: { data: { controller: "confirm-tap",
+                            action: "submit->confirm-tap#intercept",
+                            confirm_tap_message_value: "Tap again to cancel" } } do %>
           Cancel Order
         <% end %>
       <% else %>

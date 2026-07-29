@@ -77,8 +77,21 @@ export default class extends Controller {
   }
 
   // "Clear order" — the one manual way to empty the working order.
-  clearOrder() {
-    if (!confirm("Clear your entire order?")) return
+  // Two-tap confirm (no native dialog: Android Chrome's "suppress dialogs"
+  // checkbox would silently kill window.confirm for the whole session).
+  clearOrder(event) {
+    const btn = event.currentTarget
+    if (!this._clearArmed) {
+      this._clearArmed = true
+      this._clearOriginal = btn.innerHTML
+      btn.textContent = "Tap again"
+      btn.classList.remove("bg-red-50", "text-red-500")
+      btn.classList.add("bg-red-600", "text-white")
+      this._clearArmTimer = setTimeout(() => this.disarmClear(btn), 3500)
+      return
+    }
+    this.disarmClear(btn)
+
     clearTimeout(this._syncTimer)
     this._syncTimer = null
     this.state = {}
@@ -92,6 +105,16 @@ export default class extends Controller {
     this.renderOrderSection()
     this.refreshRibbon()
     this.filter()
+  }
+
+  disarmClear(btn) {
+    clearTimeout(this._clearArmTimer)
+    this._clearArmed = false
+    if (this._clearOriginal != null) {
+      btn.innerHTML = this._clearOriginal
+      btn.classList.add("bg-red-50", "text-red-500")
+      btn.classList.remove("bg-red-600", "text-white")
+    }
   }
 
   // ---- Filtering: blank search + All => results hidden (comp behavior) ----
@@ -369,8 +392,8 @@ export default class extends Controller {
     const sheet = document.createElement("div")
     sheet.className = "fixed inset-0 z-[60]"
     sheet.innerHTML = `
-      <div class="absolute inset-0 bg-black/40" data-suggestion-backdrop></div>
-      <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl max-h-[75vh] flex flex-col">
+      <div class="absolute inset-0 bg-black/40 opacity-0 transition-opacity duration-200" data-suggestion-backdrop></div>
+      <div class="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl max-h-[75vh] flex flex-col translate-y-full transition-transform duration-200 ease-out" data-suggestion-panel>
         <div class="px-4 pt-3 pb-2 border-b border-gray-100 flex items-center justify-between">
           <div>
             <p class="font-heading font-bold text-brand-navy text-base">Fill ${short} minimum</p>
@@ -418,6 +441,13 @@ export default class extends Controller {
     this._suggestionSheet = sheet
     this._suggestionSupplierId = supplierId
     this.updateSuggestionGap(supplierId)
+
+    // Slide up + fade in just after insertion — instant visible response to
+    // tapping the pill. setTimeout (not rAF): fires even in throttled tabs.
+    setTimeout(() => {
+      sheet.querySelector("[data-suggestion-panel]")?.classList.remove("translate-y-full")
+      sheet.querySelector("[data-suggestion-backdrop]")?.classList.remove("opacity-0")
+    }, 20)
   }
 
   closeSuggestions() {

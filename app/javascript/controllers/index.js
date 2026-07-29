@@ -5,6 +5,7 @@ import TwoFactorController from "./two_factor_controller"
 import FlashController from "./flash_controller"
 import DropdownController from "./dropdown_controller"
 import MobileMenuController from "./mobile_menu_controller"
+import ConfirmTapController from "./confirm_tap_controller"
 import PasswordToggleController from "./password_toggle_controller"
 import CredentialValidatorController from "./credential_validator_controller"
 import ProductSearchController from "./product_search_controller"
@@ -93,6 +94,7 @@ application.register("crm-stage-select", CrmStageSelectController)
 application.register("mobile-tab-bar", MobileTabBarController)
 application.register("mobile-search", MobileSearchController)
 application.register("mobile-order-builder", MobileOrderBuilderController)
+application.register("confirm-tap", ConfirmTapController)
 application.register("mobile-review", MobileReviewController)
 application.register("match-filter", MatchFilterController)
 application.register("delivery-schedule-grid", DeliveryScheduleGridController)
