@@ -70,6 +70,16 @@
   <% end %>
 </div>
 
+<%# Formerly on the 5-tab tray — every role now shares the 3-tab bar %>
+<div class="flex gap-3 mb-5">
+  <%= link_to "Suppliers", supplier_credentials_path,
+      class: "flex-1 text-center bg-white rounded-xl px-3 py-2.5 shadow-sm border border-gray-200 text-sm font-semibold text-gray-900" %>
+  <%= link_to "Order History", orders_path,
+      class: "flex-1 text-center bg-white rounded-xl px-3 py-2.5 shadow-sm border border-gray-200 text-sm font-semibold text-gray-900" %>
+  <%= link_to "Search", catalog_search_path,
+      class: "flex-1 text-center bg-white rounded-xl px-3 py-2.5 shadow-sm border border-gray-200 text-sm font-semibold text-gray-900" %>
+</div>
+
 <!-- Recent Orders -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
   <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">

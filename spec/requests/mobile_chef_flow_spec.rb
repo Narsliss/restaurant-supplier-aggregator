@@ -144,4 +144,37 @@ RSpec.describe "Mobile chef flow", type: :request do
       expect(response.body).to include(cart_orders_path)
     end
   end
+
+  # Regression: chef testing 2026-07 — an owner on Android got the legacy
+  # 5-tab tray (Home/History/+Order/Suppliers/Search) while chefs on iPhone
+  # got the new 3-tab bar. Every role now shares the 3-tab bar; owner/manager
+  # extras moved into their Home dashboard menus.
+  describe "owner mobile experience" do
+    let(:owner) do
+      user = create(:user, current_organization: organization)
+      create(:membership, user: user, organization: organization, role: "owner", active: true)
+      user
+    end
+    let!(:owner_subscription) { create(:subscription, user: owner, organization_id: organization.id) }
+
+    before { sign_in owner }
+
+    it "gets the same 3-tab bar as chefs (no legacy 5-tab tray)" do
+      get root_path, headers: MOBILE_UA
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include(start_order_aggregated_lists_path)
+      expect(response.body).to include(cart_orders_path)
+      # The legacy tray's tab targets (data-path markers) must be gone
+      expect(response.body).not_to include('data-path="/orders/select_list"')
+      expect(response.body).not_to include(">History</span>")
+      expect(response.body).not_to include(">Suppliers</span>")
+    end
+
+    it "reaches Suppliers, Order History, and Search from the Home menu" do
+      get root_path, headers: MOBILE_UA
+      expect(response.body).to include(supplier_credentials_path)
+      expect(response.body).to include(orders_path)
+      expect(response.body).to include(catalog_search_path)
+    end
+  end
 end
