@@ -1,6 +1,7 @@
 class ProductMatch < ApplicationRecord
   # Associations
   belongs_to :aggregated_list
+  belongs_to :off_list_added_by, class_name: "User", optional: true
   has_many :product_match_items, dependent: :destroy
   has_many :supplier_list_items, through: :product_match_items
   # Chef-chosen source of the canonical thumbnail (one of this match's own
@@ -39,8 +40,37 @@ class ProductMatch < ApplicationRecord
   end
 
   # Confirm this match
+  # --- Off-list additions (chef ordered something that wasn't curated) -------
+  # Chefs can order any catalog product mid-shift. Those arrive with one
+  # supplier and no price comparison, so owners/managers get told and the item
+  # stays flagged until somebody actually looks at it.
+
+  scope :off_list_added, -> { where.not(off_list_added_at: nil) }
+  scope :needs_off_list_review, -> { off_list_added.where(reviewed_at: nil) }
+  # Unreviewed off-list adds first (newest first), then normal list position
+  scope :unreviewed_first, -> {
+    order(Arel.sql("CASE WHEN off_list_added_at IS NOT NULL AND reviewed_at IS NULL THEN 0 ELSE 1 END"))
+      .order(Arel.sql("off_list_added_at DESC NULLS LAST"))
+      .order(:position)
+  }
+
+  def off_list_added?
+    off_list_added_at.present?
+  end
+
+  def needs_off_list_review?
+    off_list_added? && reviewed_at.nil?
+  end
+
+  def mark_reviewed!
+    return unless needs_off_list_review?
+
+    update!(reviewed_at: Time.current)
+  end
+
   def confirm!
-    update!(match_status: 'confirmed')
+    # Confirming IS the review — an owner/manager has looked at this match.
+    update!(match_status: 'confirmed', reviewed_at: reviewed_at || Time.current)
   end
 
   # Reject this match (AI got it wrong)

@@ -63,7 +63,12 @@ class AggregatedListsController < ApplicationController
                                        .where.not(match_status: 'rejected')
                                        .includes(:canonical_image_supplier_product,
                                                  product_match_items: [:supplier, { supplier_list_item: [:supplier_product, :supplier_list] }])
+                                       # Items a chef ordered off-list come FIRST until reviewed: they
+                                       # have one supplier and no price comparison yet.
+                                       .order(Arel.sql("CASE WHEN off_list_added_at IS NOT NULL AND reviewed_at IS NULL THEN 0 ELSE 1 END"))
+                                       .order(Arel.sql("off_list_added_at DESC NULLS LAST"))
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
+    @unreviewed_off_list_count = @aggregated_list.product_matches.needs_off_list_review.count
 
     # @suppliers is the union of (suppliers with a list in this agg) and
     # (suppliers with a credential at this list's location). Credential-based
@@ -504,7 +509,8 @@ class AggregatedListsController < ApplicationController
       supplier_product: sp,
       organization: current_user.current_organization,
       location: current_location,
-      matched_list: @aggregated_list
+      matched_list: @aggregated_list,
+      added_by: current_user # flags for owner/manager review + notifies them
     ).call
 
     render json: added_card_payload(match, sp)

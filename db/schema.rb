@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_07_30_010000) do
+ActiveRecord::Schema[7.1].define(version: 2026_07_30_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -534,11 +534,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_30_010000) do
     t.datetime "updated_at", null: false
     t.string "category"
     t.bigint "canonical_image_supplier_product_id"
+    t.datetime "off_list_added_at"
+    t.bigint "off_list_added_by_id"
+    t.datetime "reviewed_at"
+    t.index ["aggregated_list_id", "off_list_added_at", "reviewed_at"], name: "idx_product_matches_off_list_review"
     t.index ["aggregated_list_id", "position"], name: "index_product_matches_on_aggregated_list_id_and_position"
     t.index ["aggregated_list_id"], name: "index_product_matches_on_aggregated_list_id"
     t.index ["canonical_image_supplier_product_id"], name: "idx_product_matches_on_canonical_image_sp"
     t.index ["category"], name: "index_product_matches_on_category"
     t.index ["match_status"], name: "index_product_matches_on_match_status"
+    t.index ["off_list_added_by_id"], name: "index_product_matches_on_off_list_added_by_id"
   end
 
   create_table "products", force: :cascade do |t|
@@ -1112,6 +1117,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_30_010000) do
   add_foreign_key "product_match_items", "supplier_list_items", on_delete: :cascade
   add_foreign_key "product_match_items", "suppliers"
   add_foreign_key "product_matches", "aggregated_lists", on_delete: :cascade
+  add_foreign_key "product_matches", "users", column: "off_list_added_by_id"
   add_foreign_key "scraping_logs", "supplier_credentials"
   add_foreign_key "scraping_logs", "suppliers"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade

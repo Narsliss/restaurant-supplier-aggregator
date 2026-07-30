@@ -18,12 +18,17 @@ module Catalog
 
     attr_reader :supplier_product, :organization, :location, :matched_list
 
-    def initialize(supplier_product:, organization:, location:, matched_list:)
+    # added_by: set when a chef adds this mid-order from "Everything else" —
+    # flags the match for owner/manager review and triggers the notification.
+    def initialize(supplier_product:, organization:, location:, matched_list:, added_by: nil)
       @supplier_product = supplier_product
       @organization = organization
       @location = location
       @matched_list = matched_list
+      @added_by = added_by
     end
+
+    attr_reader :added_by
 
     # Returns the ProductMatch the product now belongs to.
     def call
@@ -94,13 +99,19 @@ module Catalog
           canonical_name: supplier_product.supplier_name,
           match_status: "manual",
           confidence_score: 0,
-          position: 0
+          position: 0,
+          off_list_added_at: (Time.current if added_by),
+          off_list_added_by: added_by
         )
         match.product_match_items.create!(
           supplier_list_item: item,
           supplier_id: supplier_product.supplier_id
         )
       end
+
+      # Tell owners/managers a chef ordered something nobody had curated, so
+      # they can review the price rather than it silently becoming the default.
+      NotifyOffListOrderJob.perform_later(match.id) if added_by
 
       # Cross-supplier matching fills in other suppliers' prices for comparison.
       # Promoted lists are curated org-wide — leave those alone.

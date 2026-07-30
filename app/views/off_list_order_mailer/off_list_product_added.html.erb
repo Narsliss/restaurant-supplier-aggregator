@@ -1,0 +1,53 @@
+<div style="max-width: 600px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1f2937;">
+  <div style="padding: 32px 24px;">
+    <h1 style="font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #111827;">
+      A product was ordered off-list
+    </h1>
+    <p style="font-size: 14px; color: #6b7280; margin-bottom: 24px; line-height: 1.5;">
+      <%= @chef&.full_name.presence || "A chef" %> needed this mid-shift and it wasn&rsquo;t on any matched list,
+      so it was added and ordered right away. Because it arrived with a single supplier,
+      <strong>no price comparison has run on it yet</strong> &mdash; review it so you know you&rsquo;re getting the best price.
+    </p>
+
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+      <tr>
+        <td style="padding: 8px 0; font-size: 14px; color: #6b7280; width: 130px;">Product</td>
+        <td style="padding: 8px 0; font-size: 14px; font-weight: 600; color: #111827;"><%= @match.display_name %></td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 0; font-size: 14px; color: #6b7280;">Supplier</td>
+        <td style="padding: 8px 0; font-size: 14px; font-weight: 600; color: #111827;"><%= @supplier&.name || "—" %></td>
+      </tr>
+      <% if @price %>
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #6b7280;">Price paid</td>
+          <td style="padding: 8px 0; font-size: 14px; font-weight: 600; color: #111827;"><%= number_to_currency(@price) %></td>
+        </tr>
+      <% end %>
+      <% if @supplier_list_item&.pack_size.present? %>
+        <tr>
+          <td style="padding: 8px 0; font-size: 14px; color: #6b7280;">Pack size</td>
+          <td style="padding: 8px 0; font-size: 14px; color: #111827;"><%= @supplier_list_item.pack_size %></td>
+        </tr>
+      <% end %>
+      <tr>
+        <td style="padding: 8px 0; font-size: 14px; color: #6b7280;">Ordered by</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #111827;"><%= @chef&.email || "—" %></td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 0; font-size: 14px; color: #6b7280;">List</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #111827;"><%= @aggregated_list&.name %></td>
+      </tr>
+    </table>
+
+    <% if @aggregated_list %>
+      <a href="<%= aggregated_list_url(@aggregated_list) %>"
+         style="display: inline-block; background: #3A6147; color: #ffffff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 20px; border-radius: 8px;">
+        Review matching &rarr;
+      </a>
+      <p style="font-size: 12px; color: #9ca3af; margin-top: 16px; line-height: 1.5;">
+        Unreviewed items appear at the top of that page. Confirming a match marks it reviewed.
+      </p>
+    <% end %>
+  </div>
+</div>

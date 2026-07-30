@@ -24,6 +24,14 @@
         <% if match.unmatched? %>
           <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">Unmatched</span>
         <% end %>
+        <%# A chef ordered this mid-shift off-list — one supplier, no price
+            comparison yet. Sorted to the top of this page until reviewed. %>
+        <% if match.needs_off_list_review? %>
+          <span class="inline-flex items-center rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white"
+                title="Ordered by <%= match.off_list_added_by&.first_name.presence || 'a chef' %> without price comparison — confirm the match to mark it reviewed">
+            Needs review
+          </span>
+        <% end %>
         <% if match.confidence_score && match.confidence_score > 0 %>
           <span class="text-xs <%= match.confidence_score >= 0.8 ? 'text-green-600' : 'text-amber-600' %>">
             <%= (match.confidence_score * 100).round %>%

@@ -54,6 +54,8 @@ class DashboardController < ApplicationController
       .includes(:supplier, :user)
       .order(:created_at)
 
+    @unreviewed_off_list = unreviewed_off_list_matches
+
     @pending_2fa_requests = current_user.supplier_2fa_requests
       .pending
       .where("expires_at > ?", Time.current)
@@ -148,6 +150,8 @@ class DashboardController < ApplicationController
       .includes(:supplier, :user)
       .order(:created_at)
 
+    @unreviewed_off_list = unreviewed_off_list_matches
+
     @pending_2fa_requests = Supplier2faRequest.none
 
     # Stats with current + prior month for % change
@@ -241,6 +245,8 @@ class DashboardController < ApplicationController
       .needs_user_attention
       .includes(:supplier, :user)
       .order(:created_at)
+
+    @unreviewed_off_list = unreviewed_off_list_matches
 
     @pending_2fa_requests = current_user.supplier_2fa_requests
       .pending
@@ -427,4 +433,26 @@ class DashboardController < ApplicationController
   # dashboard/index.html.erb and dashboard/index.html+mobile.erb (still
   # gated on @chef_onboarding_steps which is now never set) will never
   # render. They can be deleted in a follow-up cleanup.
+
+  # Products chefs ordered mid-shift that were not on any matched list. They
+  # arrive with one supplier and no price comparison, so owners/managers get an
+  # alert until someone reviews them.
+  def unreviewed_off_list_matches
+    org = current_user.current_organization
+    # Curation is an owner/manager job — chefs don't get nagged about it
+    return ProductMatch.none unless org && (owner? || current_role == "manager")
+
+    lists = AggregatedList.for_organization(org)
+    loc_ids = accessible_locations.pluck(:id)
+    if loc_ids.any?
+      lists = lists.where("aggregated_lists.location_id IS NULL OR aggregated_lists.location_id IN (?) OR aggregated_lists.promoted_org_wide = ?",
+                          loc_ids, true)
+    end
+
+    ProductMatch.where(aggregated_list_id: lists.select(:id))
+                .needs_off_list_review
+                .includes(:aggregated_list, :off_list_added_by, product_match_items: :supplier)
+                .order(off_list_added_at: :desc)
+  end
+
 end
