@@ -158,6 +158,9 @@ Rails.application.routes.draw do
       get :supplier_items_search
       get :catalog_browse
       post :add_product
+      # Mobile builder "Everything else" search + one-tap order of a catalog item
+      get :builder_catalog_search
+      post :builder_add_catalog_item
     end
     resources :product_matches, only: %i[index] do
       member do

@@ -78,10 +78,22 @@
         <div class="h-px bg-brand-green/30 flex-1"></div>
       </div>
       <div class="hidden items-center gap-2 pt-1" style="order: 0;" data-mobile-order-builder-target="otherSectionHeader">
-        <h2 class="font-heading text-[11px] font-semibold text-gray-400 tracking-widest uppercase shrink-0">Everything else</h2>
+        <h2 class="font-heading text-[11px] font-semibold text-gray-400 tracking-widest uppercase shrink-0">From your matched lists</h2>
         <div class="h-px bg-gray-300 flex-1"></div>
       </div>
-      <% @product_matches.each do |match| %>
+
+      <%# --- "Everything else": live search across every connected supplier's
+            full catalog. Tapping + makes the product orderable immediately. --- %>
+      <div class="hidden items-center gap-2 pt-1" style="order: 2;" data-mobile-order-builder-target="catalogHeader">
+        <h2 class="font-heading text-[11px] font-semibold text-gray-400 tracking-widest uppercase shrink-0">Everything else</h2>
+        <div class="h-px bg-gray-300 flex-1"></div>
+        <span class="text-[10px] text-gray-400 shrink-0" data-mobile-order-builder-target="catalogCount"></span>
+      </div>
+      <div class="hidden" style="order: 3;" data-mobile-order-builder-target="catalogResults"></div>
+      <%# Alphabetical: within a group the DOM order IS the visual order (CSS
+          `order` only separates the groups), and a chef scanning alphabetically
+          assumes anything out of order is missing. %>
+      <% @product_matches.sort_by { |m| m.display_name.to_s.downcase }.each do |match| %>
         <%
           cheapest = match.cheapest_supplier
           cheapest_id = cheapest&.dig(:supplier)&.id
@@ -96,6 +108,9 @@
              data-on-list="<%= on_list %>"
              data-match-id="<%= match.id %>"
              data-name="<%= match.display_name.downcase %>"
+             <%# supplier product names too: chefs search the words a supplier
+                 uses, which often differ from the canonical name %>
+             data-supplier-names="<%= match.product_match_items.filter_map { |pmi| pmi.supplier_list_item&.name }.join(" | ").downcase %>"
              data-display-name="<%= match.display_name %>"
              data-thumb="<%= thumb %>"
              data-category="<%= category %>"

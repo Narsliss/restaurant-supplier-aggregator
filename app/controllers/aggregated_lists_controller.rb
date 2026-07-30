@@ -2,7 +2,7 @@ class AggregatedListsController < ApplicationController
   include DeliveryDatesRefresher
 
   before_action :require_location_context!
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search catalog_browse add_product]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search catalog_browse add_product builder_catalog_search builder_add_catalog_item]
   before_action :require_owner!, only: %i[promote demote]
   before_action :require_not_promoted!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide add_product]
   before_action :require_list_location_access!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide catalog_browse add_product]
@@ -444,6 +444,74 @@ class AggregatedListsController < ApplicationController
     redirect_to @aggregated_list
   end
 
+  # --- Mobile builder: "Everything else" full-catalog search -----------------
+  # Chefs must be able to order what they need mid-shift whether or not it has
+  # been curated onto a list. This searches every connected supplier's catalog
+  # (76K+ products, ~20ms) and deliberately runs a WIDE net — no small cap;
+  # chefs narrow by typing more ("truffle oil" not "truffle").
+
+  # A backstop so a 1-2 character query can't push thousands of rows into the
+  # DOM. The response reports the true total so the UI can say what's hidden.
+  CATALOG_RESULT_CAP = 500
+
+  # GET /aggregated_lists/:id/builder_catalog_search?q=
+  def builder_catalog_search
+    query = params[:q].to_s.strip
+    return render json: { results: [], total: 0, capped: false } if query.length < 2
+
+    connected = scoped_credentials.active.distinct.pluck(:supplier_id)
+    return render json: { results: [], total: 0, capped: false } if connected.empty?
+
+    # Exclude anything already rendered in the two matched-list sections
+    on_list = SupplierListItem
+      .joins(product_match_items: :product_match)
+      .where(product_matches: { aggregated_list_id: @aggregated_list.id })
+      .where.not(supplier_product_id: nil)
+      .select(:supplier_product_id)
+
+    scope = SupplierProduct
+      .where(supplier_id: connected, discontinued: false)
+      .where.not(current_price: nil)
+      .where("LOWER(supplier_name) LIKE ?", "%#{query.downcase}%")
+      .where.not(id: on_list)
+
+    total = scope.count
+    products = scope.includes(:supplier)
+                    .order(Arel.sql("LOWER(supplier_name)"))
+                    .limit(CATALOG_RESULT_CAP)
+
+    render json: {
+      results: products.map { |sp| catalog_result_payload(sp) },
+      total: total,
+      capped: total > CATALOG_RESULT_CAP
+    }
+  end
+
+  # POST /aggregated_lists/:id/builder_add_catalog_item
+  # Makes a catalog product orderable and returns everything the builder needs
+  # to render it as a normal card, so it flows through the untouched ordering
+  # pipeline like any other matched product.
+  def builder_add_catalog_item
+    sp = SupplierProduct.find_by(id: params[:supplier_product_id])
+    return render json: { error: "Product not found." }, status: :not_found unless sp
+
+    connected = scoped_credentials.active.distinct.pluck(:supplier_id)
+    unless connected.include?(sp.supplier_id)
+      return render json: { error: "You don't have an active login for #{sp.supplier.name}." }, status: :forbidden
+    end
+
+    match = Catalog::AddProductToMatchedListService.new(
+      supplier_product: sp,
+      organization: current_user.current_organization,
+      location: current_location,
+      matched_list: @aggregated_list
+    ).call
+
+    render json: added_card_payload(match, sp)
+  rescue Catalog::AddProductToMatchedListService::Error => e
+    render json: { error: e.message }, status: :unprocessable_entity
+  end
+
   def order_builder
     # Auto-heal: if status is 'failed' but matches exist, restore to 'matched'
     if @aggregated_list.match_status == 'failed' && @aggregated_list.product_matches.any?
@@ -742,6 +810,50 @@ class AggregatedListsController < ApplicationController
   # A chef can hold a link to another restaurant's list (a bookmark, or the URL
   # Devise stored before they signed in). Raising RecordNotFound dead-ended them
   # on an error page with no way back, so redirect to something they CAN use.
+  # One "Everything else" row: a catalog product the chef can tap to order.
+  def catalog_result_payload(sp)
+    {
+      supplier_product_id: sp.id,
+      name: sp.supplier_name.to_s,
+      supplier: sp.supplier.short_name,
+      supplier_id: sp.supplier_id,
+      pack_size: sp.pack_size.to_s,
+      # estimated_case_price: catch-weight products store price per LB
+      price: sp.estimated_case_price.to_f.round(2),
+      price_display: helpers.number_to_currency(sp.estimated_case_price),
+      per_unit: sp.formatted_comparison_per_oz,
+      in_stock: sp.in_stock?
+    }
+  end
+
+  # Everything the mobile builder needs to inject a real card for a product it
+  # just made orderable — mirrors the data attributes order_builder renders.
+  def added_card_payload(match, sp)
+    item = match.product_match_items
+                .map(&:supplier_list_item)
+                .compact
+                .find { |sli| sli.supplier_product_id == sp.id }
+
+    price = item&.estimated_total_price || item&.price || sp.estimated_case_price
+    piece = item&.piece_price if item&.piece_price.present? && item.piece_price.positive?
+
+    {
+      match_id: match.id,
+      display_name: match.display_name.to_s,
+      category: ::CategoryNormalizable.normalize(sp.product&.category).presence || "Other",
+      thumb: helpers.product_thumb_url(sp), # display-only: never triggers a supplier fetch
+      supplier_id: sp.supplier_id,
+      short: sp.supplier.short_name,
+      price: price.to_f.round(2),
+      price_display: helpers.number_to_currency(price),
+      per_unit: item&.catch_weight_note || item&.formatted_per_unit_price,
+      pack: (item&.pack_size.presence || sp.pack_size).to_s,
+      piece_price: piece&.to_f,
+      piece_display: piece ? helpers.number_to_currency(piece) : nil,
+      in_stock: sp.in_stock?
+    }
+  end
+
   def set_aggregated_list
     @aggregated_list = current_organization_aggregated_lists.find_by(id: params[:id])
     return if @aggregated_list

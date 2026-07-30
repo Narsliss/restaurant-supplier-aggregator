@@ -16,6 +16,7 @@ export default class extends Controller {
   static targets = ["form", "hiddenFields", "search", "searchClear", "categoryChip", "emptyState", "noResults",
                     "card", "cell", "orderSection", "orderCount", "orderLines",
                     "listSectionHeader", "otherSectionHeader",
+                    "catalogHeader", "catalogResults", "catalogCount",
                     "ribbon", "ribbonPills", "ribbonTotal", "dateLabel", "deliveryDate", "submitButton"]
   static values = { minimums: Object, listId: Number }
 
@@ -138,7 +139,11 @@ export default class extends Controller {
       if (blank) {
         show = false
       } else {
-        const matchesQuery = q === "" || card.dataset.name.includes(q)
+        // Match the canonical name OR any supplier's own product name — chefs
+        // type the words their supplier uses.
+        const matchesQuery = q === "" ||
+          card.dataset.name.includes(q) ||
+          (card.dataset.supplierNames || "").includes(q)
         const matchesCat = this.category === "all" ||
           (this.category === "__frequent__" ? card.dataset.frequent === "true" : card.dataset.category === this.category)
         show = matchesQuery && matchesCat
@@ -151,21 +156,220 @@ export default class extends Controller {
       }
     })
 
-    // Section headers appear only when results span both groups — order-list
-    // items float on top (CSS order), everything else below.
-    const showHeaders = !blank && visibleOnList > 0 && visibleOther > 0
-    if (this.hasListSectionHeaderTarget) {
-      this.listSectionHeaderTarget.classList.toggle("hidden", !showHeaders)
-      this.listSectionHeaderTarget.classList.toggle("flex", showHeaders)
-    }
-    if (this.hasOtherSectionHeaderTarget) {
-      this.otherSectionHeaderTarget.classList.toggle("hidden", !showHeaders)
-      this.otherSectionHeaderTarget.classList.toggle("flex", showHeaders)
+    // Group headers show whenever that group has results and there's more than
+    // one group on screen (the catalog group counts, so a matched-list hit plus
+    // catalog hits still gets labelled).
+    this._visibleOnList = visibleOnList
+    this._visibleOther = visibleOther
+    this.updateSectionHeaders()
+
+    // "Everything else" — the full catalog, fetched server-side
+    if (blank) {
+      this.clearCatalog()
+    } else {
+      this.searchCatalog(q)
     }
 
     const hasLines = Object.keys(this.state).length > 0
     this.emptyStateTarget.classList.toggle("hidden", !(blank && !hasLines))
     this.noResultsTarget.classList.toggle("hidden", blank || visible > 0)
+  }
+
+  // ---- Section headers ----
+
+  updateSectionHeaders() {
+    const onList = this._visibleOnList || 0
+    const matched = this._visibleOther || 0
+    const catalog = this._catalogCount || 0
+    const groups = [onList, matched, catalog].filter(n => n > 0).length
+    const label = groups > 1
+
+    this.toggleHeader(this.hasListSectionHeaderTarget && this.listSectionHeaderTarget, label && onList > 0)
+    this.toggleHeader(this.hasOtherSectionHeaderTarget && this.otherSectionHeaderTarget, label && matched > 0)
+    this.toggleHeader(this.hasCatalogHeaderTarget && this.catalogHeaderTarget, label && catalog > 0)
+  }
+
+  toggleHeader(el, show) {
+    if (!el) return
+    el.classList.toggle("hidden", !show)
+    el.classList.toggle("flex", !!show)
+  }
+
+  // ---- "Everything else": full-catalog search across connected suppliers ----
+
+  clearCatalog() {
+    clearTimeout(this._catalogTimer)
+    this._catalogQuery = null
+    this._catalogCount = 0
+    if (this.hasCatalogResultsTarget) {
+      this.catalogResultsTarget.innerHTML = ""
+      this.catalogResultsTarget.classList.add("hidden")
+    }
+    if (this.hasCatalogCountTarget) this.catalogCountTarget.textContent = ""
+    this.updateSectionHeaders()
+  }
+
+  searchCatalog(q) {
+    if (!this.hasCatalogResultsTarget) return
+    if (q.length < 2) return this.clearCatalog()
+    if (q === this._catalogQuery) return
+
+    clearTimeout(this._catalogTimer)
+    this._catalogTimer = setTimeout(() => {
+      this._catalogQuery = q
+      this.catalogResultsTarget.classList.remove("hidden")
+      this.catalogResultsTarget.innerHTML = `
+        <div class="flex items-center justify-center gap-2 py-4 text-gray-400">
+          <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          <span class="text-[12px] font-medium">Searching all suppliers…</span>
+        </div>`
+      this._catalogCount = 1 // show the header while loading
+      this.updateSectionHeaders()
+
+      fetch(`/aggregated_lists/${this.listIdValue}/builder_catalog_search?q=${encodeURIComponent(q)}`,
+            { headers: { Accept: "application/json" } })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(data => {
+          if (this._catalogQuery !== q) return // a newer query superseded this one
+          this.renderCatalog(data)
+        })
+        .catch(() => {
+          if (this._catalogQuery !== q) return
+          this.catalogResultsTarget.innerHTML =
+            `<p class="text-[12px] text-gray-400 text-center py-3">Couldn't reach the supplier catalogs. Check your connection.</p>`
+        })
+    }, 300)
+  }
+
+  renderCatalog(data) {
+    const results = data.results || []
+    this._catalogCount = results.length
+    this.catalogResultsTarget.classList.toggle("hidden", results.length === 0)
+
+    if (this.hasCatalogCountTarget) {
+      this.catalogCountTarget.textContent = data.capped
+        ? `${results.length} of ${data.total} — type more to narrow`
+        : (results.length > 0 ? `${results.length}` : "")
+    }
+
+    this.catalogResultsTarget.innerHTML = results.map(r => `
+      <div class="bg-white rounded-2xl border border-gray-200 px-2.5 py-2 mb-2 flex items-center gap-2.5"
+           data-catalog-row data-supplier-product-id="${r.supplier_product_id}">
+        <div class="flex-1 min-w-0">
+          <p class="text-[14px] font-bold text-brand-navy leading-snug">${this.escape(r.name)}</p>
+          <p class="text-[11px] text-gray-500 mt-0.5">
+            <span class="font-bold">${this.escape(r.supplier)}</span>
+            · ${r.price_display}${r.pack_size ? " · " + this.escape(r.pack_size) : ""}${r.in_stock ? "" : ' · <span class="text-red-500 font-bold">Out of stock</span>'}
+          </p>
+          ${r.per_unit ? `<p class="text-[10px] text-gray-400">${this.escape(r.per_unit)}</p>` : ""}
+        </div>
+        <button type="button" data-catalog-add
+                class="shrink-0 w-10 h-10 rounded-xl bg-brand-green text-white font-bold text-xl flex items-center justify-center active:bg-brand-green-dark">+</button>
+      </div>`).join("")
+
+    this.catalogResultsTarget.querySelectorAll("[data-catalog-add]").forEach(btn => {
+      btn.addEventListener("click", event => this.addCatalogItem(event))
+    })
+
+    this.updateSectionHeaders()
+  }
+
+  // Tap + on a catalog row: make it orderable, then add it to the working order.
+  addCatalogItem(event) {
+    const btn = event.currentTarget
+    const row = btn.closest("[data-catalog-row]")
+    if (!row || btn.disabled) return
+
+    btn.disabled = true
+    btn.innerHTML = `<svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>`
+
+    const token = document.querySelector('meta[name="csrf-token"]')?.content
+    fetch(`/aggregated_lists/${this.listIdValue}/builder_add_catalog_item`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": token, Accept: "application/json" },
+      body: JSON.stringify({ supplier_product_id: row.dataset.supplierProductId })
+    })
+      .then(r => r.json().then(body => r.ok ? body : Promise.reject(body)))
+      .then(card => {
+        this.injectCard(card)
+        this.state[card.match_id] = { supplierId: String(card.supplier_id), qty: 1, uom: "CS" }
+        btn.textContent = "✓"
+        btn.classList.remove("bg-brand-green")
+        btn.classList.add("bg-gray-300")
+        row.classList.add("opacity-60")
+        this.renderOrderSection()
+        this.refreshRibbon()
+        this.syncOrder()
+      })
+      .catch(err => {
+        btn.disabled = false
+        btn.textContent = "+"
+        const msg = (err && err.error) || "Couldn't add that item. Please try again."
+        const note = document.createElement("p")
+        note.className = "text-[11px] text-red-500 mt-1"
+        note.textContent = msg
+        row.appendChild(note)
+      })
+  }
+
+  // Build a real builder card for the newly-orderable product so the order
+  // section, ribbon, submit fields and autosave all work unchanged.
+  injectCard(card) {
+    const main = this.catalogResultsTarget.parentElement
+    const el = document.createElement("div")
+    el.className = "bg-white rounded-2xl border border-gray-200 p-2.5"
+    el.style.order = "1"
+    el.setAttribute("data-mobile-order-builder-target", "card")
+    el.dataset.matchId = String(card.match_id)
+    el.dataset.name = (card.display_name || "").toLowerCase()
+    el.dataset.supplierNames = (card.display_name || "").toLowerCase()
+    el.dataset.displayName = card.display_name || ""
+    el.dataset.thumb = card.thumb || ""
+    el.dataset.category = card.category || "Other"
+    el.dataset.frequent = "false"
+    el.dataset.nonPerishable = "false"
+    el.dataset.onList = "false"
+    el.dataset.cheapestSupplierId = String(card.supplier_id)
+    el.dataset.initialQty = "0"
+
+    el.innerHTML = `
+      <div class="flex gap-3 mb-2.5 items-center">
+        <img src="${card.thumb}" alt="" loading="lazy" decoding="async"
+             class="w-20 h-20 rounded-xl object-cover border border-gray-100 bg-brand-stone shrink-0">
+        <div class="min-w-0 flex-1">
+          <p class="font-bold text-brand-navy text-lg leading-snug">${this.escape(card.display_name)}</p>
+          <p class="text-sm text-gray-500 mt-0.5">${this.escape(card.category)}</p>
+        </div>
+      </div>
+      <div class="grid gap-1.5" style="grid-template-columns: repeat(1, minmax(0, 1fr));"></div>`
+
+    const cell = document.createElement("div")
+    cell.setAttribute("data-mobile-order-builder-target", "cell")
+    cell.dataset.matchId = String(card.match_id)
+    cell.dataset.supplierId = String(card.supplier_id)
+    cell.dataset.short = card.short || ""
+    cell.dataset.price = String(card.price)
+    cell.dataset.priceDisplay = card.price_display || ""
+    cell.dataset.perUnit = card.per_unit || ""
+    cell.dataset.pack = card.pack || ""
+    cell.dataset.best = "false"
+    cell.dataset.orderedCount = "0"
+    cell.dataset.inStock = String(card.in_stock)
+    if (card.piece_price) {
+      cell.dataset.piecePrice = String(card.piece_price)
+      cell.dataset.pieceDisplay = card.piece_display || ""
+    }
+    el.querySelector(".grid").appendChild(cell)
+
+    main.insertBefore(el, this.catalogResultsTarget)
+    this.renderCell(cell)
+    this._cellIndex = null // new cell — rebuild the lookup index
+  }
+
+  escape(text) {
+    const div = document.createElement("div")
+    div.textContent = text == null ? "" : String(text)
+    return div.innerHTML
   }
 
   setCategory(event) {
