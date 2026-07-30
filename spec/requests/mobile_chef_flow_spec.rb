@@ -139,6 +139,30 @@ RSpec.describe "Mobile chef flow", type: :request do
     end
   end
 
+  # Regression (chef report 2026-07-30): after signing in, Devise redirected to
+  # a stored URL for ANOTHER restaurant's matched list. set_aggregated_list
+  # raised RecordNotFound, and with no public/404.html in the image production
+  # served a 0-byte response — a blank white screen with no way back.
+  describe "a list belonging to another restaurant" do
+    let(:other_location) { create(:location, organization: organization) }
+    let!(:other_list) do
+      create(:aggregated_list, organization: organization, location_id: other_location.id,
+                               match_status: "matched")
+    end
+
+    it "redirects the chef to their own list instead of dead-ending" do
+      get order_builder_aggregated_list_path(other_list), headers: MOBILE_UA
+
+      expect(response).to redirect_to(order_builder_aggregated_list_path(aggregated_list))
+      expect(flash[:alert]).to include("another restaurant")
+    end
+
+    it "never returns a not-found response for the order builder" do
+      get order_builder_aggregated_list_path(other_list), headers: MOBILE_UA
+      expect(response).not_to have_http_status(:not_found)
+    end
+  end
+
   describe "minimum-suggestion data on the builder" do
     it "renders ordered-count and non-perishable flags for the suggestion sheet" do
       get order_builder_aggregated_list_path(aggregated_list), headers: MOBILE_UA

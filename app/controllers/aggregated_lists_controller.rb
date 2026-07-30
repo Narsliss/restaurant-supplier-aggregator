@@ -739,8 +739,18 @@ class AggregatedListsController < ApplicationController
 
   private
 
+  # A chef can hold a link to another restaurant's list (a bookmark, or the URL
+  # Devise stored before they signed in). Raising RecordNotFound dead-ended them
+  # on an error page with no way back, so redirect to something they CAN use.
   def set_aggregated_list
-    @aggregated_list = current_organization_aggregated_lists.find(params[:id])
+    @aggregated_list = current_organization_aggregated_lists.find_by(id: params[:id])
+    return if @aggregated_list
+
+    fallback = current_organization_aggregated_lists.matched_lists.first
+    message = "That list belongs to another restaurant. " \
+              "#{fallback ? 'Here is your list instead.' : 'Pick a restaurant from the menu to continue.'}"
+
+    redirect_to(fallback ? order_builder_aggregated_list_path(fallback) : root_path, alert: message)
   end
 
   def require_not_promoted!
