@@ -50,8 +50,16 @@ module Orders
             line_total = item[:unit_price] * item[:quantity]
             subtotal += line_total
 
+            # Skip implausible per-line savings — a cross-unit mismatch or bad
+            # scrape, not a real deal (order #80 recorded 2,027% saved).
             if item[:worst_price] && item[:worst_price] > item[:unit_price]
-              order_savings += (item[:worst_price] - item[:unit_price]) * item[:quantity]
+              line_savings = (item[:worst_price] - item[:unit_price]) * item[:quantity]
+              if line_savings > line_total * Order::MAX_SAVINGS_MULTIPLE
+                Rails.logger.warn "[Savings] #{supplier.name} #{item[:product_name]}: implausible " \
+                                  "line savings $#{line_savings.round(2)} on $#{line_total.round(2)} — skipping"
+              else
+                order_savings += line_savings
+              end
             end
 
             {

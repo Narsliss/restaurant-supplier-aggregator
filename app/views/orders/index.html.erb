@@ -65,9 +65,9 @@
     <div class="bg-white shadow rounded-lg p-4 border-l-4 border-brand-green">
       <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Savings</p>
       <p class="mt-1 text-2xl font-bold text-green-600"><%= number_to_currency(@total_savings) %></p>
-      <% if @total_spent > 0 && @total_savings > 0 %>
+      <% if (pct = savings_percentage(@total_savings, @total_spent)) %>
         <p class="text-xs text-green-500 mt-0.5">
-          <%= number_to_percentage((@total_savings / @total_spent) * 100, precision: 1) %> saved*
+          <%= number_to_percentage(pct, precision: 1) %> saved*
         </p>
       <% end %>
     </div>
@@ -299,6 +299,6 @@
   <% end %>
 
   <% if @total_spent > 0 && @total_savings > 0 %>
-    <p class="text-xs text-gray-400 mt-8">*Savings calculated vs. highest available supplier price for each product</p>
+    <p class="text-xs text-gray-400 mt-8">*Savings vs. the highest available supplier price for each product, as a share of what the orders would have cost</p>
   <% end %>
 </div>

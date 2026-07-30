@@ -69,6 +69,11 @@ class Order < ApplicationRecord
   # Price change threshold — differences within 5% are auto-accepted
   PRICE_CHANGE_THRESHOLD = 0.05
 
+  # A line "saving" more than this multiple of what was actually paid is a data
+  # error (cross-unit price mismatch / bad scrape), not a real deal. Genuine
+  # food-service spreads are well under 5x. See #calculate_savings.
+  MAX_SAVINGS_MULTIPLE = 5
+
   # Drafts auto-expire after this many days of inactivity. Touching draft_saved_at
   # (e.g., when the chef reopens the draft on the review page) resets the timer.
   DRAFT_EXPIRY_DAYS = 14
@@ -370,23 +375,53 @@ class Order < ApplicationRecord
     update!(status: "cancelled")
   end
 
+  # Savings vs. the most expensive supplier carrying the same product,
+  # computed PER LINE so one bad comparison can't swamp the order.
+  #
+  # Two guards, both added after order #80 recorded $4,738.37 "saved" on
+  # $233.80 spent (2,027%):
+  #   1. Peer prices are compared as case-equivalents — a catch-weight
+  #      per-LB price is not a case price (SupplierProduct#estimated_case_price).
+  #   2. A line whose apparent savings exceeds MAX_SAVINGS_MULTIPLE× what was
+  #      actually paid is treated as a data error (cross-unit mismatch or bad
+  #      scrape) and skipped, not trusted.
   def calculate_savings
-    return 0 if order_items.empty?
+    items = order_items.includes(:supplier_product).to_a
+    return 0 if items.empty?
 
-    product_ids = order_items.filter_map { |item| item.supplier_product&.product_id }
-    worst_prices = SupplierProduct
+    product_ids = items.filter_map { |item| item.supplier_product&.product_id }.uniq
+    return 0 if product_ids.empty?
+
+    peers_by_product = SupplierProduct
       .where(product_id: product_ids, discontinued: false)
       .where.not(current_price: nil)
-      .group(:product_id)
-      .maximum(:current_price)
+      .group_by(&:product_id)
 
-    worst_total = order_items.sum do |item|
-      product_id = item.supplier_product&.product_id
-      worst_price = product_id ? worst_prices[product_id] : nil
-      ((worst_price || item.unit_price) * item.quantity)
+    total = items.sum { |item| line_savings_for(item, peers_by_product) }
+    total.round(2)
+  end
+
+  # Per-line savings, or 0 when there's no valid/plausible comparison.
+  def line_savings_for(item, peers_by_product)
+    product_id = item.supplier_product&.product_id
+    return 0 unless product_id
+
+    paid = item.line_total.to_f
+    return 0 unless paid.positive?
+
+    worst_unit = peers_by_product[product_id].to_a.map { |p| p.estimated_case_price.to_f }.max
+    return 0 unless worst_unit&.positive?
+
+    savings = (worst_unit * item.quantity.to_f) - paid
+    return 0 unless savings.positive?
+
+    if savings > paid * MAX_SAVINGS_MULTIPLE
+      Rails.logger.warn "[Savings] Order ##{id} item ##{item.id}: implausible savings " \
+                        "$#{savings.round(2)} on $#{paid.round(2)} paid (worst unit $#{worst_unit.round(2)}) — skipping"
+      return 0
     end
 
-    [worst_total - (total_amount || calculated_subtotal), 0].max.round(2)
+    savings
   end
 
   def validation_errors

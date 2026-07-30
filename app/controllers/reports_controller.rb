@@ -206,15 +206,27 @@ class ReportsController < ApplicationController
     end.sort_by { |r| -r[:total_spent] }
   end
 
+  # Grouping key that never collapses distinct products into one blank row:
+  # order_items.product_name is NULL on bulk-inserted (builder) orders, which
+  # merged 123 different products into a single unnamed row on the reports page.
+  # Falls back to the live supplier product's name, then the SKU.
+  ITEM_NAME_SQL = Arel.sql(
+    "COALESCE(NULLIF(order_items.product_name, ''), " \
+    "NULLIF(supplier_products.supplier_name, ''), " \
+    "NULLIF(order_items.product_sku, ''), " \
+    "'Unknown product (item ' || order_items.id || ')')"
+  ).freeze
+
   def top_products(orders, limit: 20)
     OrderItem
       .joins(:order)
+      .joins("LEFT JOIN supplier_products ON supplier_products.id = order_items.supplier_product_id")
       .where(orders: { id: orders.select(:id) })
-      .group("order_items.product_name")
+      .group(ITEM_NAME_SQL)
       .order(Arel.sql("SUM(order_items.line_total) DESC"))
       .limit(limit)
       .pluck(
-        Arel.sql("order_items.product_name"),
+        ITEM_NAME_SQL,
         Arel.sql("SUM(order_items.quantity)"),
         Arel.sql("SUM(order_items.line_total)"),
         Arel.sql("COUNT(DISTINCT orders.id)")
@@ -271,11 +283,17 @@ class ReportsController < ApplicationController
       .where(orders: { id: orders.select(:id) })
       .where("max_prices.max_price > order_items.unit_price")
       .where.not(order_items: { supplier_product_id: nil })
-      .group("order_items.product_name")
+      # Drop implausible lines (mirrors Order::MAX_SAVINGS_MULTIPLE): a peer
+      # price many times what was paid is a data error, not a realized saving.
+      .where(
+        "(max_prices.max_price - order_items.unit_price) * order_items.quantity <= order_items.line_total * ?",
+        Order::MAX_SAVINGS_MULTIPLE
+      )
+      .group(ITEM_NAME_SQL)
       .order(Arel.sql("SUM((max_prices.max_price - order_items.unit_price) * order_items.quantity) DESC"))
       .limit(limit)
       .pluck(
-        Arel.sql("order_items.product_name"),
+        ITEM_NAME_SQL,
         Arel.sql("SUM(order_items.line_total)"),
         Arel.sql("SUM(max_prices.max_price * order_items.quantity)"),
         Arel.sql("SUM((max_prices.max_price - order_items.unit_price) * order_items.quantity)"),
