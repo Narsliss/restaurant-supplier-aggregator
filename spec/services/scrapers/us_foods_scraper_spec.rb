@@ -163,4 +163,37 @@ RSpec.describe Scrapers::UsFoodsScraper do
       expect(result[:batches]).to eq(2)
     end
   end
+
+  describe '#back_on_app?' do
+    # Regression — US Foods moved Azure B2C behind a custom domain
+    # (identity.usfoods.com). The old check was
+    #   url.include?('usfoods.com') && !url.include?('b2clogin.com')
+    # which the custom domain satisfies, so the post-MFA loop declared success
+    # while still parked on the B2C SelfAsserted page. The KMSI prompt was never
+    # clicked, no app session was ever established, and the failure surfaced as
+    # an unrelated hidden B2C validation string.
+    it 'does not treat the B2C custom domain as the app' do
+      url = 'https://identity.usfoods.com/usfoodsb2cprod.onmicrosoft.com/' \
+            'B2C_1A_SignIn_SellersAndCustomers/api/SelfAsserted/confirmed?csrf_token=x'
+
+      expect(scraper.send(:back_on_app?, url)).to be false
+      expect(scraper.send(:on_identity_provider?, url)).to be true
+    end
+
+    it 'does not treat b2clogin.com as the app' do
+      url = 'https://usfoodsb2cprod.b2clogin.com/usfoodsb2cprod.onmicrosoft.com/oauth2/v2.0/authorize'
+
+      expect(scraper.send(:back_on_app?, url)).to be false
+    end
+
+    it 'recognises the authenticated app, including the OAuth landing URL' do
+      expect(scraper.send(:back_on_app?, 'https://order.usfoods.com/desktop/home')).to be true
+      expect(scraper.send(:back_on_app?, 'https://order.usfoods.com/desktop/?code=abc&state=xyz')).to be true
+    end
+
+    it 'treats a blank URL as not-yet-redirected' do
+      expect(scraper.send(:back_on_app?, '')).to be false
+      expect(scraper.send(:back_on_app?, nil)).to be false
+    end
+  end
 end

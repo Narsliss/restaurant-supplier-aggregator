@@ -24,6 +24,14 @@ module Scrapers
       "a[href*='logout']", "a[href*='sign-out']"
     ].freeze
 
+    # US Foods fronts Azure AD B2C with a custom domain (identity.usfoods.com) in
+    # addition to the legacy *.b2clogin.com host. Because that custom domain also
+    # contains "usfoods.com", a naive substring match reads an in-flight B2C page
+    # as a completed redirect back to the app — so match identity hosts and B2C
+    # policy paths explicitly instead.
+    IDENTITY_HOST_PATTERN = /b2clogin\.com|identity\.usfoods\.com|login\.microsoftonline\.com/i
+    IDENTITY_PATH_PATTERN = %r{/B2C_1A_|/oauth2/|SelfAsserted|CombinedSigninAndSignup|onmicrosoft\.com/}i
+
     # ══════════════════════════════════════════════════════════════
     # API-based implementation — uses Panamax REST API
     # Token obtained from browser session (saved in localStorage
@@ -2667,52 +2675,106 @@ module Scrapers
 
     private
 
+    # True while the browser is still somewhere inside the identity-provider
+    # journey — the B2C custom domain, b2clogin.com, or any B2C policy page.
+    def on_identity_provider?(url)
+      url = url.to_s
+      url.match?(IDENTITY_HOST_PATTERN) || url.match?(IDENTITY_PATH_PATTERN)
+    end
+
+    # True once the browser has actually landed back on the US Foods app rather
+    # than on an identity page that merely shares the usfoods.com domain.
+    def back_on_app?(url)
+      url = url.to_s
+      return false if url.blank? || on_identity_provider?(url)
+
+      url.include?('usfoods.com')
+    end
+
     # Detect and click "Yes" on the Azure B2C KMSI (Keep Me Signed In) prompt.
     # After MFA or password auth, B2C may show a "Would you like to stay signed in
     # on this device?" interstitial page with Yes/No buttons. Clicking "Yes" sets a
     # persistent remember-me cookie that survives browser restarts — critical for
     # session persistence since we destroy the Chrome process after each operation.
     #
-    # Standard B2C element IDs:
+    # Entra-style element IDs (Yes/No interstitial):
     #   #idBtn_Accept => "Yes" button
     #   #idBtn_Back   => "No" button
     #   #idSIButton9  => Primary action button (sometimes used for KMSI submit)
+    #
+    # B2C *custom policies* — which is what US Foods runs
+    # (B2C_1A_SignIn_SellersAndCustomers) — more often render KMSI as a checkbox
+    # on the SelfAsserted page, submitted by the regular Continue button. Both
+    # shapes are handled below.
     def handle_kmsi_prompt
-      clicked = browser.evaluate(<<~JS)
+      result = browser.evaluate(<<~JS)
         (function() {
-          // Azure B2C standard KMSI "Yes" button
-          var acceptBtn = document.getElementById('idBtn_Accept');
-          if (acceptBtn && acceptBtn.offsetParent !== null) {
-            acceptBtn.click();
-            return 'idBtn_Accept';
+          // NOTE: never use offsetParent for visibility here — it is null for
+          // position:fixed elements, which is exactly how B2C renders modals.
+          function rendered(el) {
+            if (!el) return false;
+            var r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return false;
+            var s = window.getComputedStyle(el);
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
           }
 
-          // B2C primary action button (alternate KMSI rendering)
-          var primaryBtn = document.getElementById('idSIButton9');
-          if (primaryBtn && primaryBtn.offsetParent !== null) {
-            primaryBtn.click();
-            return 'idSIButton9';
+          var out = { checkbox: null, clicked: null };
+
+          // Shape 1: a remember-me checkbox on the SelfAsserted page.
+          var boxes = document.querySelectorAll(
+            '#rememberMe, input[name="rememberMe"], ' +
+            'input[type="checkbox"][id*="remember" i], input[type="checkbox"][name*="remember" i], ' +
+            'input[type="checkbox"][id*="keepMeSignedIn" i], input[type="checkbox"][id*="staySignedIn" i]'
+          );
+          for (var i = 0; i < boxes.length; i++) {
+            if (!rendered(boxes[i]) || boxes[i].checked) continue;
+            boxes[i].checked = true;
+            boxes[i].dispatchEvent(new Event('input', { bubbles: true }));
+            boxes[i].dispatchEvent(new Event('change', { bubbles: true }));
+            out.checkbox = boxes[i].id || boxes[i].name || 'checkbox';
+            break;
           }
 
-          // Fallback: any visible button with text "Yes"
-          var buttons = document.querySelectorAll('button, input[type="submit"], input[type="button"]');
-          for (var i = 0; i < buttons.length; i++) {
-            var text = (buttons[i].innerText || buttons[i].value || '').trim().toLowerCase();
-            if (text === 'yes') {
-              buttons[i].click();
-              return 'yes-text-match';
+          // Shape 2: Entra-style Yes/No interstitial.
+          var ids = ['idBtn_Accept', 'idSIButton9'];
+          for (var j = 0; j < ids.length; j++) {
+            var btn = document.getElementById(ids[j]);
+            if (btn && rendered(btn)) {
+              btn.removeAttribute('disabled');
+              btn.click();
+              out.clicked = ids[j];
+              return out;
             }
           }
 
-          return null;
+          // Shape 3: affirmative text match — never a dismissal.
+          var AFFIRM = ['yes', 'stay signed in', 'keep me signed in', 'remember me'];
+          var btns = document.querySelectorAll('button, input[type="submit"], input[type="button"], [role="button"]');
+          for (var k = 0; k < btns.length; k++) {
+            if (!rendered(btns[k])) continue;
+            var text = (btns[k].innerText || btns[k].value || '').trim().toLowerCase();
+            if (AFFIRM.indexOf(text) === -1) continue;
+            btns[k].removeAttribute('disabled');
+            btns[k].click();
+            out.clicked = 'text:' + text;
+            return out;
+          }
+
+          return out;
         })()
       JS
 
-      if clicked
-        logger.info "[UsFoods] Handled KMSI 'Stay signed in' prompt: #{clicked}"
+      result ||= {}
+      logger.info "[UsFoods] Ticked KMSI checkbox: #{result['checkbox']}" if result['checkbox']
+
+      if result['clicked']
+        logger.info "[UsFoods] Handled KMSI 'Stay signed in' prompt: #{result['clicked']}"
         sleep 2
         true
       else
+        # A ticked checkbox alone must NOT report handled — the caller would skip
+        # its Continue click, and the B2C journey would never advance.
         false
       end
     rescue StandardError => e
@@ -2886,8 +2948,8 @@ module Scrapers
           ''
         end
 
-        # Already redirected back to usfoods.com — done!
-        if current_url.include?('usfoods.com') && !current_url.include?('b2clogin.com')
+        # Already redirected back to the app — done!
+        if back_on_app?(current_url)
           logger.info "[UsFoods] Redirected to: #{sanitize_url(current_url)}"
           return
         end
@@ -2905,15 +2967,28 @@ module Scrapers
         clicked = begin
           browser.evaluate(<<~JS)
             (function() {
+              function rendered(el) {
+                if (!el) return false;
+                var r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) return false;
+                var s = window.getComputedStyle(el);
+                return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+              }
+              function label(el) { return (el.innerText || el.value || '').trim(); }
+              // On a Yes/No dialog "No" often precedes "Yes" in DOM order, and the
+              // old visibility-blind sweep would happily click it.
+              var NEGATIVE = /^(no|not now|cancel|back|skip|sign out|use another account)$/;
+              function clickable(el) { return rendered(el) && !NEGATIVE.test(label(el).toLowerCase()); }
+
               // Approach 1: Direct #continue element (B2C standard)
               var cont = document.getElementById('continue');
-              if (cont) {
+              if (clickable(cont)) {
                 cont.removeAttribute('disabled');
                 cont.click();
-                return '#continue => ' + (cont.tagName || '') + ': ' + (cont.innerText || cont.value || '').trim().substring(0, 30);
+                return '#continue => ' + (cont.tagName || '') + ': ' + label(cont).substring(0, 30);
               }
 
-              // Approach 2: Any button/input with continue-like text or attributes
+              // Approach 2: Any visible button/input with continue-like attributes
               var selectors = [
                 'button#continue', '#continueButton', 'button#next',
                 'button[type="submit"]', 'input[type="submit"]',
@@ -2923,18 +2998,18 @@ module Scrapers
               for (var s = 0; s < selectors.length; s++) {
                 var els = document.querySelectorAll(selectors[s]);
                 for (var i = 0; i < els.length; i++) {
-                  var el = els[i];
-                  // Click even zero-height elements — B2C may hide them visually
-                  el.removeAttribute('disabled');
-                  el.click();
-                  return selectors[s] + ' => ' + (el.innerText || el.value || '').trim().substring(0, 30);
+                  if (!clickable(els[i])) continue;
+                  els[i].removeAttribute('disabled');
+                  els[i].click();
+                  return selectors[s] + ' => ' + label(els[i]).substring(0, 30);
                 }
               }
 
-              // Approach 3: Search all clickable elements for "Continue" text
+              // Approach 3: Search all visible clickable elements for "Continue" text
               var allBtns = document.querySelectorAll('button, input[type="submit"], input[type="button"], a.btn, [role="button"]');
               for (var i = 0; i < allBtns.length; i++) {
-                var text = (allBtns[i].innerText || allBtns[i].value || '').trim().toLowerCase();
+                if (!clickable(allBtns[i])) continue;
+                var text = label(allBtns[i]).toLowerCase();
                 if (text === 'continue' || text === 'next' || text === 'proceed' || text === 'submit') {
                   allBtns[i].removeAttribute('disabled');
                   allBtns[i].click();
@@ -2947,6 +3022,14 @@ module Scrapers
               if (form && typeof form.submit === 'function') {
                 form.submit();
                 return 'form#attributeVerification submit';
+              }
+
+              // Approach 5 (last resort): a visually hidden #continue, as the
+              // previous implementation always did.
+              if (cont) {
+                cont.removeAttribute('disabled');
+                cont.click();
+                return '#continue (hidden) => ' + label(cont).substring(0, 30);
               }
 
               return null;
@@ -2973,10 +3056,10 @@ module Scrapers
       rescue StandardError
         ''
       end
-      return unless current_url.include?('b2clogin.com')
+      return unless on_identity_provider?(current_url)
 
       dump_b2c_page_diagnostics
-      raise ScrapingError, "Login did not redirect back to usfoods.com after MFA (stuck at: #{current_url})"
+      raise ScrapingError, "Login did not redirect back to usfoods.com after MFA (stuck at: #{sanitize_url(current_url)})"
     end
 
     # Dump the current B2C page content for debugging
@@ -2997,7 +3080,8 @@ module Scrapers
             var ids = [];
             for (var i = 0; i < els.length; i++) {
               var el = els[i];
-              var vis = el.offsetHeight > 0 ? 'visible' : 'hidden';
+              var r = el.getBoundingClientRect();
+              var vis = (r.width > 0 && r.height > 0) ? 'visible' : 'hidden';
               ids.push(el.tagName + '#' + el.id + '(' + vis + ')');
             }
             return ids.join(', ');
@@ -3016,7 +3100,8 @@ module Scrapers
             var info = [];
             for (var i = 0; i < els.length; i++) {
               var el = els[i];
-              var vis = el.offsetHeight > 0 ? 'visible' : 'hidden';
+              var r = el.getBoundingClientRect();
+              var vis = (r.width > 0 && r.height > 0) ? 'visible' : 'hidden';
               var disabled = el.disabled ? 'disabled' : 'enabled';
               info.push(el.tagName + '[id=' + (el.id || '') + ',type=' + (el.type || '') + ',text=' + (el.innerText || el.value || '').trim().substring(0, 30) + ',' + vis + ',' + disabled + ']');
             }
@@ -3079,10 +3164,14 @@ module Scrapers
         rescue StandardError
           ''
         end
-        return true if current.include?('usfoods.com') && !current.include?('b2clogin.com')
+        return true if back_on_app?(current)
+
+        # B2C may park on an interstitial (KMSI / SelfAsserted confirm) that needs
+        # a click before it will redirect. Nudge it while we wait.
+        handle_kmsi_prompt
 
         if Time.current - start_time > timeout
-          raise ScrapingError, "Login did not redirect back to usfoods.com (stuck at: #{current})"
+          raise ScrapingError, "Login did not redirect back to usfoods.com (stuck at: #{sanitize_url(current)})"
         end
 
         sleep 0.5

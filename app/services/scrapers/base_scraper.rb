@@ -402,6 +402,41 @@ module Scrapers
       browser.at_css(selector)&.text&.strip
     end
 
+    # Like #extract_text, but ignores nodes that are in the DOM without being
+    # rendered. Identity providers — Azure AD B2C especially — pre-render their
+    # entire catalogue of localized validation messages as hidden elements, so a
+    # visibility-blind scrape happily reports an error that has nothing to do
+    # with the actual failure.
+    def extract_visible_text(selector)
+      browser.css(selector).each do |el|
+        rendered = begin
+          el.evaluate(<<~JS)
+            var s = window.getComputedStyle(this);
+            var r = this.getBoundingClientRect();
+            s.display !== 'none' &&
+            s.visibility !== 'hidden' &&
+            s.opacity !== '0' &&
+            r.width > 0 &&
+            r.height > 0
+          JS
+        rescue StandardError
+          false
+        end
+        next unless rendered
+
+        text = begin
+          el.text&.strip
+        rescue StandardError
+          nil
+        end
+        return text if text.present?
+      end
+
+      nil
+    rescue StandardError
+      nil
+    end
+
     def extract_price(text)
       return nil unless text
 
@@ -577,7 +612,7 @@ module Scrapers
       site_error = nil
       matched_selector = nil
       error_selectors.each do |sel|
-        text = extract_text(sel)
+        text = extract_visible_text(sel)
         next unless text.present?
 
         site_error = text
@@ -590,15 +625,27 @@ module Scrapers
         js_error = begin
           browser.evaluate(<<~JS)
             (function() {
+              // Only consider rendered nodes — hidden validation templates are not
+              // the error that just happened.
+              function rendered(el) {
+                if (!el) return false;
+                var r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) return false;
+                var s = window.getComputedStyle(el);
+                return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+              }
+
               // Look for elements with error-related attributes
               var errorEls = document.querySelectorAll('[class*="error" i], [class*="alert" i], [class*="invalid" i], [class*="fail" i]');
               for (var i = 0; i < errorEls.length; i++) {
+                if (!rendered(errorEls[i])) continue;
                 var text = errorEls[i].innerText?.trim();
                 if (text && text.length > 3 && text.length < 500) return text;
               }
               // Check for aria-live regions (used for dynamic error messages)
               var liveEls = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
               for (var i = 0; i < liveEls.length; i++) {
+                if (!rendered(liveEls[i])) continue;
                 var text = liveEls[i].innerText?.trim();
                 if (text && text.length > 3 && text.length < 500) return text;
               }
