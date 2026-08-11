@@ -227,5 +227,17 @@ RSpec.describe MatchedListCleanupService do
       expect(ProductMatch.exists?(keeper.id)).to be(true)
       expect(aggregated_list.product_matches.count).to eq(1)
     end
+
+    it 'never purges a husk still referenced by an order-list row (ordering safety)' do
+      referenced_husk = create(:product_match, aggregated_list: aggregated_list, match_status: 'rejected')
+      unreferenced_husk = create(:product_match, aggregated_list: aggregated_list, match_status: 'rejected')
+      order_list = OrderList.create!(user: user, organization: org, location: location, name: 'Weekly')
+      oli = order_list.order_list_items.create!(product_match: referenced_husk, quantity: 1)
+
+      expect(service.purge_empty).to eq(1)
+      expect(ProductMatch.exists?(referenced_husk.id)).to be(true)
+      expect(ProductMatch.exists?(unreferenced_husk.id)).to be(false)
+      expect(oli.reload.product_match_id).to eq(referenced_husk.id)
+    end
   end
 end

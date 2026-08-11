@@ -228,10 +228,15 @@ class MatchedListCleanupService
     husks.size
   end
 
+  # Zero-item machine lines — excluding any still referenced by a chef's
+  # order-list row. Purging a referenced husk would FK-nullify the row into
+  # an unorderable "Unknown Product" (observed: 109 rows on the alfios
+  # cleanup). Referenced husks stay until their rows are gone.
   def empty_husks
     aggregated_list.product_matches
                    .where(match_status: MACHINE_STATUSES)
                    .where.missing(:product_match_items)
+                   .where.not(id: OrderListItem.where.not(product_match_id: nil).select(:product_match_id))
   end
 
   private
