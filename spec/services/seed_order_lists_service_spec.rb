@@ -181,6 +181,18 @@ RSpec.describe SeedOrderListsService do
     end
   end
 
+  describe 'post-scrape refresh via ImportSupplierListsJob (refresh_seeded)' do
+    it 'creates the seeded list once the live fetch lands' do
+      make_source_list(list_type: 'recently_purchased', remote_id: 'recentlyPurchased', skus: %w[A])
+      allow_any_instance_of(ImportSupplierListsService).to receive(:call)
+        .and_return({ lists_synced: 1, items_imported: 1, items_updated: 0, errors: [] })
+
+      ImportSupplierListsJob.perform_now(credential.id, force: true, refresh_seeded: true)
+
+      expect(OrderList.find_by(location: location, seed_supplier_id: supplier.id)).to be_present
+    end
+  end
+
   describe 'safety rails' do
     it 'never seeds a location that already curates its own order lists' do
       make_source_list(list_type: 'recently_purchased', remote_id: 'recentlyPurchased', skus: %w[A])

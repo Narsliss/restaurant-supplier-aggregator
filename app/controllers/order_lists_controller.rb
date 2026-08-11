@@ -19,8 +19,12 @@ class OrderListsController < ApplicationController
     end
   end
 
-  # Chef-pressed "Refresh recent orders": create/top-up the seeded
-  # "Recent <Supplier> Orders" lists from the locally synced supplier data.
+  # Chef-pressed "Refresh recent orders". Hybrid, matching the chef's mental
+  # model ("go see what I ordered at my suppliers"):
+  #   1. Instantly create/top-up seeded lists from the data already synced.
+  #   2. Kick off a LIVE fetch per connected supplier; when each lands, the
+  #      import job re-runs the seeder (refresh_seeded) so new lists/items
+  #      appear without a second press.
   # Additive only — never removes anything the chef kept.
   def refresh_recent
     credentials = SupplierCredential.where(location_id: current_location.id, status: 'active')
@@ -31,26 +35,26 @@ class OrderListsController < ApplicationController
     added = 0
     credentials.each do |cred|
       r = SeedOrderListsService.new(cred).refresh
-      next unless r[:seeded]
-
-      if r[:refreshed]
-        added += r[:items]
-      else
-        created << r[:list_name]
+      if r[:seeded]
+        r[:refreshed] ? added += r[:items] : created << r[:list_name]
       end
+
+      ImportSupplierListsJob.perform_later(cred.id, force: true, refresh_seeded: true)
     end
 
+    fetching = "Checking your suppliers for newer orders in the background — " \
+               "anything new appears here in a few minutes."
     notice =
       if created.any? && added.positive?
-        "Created #{created.to_sentence}; added #{added} #{'item'.pluralize(added)} to your other recent lists."
+        "Created #{created.to_sentence}; added #{added} #{'item'.pluralize(added)}. #{fetching}"
       elsif created.any?
-        "Created #{created.to_sentence}."
+        "Created #{created.to_sentence}. #{fetching}"
       elsif added.positive?
-        "Added #{added} recently ordered #{'item'.pluralize(added)} to your lists."
+        "Added #{added} recently ordered #{'item'.pluralize(added)}. #{fetching}"
       elsif credentials.empty?
         "No connected suppliers at this location yet."
       else
-        "Your recent order lists are already up to date."
+        fetching
       end
 
     redirect_to order_lists_path, notice: notice

@@ -55,6 +55,17 @@ RSpec.describe 'OrderLists', type: :request do
       post refresh_recent_order_lists_path
       expect(response).to redirect_to(order_lists_path)
     end
+
+    # Chef mental model (Carmin): "Refresh Recent Orders" must actually GO
+    # to the supplier — a press with no local seed source enqueues a live
+    # forced fetch that re-seeds when it lands.
+    it 'kicks off a live forced fetch per connected supplier' do
+      expect {
+        post refresh_recent_order_lists_path
+      }.to have_enqueued_job(ImportSupplierListsJob)
+        .with(credential.id, force: true, refresh_seeded: true)
+      expect(flash[:notice]).to include('background')
+    end
   end
 
   describe 'GET /order_lists/:id' do

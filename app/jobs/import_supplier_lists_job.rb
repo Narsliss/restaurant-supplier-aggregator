@@ -16,7 +16,11 @@ class ImportSupplierListsJob < ApplicationJob
   # Prevent duplicate imports for the same credential
   limits_concurrency to: 1, key: ->(credential_id, **) { "import_lists_#{credential_id}" }
 
-  def perform(credential_id, force: false)
+  # refresh_seeded: chef pressed "Refresh Recent Orders" — after the live
+  # scrape lands, create/top-up their seeded order lists (additive) so the
+  # button's promise completes without a second press.
+  def perform(credential_id, force: false, refresh_seeded: false)
+    @refresh_seeded = refresh_seeded
     credential = SupplierCredential.find_by(id: credential_id)
 
     # Allow active credentials and expired password-based suppliers (CW, WCW)
@@ -58,6 +62,11 @@ class ImportSupplierListsJob < ApplicationJob
 
     service = ImportSupplierListsService.new(credential)
     result = service.call
+
+    if @refresh_seeded && result[:lists_synced].to_i > 0
+      refresh_result = SeedOrderListsService.new(credential).refresh
+      Rails.logger.info "[ImportListsJob] Post-scrape seeded-list refresh for credential #{credential_id}: #{refresh_result.inspect}"
+    end
 
     Rails.logger.info "[ImportListsJob] Complete for credential #{credential_id}: #{result}"
 
