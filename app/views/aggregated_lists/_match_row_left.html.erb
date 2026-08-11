@@ -22,7 +22,18 @@
       <h3 class="text-sm font-semibold text-gray-900 leading-tight"><%= match.display_name %></h3>
       <div class="mt-1.5 flex items-center gap-2 flex-wrap">
         <% if match.unmatched? %>
-          <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">Unmatched</span>
+          <% teaser_suppliers = defined?(@teaser_map) ? (@teaser_map&.dig(match.id) || {}) : {} %>
+          <% if teaser_suppliers.any? %>
+            <%# The matcher DID find an equivalent — at a supplier the chef
+                hasn't added. "Unmatched" here reads as failure; say what's
+                actually true instead. %>
+            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
+                  title="An equivalent product was found at a supplier you haven't added yet — see the greyed cell">
+              Match available
+            </span>
+          <% else %>
+            <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">Unmatched</span>
+          <% end %>
         <% end %>
         <%# A chef ordered this mid-shift off-list — one supplier, no price
             comparison yet. Sorted to the top of this page until reviewed. %>

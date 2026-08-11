@@ -40,6 +40,96 @@ RSpec.describe ImportSupplierListsService do
     end
   end
 
+  describe '#upsert_list — rotated order-guide adoption' do
+    # Regression: US Foods regenerates the account order guide under a new
+    # OG-<number> remote id roughly monthly with the same items inside.
+    # Keying strictly by remote_list_id made each rotation a brand-new
+    # SupplierList whose items could never rejoin their own product matches
+    # (one item per supplier per match), so every generation appended a
+    # duplicate copy of the guide to the org's matched list — see the
+    # 1,336-line alfios matched-list incident.
+    let(:user) { create(:user, :with_organization) }
+    let(:org) { user.current_organization }
+    let(:supplier) { create(:supplier) }
+    let(:location) { create(:location, organization: org, user: user) }
+    let(:credential) { create(:supplier_credential, supplier: supplier, user: user, organization_id: org.id, location_id: location.id) }
+    let(:service) { described_class.new(credential) }
+
+    def og_items(skus)
+      skus.map.with_index do |sku, i|
+        { sku: sku, name: "Item #{sku}", price: 10.0 + i, pack_size: '6/10 LB', position: i }
+      end
+    end
+
+    def import(remote_id, skus, scraped_ids: [remote_id])
+      service.instance_variable_set(:@scraped_remote_ids, scraped_ids)
+      service.send(:upsert_list, { remote_id: remote_id, name: "Order Guide #{remote_id}", items: og_items(skus) })
+    end
+
+    it 'adopts the vanished predecessor row when a rotated OG id arrives with overlapping SKUs' do
+      import('OG-100', %w[A1 A2 A3])
+      old_list = SupplierList.find_by(remote_list_id: 'OG-100')
+      old_item_id = old_list.supplier_list_items.find_by(sku: 'A1').id
+
+      import('OG-200', %w[A1 A2 A4])
+
+      expect(SupplierList.where(supplier: supplier, organization: org).count).to eq(1)
+      old_list.reload
+      expect(old_list.remote_list_id).to eq('OG-200')
+      # Overlapping SKUs keep their SupplierListItem rows (and everything
+      # referencing them); only the dropped SKU's row goes away.
+      expect(old_list.supplier_list_items.find_by(sku: 'A1').id).to eq(old_item_id)
+      expect(old_list.supplier_list_items.pluck(:sku)).to match_array(%w[A1 A2 A4])
+    end
+
+    it 'keeps product match items alive across a rotation' do
+      import('OG-100', %w[A1 A2 A3])
+      sli = SupplierList.find_by(remote_list_id: 'OG-100').supplier_list_items.find_by(sku: 'A1')
+      pmi = create(:product_match_item, supplier_list_item: sli)
+
+      import('OG-200', %w[A1 A2 A3])
+
+      expect(ProductMatchItem.exists?(pmi.id)).to be(true)
+      expect(pmi.reload.supplier_list_item.supplier_list.remote_list_id).to eq('OG-200')
+    end
+
+    it 'creates a new row when SKU overlap is below the threshold' do
+      import('OG-100', %w[A1 A2 A3])
+      import('OG-200', %w[B1 B2 B3])
+
+      expect(SupplierList.where(supplier: supplier, organization: org).pluck(:remote_list_id))
+        .to match_array(%w[OG-100 OG-200])
+    end
+
+    it 'never adopts a guide still present in the current scrape' do
+      import('OG-100', %w[A1 A2 A3])
+      import('OG-200', %w[A1 A2 A3], scraped_ids: %w[OG-100 OG-200])
+
+      expect(SupplierList.where(supplier: supplier, organization: org).pluck(:remote_list_id))
+        .to match_array(%w[OG-100 OG-200])
+    end
+
+    it 'picks the best-overlapping candidate when several stale generations exist' do
+      import('OG-100', %w[A1 A2 A3])
+      import('OG-150', %w[B1 B2 B3])
+
+      import('OG-300', %w[B1 B2 B4])
+
+      lists = SupplierList.where(supplier: supplier, organization: org)
+      expect(lists.pluck(:remote_list_id)).to match_array(%w[OG-100 OG-300])
+      expect(lists.find_by(remote_list_id: 'OG-300').supplier_list_items.pluck(:sku))
+        .to match_array(%w[B1 B2 B4])
+    end
+
+    it 'ignores non-rotating remote id patterns' do
+      import('SL-100', %w[A1 A2 A3])
+      import('SL-200', %w[A1 A2 A3])
+
+      expect(SupplierList.where(supplier: supplier, organization: org).pluck(:remote_list_id))
+        .to match_array(%w[SL-100 SL-200])
+    end
+  end
+
   describe '#refresh_linked_product (private)' do
     let(:supplier) { create(:supplier) }
     let(:credential) { create(:supplier_credential, supplier: supplier) }

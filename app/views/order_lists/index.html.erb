@@ -1,7 +1,18 @@
 <div class="max-w-4xl mx-auto">
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-6">
     <h1 class="text-2xl font-bold text-gray-900">Order Lists</h1>
-    <%= link_to "New Order List", new_order_list_path, class: "inline-flex items-center justify-center bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark text-sm" %>
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <% if operator? || current_user&.super_admin? %>
+        <%= button_to refresh_recent_order_lists_path,
+            method: :post,
+            class: "inline-flex items-center justify-center gap-1.5 border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm w-full sm:w-auto",
+            title: "Pull anything you've ordered recently at your suppliers into your Recent Orders lists" do %>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+          Refresh Recent Orders
+        <% end %>
+      <% end %>
+      <%= link_to "New Order List", new_order_list_path, class: "inline-flex items-center justify-center bg-brand-orange text-white px-4 py-2 rounded-lg hover:bg-brand-orange-dark text-sm" %>
+    </div>
   </div>
 
   <% if @order_lists.any? %>

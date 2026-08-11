@@ -115,6 +115,38 @@ module Scrapers
         }
       end
 
+      # Recently purchased — what the account actually ordered, per US Foods
+      # itself. Backs the "Recent US Foods Orders" onboarding seed and is the
+      # truest signal of chef behavior (guides can be vendor-curated).
+      # Defensive: a failure here must never break guide/list sync.
+      begin
+        recent_items = api_client.get_recent_purchases || []
+        recent_items = recent_items.select { |i| i['productNumber'].present? }
+        if recent_items.any?
+          rp_numbers = recent_items.map { |i| i['productNumber'] }.uniq
+          rp_new_numbers = rp_numbers - products_by_number.keys
+          if rp_new_numbers.any?
+            products_by_number.merge!(fetch_products_map(rp_new_numbers))
+            prices_by_number.merge!(api_client.fetch_prices(rp_new_numbers))
+          end
+
+          formatted_items = recent_items.map.with_index do |item, idx|
+            pn = item['productNumber']
+            format_list_item(pn, products_by_number[pn], prices_by_number[pn], idx)
+          end
+
+          result_lists << {
+            name: 'Recently Purchased',
+            remote_id: 'recentlyPurchased',
+            url: "#{BASE_URL}/desktop/lists/recentlyPurchased",
+            list_type: 'recently_purchased',
+            items: formatted_items
+          }
+        end
+      rescue StandardError => e
+        logger.warn "[UsFoods] Recently-purchased fetch failed (non-fatal): #{e.class}: #{e.message}"
+      end
+
       logger.info "[UsFoods] API scraped #{result_lists.size} lists (#{result_lists.sum { |l| l[:items].size }} total items)"
       result_lists
     end

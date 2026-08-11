@@ -23,6 +23,40 @@ RSpec.describe 'OrderLists', type: :request do
     end
   end
 
+  describe 'POST /order_lists/refresh_recent' do
+    let(:location) { org.locations.first }
+    let(:supplier) { create(:supplier, name: 'US Foods') }
+    let!(:credential) do
+      create(:supplier_credential, supplier: supplier, user: owner,
+                                   organization_id: org.id, location_id: location.id, status: 'active')
+    end
+
+    it 'creates the seeded recent-orders list on demand (legacy chefs included)' do
+      # Location already curates its own list — auto-seeding would skip it,
+      # the chef-pressed button must not.
+      OrderList.create!(user: owner, organization: org, location: location, name: 'My prep list')
+
+      source = create(:supplier_list, supplier: supplier, organization: org, location: location,
+                                      list_type: 'recently_purchased', remote_list_id: 'recentlyPurchased')
+      sp = create(:supplier_product, supplier: supplier, supplier_sku: 'A',
+                                     product: create(:product))
+      create(:supplier_list_item, supplier_list: source, sku: 'A', name: 'Item A',
+                                  position: 0, supplier_product: sp)
+
+      expect {
+        post refresh_recent_order_lists_path
+      }.to change { OrderList.where.not(seed_supplier_id: nil).count }.by(1)
+
+      expect(response).to redirect_to(order_lists_path)
+      expect(flash[:notice]).to include('Recent US Foods Orders')
+    end
+
+    it 'reports up-to-date when there is nothing new' do
+      post refresh_recent_order_lists_path
+      expect(response).to redirect_to(order_lists_path)
+    end
+  end
+
   describe 'GET /order_lists/:id' do
     let!(:list) { OrderList.create!(user: owner, organization: org, location: org.locations.first, name: 'Test list') }
 

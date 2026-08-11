@@ -60,6 +60,10 @@
                     class: "block w-full text-left px-4 py-2 text-sm text-purple-700 hover:bg-purple-50" %>
               <% end %>
               <div class="border-t border-gray-100"></div>
+              <%= button_to "Scan for Duplicates", scan_duplicates_aggregated_list_path(@aggregated_list),
+                  method: :post,
+                  class: "block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50" %>
+              <div class="border-t border-gray-100"></div>
               <%= button_to "Re-match All", run_matching_aggregated_list_path(@aggregated_list),
                   method: :post,
                   form: { data: { turbo_confirm: "This will DELETE all existing matches — including ones you manually confirmed — and re-run AI matching from scratch.\n\nThis cannot be undone. Are you sure?" } },
@@ -77,6 +81,8 @@
       <% end %>
     </div>
   </div>
+
+  <%= render "cleanup_panel" unless @aggregated_list.promoted? %>
 
   <!-- Stats bar — clickable filters -->
   <div class="grid grid-cols-3 gap-4 mb-6">

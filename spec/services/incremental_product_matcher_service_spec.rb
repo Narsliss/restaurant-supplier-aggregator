@@ -119,6 +119,36 @@ RSpec.describe IncrementalProductMatcherService do
     end
   end
 
+  describe 'redundant same-product arrivals' do
+    # Regression (Carmin sandbox test): CW's order guide and its Previously
+    # Purchased guide carry the same products. The second list's copy hit
+    # the slot-taken split and created ~100 identical self-duplicate lines
+    # on a fresh org. Same supplier_product already on the line = skip.
+    it 'skips an item whose exact supplier_product already occupies the slot' do
+      sp = create(:supplier_product, supplier: supplier, supplier_sku: 'SAME')
+      guide_sli = make_sli(name: 'Manchego', sku: 'SAME')
+      guide_sli.update!(supplier_product_id: sp.id)
+
+      pm = aggregated_list.product_matches.create!(
+        canonical_name: 'Manchego', match_status: 'unmatched', confidence_score: 0.0, position: 1
+      )
+      pm.product_match_items.create!(supplier_list_item: guide_sli, supplier_id: supplier.id, is_primary: true)
+
+      second_list = SupplierList.create!(supplier: supplier, organization_id: organization.id,
+                                         location: location, name: 'Previously Purchased',
+                                         list_type: 'favorites', remote_list_id: '-1')
+      recent_sli = second_list.supplier_list_items.create!(name: 'Manchego', sku: 'SAME', price: 10.0,
+                                                           pack_size: '1 EA', supplier_product_id: sp.id)
+      allow(ProductNormalizer).to receive(:best_similarity).and_return(0.99)
+
+      result = described_class.new(aggregated_list, items: [recent_sli]).call
+
+      expect(result[:redundant]).to eq(1)
+      expect(result[:split]).to eq(0)
+      expect(aggregated_list.product_matches.count).to eq(1)
+    end
+  end
+
   describe 'normal happy-path' do
     it 'creates a ProductMatch per new item when no existing matches exist' do
       # Names must be dissimilar enough to fall below SIMILARITY_THRESHOLD

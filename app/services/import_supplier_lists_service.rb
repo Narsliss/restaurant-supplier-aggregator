@@ -7,6 +7,22 @@
 #   # => { lists_synced: 2, items_imported: 142, items_updated: 38 }
 #
 class ImportSupplierListsService
+  # US Foods regenerates the account order guide under a new OG-<number>
+  # remote id roughly monthly (observed: OG-814669 → OG-824039 → OG-833572 →
+  # OG-843511 → OG-853237, Apr–Aug 2026). The guide's contents — and the
+  # items' SKUs — stay the same; only the container id rotates. Keying lists
+  # strictly by remote_list_id turned each rotation into a brand-new
+  # SupplierList whose items could never rejoin their own product matches
+  # (one-item-per-supplier-per-match), so every generation appended a fresh
+  # copy of the guide to the org's matched list.
+  ROTATED_GUIDE_PATTERN = /\AOG-\d+\z/
+
+  # An orphaned list must share at least this fraction of the incoming
+  # guide's SKUs to be adopted as its predecessor. Guards against adopting
+  # an unrelated guide (e.g., a second department's OG) that merely vanished
+  # from the same scrape.
+  SUCCESSOR_MIN_SKU_OVERLAP = 0.3
+
   attr_reader :credential, :results
 
   def initialize(credential)
@@ -24,6 +40,11 @@ class ImportSupplierListsService
 
     Rails.logger.info "[ImportLists] Scraped #{scraped_lists.size} lists from #{credential.supplier.name}"
 
+    # Known before any upsert so successor detection can tell "rotated away"
+    # from "still present" (a predecessor is only adoptable if its remote id
+    # is absent from the current scrape).
+    @scraped_remote_ids = scraped_lists.map { |l| l[:remote_id] }.compact
+
     scraped_lists.each do |list_data|
       # Ensure list has a name — some suppliers return lists with blank names
       list_data[:name] = list_data[:name].presence || "#{credential.supplier.name} List #{list_data[:remote_id]}"
@@ -38,6 +59,12 @@ class ImportSupplierListsService
 
     # Mark any lists NOT in the scraped data as stale (they may have been deleted on the supplier site)
     mark_removed_lists(scraped_lists.map { |l| l[:remote_id] })
+
+    # Onboarding headstart: first successful import for a new location seeds
+    # an order list from the chef's recent supplier activity. Guarded inside
+    # the service (idempotent, never touches locations with curated lists),
+    # so this is a no-op on routine daily syncs.
+    SeedOrderListsService.new(credential).call if results[:lists_synced] > 0
 
     Rails.logger.info "[ImportLists] Complete: #{results}"
     results
@@ -70,7 +97,22 @@ class ImportSupplierListsService
       remote_list_id: list_data[:remote_id]
     )
 
+    # Rotated-guide adoption: an unseen OG-* id may be last month's guide
+    # under a new number. Adopting the predecessor row (instead of creating
+    # a sibling) keeps its SupplierListItems — and therefore every
+    # ProductMatchItem and chef decision hanging off them — alive across
+    # the rotation; only genuinely new SKUs flow to incremental matching.
+    if supplier_list.new_record?
+      predecessor = rotated_predecessor(list_data, org)
+      if predecessor
+        Rails.logger.info "[ImportLists] Adopting '#{predecessor.name}' (#{predecessor.remote_list_id}) " \
+                          "as predecessor of rotated guide #{list_data[:remote_id]}"
+        supplier_list = predecessor
+      end
+    end
+
     supplier_list.assign_attributes(
+      remote_list_id: list_data[:remote_id],
       supplier_credential: credential, # Track which credential last synced this list
       name: list_data[:name],
       list_type: list_data[:list_type] || 'order_guide',
@@ -268,6 +310,44 @@ class ImportSupplierListsService
     return false if old_price.nil? || old_price <= 0
     ratio = new_price / old_price
     ratio > 5.0 || ratio < 0.2
+  end
+
+  # Find the SupplierList this rotated guide succeeds, or nil.
+  #
+  # Candidates: same supplier/org/location, rotation-pattern remote id,
+  # absent from the current scrape (still-present lists are never adopted).
+  # Among candidates, pick the one whose items best overlap the incoming
+  # guide's SKUs — content, not recency, identifies the predecessor when
+  # several stale generations have accumulated. Zero/weak overlap means a
+  # genuinely different guide: create a new row rather than adopt.
+  def rotated_predecessor(list_data, org)
+    remote_id = list_data[:remote_id].to_s
+    return nil unless remote_id.match?(ROTATED_GUIDE_PATTERN)
+
+    incoming_skus = (list_data[:items] || []).map { |i| i[:sku].to_s.strip }.reject(&:blank?).to_set
+    return nil if incoming_skus.empty?
+
+    absent_ids = @scraped_remote_ids || [remote_id]
+    candidates = SupplierList.where(
+      supplier: credential.supplier,
+      organization: org,
+      location_id: credential.location_id
+    ).where.not(remote_list_id: absent_ids)
+     .select { |sl| sl.remote_list_id.to_s.match?(ROTATED_GUIDE_PATTERN) }
+    return nil if candidates.empty?
+
+    best, best_overlap = candidates.map { |sl|
+      skus = sl.supplier_list_items.pluck(:sku).map { |s| s.to_s.strip }.to_set
+      denom = [incoming_skus.size, skus.size].min
+      overlap = denom.zero? ? 0.0 : (incoming_skus & skus).size.to_f / denom
+      [sl, overlap]
+    }.max_by { |_, overlap| overlap }
+
+    return nil if best_overlap < SUCCESSOR_MIN_SKU_OVERLAP
+
+    Rails.logger.info "[ImportLists] Successor match: #{remote_id} overlaps " \
+                      "#{(best_overlap * 100).round}% with #{best.remote_list_id}"
+    best
   end
 
   def mark_removed_lists(scraped_remote_ids)

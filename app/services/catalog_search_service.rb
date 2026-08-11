@@ -24,7 +24,7 @@ class CatalogSearchService
     @aggregated_list = aggregated_list
     @match_ids = match_ids
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
-    @results = { found: 0, searched: 0, created_sli_ids: [], errors: [] }
+    @results = { found: 0, searched: 0, skipped_duplicates: 0, created_sli_ids: [], errors: [] }
     @ai_disabled = false
   end
 
@@ -60,6 +60,24 @@ class CatalogSearchService
       # The existing item to use as anchor for searching
       anchor_item = product_match.product_match_items.first&.supplier_list_item
       next unless anchor_item
+
+      # Duplicate guard: if another line in this list already holds the
+      # anchor's supplier product (same row, or same baseline spine product
+      # from the same supplier), this line is a duplicate — typically a
+      # split left over from a rotated order guide. Filling it from the
+      # catalog would pair it with the exact products its sibling already
+      # has, dressing the duplicate up as a legitimate match (observed 4-5x
+      # repeated USF+Sysco pairings on the alfios list). Flag it for the
+      # merge-review flow instead.
+      if (dup = duplicate_of_existing_line(product_match, anchor_item))
+        unless product_match.possible_duplicate_of_id == dup.id
+          product_match.update!(possible_duplicate_of_id: dup.id)
+        end
+        results[:skipped_duplicates] += 1
+        Rails.logger.info "[CatalogSearch] Skipping match #{product_match.id} — " \
+                          "possible duplicate of match #{dup.id}"
+        next
+      end
 
       found_any = false
 
@@ -117,6 +135,28 @@ class CatalogSearchService
   end
 
   private
+
+  # Another ProductMatch in this list that already contains the anchor's
+  # product — matched by supplier_product row, or by shared baseline spine
+  # product within the same supplier (two generations of a rotated guide
+  # produce distinct SLIs/SPs for the same real-world item; the spine link
+  # is what identifies them as one product). Returns the sibling match or nil.
+  def duplicate_of_existing_line(product_match, anchor_item)
+    sp = anchor_item.supplier_product
+    return nil unless sp
+
+    base = ProductMatchItem
+           .joins(:product_match, supplier_list_item: :supplier_product)
+           .where(product_matches: { aggregated_list_id: aggregated_list.id })
+           .where.not(product_match_id: product_match.id)
+           .where(supplier_id: anchor_item.supplier_list.supplier_id)
+
+    dup = base.where(supplier_list_items: { supplier_product_id: sp.id }).first
+    if dup.nil? && sp.product_id.present?
+      dup = base.where(supplier_products: { product_id: sp.product_id }).first
+    end
+    dup&.product_match
+  end
 
   # Map supplier_id -> SupplierList for this aggregated list
   def build_supplier_list_map

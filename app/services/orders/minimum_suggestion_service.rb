@@ -86,7 +86,7 @@ module Orders
         .joins(:supplier_list)
         .where(supplier_lists: {
           supplier_credential_id: credential.id,
-          list_type: %w[order_guide favorites]
+          list_type: %w[order_guide favorites recently_purchased]
         })
         .where.not(supplier_product_id: nil)
         .where.not(supplier_product_id: @exclude_ids + already_ids)

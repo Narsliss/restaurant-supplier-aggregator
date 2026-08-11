@@ -1,0 +1,71 @@
+<%# Chef-driven cleanup: flagged duplicate lines + empty husks. Rendered only
+    when the scan (or catalog-search) has something for the chef to decide.
+    Every action here is explicit — merge and dismiss act on one line each. %>
+<% if @flagged_duplicates.any? || @empty_husk_count.positive? %>
+  <div id="cleanup" class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4">
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+      <div>
+        <h2 class="text-sm font-semibold text-amber-900">List cleanup</h2>
+        <p class="text-xs text-amber-800">
+          These look like duplicate lines (usually left over from a supplier renaming their order guide).
+          Nothing is changed unless you choose — merging keeps your prices and matches.
+        </p>
+      </div>
+      <div class="flex flex-col gap-2 sm:flex-row shrink-0">
+        <% if @flagged_duplicates.any? %>
+          <%= button_to "Merge all exact duplicates",
+              bulk_merge_duplicates_aggregated_list_path(@aggregated_list),
+              method: :post,
+              form: { data: { turbo_confirm: "Automatically merge every flagged line whose items provably already exist on another line? Only machine-created lines are touched — your confirmed and manual matches never are. Pairs needing judgment stay listed for you." } },
+              class: "inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md bg-brand-green text-white hover:opacity-90 transition-opacity" %>
+        <% end %>
+        <% if @empty_husk_count.positive? %>
+          <%= button_to "Remove #{@empty_husk_count} empty #{'line'.pluralize(@empty_husk_count)}",
+              purge_empty_matches_aggregated_list_path(@aggregated_list),
+              method: :post,
+              form: { data: { turbo_confirm: "Remove #{@empty_husk_count} lines that have no products at all? Your confirmed and manual matches are never touched." } },
+              class: "inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-md border border-amber-400 text-amber-900 hover:bg-amber-100 transition-colors" %>
+        <% end %>
+      </div>
+    </div>
+
+    <% if @flagged_duplicates.any? %>
+      <%# A long flag list must not bury the matching page — collapse behind
+          a summary once it stops fitting at a glance. %>
+      <details <%= 'open' if @flagged_duplicates.size <= 5 %>>
+        <summary class="cursor-pointer text-sm font-medium text-amber-900 py-1 select-none">
+          Review <%= @flagged_duplicates.size %> flagged <%= 'pair'.pluralize(@flagged_duplicates.size) %>
+        </summary>
+      <ul class="divide-y divide-amber-200">
+        <% @flagged_duplicates.each do |dup| %>
+          <% keeper = dup.possible_duplicate_of %>
+          <% next unless keeper %>
+          <li class="py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div class="min-w-0">
+              <p class="text-sm text-gray-900 truncate">
+                <span class="font-medium"><%= dup.canonical_name %></span>
+                <span class="text-gray-500">(<%= dup.product_match_items.map { |i| i.supplier.name }.uniq.to_sentence %>)</span>
+              </p>
+              <p class="text-xs text-gray-600 truncate">
+                looks like a duplicate of
+                <span class="font-medium"><%= keeper.canonical_name %></span>
+                <% if keeper.match_status.in?(%w[manual confirmed]) %>
+                  <span class="inline-block ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-800">your match</span>
+                <% end %>
+              </p>
+            </div>
+            <div class="flex gap-2 shrink-0">
+              <%= button_to "Merge", merge_duplicate_aggregated_list_path(@aggregated_list, match_id: dup.id),
+                  method: :post,
+                  class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md bg-brand-green text-white hover:opacity-90 transition-opacity" %>
+              <%= button_to "Keep separate", dismiss_duplicate_aggregated_list_path(@aggregated_list, match_id: dup.id),
+                  method: :post,
+                  class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+            </div>
+          </li>
+        <% end %>
+      </ul>
+      </details>
+    <% end %>
+  </div>
+<% end %>

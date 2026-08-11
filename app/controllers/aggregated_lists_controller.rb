@@ -2,10 +2,10 @@ class AggregatedListsController < ApplicationController
   include DeliveryDatesRefresher
 
   before_action :require_location_context!
-  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search catalog_browse add_product builder_catalog_search builder_add_catalog_item]
+  before_action :set_aggregated_list, only: %i[show edit update destroy run_matching sync_new_products search_catalog order_builder add_supplier_guide promote demote supplier_items_search catalog_browse add_product builder_catalog_search builder_add_catalog_item scan_duplicates merge_duplicate bulk_merge_duplicates dismiss_duplicate purge_empty_matches]
   before_action :require_owner!, only: %i[promote demote]
-  before_action :require_not_promoted!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide add_product]
-  before_action :require_list_location_access!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide catalog_browse add_product]
+  before_action :require_not_promoted!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide add_product scan_duplicates merge_duplicate bulk_merge_duplicates dismiss_duplicate purge_empty_matches]
+  before_action :require_list_location_access!, only: %i[edit update destroy run_matching sync_new_products add_supplier_guide catalog_browse add_product scan_duplicates merge_duplicate bulk_merge_duplicates dismiss_duplicate purge_empty_matches]
 
   # Mobile "Order" tab entry point: resolve straight to the user's primary
   # order builder (promoted org-wide list, else their location's matched list).
@@ -69,6 +69,14 @@ class AggregatedListsController < ApplicationController
                                        .order(Arel.sql("off_list_added_at DESC NULLS LAST"))
                                        .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
     @unreviewed_off_list_count = @aggregated_list.product_matches.needs_off_list_review.count
+
+    # Chef-driven cleanup panel: duplicates flagged by scan/catalog-search
+    # and zero-item husk lines. Display-only here; all actions are explicit.
+    @flagged_duplicates = @aggregated_list.product_matches.flagged_duplicates
+                                          .includes(:possible_duplicate_of,
+                                                    product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+                                          .order(:position)
+    @empty_husk_count = MatchedListCleanupService.new(@aggregated_list).empty_husks.count
 
     # @suppliers is the union of (suppliers with a list in this agg) and
     # (suppliers with a credential at this list's location). Credential-based
@@ -359,6 +367,54 @@ class AggregatedListsController < ApplicationController
     @aggregated_list.mark_matching!
     SyncNewProductsJob.perform_later(@aggregated_list.id)
     redirect_to @aggregated_list, notice: "Syncing #{new_count} new product(s)..."
+  end
+
+  # ── Chef-driven cleanup (duplicate scan / merge / dismiss / purge) ──
+  # Everything is explicit: scan only FLAGS, merge/dismiss act on one line
+  # the chef clicked, purge removes only zero-item machine husks.
+
+  def scan_duplicates
+    result = MatchedListCleanupService.new(@aggregated_list).scan
+    notice =
+      if result[:flagged].zero? && result[:empty].zero?
+        "No duplicates or empty lines found — this list is clean."
+      else
+        parts = []
+        parts << "#{result[:flagged]} possible #{'duplicate'.pluralize(result[:flagged])} flagged" if result[:flagged].positive?
+        parts << "#{result[:empty]} empty #{'line'.pluralize(result[:empty])} found" if result[:empty].positive?
+        "#{parts.join(', ')} — review below."
+      end
+    redirect_to aggregated_list_path(@aggregated_list, anchor: 'cleanup'), notice: notice
+  end
+
+  def merge_duplicate
+    match = @aggregated_list.product_matches.find(params[:match_id])
+    target = MatchedListCleanupService.new(@aggregated_list).merge!(match)
+    redirect_to aggregated_list_path(@aggregated_list, anchor: 'cleanup'),
+                notice: "Merged into \"#{target.canonical_name}\"."
+  rescue ArgumentError => e
+    redirect_to aggregated_list_path(@aggregated_list, anchor: 'cleanup'), alert: e.message
+  end
+
+  def bulk_merge_duplicates
+    merged = MatchedListCleanupService.new(@aggregated_list).bulk_merge_exact
+    remaining = @aggregated_list.product_matches.flagged_duplicates.count
+    notice = "Merged #{merged} exact #{'duplicate'.pluralize(merged)}."
+    notice += " #{remaining} #{'pair'.pluralize(remaining)} left for your review." if remaining.positive?
+    redirect_to aggregated_list_path(@aggregated_list, anchor: 'cleanup'), notice: notice
+  end
+
+  def dismiss_duplicate
+    match = @aggregated_list.product_matches.find(params[:match_id])
+    MatchedListCleanupService.new(@aggregated_list).dismiss!(match)
+    redirect_to aggregated_list_path(@aggregated_list, anchor: 'cleanup'),
+                notice: "Kept \"#{match.canonical_name}\" as its own line."
+  end
+
+  def purge_empty_matches
+    removed = MatchedListCleanupService.new(@aggregated_list).purge_empty
+    redirect_to aggregated_list_path(@aggregated_list, anchor: 'cleanup'),
+                notice: "Removed #{removed} empty #{'line'.pluralize(removed)}."
   end
 
   def add_supplier_guide

@@ -11,7 +11,7 @@ class SupplierList < ApplicationRecord
 
   # Validations
   validates :name, presence: true
-  validates :list_type, inclusion: { in: %w[order_guide custom favorites managed] }
+  validates :list_type, inclusion: { in: %w[order_guide custom favorites managed recently_purchased] }
   validates :sync_status, inclusion: { in: %w[pending syncing synced failed] }
 
   # Scopes

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_07_30_020000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_11_150338) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -385,6 +385,17 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_30_020000) do
     t.index ["product_match_id"], name: "index_order_list_items_on_product_match_id"
   end
 
+  create_table "order_list_seed_records", force: :cascade do |t|
+    t.bigint "location_id", null: false
+    t.bigint "supplier_id", null: false
+    t.datetime "seeded_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["location_id", "supplier_id"], name: "index_order_list_seed_records_on_location_id_and_supplier_id", unique: true
+    t.index ["location_id"], name: "index_order_list_seed_records_on_location_id"
+    t.index ["supplier_id"], name: "index_order_list_seed_records_on_supplier_id"
+  end
+
   create_table "order_lists", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "name", null: false
@@ -396,7 +407,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_30_020000) do
     t.bigint "organization_id"
     t.bigint "location_id"
     t.string "visibility", default: "location", null: false
+    t.bigint "seed_supplier_id"
+    t.datetime "seeded_at"
     t.index ["location_id", "name"], name: "idx_order_lists_location_name", unique: true, where: "(location_id IS NOT NULL)"
+    t.index ["location_id", "seed_supplier_id"], name: "index_order_lists_on_location_id_and_seed_supplier_id"
     t.index ["location_id"], name: "index_order_lists_on_location_id"
     t.index ["organization_id", "location_id"], name: "idx_order_lists_org_location"
     t.index ["organization_id"], name: "index_order_lists_on_organization_id"
@@ -537,6 +551,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_30_020000) do
     t.datetime "off_list_added_at"
     t.bigint "off_list_added_by_id"
     t.datetime "reviewed_at"
+    t.bigint "possible_duplicate_of_id"
+    t.datetime "duplicate_dismissed_at"
     t.index ["aggregated_list_id", "off_list_added_at", "reviewed_at"], name: "idx_product_matches_off_list_review"
     t.index ["aggregated_list_id", "position"], name: "index_product_matches_on_aggregated_list_id_and_position"
     t.index ["aggregated_list_id"], name: "index_product_matches_on_aggregated_list_id"
@@ -544,6 +560,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_30_020000) do
     t.index ["category"], name: "index_product_matches_on_category"
     t.index ["match_status"], name: "index_product_matches_on_match_status"
     t.index ["off_list_added_by_id"], name: "index_product_matches_on_off_list_added_by_id"
+    t.index ["possible_duplicate_of_id"], name: "index_product_matches_on_possible_duplicate_of_id"
   end
 
   create_table "products", force: :cascade do |t|
@@ -1101,6 +1118,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_07_30_020000) do
   add_foreign_key "order_list_items", "order_lists", on_delete: :cascade
   add_foreign_key "order_list_items", "product_matches", on_delete: :nullify
   add_foreign_key "order_list_items", "products", on_delete: :cascade
+  add_foreign_key "order_list_seed_records", "locations"
+  add_foreign_key "order_list_seed_records", "suppliers"
   add_foreign_key "order_lists", "locations", on_delete: :nullify
   add_foreign_key "order_lists", "organizations"
   add_foreign_key "order_lists", "users", on_delete: :cascade

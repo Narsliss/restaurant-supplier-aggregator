@@ -170,7 +170,9 @@ module Scrapers
       response.map do |guide|
         {
           name: guide['text'],
-          remote_id: guide['href']&.match(/id=(\d+)/)&.captures&.first,
+          # id can be -1: CW's synthetic "Recently Purchased" guide — the
+          # sign must be captured or the guide is silently dropped.
+          remote_id: guide['href']&.match(/id=(-?\d+)/)&.captures&.first,
           url: guide['href'],
           type: guide['href']&.include?('type=user') ? 'user' : 'standard'
         }

@@ -7,6 +7,10 @@ class ProductMatch < ApplicationRecord
   # Chef-chosen source of the canonical thumbnail (one of this match's own
   # suppliers' products). Nil → falls back to the primary item's product.
   belongs_to :canonical_image_supplier_product, class_name: 'SupplierProduct', optional: true
+  # Sibling line already holding this line's product — set by CatalogSearchService
+  # when it declines to fill a line that duplicates an existing one (typically
+  # a split left over from a rotated order guide). Feeds the merge-review flow.
+  belongs_to :possible_duplicate_of, class_name: 'ProductMatch', optional: true
 
   # Validations
   validates :match_status, inclusion: {
@@ -19,6 +23,7 @@ class ProductMatch < ApplicationRecord
   scope :auto_matched, -> { where(match_status: 'auto_matched') }
   scope :unmatched, -> { where(match_status: 'unmatched') }
   scope :needs_review, -> { where(match_status: %w[auto_matched unmatched]) }
+  scope :flagged_duplicates, -> { where.not(possible_duplicate_of_id: nil) }
   scope :high_confidence, -> { where('confidence_score >= ?', 0.8) }
   scope :by_position, -> { order(:position) }
 

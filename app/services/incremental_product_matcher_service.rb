@@ -29,7 +29,7 @@ class IncrementalProductMatcherService
     @new_supplier_list_ids = Array(new_supplier_list_ids).map(&:to_i)
     @explicit_items = items # pre-filtered items bypass collect_new_items
     @api_key = ENV['GROQ_API_KEY'] || Rails.application.credentials.dig(:groq, :api_key)
-    @results = { new_matched: 0, new_unmatched: 0, split: 0, total_new: 0, errored: 0, errors: [] }
+    @results = { new_matched: 0, new_unmatched: 0, split: 0, redundant: 0, total_new: 0, errored: 0, errors: [] }
     @ai_disabled = false
   end
 
@@ -84,6 +84,20 @@ class IncrementalProductMatcherService
 
     match, confidence = find_best_match_against_existing(new_item, existing_matches)
     slot_taken = match && existing_supplier_ids_by_match[match.id]&.include?(supplier_id)
+
+    # Same catalog product arriving via a second list of the same supplier
+    # (e.g., CW's order guide AND its Previously Purchased guide both carry
+    # the item): the line already represents this exact supplier_product, so
+    # a split would just duplicate it (observed: ~100 self-duplicates on a
+    # fresh org with two overlapping CW lists). Skip — nothing is lost.
+    if match && slot_taken && new_item.supplier_product_id.present?
+      occupying = match.product_match_items.find { |pmi| pmi.supplier_id == supplier_id }
+      if occupying&.supplier_list_item&.supplier_product_id == new_item.supplier_product_id
+        results[:redundant] += 1
+        results[:total_new] += 1
+        return next_position
+      end
+    end
 
     if match && !slot_taken
       # Cross-supplier match: this supplier has no slot yet — add to the existing match.

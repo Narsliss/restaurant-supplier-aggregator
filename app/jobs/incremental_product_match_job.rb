@@ -14,6 +14,9 @@ class IncrementalProductMatchJob < ApplicationJob
 
     result = IncrementalProductMatcherService.new(aggregated_list, new_supplier_list_ids).call
 
+    # Self-heal identical-product lines left by overlapping same-supplier lists
+    MatchedListCleanupService.new(aggregated_list).auto_merge_same_product
+
     Rails.logger.info "[IncrementalProductMatchJob] List #{aggregated_list_id}: " \
                       "#{result[:new_matched]} matched, #{result[:new_unmatched]} unmatched, " \
                       "#{result[:total_new]} total new items"

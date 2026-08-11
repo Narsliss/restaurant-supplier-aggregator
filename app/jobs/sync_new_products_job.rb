@@ -24,9 +24,15 @@ class SyncNewProductsJob < ApplicationJob
 
     result = IncrementalProductMatcherService.new(aggregated_list, items: new_items).call
 
+    # Self-heal: collapse any identical-product lines (same supplier_product
+    # on two lines — overlap between one supplier's lists). Zero-judgment,
+    # machine lines only.
+    deduped = MatchedListCleanupService.new(aggregated_list).auto_merge_same_product
+
     Rails.logger.info "[SyncNewProductsJob] List #{aggregated_list_id}: " \
                       "#{result[:new_matched]} matched, #{result[:new_unmatched]} unmatched " \
-                      "(of which #{result[:split]} split from supplier-slot conflicts), " \
+                      "(of which #{result[:split]} split from supplier-slot conflicts, " \
+                      "#{result[:redundant]} redundant same-product skips, #{deduped} auto-deduped), " \
                       "#{result[:errored]} errored, #{result[:total_new]} total new items"
     if result[:errored].to_i > 0
       Rails.logger.warn "[SyncNewProductsJob] List #{aggregated_list_id}: " \

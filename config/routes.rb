@@ -150,6 +150,11 @@ Rails.application.routes.draw do
     member do
       post :run_matching
       post :sync_new_products
+      post :scan_duplicates
+      post :merge_duplicate
+      post :bulk_merge_duplicates
+      post :dismiss_duplicate
+      post :purge_empty_matches
       post :search_catalog
       get :order_builder
       post :add_supplier_guide
@@ -207,6 +212,7 @@ Rails.application.routes.draw do
   resources :order_lists do
     collection do
       get :for_select
+      post :refresh_recent
     end
     member do
       post :duplicate

@@ -44,6 +44,24 @@ RSpec.describe Scrapers::ChefsWarehouseApi do
     end
   end
 
+  describe '#list_order_guides' do
+    # Regression: the id regex used \d+ and silently dropped CW's synthetic
+    # "Recently Purchased" guide (id=-1) — the seed source for the
+    # "Recent Chef's Warehouse Orders" onboarding list. Caught live by
+    # Carmin's sandbox onboarding test (alfio's account imported only the
+    # two positive-id guides).
+    it 'captures the negative-id Recently Purchased guide' do
+      allow(api).to receive(:get_json).with('/web-api/order-guide/header-list').and_return([
+        { 'text' => 'Recently Purchased', 'href' => '/account-dashboard/order-guides/detail/?id=-1' },
+        { 'text' => 'Alfio Full Order Guide', 'href' => '/account-dashboard/order-guides/detail/?id=411172&type=user' }
+      ])
+
+      guides = api.list_order_guides
+
+      expect(guides.map { |g| g[:remote_id] }).to eq(%w[-1 411172])
+    end
+  end
+
   describe '#parse_search_product' do
     # The catalog/search endpoint shares the order-guide endpoint's quirk:
     # variants[0]['inStock'] is a numeric stock count, not a boolean. Passing
