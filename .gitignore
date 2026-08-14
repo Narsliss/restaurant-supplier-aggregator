@@ -22,3 +22,6 @@ config/credentials/*.key
 
 # macOS
 .DS_Store
+
+# scratch (safe to delete)
+_to_delete/
