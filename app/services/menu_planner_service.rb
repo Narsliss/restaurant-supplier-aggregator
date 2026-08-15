@@ -2,7 +2,7 @@
 #
 # Flow:
 #   1. Build conversation history from EventPlanMessages
-#   2. Call Groq (Llama 3.3-70b) with system prompt + conversation (JSON output)
+#   2. Call Groq (GPT-OSS 120B) with system prompt + conversation (JSON output)
 #   3. Parse response — extract event details, courses, ingredients
 #   4. Search supplier catalog for each ingredient
 #   5. Calculate costs against budget
@@ -14,7 +14,24 @@
 #
 class MenuPlannerService
   GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions".freeze
-  MENU_MODEL = "llama-3.3-70b-versatile".freeze
+  MENU_MODEL = "openai/gpt-oss-120b".freeze
+  # gpt-oss is a reasoning model and reasoning tokens are billed against the
+  # completion budget, so the menu itself gets less room than the number
+  # suggests. Doubled from 4096 to keep long multi-course menus from being
+  # truncated mid-JSON (a truncated body fails JSON.parse and surfaces to the
+  # chef as "Could not parse menu response").
+  MENU_MAX_TOKENS = 8192
+  # reasoning_effort MUST stay "low" here: with response_format json_object,
+  # "high" makes Groq return HTTP 400 json_validate_failed.
+  REASONING_EFFORT = "low".freeze
+  RATE_LIMIT_RETRIES = 1
+  RATE_LIMIT_DEFAULT_WAIT = 20
+  RATE_LIMIT_MAX_WAIT = 30
+
+  # Internal signal for the 429 retry in #call_groq. Must not inherit from
+  # StandardError-with-meaning elsewhere; #call's `rescue => e` never sees it
+  # because #call_groq always rescues it itself.
+  RetryRateLimit = Class.new(StandardError)
   MAX_CONVERSATION_MESSAGES = 20
   INGREDIENT_SIMILARITY_THRESHOLD = 0.40
 
@@ -84,29 +101,56 @@ class MenuPlannerService
       f.options.timeout = 60
     end
 
-    response = conn.post do |req|
-      req.headers["Authorization"] = "Bearer #{@api_key}"
-      req.headers["Content-Type"] = "application/json"
-      req.body = {
-        model: MENU_MODEL,
-        messages: messages,
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-        max_tokens: 4096
-      }.to_json
-    end
+    attempt = 0
+    begin
+      attempt += 1
+      response = conn.post do |req|
+        req.headers["Authorization"] = "Bearer #{@api_key}"
+        req.headers["Content-Type"] = "application/json"
+        req.body = {
+          model: MENU_MODEL,
+          messages: messages,
+          response_format: { type: "json_object" },
+          temperature: 0.7,
+          max_tokens: MENU_MAX_TOKENS,
+          reasoning_effort: REASONING_EFFORT,
+          include_reasoning: false
+        }.to_json
+      end
 
-    if response.success?
-      content = response.body.dig("choices", 0, "message", "content")
-      Rails.logger.info "[MenuPlanner] Got response (#{content&.length || 0} chars)"
-      content
-    elsif response.status == 429
-      Rails.logger.warn "[MenuPlanner] Groq rate limited (429)"
-      nil
-    else
-      Rails.logger.error "[MenuPlanner] Groq API error: #{response.status} — #{response.body}"
-      nil
+      if response.success?
+        content = response.body.dig("choices", 0, "message", "content")
+        Rails.logger.info "[MenuPlanner] Got response (#{content&.length || 0} chars)"
+        content
+      elsif response.status == 429 && attempt <= RATE_LIMIT_RETRIES
+        # A single menu call is ~2.7k tokens against an 8k tokens/minute free-tier
+        # ceiling, so two menus in quick succession reliably trips 429. We run
+        # inside GenerateMenuPlanJob, so waiting out the window is cheap and far
+        # better than showing the chef "No response from AI".
+        wait = rate_limit_wait(response)
+        Rails.logger.warn "[MenuPlanner] Groq rate limited (429), retrying in #{wait}s (attempt #{attempt})"
+        sleep wait
+        raise RetryRateLimit
+      elsif response.status == 429
+        Rails.logger.warn "[MenuPlanner] Groq rate limited (429), retries exhausted"
+        nil
+      else
+        Rails.logger.error "[MenuPlanner] Groq API error: #{response.status} — #{response.body}"
+        nil
+      end
+    rescue RetryRateLimit
+      retry
     end
+  end
+
+  # Groq sends `retry-after` in seconds on 429; fall back to the token-bucket
+  # reset hint, then to a fixed pause. Clamped so a bad header can't park the
+  # job for minutes.
+  def rate_limit_wait(response)
+    raw = response.headers["retry-after"] || response.headers["x-ratelimit-reset-tokens"]
+    seconds = raw.to_s[/[\d.]+/]&.to_f
+    seconds = RATE_LIMIT_DEFAULT_WAIT if seconds.nil? || seconds <= 0
+    seconds.clamp(1, RATE_LIMIT_MAX_WAIT).ceil
   end
 
   def build_conversation_messages

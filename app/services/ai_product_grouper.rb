@@ -1,4 +1,4 @@
-# Uses Groq's free API (Llama 3) to intelligently group similar products
+# Uses Groq's free API (GPT-OSS) to intelligently group similar products
 # across suppliers by understanding product semantics.
 #
 # Groq free tier: https://console.groq.com/
@@ -8,7 +8,12 @@
 # Set GROQ_API_KEY in your environment or credentials.
 class AiProductGrouper
   GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'.freeze
-  MODEL = 'llama-3.3-70b-versatile'.freeze # Fast and capable
+  MODEL = 'openai/gpt-oss-120b'.freeze
+  # gpt-oss is a reasoning model: reasoning tokens are billed against the
+  # completion budget BEFORE any content, so the old 100/10-token ceilings left
+  # nothing for the answer. See AiProductMatcherService for the same note.
+  AI_MAX_TOKENS = 512
+  REASONING_EFFORT = 'low'.freeze
 
   attr_reader :results
 
@@ -230,7 +235,7 @@ class AiProductGrouper
       Reply with ONLY "YES" if they are the same product and should be merged, or "NO" if they are different products.
     PROMPT
 
-    response = call_groq(prompt, max_tokens: 10)
+    response = call_groq(prompt)
     response&.strip&.upcase&.start_with?('YES')
   end
 
@@ -283,7 +288,7 @@ class AiProductGrouper
     categories.include?(category) ? category : nil
   end
 
-  def call_groq(prompt, max_tokens: 100)
+  def call_groq(prompt, max_tokens: AI_MAX_TOKENS)
     conn = Faraday.new(url: GROQ_API_URL, ssl: { verify: true, ca_file: nil }) do |f|
       f.request :json
       f.response :json
@@ -303,7 +308,9 @@ class AiProductGrouper
           { role: 'user', content: prompt }
         ],
         max_tokens: max_tokens,
-        temperature: 0.1 # Low temperature for consistent responses
+        temperature: 0.1, # Low temperature for consistent responses
+        reasoning_effort: REASONING_EFFORT,
+        include_reasoning: false
       }.to_json
     end
 

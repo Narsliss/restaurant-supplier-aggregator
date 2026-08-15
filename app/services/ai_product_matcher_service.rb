@@ -12,7 +12,15 @@
 #
 class AiProductMatcherService
   GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'.freeze
-  MODEL = 'llama-3.3-70b-versatile'.freeze
+  MODEL = 'openai/gpt-oss-120b'.freeze
+  # gpt-oss is a reasoning model: it emits reasoning tokens that count against
+  # the completion budget BEFORE any content. The old 50-token ceiling was
+  # consumed entirely by reasoning (finish_reason "length", empty content), so
+  # every AI match silently returned nil. Size the budget for reasoning plus a
+  # short answer. include_reasoning keeps reasoning out of the response body;
+  # reasoning_effort caps how much of it the model generates.
+  AI_MAX_TOKENS = 512
+  REASONING_EFFORT = 'low'.freeze
   SIMILARITY_THRESHOLD = 0.45
   AI_CONFIDENCE_THRESHOLD = 0.7
   BATCH_SIZE = 10
@@ -320,7 +328,7 @@ class AiProductMatcherService
     names.first
   end
 
-  def call_groq(prompt, max_tokens: 50)
+  def call_groq(prompt, max_tokens: AI_MAX_TOKENS)
     conn = Faraday.new(url: GROQ_API_URL, ssl: { verify: true }) do |f|
       f.request :json
       f.response :json
@@ -339,7 +347,9 @@ class AiProductMatcherService
           { role: 'user', content: prompt }
         ],
         max_tokens: max_tokens,
-        temperature: 0.1
+        temperature: 0.1,
+        reasoning_effort: REASONING_EFFORT,
+        include_reasoning: false
       }.to_json
     end
 

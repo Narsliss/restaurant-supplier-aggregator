@@ -16,7 +16,13 @@ class CatalogSearchService
   CATALOG_SIMILARITY_THRESHOLD = 0.55
   AI_CONFIDENCE_THRESHOLD = 0.7
   GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'.freeze
-  MODEL = 'llama-3.3-70b-versatile'.freeze
+  MODEL = 'openai/gpt-oss-120b'.freeze
+  # gpt-oss is a reasoning model: reasoning tokens are billed against the
+  # completion budget BEFORE any content. The old 50-token ceiling was consumed
+  # entirely by reasoning (finish_reason "length", empty content), so every AI
+  # search silently returned nil. See AiProductMatcherService for the same note.
+  AI_MAX_TOKENS = 512
+  REASONING_EFFORT = 'low'.freeze
 
   attr_reader :aggregated_list, :results
 
@@ -305,7 +311,7 @@ class CatalogSearchService
     supplier_list.supplier_list_items.find_by(supplier_product_id: supplier_product.id)
   end
 
-  def call_groq(prompt, max_tokens: 50)
+  def call_groq(prompt, max_tokens: AI_MAX_TOKENS)
     conn = Faraday.new(url: GROQ_API_URL, ssl: { verify: true }) do |f|
       f.request :json
       f.response :json
@@ -324,7 +330,9 @@ class CatalogSearchService
           { role: 'user', content: prompt }
         ],
         max_tokens: max_tokens,
-        temperature: 0.1
+        temperature: 0.1,
+        reasoning_effort: REASONING_EFFORT,
+        include_reasoning: false
       }.to_json
     end
 

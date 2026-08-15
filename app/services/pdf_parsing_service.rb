@@ -1,4 +1,4 @@
-# Parses a supplier PDF price list using the Groq API (Llama).
+# Parses a supplier PDF price list using the Groq API (GPT-OSS).
 # Extracts text from the PDF, then uses AI to structure the data.
 #
 # Usage:
@@ -8,8 +8,14 @@
 #
 class PdfParsingService
   GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'.freeze
-  MODEL = 'llama-3.3-70b-versatile'.freeze
-  MAX_TOKENS = 8192
+  MODEL = 'openai/gpt-oss-120b'.freeze
+  # gpt-oss is a reasoning model and reasoning tokens are billed against the
+  # completion budget. Price lists already produce the largest output in the
+  # app (every product on the sheet), so the budget is doubled to keep long
+  # lists from truncating mid-JSON — a truncated body raises here rather than
+  # silently dropping the tail of the products array.
+  MAX_TOKENS = 16_384
+  REASONING_EFFORT = 'low'.freeze
   TIMEOUT = 120 # seconds
 
   EXTRACTION_PROMPT = <<~PROMPT.freeze
@@ -110,6 +116,8 @@ class PdfParsingService
         model: MODEL,
         max_tokens: MAX_TOKENS,
         temperature: 0.1,
+        reasoning_effort: REASONING_EFFORT,
+        include_reasoning: false,
         messages: [
           {
             role: 'system',

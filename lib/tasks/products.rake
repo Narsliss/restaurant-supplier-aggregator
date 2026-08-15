@@ -126,7 +126,7 @@ namespace :products do
 
   desc "Use AI (Groq) to improve product grouping"
   task ai_group: :environment do
-    puts "AI Product Grouping (using Groq Llama 3)"
+    puts "AI Product Grouping (using Groq GPT-OSS)"
     puts "=" * 60
 
     unless ENV["GROQ_API_KEY"].present?
@@ -172,7 +172,7 @@ namespace :products do
 
   desc "Use AI to find and suggest duplicate product merges"
   task ai_find_duplicates: :environment do
-    puts "AI Duplicate Detection (using Groq Llama 3)"
+    puts "AI Duplicate Detection (using Groq GPT-OSS)"
     puts "=" * 60
 
     unless ENV["GROQ_API_KEY"].present?
@@ -206,7 +206,7 @@ namespace :products do
 
   desc "Merge AI-validated duplicate products"
   task ai_merge_duplicates: :environment do
-    puts "AI Duplicate Merge (using Groq Llama 3)"
+    puts "AI Duplicate Merge (using Groq GPT-OSS)"
     puts "=" * 60
 
     unless ENV["GROQ_API_KEY"].present?
