@@ -28,3 +28,11 @@ _to_delete/
 
 # Investor/sales decks — business material, not part of the app
 decks/
+
+# Source material for the docs/training guides, not part of the app.
+# Anchored to the repo root: mockups/mobile/ IS tracked, and a future Rails
+# script/ directory should not be swallowed by this.
+/Website_Setup_Training_Guide.docx
+/mockups/mobile-first/
+/mockups/onboarding/
+/script/
