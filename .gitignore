@@ -25,3 +25,6 @@ config/credentials/*.key
 
 # scratch (safe to delete)
 _to_delete/
+
+# Investor/sales decks — business material, not part of the app
+decks/
