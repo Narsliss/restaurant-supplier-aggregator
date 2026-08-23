@@ -4,10 +4,14 @@
       <div class="flex items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold text-gray-900"><%= title || "Best Deals" %></h2>
-          <p class="text-sm text-gray-500 mt-0.5"><%= subtitle || "Products where you saved vs. the most expensive option" %></p>
+          <p class="text-sm text-gray-500 mt-0.5"><%= subtitle || "Your top products by savings, priced against today's supplier guides" %></p>
         </div>
-        <div class="bg-green-100 rounded-lg px-3 py-1.5">
-          <span class="text-sm font-bold text-green-700"><%= number_to_currency(total_savings) %> saved</span>
+        <%# The chip is the realized total for every order in range — not the sum of
+            the rows below, which are a top-N slice re-priced at today's guides. %>
+        <div class="bg-green-100 rounded-lg px-3 py-1.5 text-right shrink-0"
+             title="Locked in when each order was placed. The rows below are a top-<%= product_savings.size %> breakdown at today's prices, so they won't add up to this.">
+          <span class="block text-sm font-bold text-green-700"><%= number_to_currency(total_savings) %> saved</span>
+          <span class="block text-xs text-green-600">all orders in range</span>
         </div>
       </div>
     </div>

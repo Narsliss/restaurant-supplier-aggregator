@@ -261,6 +261,67 @@ RSpec.describe "Reporting accuracy", type: :request do
     end
   end
 
+  # The savings page's headline and the summary card's "Total Savings" disagreed by
+  # $1,469 on the same date range (Aug 2026): the card summed orders.savings_amount,
+  # the page summed a top-50 slice of a live recomputation against today's guides.
+  # Nothing on either page said so.
+  describe "Realized savings agreement" do
+    def order_with_snapshot(savings:, items:)
+      order = submitted_order(items: items)
+      order.update_columns(savings_amount: savings)
+      order
+    end
+
+    it "shows the same realized total on the savings page as on the summary card" do
+      order_with_snapshot(savings: 120.00, items: [
+        { supplier_name: "PEELED GARLIC", sku: "PG-1", price: 233.80 }
+      ])
+      order_with_snapshot(savings: 80.00, items: [
+        { supplier_name: "SHRIMP 16/20", sku: "SH-1", price: 70.95 }
+      ])
+
+      get reports_path
+      expect(response.body).to include("$200.00")
+
+      get savings_reports_path
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("$200.00")
+    end
+
+    it "does not derive the headline from the rows the table happens to show" do
+      # The snapshot is deliberately unrelated to anything the live recomputation
+      # would produce — if the headline still tracks it, it isn't summing rows.
+      order_with_snapshot(savings: 1_234.56, items: [
+        { supplier_name: "PEELED GARLIC", sku: "PG-1", price: 233.80 }
+      ])
+
+      get savings_reports_path
+      expect(response.body).to include("$1,234.56")
+    end
+
+    it "explains on the page why the breakdown doesn't add up to the total" do
+      order_with_snapshot(savings: 50.00, items: [
+        { supplier_name: "PEELED GARLIC", sku: "PG-1", price: 233.80 }
+      ])
+
+      get savings_reports_path
+      expect(response.body).to include("Why doesn't this table add up to the total above?")
+      expect(response.body).to include("snapshot taken at the moment of each order")
+      expect(response.body).to include("today's")
+    end
+
+    it "keeps the location report's savings chip on the same basis as its summary card" do
+      order_with_snapshot(savings: 310.00, items: [
+        { supplier_name: "BEEF SHORT RIB", sku: "SR-1", price: 573.00 }
+      ])
+
+      get location_reports_path(location_id: location.id)
+      expect(response).to have_http_status(:ok)
+      # Once for the summary card, once for the savings chip — same number, one source.
+      expect(response.body.scan("$310.00").size).to be >= 2
+    end
+  end
+
   describe "OrdersHelper#savings_percentage" do
     it "expresses savings as a share of what the orders would have cost" do
       helper = Class.new { include OrdersHelper }.new

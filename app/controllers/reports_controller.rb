@@ -5,6 +5,10 @@ class ReportsController < ApplicationController
 
   helper_method :filter_params
 
+  # Rows shown in the per-product breakdown on the savings page. The page's
+  # headline total is NOT derived from these rows — see #realized_savings_total.
+  PRODUCT_SAVINGS_ROWS = 50
+
   def index
     @locations = accessible_locations
     orders = filtered_orders
@@ -50,7 +54,7 @@ class ReportsController < ApplicationController
     @by_member = member_breakdown(orders)
 
     @product_savings = product_savings_for(orders)
-    @total_realized_savings = @product_savings.sum { |r| r[3].to_f }
+    @total_realized_savings = realized_savings_total(orders)
     @missed_items = missed_savings_for(orders)
     @total_missed_savings = @missed_items.sum { |r| r[:total_potential_savings] }
   end
@@ -91,7 +95,7 @@ class ReportsController < ApplicationController
     end.sort_by { |r| -r[:total_spent] }
 
     @product_savings = product_savings_for(orders)
-    @total_supplier_savings = @product_savings.sum { |r| r[3].to_f }
+    @total_supplier_savings = realized_savings_total(orders)
     @missed_items = missed_savings_for(orders)
     @total_missed_savings = @missed_items.sum { |r| r[:total_potential_savings] }
   end
@@ -118,15 +122,22 @@ class ReportsController < ApplicationController
                            .includes(:supplier, :location)
 
     @product_savings = product_savings_for(orders)
-    @total_realized_savings = @product_savings.sum { |r| r[3].to_f }
+    @total_realized_savings = realized_savings_total(orders)
     @missed_items = missed_savings_for(orders)
     @total_potential_savings = @missed_items.sum { |r| r[:total_potential_savings] }
   end
 
   def savings
     orders = filtered_orders
-    @product_savings = product_savings_for(orders, limit: 50)
-    @total_realized_savings = @product_savings.sum { |r| r[3].to_f }
+    @total_realized_savings = realized_savings_total(orders)
+
+    all_rows = product_savings_for(orders, limit: nil)
+    @product_count = all_rows.size
+    @product_savings = all_rows.first(PRODUCT_SAVINGS_ROWS)
+    # Subtotals for the CURRENT-PRICE breakdown — a different basis from the
+    # headline above, so they're labelled separately rather than summed together.
+    @current_price_total = all_rows.sum { |r| r[3].to_f }
+    @displayed_savings = @product_savings.sum { |r| r[3].to_f }
   end
 
   def missed_savings
@@ -165,6 +176,19 @@ class ReportsController < ApplicationController
     p = { start_date: @start_date, end_date: @end_date }
     p[:location_id] = @selected_location_id if @selected_location_id.present? && @selected_location_id > 0
     p
+  end
+
+  # THE realized-savings figure — the per-order snapshot taken when each order was
+  # placed, which is what "Total Savings" has always meant on the summary cards.
+  #
+  # Every screen showing a realized-savings headline reads it from here. They used
+  # to sum whatever rows #product_savings_for happened to return, which was a
+  # top-N slice recomputed against today's order guides: the savings page and the
+  # summary card disagreed by $1,469 on the same date range, with nothing on
+  # either page to say why. A per-product breakdown is a useful lens, but it is
+  # not the total, and it must not be labelled as one.
+  def realized_savings_total(orders)
+    orders.sum(:savings_amount) || 0
   end
 
   def summary_stats(orders)
