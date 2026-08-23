@@ -119,9 +119,10 @@ RSpec.describe "Reporting accuracy", type: :request do
       item
     end
 
-    it "does not read a peer's per-pound price as a case price" do
-      # $3.90/LB on a 40 lb case is $156.00 — dearer than the $48.74 case bought,
-      # even though it wins on price per ounce.
+    it "prices a per-pound peer at their rate for the quantity ordered, not their sticker" do
+      # $3.90/LB is $0.24/oz. The case bought holds 81 oz, so the same quantity
+      # from them runs $19.75 — not the $3.90 the dashboard used to print, and not
+      # their own 40 lb case price either.
       sp = matched_pair(
         ordered: { name: "GLENVIEW FARMS - CHEESE, CREAM", price: 48.74, pack_size: "6/13.5 OZ" },
         peer: { name: "CREAM CHEESE LOAF", price: 3.90, price_unit: "LB", pack_size: "8/5 LB" }
@@ -131,14 +132,20 @@ RSpec.describe "Reporting accuracy", type: :request do
       get missed_savings_reports_path
       expect(response).to have_http_status(:ok)
 
-      expect(response.body).not_to include("$3.90")      # the per-LB quote
-      expect(response.body).not_to include("$44.84")     # savings/unit off the mismatch
-      expect(response.body).not_to include("$2,107.69")  # 44.84 x 47 units
-      expect(response.body).to include("No missed savings found")
+      expect(response.body).to include("$19.75")       # their rate x the ordered case's 81 oz
+      expect(response.body).to include("$0.24/oz")     # the rate itself, shown for context
+      expect(response.body).to include("8/5 LB")       # and the pack it has to be bought in
+      expect(response.body).to include("$28.99")       # 48.74 - 19.75 per case
+      expect(response.body).to match(/\$1,362\.\d\d/)  # x 47 cases
+
+      expect(response.body).not_to include("$3.90")      # the raw per-LB quote
+      expect(response.body).not_to include("$44.84")     # savings/unit off the old mismatch
+      expect(response.body).not_to include("$2,107.69")  # 44.84 x 47
     end
 
-    it "reports a catch-weight peer at its case-equivalent when it really is cheaper" do
-      # Same $3.90/LB, but a 5 lb case: $19.50 against the $48.74 paid.
+    it "does not let the peer's own case size change the comparison" do
+      # Same $3.90/LB rate, 5 lb case instead of 40 lb. What's being priced is the
+      # chef's quantity, so the per-case figures come out identical to the above.
       sp = matched_pair(
         ordered: { name: "GLENVIEW FARMS - CHEESE, CREAM", price: 48.74, pack_size: "6/13.5 OZ" },
         peer: { name: "CREAM CHEESE LOAF", price: 3.90, price_unit: "LB", pack_size: "1/5 LB" }
@@ -148,10 +155,27 @@ RSpec.describe "Reporting accuracy", type: :request do
       get missed_savings_reports_path
       expect(response).to have_http_status(:ok)
 
-      expect(response.body).to include("$19.50")   # case-equivalent, not $3.90
-      expect(response.body).not_to include("$3.90")
-      expect(response.body).to include("$58.48")   # (48.74 - 19.50) x 2
-      expect(response.body).to include("est.")     # flagged as a derived case price
+      expect(response.body).to include("$19.75")
+      expect(response.body).to include("$28.99")
+      expect(response.body).to include("1/5 LB")
+      expect(response.body).to match(/\$57\.9\d/)  # 28.99 x 2
+    end
+
+    it "falls back to the peer's case cost when there is no shared per-unit basis" do
+      # Unparseable packs leave nothing to compare per ounce, so case cost is the
+      # best comparison available — and no rate line is shown, because there isn't one.
+      sp = matched_pair(
+        ordered: { name: "AVANTI - EMPANADA DISCS", price: 66.94, pack_size: "assorted" },
+        peer: { name: "EMPANADA DISCS", price: 49.45, pack_size: "assorted" }
+      )
+      order_line(sp, unit_price: 66.94, quantity: 4)
+
+      get missed_savings_reports_path
+      expect(response).to have_http_status(:ok)
+
+      expect(response.body).to include("$49.45")
+      expect(response.body).to include("$69.96")   # (66.94 - 49.45) x 4
+      expect(response.body).not_to include("/oz")
     end
 
     it "sums savings per line instead of extrapolating one average across every unit" do

@@ -307,10 +307,8 @@ class ReportsController < ApplicationController
   # when the dashboard offered "$48.74 paid, $3.90 at Chef's Warehouse" — a case
   # price set against a per-LB one:
   #
-  #   1. Peers must be compared as CASE-EQUIVALENTS. ProductMatch#cheapest_supplier
-  #      already *ranks* on the case-equivalent, but the hash it returns also carries
-  #      the raw scraped :price, which for catch-weight goods is $/LB. Both the math
-  #      and the "their price" column read :estimated_price now.
+  #   1. The peer's price has to be expressed as what they would charge for the
+  #      SAME QUANTITY the chef actually buys. See #peer_equivalent_cost.
   #   2. Savings are summed PER LINE rather than extrapolated from
   #      AVG(unit_price) x SUM(quantity) — one averaged spread applied to every unit
   #      ever bought overstates the total whenever prices moved between orders.
@@ -361,10 +359,10 @@ class ReportsController < ApplicationController
       ordered_supplier = pmi.supplier
       next unless cheapest && cheapest[:supplier].id != ordered_supplier.id
 
-      cheaper_price = cheapest_case_price(cheapest)
-      next unless cheaper_price&.positive?
+      comparison = peer_equivalent_cost(pm, ordered_supplier, cheapest)
+      next unless comparison
 
-      qualifying = qualifying_lines(lines, cheaper_price)
+      qualifying = qualifying_lines(lines, comparison[:price])
       next if qualifying.empty?
 
       total_savings = qualifying.sum { |line| line[:savings] }
@@ -375,13 +373,16 @@ class ReportsController < ApplicationController
       {
         product_name: lines.filter_map { |line| line[1] }.max,
         ordered_from: ordered_supplier.name,
+        ordered_pack: pmi.supplier_list_item.pack_size,
         # Weighted by quantity, so a big line counts for more than a one-off.
         ordered_price: (total_paid / total_qty).round(2),
         cheaper_supplier: cheapest[:supplier].name,
-        cheaper_price: cheaper_price.round(2),
-        # True when the comparison price was derived from a per-unit price
-        # (catch-weight) rather than quoted as a case — surfaced as "est." in the UI.
-        cheaper_price_estimated: estimated_case_price?(cheapest),
+        cheaper_price: comparison[:price].round(2),
+        # Present when the price above is the peer's RATE applied to the ordered
+        # case's size rather than their own case sticker — the UI shows both, because
+        # realizing the saving means buying in their pack size.
+        cheaper_rate: comparison[:rate],
+        cheaper_pack: comparison[:pack],
         savings_per_order: (total_savings / total_qty).round(2),
         total_potential_savings: total_savings.round(2),
         total_qty: total_qty.round(1)
@@ -389,24 +390,49 @@ class ReportsController < ApplicationController
     end.sort_by { |r| -r[:total_potential_savings] }
   end
 
-  # The peer's full case cost. :estimated_price converts a catch-weight $/LB
-  # quote to the case; it falls back to the raw price when no conversion applies.
-  def cheapest_case_price(cheapest)
-    (cheapest[:estimated_price] || cheapest[:price])&.to_f
-  end
-
-  def estimated_case_price?(cheapest)
-    cheapest[:estimated_price].present? && cheapest[:price].present? &&
-      cheapest[:estimated_price].to_f.round(2) != cheapest[:price].to_f.round(2)
-  end
-
-  # Per-line savings against one peer case price. Lines are dropped when the peer
-  # isn't actually cheaper or when the claimed saving is implausible.
+  # What the cheaper supplier would charge for the SAME QUANTITY the chef buys in
+  # one of their usual cases.
   #
-  # Note this compares case to case, so a peer that is cheaper per ounce but sold
-  # in a larger case yields nothing here — the table's columns ("price paid" vs
-  # "their price") can't express "cheaper, but you must buy 20 lb instead of 10".
-  # Under-reporting that case beats inventing savings the chef can't realize.
+  # Comparing case sticker to case sticker only works when both suppliers happen to
+  # sell the same pack. When they don't — a $3.90/LB peer selling 40 lb cases against
+  # the 81 oz case being bought — the honest figure is their rate applied to the
+  # quantity ordered: $0.244/oz x 81 oz = $19.75. ProductMatch already computes that
+  # shared $/oz basis (:comparison_metric) for the matched-list comparison UI; reusing
+  # it keeps both screens agreeing on who is cheaper and by how much.
+  #
+  # Falls back to the peer's own case cost when there is no shared basis (mixed units
+  # with no conversion), which is the best comparison available in that case.
+  def peer_equivalent_cost(pm, ordered_supplier, cheapest)
+    group = pm.per_unit_comparable? ? pm.comparable_group : []
+    ordered_entry = group.find { |p| p[:supplier].id == ordered_supplier.id }
+    peer_rate = cheapest[:comparison_metric].to_f
+    units = ordered_entry && ordered_case_units(ordered_entry)
+
+    if peer_rate.positive? && units && units.positive?
+      return {
+        price: peer_rate * units,
+        rate: pm.display_per_unit_for(cheapest[:item]),
+        pack: cheapest[:pack_size]
+      }
+    end
+
+    price = (cheapest[:estimated_price] || cheapest[:price])&.to_f
+    price&.positive? ? { price: price, rate: nil, pack: cheapest[:pack_size] } : nil
+  end
+
+  # How many normalized units (oz, fl oz, each) one ordered case holds. Derived by
+  # dividing the case cost by its own per-unit rate — the price cancels out, so it
+  # works both for exactly parsed packs and ProduceWeightEstimator's $/oz estimates.
+  def ordered_case_units(entry)
+    rate = entry[:comparison_metric].to_f
+    case_cost = (entry[:estimated_price] || entry[:price]).to_f
+    return nil unless rate.positive? && case_cost.positive?
+
+    case_cost / rate
+  end
+
+  # Per-line savings against the peer's cost for one ordered case's worth. Lines are
+  # dropped when the peer isn't actually cheaper or the claimed saving is implausible.
   def qualifying_lines(lines, cheaper_price)
     lines.filter_map do |_sp_id, _name, unit_price, quantity, line_total|
       paid_unit = unit_price.to_f

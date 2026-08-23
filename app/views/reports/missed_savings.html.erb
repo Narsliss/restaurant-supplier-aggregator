@@ -47,7 +47,7 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
       <div class="px-6 py-4 border-b border-gray-200">
         <h2 class="text-lg font-semibold text-gray-900">Products with Cheaper Alternatives</h2>
-        <p class="text-sm text-gray-500 mt-0.5">Based on current supplier pricing vs. what you paid</p>
+        <p class="text-sm text-gray-500 mt-0.5">Based on current supplier pricing vs. what you paid. Where pack sizes differ, the cheaper supplier's price is what they would charge for the same quantity as the case you buy.</p>
       </div>
       <% if @missed_items.any? %>
         <div class="overflow-x-auto">
@@ -70,7 +70,15 @@
                   <td class="px-6 py-4 text-sm text-gray-500"><%= item[:ordered_from] %></td>
                   <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item[:ordered_price]) %></td>
                   <td class="px-6 py-4 text-sm font-medium text-green-700"><%= item[:cheaper_supplier] %></td>
-                  <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(item[:cheaper_price]) %><% if item[:cheaper_price_estimated] %><span class="text-xs text-gray-400 ml-1" title="Case-equivalent, converted from a per-unit price">est.</span><% end %></td>
+                  <td class="px-6 py-4 text-sm text-green-600 text-right">
+                    <%= number_to_currency(item[:cheaper_price]) %>
+                    <% if item[:cheaper_rate].present? %>
+                      <div class="text-xs text-gray-400 font-normal"
+                           title="<%= item[:cheaper_rate] %> applied to the quantity in the <%= item[:ordered_pack] %> case you buy<%= " — they sell it as #{item[:cheaper_pack]}" if item[:cheaper_pack].present? %>">
+                        <%= item[:cheaper_rate] %><%= " · #{item[:cheaper_pack]}" if item[:cheaper_pack].present? %>
+                      </div>
+                    <% end %>
+                  </td>
                   <td class="px-6 py-4 text-sm font-semibold text-amber-600 text-right"><%= number_to_currency(item[:savings_per_order]) %></td>
                   <td class="px-6 py-4 text-sm font-bold text-amber-700 text-right"><%= number_to_currency(item[:total_potential_savings]) %></td>
                 </tr>
