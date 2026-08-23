@@ -30,7 +30,7 @@
               <td class="px-6 py-4 text-sm text-gray-500"><%= item[:ordered_from] %></td>
               <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item[:ordered_price]) %></td>
               <td class="px-6 py-4 text-sm font-medium text-green-700"><%= item[:cheaper_supplier] %></td>
-              <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(item[:cheaper_price]) %></td>
+              <td class="px-6 py-4 text-sm text-green-600 text-right"><%= number_to_currency(item[:cheaper_price]) %><% if item[:cheaper_price_estimated] %><span class="text-xs text-gray-400 ml-1" title="Case-equivalent, converted from a per-unit price">est.</span><% end %></td>
               <td class="px-6 py-4 text-sm font-bold text-amber-600 text-right"><%= number_to_currency(item[:total_potential_savings]) %></td>
             </tr>
           <% end %>
