@@ -193,6 +193,57 @@ RSpec.describe "Reporting accuracy", type: :request do
       expect(response.body).not_to include("$21.00")  # AVG(47.00) - 40.00, x 3 units
     end
 
+    it "shows the unit count the total is built from" do
+      # $8.00/unit over 3 units is $24.00 — without the count, a row's total has no
+      # visible denominator and reads as one enormous per-order saving.
+      sp = matched_pair(
+        ordered: { name: "MONARCH - FLOUR, HIGH GLUTEN", price: 50.00, pack_size: "1/50 LB" },
+        peer: { name: "HIGH GLUTEN FLOUR", price: 40.00, pack_size: "1/50 LB" }
+      )
+      order_line(sp, unit_price: 50.00, quantity: 2)
+      order_line(sp, unit_price: 50.00, quantity: 1)
+
+      get missed_savings_reports_path
+      expect(response).to have_http_status(:ok)
+
+      expect(response.body).to include(">Units<")
+      row = response.body[%r{<tbody.*?</tbody>}m]
+      expect(row).to match(/>3</)        # units, whole — not "3.0"
+      expect(row).to include("$10.00")   # save/unit
+      expect(row).to include("$30.00")   # total
+    end
+
+    it "does not clip long product names on the full report" do
+      # The 200px cap belonged to the compact block embedded in other reports; on
+      # its own page a name like this one has room to wrap.
+      long_name = "GLENVIEW FARMS - CHEESE, CREAM SOFT RIPENED DOUBLE CREME BRIE WHEEL"
+      sp = matched_pair(
+        ordered: { name: long_name, price: 48.74, pack_size: "6/13.5 OZ" },
+        peer: { name: "BRIE WHEEL", price: 30.00, pack_size: "6/13.5 OZ" }
+      )
+      order_line(sp, unit_price: 48.74, quantity: 2)
+
+      get missed_savings_reports_path
+      expect(response).to have_http_status(:ok)
+
+      name_cell = response.body[%r{<td[^>]*>\s*#{Regexp.escape(long_name)}}m]
+      expect(name_cell).to be_present
+      expect(name_cell).not_to include("truncate")
+      expect(name_cell).not_to include("max-w-")
+    end
+
+    it "says the comparison uses today's prices against past orders" do
+      sp = matched_pair(
+        ordered: { name: "MONARCH - FLOUR, HIGH GLUTEN", price: 50.00, pack_size: "1/50 LB" },
+        peer: { name: "HIGH GLUTEN FLOUR", price: 40.00, pack_size: "1/50 LB" }
+      )
+      order_line(sp, unit_price: 50.00, quantity: 1)
+
+      get missed_savings_reports_path
+      expect(response.body).to include("today's supplier pricing")
+      expect(response.body).to include("what you paid on past orders")
+    end
+
     it "drops a line whose claimed saving is implausible against what was paid" do
       sp = matched_pair(
         ordered: { name: "PATUXENT FARMS - PORK BUTT", price: 57.20, pack_size: "1/24 LB" },

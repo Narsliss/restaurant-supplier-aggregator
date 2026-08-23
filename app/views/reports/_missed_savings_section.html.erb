@@ -26,7 +26,8 @@
         <tbody class="divide-y divide-gray-200">
           <% (limit ? missed_items.first(limit) : missed_items).each do |item| %>
             <tr>
-              <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-[200px] truncate"><%= item[:product_name] %></td>
+              <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-[320px] truncate"
+                  title="<%= item[:product_name] %>"><%= item[:product_name] %></td>
               <td class="px-6 py-4 text-sm text-gray-500"><%= item[:ordered_from] %></td>
               <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item[:ordered_price]) %></td>
               <td class="px-6 py-4 text-sm font-medium text-green-700"><%= item[:cheaper_supplier] %></td>

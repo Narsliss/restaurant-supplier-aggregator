@@ -47,7 +47,7 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
       <div class="px-6 py-4 border-b border-gray-200">
         <h2 class="text-lg font-semibold text-gray-900">Products with Cheaper Alternatives</h2>
-        <p class="text-sm text-gray-500 mt-0.5">Based on current supplier pricing vs. what you paid. Where pack sizes differ, the cheaper supplier's price is what they would charge for the same quantity as the case you buy.</p>
+        <p class="text-sm text-gray-500 mt-0.5">Compares today's supplier pricing against what you paid on past orders, so these totals are what your volume is worth at current prices. Where pack sizes differ, the cheaper supplier's price is what they would charge for the same quantity as the case you buy.</p>
       </div>
       <% if @missed_items.any? %>
         <div class="overflow-x-auto">
@@ -60,13 +60,14 @@
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cheaper At</th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Their Price</th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Save/Unit</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Units</th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Potential</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-200">
               <% @missed_items.each do |item| %>
                 <tr>
-                  <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-[200px] truncate"><%= item[:product_name] %></td>
+                  <td class="px-6 py-4 text-sm font-medium text-gray-900"><%= item[:product_name] %></td>
                   <td class="px-6 py-4 text-sm text-gray-500"><%= item[:ordered_from] %></td>
                   <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(item[:ordered_price]) %></td>
                   <td class="px-6 py-4 text-sm font-medium text-green-700"><%= item[:cheaper_supplier] %></td>
@@ -80,6 +81,8 @@
                     <% end %>
                   </td>
                   <td class="px-6 py-4 text-sm font-semibold text-amber-600 text-right"><%= number_to_currency(item[:savings_per_order]) %></td>
+                  <td class="px-6 py-4 text-sm text-gray-500 text-right"
+                      title="Ordered across this date range — Save/Unit x Units = Total Potential"><%= number_with_precision(item[:total_qty], precision: 1, strip_insignificant_zeros: true) %></td>
                   <td class="px-6 py-4 text-sm font-bold text-amber-700 text-right"><%= number_to_currency(item[:total_potential_savings]) %></td>
                 </tr>
               <% end %>
