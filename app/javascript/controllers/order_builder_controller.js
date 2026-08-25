@@ -240,6 +240,16 @@ export default class extends Controller {
         }
       }
     })
+    // Index supplier cells by match — selection ring + "ordered" fill both
+    // need every cell for a match (desktop card + in-page mobile card).
+    this._matchCells = {}
+    this._cellFillState = {}
+    this.supplierCellTargets.forEach(cell => {
+      const matchId = cell.dataset.matchId
+      if (!matchId) return
+      if (!this._matchCells[matchId]) this._matchCells[matchId] = []
+      this._matchCells[matchId].push(cell)
+    })
     // Cache category sections for scroll handler (fires every scroll event)
     this._cachedCategorySections = this.categorySectionTargets
     // Also cache supplier breakdown original elements (avoid querySelectorAll per supplier per click)
@@ -269,6 +279,27 @@ export default class extends Controller {
     })
   }
 
+  // Fill the background of a match's selected supplier cell once it's ordered.
+  // Unordered cells stay neutral; the orange ring alone marks the selection.
+  _updateCellFill(matchId) {
+    const cells = this._matchCells?.[matchId]
+    if (!cells?.length) return
+    const input = this._matchInputs?.[matchId]?.[0]
+    if (!input) return
+    const selectedSupplierId = input.dataset.supplierId
+    const ordered = (parseInt(input.value) || 0) > 0
+    // Skip the DOM writes when nothing changed — updateTotals() runs over every
+    // match on each keystroke, and these loops add up on large lists.
+    const key = `${selectedSupplierId}:${ordered}`
+    if (this._cellFillState[matchId] === key) return
+    this._cellFillState[matchId] = key
+    cells.forEach(cell => {
+      const fill = ordered && cell.dataset.supplierIdValue === selectedSupplierId
+      cell.classList.toggle("bg-brand-orange-50", fill)
+      cell.classList.toggle("bg-gray-50", !fill)
+    })
+  }
+
   // Set the value for ALL inputs sharing the same match ID (desktop + mobile)
   // Uses index map for O(1) lookup instead of scanning all targets
   _setMatchQuantity(matchId, value) {
@@ -294,6 +325,7 @@ export default class extends Controller {
     const text = lineTotal > 0 ? `$${lineTotal.toFixed(2)}` : "\u2014"
     const totals = this._matchLineTotals?.[matchId]
     if (totals) totals.forEach(el => el.textContent = text)
+    this._updateCellFill(matchId)
   }
 
   // Defer heavy KPI recalculation AFTER the browser paints.
@@ -341,6 +373,7 @@ export default class extends Controller {
       // Only count each match once for KPI totals (desktop + mobile are duplicates)
       if (matchId && !seenMatches.has(matchId)) {
         seenMatches.add(matchId)
+        this._updateCellFill(matchId)
         if (qty > 0) {
           total += lineTotal
           itemCount++
@@ -589,21 +622,14 @@ export default class extends Controller {
       input.dataset.supplierId = newSupplierId
     })
 
-    // Update visual state: remove selection ring from all cells for this match, add to selected
-    this.supplierCellTargets.forEach(c => {
-      if (c.dataset.matchId === matchId) {
-        c.classList.remove("ring-2", "ring-brand-orange")
-        if (!c.dataset.cheapest || c.dataset.cheapest !== "true") {
-          c.classList.add("hover:bg-gray-50")
-        }
-      }
-    })
-    // Highlight clicked cell with orange selection ring (and its counterpart on mobile/desktop)
-    this.supplierCellTargets.forEach(c => {
-      if (c.dataset.matchId === matchId && c.dataset.supplierIdValue === newSupplierId) {
-        c.classList.add("ring-2", "ring-brand-orange")
-        c.classList.remove("hover:bg-gray-50")
-      }
+    // The orange ring is the only outline a cell gets — it marks the supplier this
+    // match will be ordered from. Move it to the clicked cell (desktop + mobile copies).
+    const cells = this._matchCells?.[matchId] ||
+      this.supplierCellTargets.filter(c => c.dataset.matchId === matchId)
+    cells.forEach(c => {
+      const selected = c.dataset.supplierIdValue === newSupplierId
+      c.classList.toggle("ring-2", selected)
+      c.classList.toggle("ring-brand-orange", selected)
     })
 
     // Update hidden override field so the form submission knows which supplier was picked
@@ -678,26 +704,11 @@ export default class extends Controller {
 
       // Handle "Best" badge: hide when switching to PC (apples-to-oranges),
       // restore when switching back to CS if this cell was originally cheapest
-      const wasCheapest = cell.dataset.cheapest === "true"
-      if (wasCheapest) {
+      // BEST is carried by the pill alone now. Hide it on PC (apples-to-oranges
+      // against the other cells' case prices) and restore it on CS.
+      if (cell.dataset.cheapest === "true") {
         const badge = cell.querySelector("[data-best-badge]")
-        const supplierLabel = cell.querySelector("[data-supplier-label]")
-        const priceLabel = cell.querySelector("[data-price-label]")
-        const perUnit = cell.querySelector("[data-per-unit-price]")
-
-        if (uom === "PC") {
-          // Hide Best badge and remove green styling
-          if (badge) badge.classList.add("hidden")
-          if (supplierLabel) { supplierLabel.classList.remove("text-green-600"); supplierLabel.classList.add("text-gray-500") }
-          if (priceLabel) { priceLabel.classList.remove("text-green-600"); priceLabel.classList.add("text-gray-900") }
-          if (perUnit) { perUnit.classList.remove("text-green-600"); perUnit.classList.add("text-gray-500") }
-        } else {
-          // Restore Best badge and green styling
-          if (badge) badge.classList.remove("hidden")
-          if (supplierLabel) { supplierLabel.classList.remove("text-gray-500"); supplierLabel.classList.add("text-green-600") }
-          if (priceLabel) { priceLabel.classList.remove("text-gray-900"); priceLabel.classList.add("text-green-600") }
-          if (perUnit) { perUnit.classList.remove("text-gray-500"); perUnit.classList.add("text-green-600") }
-        }
+        if (badge) badge.classList.toggle("hidden", uom === "PC")
       }
     }
 

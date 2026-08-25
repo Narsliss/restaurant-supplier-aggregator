@@ -90,9 +90,10 @@
               <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
               <% is_default = cheapest && cheapest[:supplier] == supplier %>
               <% cell_price = item.estimated_total_price || effective_price %>
-              <div class="rounded-lg relative min-w-0 cursor-pointer transition-all
+              <% cell_ordered = is_default && (quantities[match.id.to_s] || 0).to_i > 0 %>
+              <div class="rounded-lg relative min-w-0 cursor-pointer transition-all border border-gray-200
                           <%= is_default ? 'ring-2 ring-brand-orange' : '' %>
-                          <%= is_cheapest ? 'border-2 border-green-500/50 bg-green-50' : 'border border-gray-200 bg-gray-50' %>"
+                          <%= cell_ordered ? 'bg-brand-orange-50' : 'bg-gray-50' %>"
                    style="padding:10px;"
                    data-action="click->order-builder#selectSupplier"
                    data-supplier-price="<%= cell_price %>"
@@ -112,7 +113,7 @@
                 <% end %>
 
                 <%# Supplier name — 9px %>
-                <div class="truncate <%= is_cheapest ? 'text-green-600' : supplier.brand_color_class %>"
+                <div class="truncate <%= supplier.brand_color_class %>"
                      data-supplier-label
                      style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">
                   <%= supplier.short_name %>
@@ -129,7 +130,7 @@
                 <% end %>
 
                 <%# Price — 14px bold %>
-                <div data-price-label class="<%= is_cheapest ? 'text-green-600' : 'text-gray-900' %>" style="font-size:14px; font-weight:700; margin-top:4px;">
+                <div data-price-label class="text-gray-900" style="font-size:14px; font-weight:700; margin-top:4px;">
                   <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                 </div>
                 <% if item.estimated_total_price.present? && item.estimated_total_price != effective_price %>
@@ -142,7 +143,7 @@
                     <%= item.catch_weight_note %>
                   </div>
                 <% elsif (per_unit_display = match.display_per_unit_for(item)) %>
-                  <div data-per-unit-price class="<%= is_cheapest ? 'text-green-600' : 'text-gray-500' %>" style="font-size:10px; margin-top:1px;">
+                  <div data-per-unit-price class="text-gray-500" style="font-size:10px; margin-top:1px;">
                     <%= per_unit_display %>
                   </div>
                 <% end %>

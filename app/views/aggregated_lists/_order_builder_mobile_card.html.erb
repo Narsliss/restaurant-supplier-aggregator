@@ -48,8 +48,9 @@
           <% if effective_price %>
             <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
             <% is_default = cheapest && cheapest[:supplier] == supplier %>
-            <div class="flex-shrink-0 rounded-lg px-2 py-1.5 cursor-pointer transition-all
-                        <%= is_default ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200' %>
+            <div class="flex-shrink-0 rounded-lg px-2 py-1.5 cursor-pointer transition-all border border-gray-200
+                        <%= is_default ? 'ring-2 ring-brand-orange' : '' %>
+                        <%= is_default && has_quantity ? 'bg-brand-orange-50' : 'bg-gray-50' %>
                         <%= is_cheapest ? 'best-price' : '' %>
                         <%= in_stock == false ? 'opacity-50' : '' %>"
                  data-action="click->order-builder#selectSupplier"
@@ -58,7 +59,7 @@
                  data-match-id="<%= match.id %>"
                  data-order-builder-target="supplierCell"
                  data-default="<%= is_default %>">
-              <p class="text-[9px] font-bold uppercase <%= is_default ? 'text-brand-green' : 'text-gray-400' %>"><%= supplier.name.first(3).upcase %></p>
+              <p class="text-[9px] font-bold uppercase text-gray-400"><%= supplier.name.first(3).upcase %></p>
               <p class="text-xs font-bold text-gray-900">
                 <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                 <% if item.catch_weight_note %>
