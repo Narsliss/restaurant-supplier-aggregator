@@ -109,8 +109,15 @@ RSpec.describe "Order builder cell UX", type: :request do
     end
 
     it "reopens the builder with each supplier's own quantity on its cell" do
-      counts = supplier_cells.to_h { |cell| [cell["data-supplier-id-value"], cell["data-cell-qty"]] }
-      expect(counts).to eq(cheap_supplier.id.to_s => "5", pricey_supplier.id.to_s => "1")
+      # Each row renders TWICE — desktop card + small-screen card — so every
+      # supplier owns two cells carrying the same quantity. The builder JS has
+      # to dedupe these before summing, or the row total doubles.
+      counts = supplier_cells.group_by { |cell| cell["data-supplier-id-value"] }
+                             .transform_values { |cells| cells.map { |c| c["data-cell-qty"] } }
+      expect(counts).to eq(
+        cheap_supplier.id.to_s => %w[5 5],
+        pricey_supplier.id.to_s => %w[1 1]
+      )
     end
 
     it "fills both cells, because both are being ordered from" do

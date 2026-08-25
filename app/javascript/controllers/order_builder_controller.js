@@ -368,6 +368,10 @@ export default class extends Controller {
     let total = 0
     let lineTotal = 0
     const perSupplier = {}
+    // The page renders every row TWICE — the desktop card and the small-screen
+    // card — so each supplier owns two cells. Both get redrawn; only one may
+    // count toward the totals.
+    const counted = new Set()
 
     this._matchCells?.[matchId]?.forEach(cell => {
       const supplierId = cell.dataset.supplierIdValue
@@ -389,10 +393,11 @@ export default class extends Controller {
       cell.classList.toggle("ring-2", isPrimary)
       cell.classList.toggle("ring-brand-orange", isPrimary)
 
-      if (qty > 0) {
+      if (qty > 0 && !counted.has(supplierId)) {
+        counted.add(supplierId)
         total += qty
         lineTotal += qty * price
-        perSupplier[supplierId] = (perSupplier[supplierId] || 0) + qty * price
+        perSupplier[supplierId] = qty * price
       }
     })
 
