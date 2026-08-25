@@ -67,7 +67,9 @@ class AggregatedListsController < ApplicationController
                                        # have one supplier and no price comparison yet.
                                        .order(Arel.sql("CASE WHEN off_list_added_at IS NOT NULL AND reviewed_at IS NULL THEN 0 ELSE 1 END"))
                                        .order(Arel.sql("off_list_added_at DESC NULLS LAST"))
-                                       .order(Arel.sql("CASE match_status WHEN 'confirmed' THEN 0 WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 ELSE 4 END, position ASC"))
+                                       # Confirmed lines sink to the bottom: a chef has signed off on
+                                       # them, so everything above is what still needs attention.
+                                       .order(Arel.sql("CASE match_status WHEN 'manual' THEN 1 WHEN 'auto_matched' THEN 2 WHEN 'unmatched' THEN 3 WHEN 'confirmed' THEN 9 ELSE 4 END, position ASC"))
     @unreviewed_off_list_count = @aggregated_list.product_matches.needs_off_list_review.count
 
     # Chef-driven cleanup panel: duplicates flagged by scan/catalog-search
@@ -126,6 +128,8 @@ class AggregatedListsController < ApplicationController
         {
           supplier: pmi.supplier,
           price: item.price || sp&.current_price,
+          # Case-equivalent: a $2.00/lb catch-weight quote is not a $2.00 case.
+          estimated_price: item.estimated_total_price || item.price || sp&.current_price,
           per_unit_price: item.per_unit_price,
           normalized_unit: item.normalized_unit,
           in_stock: sp ? sp.in_stock : item.read_attribute(:in_stock)
@@ -134,41 +138,40 @@ class AggregatedListsController < ApplicationController
 
       in_stock_prices = prices.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
 
-      # Prefer per-unit comparison: find items with per-unit prices and matching units.
-      # Treat "oz" and "fl oz" as equivalent for comparison (close enough in food service).
-      with_per_unit = in_stock_prices.select { |p| p[:per_unit_price].present? && p[:per_unit_price] > 0 && p[:normalized_unit].present? }
-      unit_groups = with_per_unit.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
-      largest_group = unit_groups.max_by { |_unit, items| items.size }&.last || []
+      comparison, largest_group = ProductMatch.compare_by_unit(in_stock_prices)
 
       cheapest = most_expensive = nil
-      if largest_group.size >= 2
-        # Compare by per-unit price when at least 2 items share the same unit
+      spread = nil
+      compared_supplier_ids = []
+
+      case comparison
+      when :exact
+        # At least two suppliers quote in the same unit — a real like-for-like read.
+        compared_supplier_ids = largest_group.map { |p| p[:supplier].id }
         cheapest = largest_group.min_by { |p| p[:per_unit_price] }
         most_expensive = largest_group.max_by { |p| p[:per_unit_price] }
-      elsif in_stock_prices.any?
-        # Fallback to case price when per-unit comparison isn't possible
-        cheapest = in_stock_prices.min_by { |p| p[:price] }
-        most_expensive = in_stock_prices.max_by { |p| p[:price] }
-      end
-
-      with_price = prices.select { |p| p[:price].present? && p[:price] > 0 }
-      spread = nil
-      if with_price.size >= 2
-        per_unit_with_price = with_price.select { |p| p[:per_unit_price].present? && p[:per_unit_price] > 0 && p[:normalized_unit].present? }
-        price_unit_groups = per_unit_with_price.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
-        largest_price_group = price_unit_groups.max_by { |_unit, items| items.size }&.last || []
-
-        if largest_price_group.size >= 2
-          spread = largest_price_group.map { |p| p[:per_unit_price] }.max - largest_price_group.map { |p| p[:per_unit_price] }.min
-        else
-          spread = with_price.map { |p| p[:price] }.max - with_price.map { |p| p[:price] }.min
-        end
+        spread = largest_group.map { |p| p[:per_unit_price] }.max - largest_group.map { |p| p[:per_unit_price] }.min
+      when :single
+        cheapest = in_stock_prices.first
+      else
+        # Two or more suppliers, and no two of them quote in the same unit:
+        # "each" against "oz", a sheet against a bushel. We do NOT try to
+        # convert between them — any winner picked here is a guess about which
+        # pack is bigger, so the view withholds BEST and flags the line instead.
+        # Case-equivalents at least stop a per-lb quote beating a whole case.
+        comparison = :incomparable
+        cheapest = in_stock_prices.min_by { |p| p[:estimated_price] || p[:price] }
+        most_expensive = in_stock_prices.max_by { |p| p[:estimated_price] || p[:price] }
+        totals = in_stock_prices.map { |p| p[:estimated_price] || p[:price] }
+        spread = totals.max - totals.min if totals.size >= 2
       end
 
       @price_data[match.id] = {
         cheapest_supplier: cheapest&.dig(:supplier),
         most_expensive_supplier: most_expensive&.dig(:supplier),
-        spread: spread
+        spread: spread,
+        comparison: comparison,
+        compared_supplier_ids: compared_supplier_ids
       }
     end
 
@@ -256,7 +259,12 @@ class AggregatedListsController < ApplicationController
       @match_category[pm.id] = normalized
     end
 
-    @grouped_matches = @product_matches.group_by { |pm| @match_category[pm.id] || "Other" }
+    # Confirmed lines leave the category sections entirely and collect in one
+    # group at the foot of the page — a chef has signed off, so what stays in
+    # the categories above is exactly what still needs attention.
+    confirmed, needs_attention = @product_matches.partition(&:confirmed?)
+    @confirmed_matches = confirmed
+    @grouped_matches = needs_attention.group_by { |pm| @match_category[pm.id] || "Other" }
     @sorted_categories = @grouped_matches.keys.sort_by { |c| c == "Other" ? "zzz" : c.downcase }
 
     # Available guides for "Add Supplier Guide" section (matched lists only)

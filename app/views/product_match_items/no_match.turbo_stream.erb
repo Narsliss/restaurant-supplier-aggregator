@@ -34,42 +34,10 @@
   <% orphan_pmi = @new_orphan_match.product_match_items.first %>
   <% orphan_item = orphan_pmi&.supplier_list_item %>
   <%= turbo_stream.append "match-cards-container" do %>
-    <div id="<%= dom_id(@new_orphan_match) %>" class="bg-white shadow rounded-lg ring-1 ring-amber-200">
-      <div class="flex flex-col sm:flex-row">
-        <%= render "aggregated_lists/match_row_left", match: @new_orphan_match, aggregated_list: @aggregated_list %>
-
-        <%# Right: Grid of supplier cells %>
-        <div class="flex-1" style="padding:10px;">
-          <% suppliers = @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq %>
-          <div class="grid" style="grid-template-columns: repeat(<%= suppliers.size %>, 1fr); gap: 6px;">
-            <% suppliers.each do |supplier| %>
-              <% if supplier.id == @old_supplier.id && orphan_item %>
-                <%= render "aggregated_lists/supplier_cell_card",
-                           product_match: @new_orphan_match,
-                           supplier: supplier,
-                           item: orphan_item,
-                           pmi: orphan_pmi,
-                           search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
-                           supplier_id: supplier.id,
-                           is_cheapest: false,
-                           is_most_expensive: false,
-                           readonly: true %>
-              <% else %>
-                <%= render "aggregated_lists/supplier_cell_card",
-                           product_match: @new_orphan_match,
-                           supplier: supplier,
-                           item: nil,
-                           pmi: nil,
-                           search_url: supplier_items_search_aggregated_list_path(@aggregated_list),
-                           supplier_id: supplier.id,
-                           is_cheapest: false,
-                           is_most_expensive: false,
-                           readonly: true %>
-              <% end %>
-            <% end %>
-          </div>
-        </div>
-      </div>
-    </div>
+    <%= render "aggregated_lists/match_card",
+               match: @new_orphan_match,
+               aggregated_list: @aggregated_list,
+               suppliers: @aggregated_list.supplier_lists.includes(:supplier).map(&:supplier).uniq,
+               supplier_map: (orphan_item ? { @old_supplier.id => { pmi: orphan_pmi, item: orphan_item } } : {}) %>
   <% end %>
 <% end %>

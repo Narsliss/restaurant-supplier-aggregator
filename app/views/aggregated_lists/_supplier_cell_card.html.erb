@@ -12,11 +12,23 @@
       is_cheapest      — boolean
       is_most_expensive — boolean
       readonly         — boolean
+      left_out         — boolean; this supplier has a price but its unit didn't
+                         match the group that was compared, so it never
+                         competed for BEST
+      link_out         — boolean; link the image and name out to the supplier's
+                         own product page. Modal-only: in the grid a cell click
+                         opens this modal, and an outbound link would fight it.
 %>
 <% is_cheapest = local_assigns.fetch(:is_cheapest, false) %>
 <% is_most_expensive = local_assigns.fetch(:is_most_expensive, false) %>
 <% readonly = local_assigns.fetch(:readonly, false) %>
 <% show_image = local_assigns.fetch(:show_image, false) %>
+<% left_out = local_assigns.fetch(:left_out, false) %>
+<% link_out = local_assigns.fetch(:link_out, false) %>
+<%# Not every supplier records a product URL (What Chefs Want and Blue Ribbon
+    never do), so this is nil often enough that both call sites below must
+    degrade to unlinked markup rather than render a dead anchor. %>
+<% product_url = link_out ? item&.supplier_product&.supplier_url.presence : nil %>
 
 <div id="match_<%= product_match.id %>_supplier_<%= supplier.id %>"
      class="rounded-lg relative min-w-0 <%= is_cheapest ? 'border-2 border-green-500/50 bg-green-50' : 'border border-gray-200 bg-gray-50' %>"
@@ -28,10 +40,16 @@
   <% if show_image %>
     <%# Supplier product image — gives each cell vertical room.
         Modal-only surface, so this is allowed to trigger lazy mirroring. %>
-    <img src="<%= product_thumb_url(item&.supplier_product, mirror: true) %>"
-         loading="lazy" decoding="async"
-         data-product-thumb-id="<%= item&.supplier_product&.id %>"
-         class="w-full aspect-square rounded-md object-cover border border-gray-200 bg-white mb-2">
+    <% thumb = tag.img(src: product_thumb_url(item&.supplier_product, mirror: true),
+                       loading: "lazy", decoding: "async",
+                       data: { product_thumb_id: item&.supplier_product&.id },
+                       class: "w-full aspect-square rounded-md object-cover border border-gray-200 bg-white mb-2") %>
+    <% if product_url %>
+      <%= link_to thumb, product_url, target: "_blank", rel: "noopener noreferrer",
+                  title: "Open on #{supplier.name}", class: "block hover:opacity-90 transition-opacity" %>
+    <% else %>
+      <%= thumb %>
+    <% end %>
   <% end %>
 
   <%# Supplier name — 9px bold uppercase colored %>
@@ -41,9 +59,18 @@
   </div>
 
   <% if item %>
-    <%# Product name — 11px, 2-line clamp %>
-    <div class="text-gray-700" style="font-size:11px; line-height:1.3; margin-bottom:3px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
-      <%= item.name.truncate(80) %>
+    <%# Product name — 11px, 2-line clamp. Links out to the supplier when we
+        know the URL; the arrow glyph rides inside the clamp so a long name
+        truncates around it rather than pushing it onto a third line. %>
+    <div class="<%= product_url ? 'text-orange-600 hover:text-orange-700' : 'text-gray-700' %>" style="font-size:11px; line-height:1.3; margin-bottom:3px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
+      <% if product_url %>
+        <%= link_to product_url, target: "_blank", rel: "noopener noreferrer",
+                    title: "Open on #{supplier.name}", class: "hover:underline" do %>
+          <%= item.name.truncate(80) %><svg class="inline-block align-text-top ml-0.5" style="width:9px; height:9px;" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+        <% end %>
+      <% else %>
+        <%= item.name.truncate(80) %>
+      <% end %>
     </div>
 
     <%# Pack size — 10px %>
@@ -80,6 +107,15 @@
 
     <% unless item.in_stock %>
       <span class="text-red-500 font-medium" style="font-size:10px; margin-top:2px; display:block;">Out of stock</span>
+    <% end %>
+
+    <% if left_out %>
+      <%# Priced in a unit nobody else quotes, so it sat out the comparison. %>
+      <span class="inline-flex items-center gap-1 rounded bg-amber-100 text-amber-800 font-semibold"
+            style="font-size:9px; margin-top:4px; padding:1px 4px;"
+            title="This supplier prices by <%= item.normalized_unit.presence || item.pack_size.presence || "a different unit" %>, which doesn't line up with the other suppliers — it wasn't part of the price comparison">
+        Not compared
+      </span>
     <% end %>
 
     <%# Change control — 10px %>

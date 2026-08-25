@@ -13,6 +13,8 @@ class ProductMatchesController < ApplicationController
 
   def confirm
     @product_match.confirm!
+    # Drives the Confirmed section's header count in confirm.turbo_stream.erb.
+    @confirmed_count = @aggregated_list.product_matches.confirmed.count
 
     respond_to do |format|
       format.html { redirect_to aggregated_list_product_matches_path(@aggregated_list) }

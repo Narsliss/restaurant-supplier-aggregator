@@ -19,9 +19,4 @@ export default class extends Controller {
     const frame = document.getElementById("match_modal")
     if (frame) frame.innerHTML = ""
   }
-
-  // Backdrop click closes; clicks inside the panel are stopped in the markup.
-  backdrop(event) {
-    if (event.target === event.currentTarget) this.close(event)
-  }
 }

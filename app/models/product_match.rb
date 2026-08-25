@@ -83,6 +83,38 @@ class ProductMatch < ApplicationRecord
     update!(match_status: 'rejected')
   end
 
+  # Can these suppliers' prices be ranked against each other?
+  #
+  # Only a shared pricing unit counts. We deliberately do NOT convert between
+  # units here: an "each" price and an "oz" price cannot be ordered without
+  # knowing the pack weight, and guessing produces a BEST badge that lies about
+  # which supplier is actually cheaper.
+  #
+  # Takes the already-built price rows (see #prices_by_supplier) so the list
+  # page can reuse the array it has rather than rebuild it per row. Returns
+  # [verdict, group]:
+  #   :exact        — two or more suppliers quote in the same unit; group is them
+  #   :single       — fewer than two suppliers priced and in stock
+  #   :incomparable — several suppliers, no two sharing a unit
+  def self.compare_by_unit(in_stock_prices)
+    with_per_unit = in_stock_prices.select { |p| p[:per_unit_price].to_f > 0 && p[:normalized_unit].present? }
+    # "oz" and "fl oz" are close enough to rank together in food service.
+    groups = with_per_unit.group_by { |p| p[:normalized_unit] == "fl oz" ? "oz" : p[:normalized_unit] }
+    largest = groups.max_by { |_unit, items| items.size }&.last || []
+
+    return [:exact, largest] if largest.size >= 2
+    return [:single, []] if in_stock_prices.size < 2
+
+    [:incomparable, []]
+  end
+
+  # This match's comparison verdict, for callers that don't already hold the
+  # price rows (single-record Turbo re-renders).
+  def unit_comparison
+    in_stock = prices_by_supplier.select { |p| p[:price].to_f > 0 && p[:in_stock] }
+    self.class.compare_by_unit(in_stock).first
+  end
+
   # Price comparison across matched items (memoized — safe to call repeatedly).
   # Uses supplier_list_item.price (from the order guide) as the primary source —
   # this is the case/pack price the user actually pays when ordering.

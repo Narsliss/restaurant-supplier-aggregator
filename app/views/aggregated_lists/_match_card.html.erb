@@ -1,0 +1,94 @@
+<%# One product match card: name/badges on the left, a supplier price cell per
+    column on the right. This is the single source for that markup — it used to
+    be copy-pasted into show.html.erb and the create/update/no_match turbo
+    streams, so a card change had to be made in four places.
+
+    Locals:
+      match                 — the ProductMatch
+      aggregated_list       — the AggregatedList (routes + promoted? check)
+      suppliers             — connected suppliers, one column each
+      supplier_map          — { supplier_id => { pmi:, item: } }; default {}
+      price_info            — { cheapest_supplier:, most_expensive_supplier:, spread: }; default nil
+      unconnected_suppliers — suppliers shown as greyed teaser columns; default []
+      teasers               — { supplier_id => SupplierProduct } for this match; default {}
+%>
+<% supplier_map = local_assigns.fetch(:supplier_map, {}) %>
+<% price_info = local_assigns.fetch(:price_info, nil) %>
+<% unconnected_suppliers = local_assigns.fetch(:unconnected_suppliers, []) %>
+<% teasers = local_assigns.fetch(:teasers, {}) %>
+<% total_supplier_cols = suppliers.size + unconnected_suppliers.size %>
+<% search_url = supplier_items_search_aggregated_list_path(aggregated_list) %>
+<%# Is the price comparison apples-to-apples? :exact means at least two
+    suppliers quote in the same unit. :single means only one supplier — nothing
+    to compare. :incomparable means the units don't line up (each vs oz, sheets
+    vs bushels) and any "cheapest" would be a guess. Only :exact earns BEST. %>
+<% comparison = price_info && price_info[:comparison] %>
+<% compared_ids = (price_info && price_info[:compared_supplier_ids]) || [] %>
+<% comparison_trusted = comparison == :exact %>
+
+<div id="<%= dom_id(match) %>"
+     data-match-filter-target="row"
+     data-match-status="<%= match.unmatched? ? 'unmatched' : 'matched' %>"
+     class="bg-white shadow rounded-lg <%= match.unmatched? ? 'ring-1 ring-amber-200' : '' %>">
+  <div class="flex flex-col sm:flex-row">
+    <%= render "aggregated_lists/match_row_left", match: match, aggregated_list: aggregated_list, comparison: comparison %>
+
+    <%# Right: grid of supplier cells (min-w-0 stops long product names blowing out the row width) %>
+    <div class="flex-1 min-w-0" style="padding:10px;">
+      <div class="grid" style="grid-template-columns: repeat(<%= [total_supplier_cols, 1].max %>, 1fr); gap: 6px;">
+        <% suppliers.each do |supplier| %>
+          <% lookup = supplier_map[supplier.id] %>
+          <% item = lookup&.dig(:item) %>
+          <% pmi = lookup&.dig(:pmi) %>
+          <% spread = price_info && price_info[:spread] %>
+          <% is_cheapest = comparison_trusted && item && price_info[:cheapest_supplier] == supplier && spread && spread > 0 %>
+          <% is_most_expensive = comparison_trusted && item && price_info[:most_expensive_supplier] == supplier && spread && spread > 0 %>
+          <%# This supplier's unit wouldn't line up with the group that was
+              compared, so its price never competed for BEST. Say so in the cell
+              rather than letting it look like a considered loser. %>
+          <% left_out = comparison_trusted && item && !compared_ids.include?(supplier.id) %>
+          <%= render "aggregated_lists/supplier_cell_card",
+                     product_match: match,
+                     supplier: supplier,
+                     item: item,
+                     pmi: pmi,
+                     search_url: search_url,
+                     supplier_id: supplier.id,
+                     is_cheapest: is_cheapest,
+                     is_most_expensive: is_most_expensive,
+                     left_out: left_out,
+                     readonly: true %>
+        <% end %>
+
+        <%# Teaser cells for suppliers the chef hasn't connected yet %>
+        <% unconnected_suppliers.each do |supplier| %>
+          <% teaser_product = teasers[supplier.id] %>
+          <% if teaser_product %>
+            <div class="border border-dashed border-gray-300 bg-gray-50 min-w-0" style="padding:10px; border-radius:8px;">
+              <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                <svg class="text-gray-400 flex-shrink-0" style="width:12px; height:12px;" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <span class="text-gray-500" style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;"><%= supplier.short_name %></span>
+              </div>
+              <div class="text-gray-500" style="font-size:11px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;"><%= teaser_product.supplier_name.to_s.truncate(80) %></div>
+              <div class="text-gray-400" style="font-size:10px; margin-top:2px;"><%= teaser_product.pack_size %></div>
+              <% if teaser_product.current_price %>
+                <div class="text-gray-500 font-bold" style="font-size:14px; margin-top:4px;"><%= number_to_currency(teaser_product.current_price) %></div>
+              <% end %>
+              <%# Desktop-only pill: link to connect this supplier %>
+              <%= link_to new_supplier_credential_path(supplier_id: supplier.id),
+                  class: "hidden sm:inline-flex items-center gap-1 rounded-full bg-brand-orange/10 text-brand-orange hover:bg-brand-orange hover:text-white transition-colors font-medium",
+                  style: "margin-top:6px; padding:2px 8px; font-size:10px;" do %>
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width:10px; height:10px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Add this supplier
+              <% end %>
+            </div>
+          <% end %>
+        <% end %>
+      </div>
+    </div>
+  </div>
+</div>
