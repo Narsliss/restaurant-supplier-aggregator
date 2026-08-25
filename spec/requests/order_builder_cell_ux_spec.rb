@@ -150,6 +150,22 @@ RSpec.describe "Order builder cell UX", type: :request do
     end
   end
 
+  # The command bar is rendered twice — a narrow-screen row and a desktop row.
+  # The builder JS has to write every KPI to BOTH copies; updating only the
+  # first left the desktop bar reading "ITEMS 0 / TOTAL $0.00" over a
+  # prefilled order.
+  describe "the command bar KPIs" do
+    it "renders both copies of the KPIs that appear at both widths" do
+      doc = Nokogiri::HTML(response.body)
+      %w[itemCount runningTotal].each do |kpi|
+        expect(doc.css(%([data-order-builder-target="#{kpi}"])).size).to eq(2), "expected 2 #{kpi} elements"
+      end
+      # The supplier COUNT is narrow-screen only — the desktop row shows a
+      # per-supplier mini-card for each instead.
+      expect(doc.css('[data-order-builder-target="supplierCount"]').size).to eq(1)
+    end
+  end
+
   # Desktop had no itemized view of the order — a line added weeks ago stayed
   # invisible unless you scrolled past its row. The Items card in the command
   # bar opens the list; the JS fills it from the live selection model.

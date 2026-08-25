@@ -9,6 +9,15 @@ export default class extends Controller {
     this._csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
     this.updateTotals()
     this._setupFixedUI()
+
+    // ORDERING SAFETY: the hidden quantity fields are normally written from
+    // updateTotals(), which runs a frame or two after a change. Write them one
+    // last time as the form goes, so what's submitted can never lag the model.
+    this._orderForm = document.getElementById("order-form")
+    if (this._orderForm) {
+      this._submitHandler = () => this._serializeSelections()
+      this._orderForm.addEventListener("submit", this._submitHandler)
+    }
   }
 
   disconnect() {
@@ -19,6 +28,7 @@ export default class extends Controller {
     if (this._floatingCategory) this._floatingCategory.remove()
     if (this._scrollTopBtn) this._scrollTopBtn.remove()
     if (this._orderPanel) this._orderPanel.remove()
+    if (this._orderForm && this._submitHandler) this._orderForm.removeEventListener("submit", this._submitHandler)
   }
 
   _setupFixedUI() {
@@ -472,9 +482,13 @@ export default class extends Controller {
     this._serializeSelections()
 
     // Update Stimulus targets (original hidden bar)
-    if (this.hasRunningTotalTarget) this.runningTotalTarget.textContent = `$${total.toFixed(2)}`
-    if (this.hasItemCountTarget) this.itemCountTarget.textContent = itemCount
-    if (this.hasSupplierCountTarget) this.supplierCountTarget.textContent = supplierIds.size
+    // The command bar renders each KPI TWICE — a narrow-screen row and a desktop
+    // row — so these must be the plural targets. Writing only the singular one
+    // updated the narrow copy and left the desktop copy at its "0" default,
+    // which is what the clone below then froze in place on page load.
+    this.runningTotalTargets.forEach(el => el.textContent = `$${total.toFixed(2)}`)
+    this.itemCountTargets.forEach(el => el.textContent = itemCount)
+    this.supplierCountTargets.forEach(el => el.textContent = supplierIds.size)
 
     // Update cloned fixed bar elements (multiple for mobile+desktop)
     if (this._fixedItemCounts) this._fixedItemCounts.forEach(el => el.textContent = itemCount)
