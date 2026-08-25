@@ -52,7 +52,8 @@ RSpec.describe "Current order flow", type: :request do
       expect(response).to have_http_status(:no_content)
 
       co = CurrentOrder.find_by(user: chef, aggregated_list: aggregated_list)
-      expect(co.sanitized_state[match.id.to_s]).to include("qty" => 3.0, "supplierId" => supplier.id.to_s)
+      expect(co.sanitized_state[match.id.to_s])
+        .to contain_exactly(hash_including("qty" => 3.0, "supplierId" => supplier.id.to_s))
 
       get order_builder_aggregated_list_path(aggregated_list), headers: MOBILE_UA_CO
       expect(response.body).to include(%(data-initial-qty="3"))
@@ -63,7 +64,7 @@ RSpec.describe "Current order flow", type: :request do
       put_current_order(qty: 3)
       put_current_order(qty: 5)
       expect(CurrentOrder.where(user: chef).count).to eq(1)
-      expect(CurrentOrder.last.sanitized_state[match.id.to_s]["qty"]).to eq(5.0)
+      expect(CurrentOrder.last.sanitized_state[match.id.to_s].sum { |l| l["qty"] }).to eq(5.0)
     end
 
     it "rejects lists outside the chef's organization" do

@@ -240,15 +240,35 @@ export default class extends Controller {
         }
       }
     })
-    // Index supplier cells by match — selection ring + "ordered" fill both
-    // need every cell for a match (desktop card + in-page mobile card).
+    // Index supplier cells by match — the ring, the per-supplier counts and the
+    // "ordered" fill all need every cell for a match (desktop card + in-page
+    // mobile card render one each).
     this._matchCells = {}
-    this._cellFillState = {}
+    this._rowCache = {}
+    // A product can be sourced from more than one supplier at once, so quantity
+    // lives per (match, supplier) rather than per row:
+    //   _sel[matchId][supplierId] = { qty, uom }
+    // _primary[matchId] is the highlighted cell — the one +/- and typing feed.
+    this._sel = {}
+    this._primary = {}
     this.supplierCellTargets.forEach(cell => {
       const matchId = cell.dataset.matchId
       if (!matchId) return
       if (!this._matchCells[matchId]) this._matchCells[matchId] = []
       this._matchCells[matchId].push(cell)
+
+      const supplierId = cell.dataset.supplierIdValue
+      const qty = parseInt(cell.dataset.cellQty) || 0
+      if (qty > 0 && supplierId) {
+        if (!this._sel[matchId]) this._sel[matchId] = {}
+        this._sel[matchId][supplierId] = { qty, uom: cell.dataset.currentUom || "CS" }
+      }
+      if (cell.dataset.default === "true" && supplierId) this._primary[matchId] = supplierId
+    })
+    // A row with quantities but no marked default still needs somewhere to aim
+    // the + button.
+    Object.keys(this._sel).forEach(matchId => {
+      if (!this._primary[matchId]) this._primary[matchId] = Object.keys(this._sel[matchId])[0]
     })
     // Cache category sections for scroll handler (fires every scroll event)
     this._cachedCategorySections = this.categorySectionTargets
@@ -279,53 +299,105 @@ export default class extends Controller {
     })
   }
 
-  // Fill the background of a match's selected supplier cell once it's ordered.
-  // Unordered cells stay neutral; the orange ring alone marks the selection.
-  _updateCellFill(matchId) {
-    const cells = this._matchCells?.[matchId]
-    if (!cells?.length) return
-    const input = this._matchInputs?.[matchId]?.[0]
-    if (!input) return
-    const selectedSupplierId = input.dataset.supplierId
-    const ordered = (parseInt(input.value) || 0) > 0
-    // Skip the DOM writes when nothing changed — updateTotals() runs over every
-    // match on each keystroke, and these loops add up on large lists.
-    const key = `${selectedSupplierId}:${ordered}`
-    if (this._cellFillState[matchId] === key) return
-    this._cellFillState[matchId] = key
-    cells.forEach(cell => {
-      const fill = ordered && cell.dataset.supplierIdValue === selectedSupplierId
-      cell.classList.toggle("bg-brand-orange-50", fill)
-      cell.classList.toggle("bg-gray-50", !fill)
-    })
+  // The highlighted supplier receives +/-, typing, and Clear. Clicking a
+  // different cell moves the highlight; it never moves an existing quantity.
+  _primarySupplier(matchId) {
+    if (this._primary[matchId]) return this._primary[matchId]
+    const cell = this._matchCells?.[matchId]?.[0]
+    if (cell) this._primary[matchId] = cell.dataset.supplierIdValue
+    return this._primary[matchId]
   }
 
-  // Set the value for ALL inputs sharing the same match ID (desktop + mobile)
-  // Uses index map for O(1) lookup instead of scanning all targets
-  _setMatchQuantity(matchId, value) {
-    const inputs = this._matchInputs?.[matchId]
-    if (inputs) {
-      inputs.forEach(input => input.value = value)
+  _cellFor(matchId, supplierId) {
+    return this._matchCells?.[matchId]?.find(c => c.dataset.supplierIdValue === supplierId)
+  }
+
+  // Set the highlighted supplier's quantity for this match. Other suppliers on
+  // the same row keep theirs.
+  _setPrimaryQuantity(matchId, value) {
+    const supplierId = this._primarySupplier(matchId)
+    if (!supplierId) return
+    const qty = Math.max(0, value)
+    if (!this._sel[matchId]) this._sel[matchId] = {}
+    if (qty === 0) {
+      delete this._sel[matchId][supplierId]
+      if (Object.keys(this._sel[matchId]).length === 0) delete this._sel[matchId]
     } else {
-      // Fallback if index not built yet
-      this.quantityInputTargets.forEach(input => {
-        if (input.dataset.matchId === matchId) input.value = value
-      })
+      const cell = this._cellFor(matchId, supplierId)
+      const existing = this._sel[matchId][supplierId]
+      this._sel[matchId][supplierId] = {
+        qty,
+        uom: existing?.uom || cell?.dataset.currentUom || "CS"
+      }
     }
   }
 
-  // Instantly update the line total for ONE match — gives immediate visual feedback
-  _updateMatchLineTotal(matchId) {
-    const inputs = this._matchInputs?.[matchId]
-    if (!inputs?.length) return
-    const input = inputs[0]
-    const qty = parseInt(input.value) || 0
-    const price = parseFloat(input.dataset.price) || 0
-    const lineTotal = qty * price
+  _primaryQuantity(matchId) {
+    const supplierId = this._primarySupplier(matchId)
+    return this._sel[matchId]?.[supplierId]?.qty || 0
+  }
+
+  // Clear every supplier on the row, not just the highlighted one.
+  _clearMatch(matchId) {
+    delete this._sel[matchId]
+  }
+
+  // Render ONE row and return what it contributes to the page totals.
+  // Cheap to call in a loop: when nothing about the row changed it replays the
+  // cached numbers instead of touching the DOM, which matters because
+  // updateTotals() walks every match on each keystroke.
+  _renderMatch(matchId) {
+    const sel = this._sel[matchId] || {}
+    const primary = this._primarySupplier(matchId)
+    const sig = `${primary}|` + Object.keys(sel).sort()
+      .map(id => `${id}:${sel[id].qty}:${sel[id].uom}`).join(",")
+
+    const cached = this._rowCache[matchId]
+    if (cached && cached.sig === sig) return cached
+
+    let total = 0
+    let lineTotal = 0
+    const perSupplier = {}
+
+    this._matchCells?.[matchId]?.forEach(cell => {
+      const supplierId = cell.dataset.supplierIdValue
+      const qty = sel[supplierId]?.qty || 0
+      const price = parseFloat(cell.dataset.supplierPrice) || 0
+
+      // Each cell carries its own count, bottom-right, hidden at zero.
+      const count = cell.querySelector("[data-cell-count]")
+      if (count) {
+        count.textContent = qty
+        count.classList.toggle("hidden", qty === 0)
+      }
+      cell.dataset.cellQty = qty
+      // Filled background means "ordered from here"; the ring means "the +
+      // button feeds this one". They're independent now.
+      cell.classList.toggle("bg-brand-orange-50", qty > 0)
+      cell.classList.toggle("bg-gray-50", qty === 0)
+      const isPrimary = supplierId === primary
+      cell.classList.toggle("ring-2", isPrimary)
+      cell.classList.toggle("ring-brand-orange", isPrimary)
+
+      if (qty > 0) {
+        total += qty
+        lineTotal += qty * price
+        perSupplier[supplierId] = (perSupplier[supplierId] || 0) + qty * price
+      }
+    })
+
+    // The row's box shows the TOTAL across suppliers. Leave the one being typed
+    // in alone — rewriting it mid-keystroke would fight the caret.
+    this._matchInputs?.[matchId]?.forEach(input => {
+      if (input === document.activeElement) return
+      if (input.value !== String(total)) input.value = total
+    })
     const text = lineTotal > 0 ? `$${lineTotal.toFixed(2)}` : "\u2014"
-    const totals = this._matchLineTotals?.[matchId]
-    if (totals) totals.forEach(el => el.textContent = text)
-    this._updateCellFill(matchId)
+    this._matchLineTotals?.[matchId]?.forEach(el => el.textContent = text)
+
+    const result = { sig, total, lineTotal, perSupplier }
+    this._rowCache[matchId] = result
+    return result
   }
 
   // Defer heavy KPI recalculation AFTER the browser paints.
@@ -350,40 +422,26 @@ export default class extends Controller {
     const supplierTotals = {}
     const seenMatches = new Set()
 
-    // Use cached arrays — NOT this.quantityInputTargets / this.lineTotalTargets!
-    // Each Stimulus getter calls querySelectorAll on the entire DOM.
-    // Inside a loop of 1000, that's 2000+ full DOM scans = ~1 second of lag.
-    const inputs = this._cachedQuantityInputs || this.quantityInputTargets
-    const lineTotals = this._cachedLineTotals || this.lineTotalTargets
+    // Walk each match ONCE (desktop + in-page mobile render the same row twice)
+    // and let _renderMatch redraw it and hand back its contribution.
+    Object.keys(this._matchInputs || {}).forEach(matchId => {
+      if (seenMatches.has(matchId)) return
+      seenMatches.add(matchId)
 
-    inputs.forEach((input, index) => {
-      const matchId = input.dataset.matchId
-      const qty = parseInt(input.value) || 0
-      const price = parseFloat(input.dataset.price) || 0
-      const supplierId = input.dataset.supplierId
-      const lineTotal = qty * price
+      const row = this._renderMatch(matchId)
+      if (row.total <= 0) return
 
-      // Update the line total display for this row
-      if (lineTotals[index]) {
-        lineTotals[index].textContent = lineTotal > 0
-          ? `$${lineTotal.toFixed(2)}`
-          : "\u2014"
-      }
-
-      // Only count each match once for KPI totals (desktop + mobile are duplicates)
-      if (matchId && !seenMatches.has(matchId)) {
-        seenMatches.add(matchId)
-        this._updateCellFill(matchId)
-        if (qty > 0) {
-          total += lineTotal
-          itemCount++
-          if (supplierId) {
-            supplierIds.add(supplierId)
-            supplierTotals[supplierId] = (supplierTotals[supplierId] || 0) + lineTotal
-          }
-        }
-      }
+      total += row.lineTotal
+      // A product split across two suppliers is still one item on the list.
+      itemCount++
+      Object.entries(row.perSupplier).forEach(([supplierId, amount]) => {
+        supplierIds.add(supplierId)
+        supplierTotals[supplierId] = (supplierTotals[supplierId] || 0) + amount
+      })
     })
+
+    // Keep the form's hidden fields in step with the model.
+    this._serializeSelections()
 
     // Update Stimulus targets (original hidden bar)
     if (this.hasRunningTotalTarget) this.runningTotalTarget.textContent = `$${total.toFixed(2)}`
@@ -450,21 +508,37 @@ export default class extends Controller {
     }
   }
 
+  // The row's own box shows a total that may span suppliers, so it can't be the
+  // form field. Write one hidden quantity per (match, supplier) instead.
+  _serializeSelections() {
+    const container = document.getElementById("order-selections")
+    if (!container) return
+    const parts = []
+    Object.entries(this._sel).forEach(([matchId, bySupplier]) => {
+      Object.entries(bySupplier).forEach(([supplierId, line]) => {
+        if (!(line.qty > 0)) return
+        parts.push(
+          `<input type="hidden" name="quantities[${matchId}][${supplierId}]" value="${line.qty}">` +
+          `<input type="hidden" name="uom_overrides[${matchId}][${supplierId}]" value="${line.uom || "CS"}">`
+        )
+      })
+    })
+    const html = parts.join("")
+    // Rewriting identical markup on every keystroke would thrash the form.
+    if (this._serializedHtml === html) return
+    this._serializedHtml = html
+    container.innerHTML = html
+  }
+
   // ---- Working-order persistence (same contract as the mobile builder) ----
 
   _collectOrderState() {
     const state = {}
-    const inputs = this._cachedQuantityInputs || this.quantityInputTargets
-    inputs.forEach(input => {
-      const matchId = input.dataset.matchId
-      const qty = parseInt(input.value) || 0
-      if (!matchId || qty <= 0 || state[matchId]) return
-      const uomInput = this.element.querySelector(`input[name="uom_overrides[${matchId}]"]`)
-      state[matchId] = {
-        supplierId: input.dataset.supplierId,
-        qty,
-        uom: uomInput?.value || "CS"
-      }
+    Object.entries(this._sel).forEach(([matchId, bySupplier]) => {
+      const lines = Object.entries(bySupplier)
+        .filter(([, line]) => line.qty > 0)
+        .map(([supplierId, line]) => ({ supplierId, qty: line.qty, uom: line.uom || "CS" }))
+      if (lines.length) state[matchId] = lines
     })
     return state
   }
@@ -609,43 +683,15 @@ export default class extends Controller {
     return null
   }
 
+  // Clicking a cell aims the +/- controls at that supplier. It deliberately does
+  // NOT carry an existing quantity over: a chef ordering 5 salads from PPO and
+  // clicking WCW wants to add one there, not move all five.
   selectSupplier(event) {
     const cell = event.currentTarget
     const matchId = cell.dataset.matchId
-    const newPrice = parseFloat(cell.dataset.supplierPrice) || 0
-    const newSupplierId = cell.dataset.supplierIdValue
+    this._primary[matchId] = cell.dataset.supplierIdValue
 
-    // Update all quantity inputs for this match (desktop + mobile) with new price/supplier
-    const matchInputs = this._matchInputs?.[matchId] || []
-    matchInputs.forEach(input => {
-      input.dataset.price = newPrice
-      input.dataset.supplierId = newSupplierId
-    })
-
-    // The orange ring is the only outline a cell gets — it marks the supplier this
-    // match will be ordered from. Move it to the clicked cell (desktop + mobile copies).
-    const cells = this._matchCells?.[matchId] ||
-      this.supplierCellTargets.filter(c => c.dataset.matchId === matchId)
-    cells.forEach(c => {
-      const selected = c.dataset.supplierIdValue === newSupplierId
-      c.classList.toggle("ring-2", selected)
-      c.classList.toggle("ring-brand-orange", selected)
-    })
-
-    // Update hidden override field so the form submission knows which supplier was picked
-    let overridesDiv = document.getElementById("supplier-overrides")
-    let existing = overridesDiv.querySelector(`input[name="supplier_overrides[${matchId}]"]`)
-    if (existing) {
-      existing.value = newSupplierId
-    } else {
-      const input = document.createElement("input")
-      input.type = "hidden"
-      input.name = `supplier_overrides[${matchId}]`
-      input.value = newSupplierId
-      overridesDiv.appendChild(input)
-    }
-
-    this._updateMatchLineTotal(matchId)
+    this._renderMatch(matchId)
     this._scheduleUpdateTotals()
   }
 
@@ -712,62 +758,64 @@ export default class extends Controller {
       }
     }
 
-    // Update quantity input price if this supplier is currently selected
-    const matchInputs = this._matchInputs?.[matchId] || []
-    matchInputs.forEach(input => {
-      if (input.dataset.supplierId === supplierId) {
-        input.dataset.price = uomPrice
-      }
-    })
+    // CS/PC is per supplier, not per row — one product can be cases from one
+    // supplier and pieces from another. _serializeSelections writes it out.
+    if (this._sel[matchId]?.[supplierId]) this._sel[matchId][supplierId].uom = uom
 
-    // Update hidden UOM override field
-    let overridesDiv = document.getElementById("uom-overrides")
-    if (overridesDiv) {
-      let existing = overridesDiv.querySelector(`input[name="uom_overrides[${matchId}]"]`)
-      if (existing) {
-        existing.value = uom
-      } else {
-        const input = document.createElement("input")
-        input.type = "hidden"
-        input.name = `uom_overrides[${matchId}]`
-        input.value = uom
-        overridesDiv.appendChild(input)
-      }
-    }
-
-    this._updateMatchLineTotal(matchId)
+    this._renderMatch(matchId)
     this._scheduleUpdateTotals()
   }
 
+  _rowMatchId(event) {
+    return event.currentTarget.closest("[data-order-builder-row]")
+      ?.querySelector("[data-order-builder-target='quantityInput']")?.dataset.matchId
+  }
+
   increment(event) {
-    const input = event.currentTarget.closest("[data-order-builder-row]").querySelector("[data-order-builder-target='quantityInput']")
-    const newValue = (parseInt(input.value) || 0) + 1
-    const matchId = input.dataset.matchId
-    // Instant visual feedback: update input + line total immediately
-    this._setMatchQuantity(matchId, newValue)
-    this._updateMatchLineTotal(matchId)
-    // Defer heavy KPI recalc to next frame so browser paints the change first
+    const matchId = this._rowMatchId(event)
+    if (!matchId) return
+    this._setPrimaryQuantity(matchId, this._primaryQuantity(matchId) + 1)
+    // Instant visual feedback; defer the heavy KPI recalc to the next frame
+    this._renderMatch(matchId)
     this._scheduleUpdateTotals()
   }
 
   decrement(event) {
-    const input = event.currentTarget.closest("[data-order-builder-row]").querySelector("[data-order-builder-target='quantityInput']")
-    const current = parseInt(input.value) || 0
-    if (current > 0) {
-      const newValue = current - 1
-      const matchId = input.dataset.matchId
-      this._setMatchQuantity(matchId, newValue)
-      this._updateMatchLineTotal(matchId)
-      this._scheduleUpdateTotals()
-    }
+    const matchId = this._rowMatchId(event)
+    if (!matchId) return
+    const current = this._primaryQuantity(matchId)
+    if (current <= 0) return
+    this._setPrimaryQuantity(matchId, current - 1)
+    this._renderMatch(matchId)
+    this._scheduleUpdateTotals()
   }
 
+  // Clear empties the whole row, every supplier on it — not just the highlighted
+  // one, which would leave a confusing remainder behind.
   clearQuantity(event) {
-    const input = event.currentTarget.closest("[data-order-builder-row]").querySelector("[data-order-builder-target='quantityInput']")
-    const matchId = input.dataset.matchId
-    this._setMatchQuantity(matchId, 0)
-    this._updateMatchLineTotal(matchId)
+    const matchId = this._rowMatchId(event)
+    if (!matchId) return
+    this._clearMatch(matchId)
+    this._renderMatch(matchId)
     this._scheduleUpdateTotals()
+  }
+
+  // Typing goes to the highlighted supplier, same rule as +/-. On a row split
+  // across suppliers the box then re-renders to the new total.
+  quantityTyped(event) {
+    const matchId = event.currentTarget.dataset.matchId
+    if (!matchId) return
+    this._setPrimaryQuantity(matchId, parseInt(event.currentTarget.value) || 0)
+    this._scheduleUpdateTotals()
+  }
+
+  // On the way out, snap the box to the row's real total (which on a split row
+  // is more than what was just typed).
+  quantityBlurred(event) {
+    const matchId = event.currentTarget.dataset.matchId
+    if (!matchId) return
+    delete this._rowCache[matchId]
+    this._renderMatch(matchId)
   }
 
   // === Per-supplier breakdown (progress bars + subtotals) ===

@@ -675,7 +675,8 @@ class AggregatedListsController < ApplicationController
 
     # Pre-fill quantities from existing pending/draft/verifying batch orders (when returning from review page).
     # Draft orders are what a completed verification produces; also include verifying & price_changed
-    @quantities = {}
+    @quantities = {}         # match_id(str) → total qty across suppliers (the row's left-hand box)
+    @selections = {}         # match_id(str) → { supplier_id(str) → { "qty", "uom" } }
     @prefill_suppliers = {}  # match_id(str) → supplier_id (mobile: restore the chef's actual pick, not cheapest)
     @prefill_uoms = {}       # match_id(str) → "CS"/"PC"
     @delivery_date = nil
@@ -688,10 +689,17 @@ class AggregatedListsController < ApplicationController
     current_order = CurrentOrder.find_by(user: current_user, aggregated_list: @aggregated_list)
     if current_order && !current_order.empty?
       @delivery_date = current_order.delivery_date
-      current_order.sanitized_state.each do |match_id, entry|
-        @quantities[match_id] = entry["qty"]
-        @prefill_suppliers[match_id] = entry["supplierId"].to_i
-        @prefill_uoms[match_id] = entry["uom"] if entry["uom"].present?
+      current_order.sanitized_state.each do |match_id, lines|
+        # A product can be split across suppliers, so the row's box shows the
+        # total while each supplier cell renders its own share.
+        @quantities[match_id] = lines.sum { |line| line["qty"] }
+        @selections[match_id] = lines.each_with_object({}) do |line, out|
+          out[line["supplierId"]] = { "qty" => line["qty"], "uom" => line["uom"] }
+        end
+        # The biggest line is the one the row highlights when it reopens.
+        primary = lines.max_by { |line| line["qty"] }
+        @prefill_suppliers[match_id] = primary["supplierId"].to_i
+        @prefill_uoms[match_id] = primary["uom"] if primary["uom"].present?
       end
     end
 

@@ -90,4 +90,56 @@ RSpec.describe "Order builder cell UX", type: :request do
     expect(filled.size).to eq(2)
     expect(filled.map { |cell| cell["data-supplier-id-value"] }.uniq).to eq([cheap_supplier.id.to_s])
   end
+
+  # The point of splitting: 5 salads from the cheap supplier plus 1 from the
+  # pricier one, because that last $12 clears its order minimum.
+  describe "a product split across two suppliers" do
+    let(:match) { aggregated_list.product_matches.first }
+
+    before do
+      put current_order_path, params: {
+        aggregated_list_id: aggregated_list.id,
+        state: { match.id.to_s => [
+          { supplierId: cheap_supplier.id.to_s, qty: 5, uom: "CS" },
+          { supplierId: pricey_supplier.id.to_s, qty: 1, uom: "CS" }
+        ] },
+        delivery_date: Date.tomorrow.iso8601
+      }, as: :json
+      get order_builder_aggregated_list_path(aggregated_list)
+    end
+
+    it "reopens the builder with each supplier's own quantity on its cell" do
+      counts = supplier_cells.to_h { |cell| [cell["data-supplier-id-value"], cell["data-cell-qty"]] }
+      expect(counts).to eq(cheap_supplier.id.to_s => "5", pricey_supplier.id.to_s => "1")
+    end
+
+    it "fills both cells, because both are being ordered from" do
+      expect(cells_with("bg-brand-orange-50").size).to eq(supplier_cells.size)
+    end
+
+    it "highlights the bigger line as the one +/- will feed" do
+      ringed = cells_with("ring-brand-orange").map { |cell| cell["data-supplier-id-value"] }.uniq
+      expect(ringed).to eq([cheap_supplier.id.to_s])
+    end
+
+    it "shows the row total, not either supplier's share" do
+      totals = Nokogiri::HTML(response.body)
+        .css('[data-order-builder-target="quantityInput"]').map { |i| i["value"] }
+      expect(totals.uniq).to eq(["6"])
+    end
+
+    it "creates one order per supplier when submitted" do
+      expect {
+        post create_from_aggregated_list_orders_path, params: {
+          aggregated_list_id: aggregated_list.id,
+          quantities: { match.id.to_s => { cheap_supplier.id.to_s => "5", pricey_supplier.id.to_s => "1" } },
+          uom_overrides: { match.id.to_s => { cheap_supplier.id.to_s => "CS", pricey_supplier.id.to_s => "CS" } },
+          delivery_date: Date.tomorrow.iso8601
+        }
+      }.to change(Order.where(status: "pending"), :count).by(2)
+
+      quantities = Order.where(status: "pending").to_h { |o| [o.supplier_id, o.order_items.sole.quantity] }
+      expect(quantities).to eq(cheap_supplier.id => 5, pricey_supplier.id => 1)
+    end
+  end
 end

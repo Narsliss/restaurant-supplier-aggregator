@@ -2,8 +2,13 @@
 <% cheapest = match.cheapest_supplier %>
 <% cheapest_price = cheapest&.dig(:price) || 0 %>
 <% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
-<% current_qty = quantities[match.id.to_s] || 0 %>
-<% has_quantity = current_qty.to_i > 0 %>
+<%# Quantities come back off the saved working order as floats — the box shows
+    whole cases, so "6", never "6.0". %>
+<% current_qty = (quantities[match.id.to_s] || 0).to_i %>
+<% has_quantity = current_qty > 0 %>
+<%# Per-supplier quantities for this product — a row can draw from more than one %>
+<% row_selections = local_assigns.fetch(:selections, {})[match.id.to_s] || {} %>
+<% primary_supplier_id = local_assigns.fetch(:primary_supplier_id, nil) || cheapest_supplier_id %>
 
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-3 overflow-hidden <%= has_quantity ? '' : '' %>"
      data-order-builder-row data-product-name="<%= match.display_name.downcase %>">
@@ -30,7 +35,7 @@
         </div>
       </div>
       <% if has_quantity %>
-        <p class="text-sm font-bold text-brand-navy whitespace-nowrap" data-order-builder-target="lineTotal"><%= number_to_currency(cheapest_price * current_qty.to_i) %></p>
+        <p class="text-sm font-bold text-brand-navy whitespace-nowrap" data-order-builder-target="lineTotal"><%= number_to_currency(cheapest_price * current_qty) %></p>
       <% else %>
         <span data-order-builder-target="lineTotal"></span>
       <% end %>
@@ -47,10 +52,12 @@
           <% in_stock = sp ? sp.in_stock : item.in_stock %>
           <% if effective_price %>
             <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-            <% is_default = cheapest && cheapest[:supplier] == supplier %>
-            <div class="flex-shrink-0 rounded-lg px-2 py-1.5 cursor-pointer transition-all border border-gray-200
+            <% is_default = supplier.id == primary_supplier_id %>
+            <% cell_selection = row_selections[supplier.id.to_s] || {} %>
+            <% cell_qty = cell_selection["qty"].to_i %>
+            <div class="relative flex-shrink-0 rounded-lg px-2 py-1.5 cursor-pointer transition-all border border-gray-200
                         <%= is_default ? 'ring-2 ring-brand-orange' : '' %>
-                        <%= is_default && has_quantity ? 'bg-brand-orange-50' : 'bg-gray-50' %>
+                        <%= cell_qty > 0 ? 'bg-brand-orange-50' : 'bg-gray-50' %>
                         <%= is_cheapest ? 'best-price' : '' %>
                         <%= in_stock == false ? 'opacity-50' : '' %>"
                  data-action="click->order-builder#selectSupplier"
@@ -58,7 +65,11 @@
                  data-supplier-id-value="<%= supplier.id %>"
                  data-match-id="<%= match.id %>"
                  data-order-builder-target="supplierCell"
+                 data-cell-qty="<%= cell_qty %>"
+                 data-current-uom="<%= cell_selection["uom"].presence || "CS" %>"
                  data-default="<%= is_default %>">
+              <span data-cell-count
+                    class="absolute bottom-1 right-1.5 text-[11px] font-bold text-brand-orange-dark <%= cell_qty > 0 ? '' : 'hidden' %>"><%= cell_qty %></span>
               <p class="text-[9px] font-bold uppercase text-gray-400"><%= supplier.name.first(3).upcase %></p>
               <p class="text-xs font-bold text-gray-900">
                 <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
@@ -91,9 +102,7 @@
                min="0"
                class="w-12 h-8 border-y border-gray-200 text-center text-sm font-semibold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none <%= has_quantity ? '' : 'text-gray-400' %>"
                data-order-builder-target="quantityInput"
-               data-action="input->order-builder#updateTotals"
-               data-price="<%= cheapest_price %>"
-               data-supplier-id="<%= cheapest_supplier_id %>"
+               data-action="input->order-builder#quantityTyped blur->order-builder#quantityBlurred"
                data-match-id="<%= match.id %>"
                data-mobile="true">
         <button type="button"

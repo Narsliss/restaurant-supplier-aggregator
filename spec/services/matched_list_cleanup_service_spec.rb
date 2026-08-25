@@ -115,7 +115,7 @@ RSpec.describe MatchedListCleanupService do
       # The in-progress cart entry follows the merge instead of vanishing
       expect(current_order.reload.state).to have_key(keeper.id.to_s)
       expect(current_order.state).not_to have_key(dup.id.to_s)
-      expect(current_order.sanitized_state[keeper.id.to_s]['qty']).to eq(2.0)
+      expect(current_order.sanitized_state[keeper.id.to_s].sum { |l| l['qty'] }).to eq(2.0)
     end
 
     it 'refuses to merge an unflagged line' do

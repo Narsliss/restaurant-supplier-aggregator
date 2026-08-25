@@ -21,7 +21,10 @@ export default class extends Controller {
   static values = { minimums: Object, listId: Number }
 
   connect() {
-    this.state = {}    // matchId -> { supplierId, qty, uom }
+    // A product can be sourced from several suppliers at once — 5 salads from
+    // PPO plus 1 from WCW to clear WCW's minimum:
+    //   matchId -> { supplierId -> { qty, uom } }
+    this.state = {}
     this.chooser = null // {matchId, supplierId} showing CASE/PIECE picker
     this.category = "all"
 
@@ -30,12 +33,12 @@ export default class extends Controller {
     // The server-rendered prefill IS the chef's singular working order
     // (CurrentOrder) — it saved on every change last time and repopulates
     // here. There is deliberately no client-side draft store.
-    this.cardTargets.forEach(card => {
-      const qty = parseInt(card.dataset.initialQty || "0", 10)
+    this.cellTargets.forEach(cell => {
+      const qty = parseInt(cell.dataset.initialQty || "0", 10)
       if (qty <= 0) return
-      const supplierId = card.dataset.initialSupplierId || card.dataset.cheapestSupplierId
-      if (!supplierId) return
-      this.state[card.dataset.matchId] = { supplierId, qty, uom: card.dataset.initialUom || "CS" }
+      const { matchId, supplierId } = cell.dataset
+      if (!matchId || !supplierId) return
+      this.lines(matchId)[supplierId] = { qty, uom: cell.dataset.initialUom || "CS" }
     })
 
     this.cellTargets.forEach(cell => this.renderCell(cell))
@@ -51,6 +54,34 @@ export default class extends Controller {
       clearTimeout(this._syncTimer)
       this.pushOrder()
     }
+  }
+
+  // ---- Selection helpers ----
+
+  lines(matchId) {
+    return (this.state[matchId] ||= {})
+  }
+
+  lineFor(matchId, supplierId) {
+    return this.state[matchId]?.[supplierId]
+  }
+
+  setLine(matchId, supplierId, qty, uom) {
+    if (qty <= 0) {
+      if (this.state[matchId]) {
+        delete this.state[matchId][supplierId]
+        if (Object.keys(this.state[matchId]).length === 0) delete this.state[matchId]
+      }
+      return
+    }
+    this.lines(matchId)[supplierId] = { qty, uom }
+  }
+
+  // Every (match, supplier) line on the order, flattened for rendering.
+  allLines() {
+    return Object.entries(this.state).flatMap(([matchId, bySupplier]) =>
+      Object.entries(bySupplier).map(([supplierId, line]) => ({ matchId, supplierId, ...line }))
+    )
   }
 
   // ---- Working-order persistence: every change saves to the server ----
@@ -71,10 +102,21 @@ export default class extends Controller {
       keepalive: true,
       body: JSON.stringify({
         aggregated_list_id: this.listIdValue,
-        state: this.state,
+        state: this.serializedState(),
         delivery_date: this.deliveryDateTarget.value
       })
     }).catch(() => {})
+  }
+
+  // CurrentOrder stores each product as a LIST of supplier lines.
+  serializedState() {
+    return Object.entries(this.state).reduce((out, [matchId, bySupplier]) => {
+      const lines = Object.entries(bySupplier)
+        .filter(([, line]) => line.qty > 0)
+        .map(([supplierId, line]) => ({ supplierId, qty: line.qty, uom: line.uom || "CS" }))
+      if (lines.length) out[matchId] = lines
+      return out
+    }, {})
   }
 
   // "Clear order" — the one manual way to empty the working order.
@@ -292,7 +334,7 @@ export default class extends Controller {
       .then(r => r.json().then(body => r.ok ? body : Promise.reject(body)))
       .then(card => {
         this.injectCard(card)
-        this.state[card.match_id] = { supplierId: String(card.supplier_id), qty: 1, uom: "CS" }
+        this.setLine(String(card.match_id), String(card.supplier_id), 1, "CS")
         btn.textContent = "✓"
         btn.classList.remove("bg-brand-green")
         btn.classList.add("bg-gray-300")
@@ -391,9 +433,9 @@ export default class extends Controller {
   tapCell(event) {
     const cell = event.currentTarget.closest("[data-supplier-id]")
     const { matchId, supplierId } = cell.dataset
-    const existing = this.state[matchId]
+    const existing = this.lineFor(matchId, supplierId)
 
-    if (existing && existing.supplierId === supplierId) {
+    if (existing) {
       existing.qty += 1
       this.afterChange(matchId)
       return
@@ -415,11 +457,9 @@ export default class extends Controller {
 
   select(cell, uom) {
     const { matchId, supplierId } = cell.dataset
-    const existing = this.state[matchId]
-    const qty = existing ? existing.qty : 1
-    const isNew = !existing
-    this.state[matchId] = { supplierId, qty, uom }
-    if (isNew) this.celebrateIfBest(cell)
+    const existing = this.lineFor(matchId, supplierId)
+    this.setLine(matchId, supplierId, existing ? existing.qty : 1, uom)
+    if (!existing) this.celebrateIfBest(cell)
     this.afterChange(matchId)
   }
 
@@ -427,12 +467,12 @@ export default class extends Controller {
   decrement(event) { this.bump(event, -1) }
 
   bump(event, delta) {
-    const matchId = event.currentTarget.closest("[data-supplier-id]")?.dataset.matchId ||
-                    event.currentTarget.dataset.matchId
-    const s = this.state[matchId]
-    if (!s) return
-    s.qty = Math.max(0, s.qty + delta)
-    if (s.qty === 0) delete this.state[matchId]
+    const cell = event.currentTarget.closest("[data-supplier-id]")
+    const matchId = cell?.dataset.matchId || event.currentTarget.dataset.matchId
+    const supplierId = cell?.dataset.supplierId || event.currentTarget.dataset.supplierId
+    const line = this.lineFor(matchId, supplierId)
+    if (!line) return
+    this.setLine(matchId, supplierId, line.qty + delta, line.uom)
     this.afterChange(matchId)
   }
 
@@ -464,8 +504,8 @@ export default class extends Controller {
 
   renderCell(cell) {
     const d = cell.dataset
-    const s = this.state[d.matchId]
-    const selected = s && s.supplierId === d.supplierId
+    const s = this.lineFor(d.matchId, d.supplierId)
+    const selected = Boolean(s)
     const choosing = this.chooser && this.chooser.matchId === d.matchId && this.chooser.supplierId === d.supplierId
     const inStock = d.inStock !== "false"
 
@@ -515,11 +555,14 @@ export default class extends Controller {
   // ---- "In this order" section (comp: separate line items with steppers) ----
 
   renderOrderSection() {
-    const entries = Object.entries(this.state)
+    // A product split across two suppliers is two lines here — each one is a
+    // separate order item, going into a separate supplier's order.
+    const entries = this.allLines()
     this.orderSectionTarget.classList.toggle("hidden", entries.length === 0)
-    this.orderCountTarget.textContent = entries.reduce((a, [, s]) => a + s.qty, 0)
+    this.orderCountTarget.textContent = entries.reduce((a, line) => a + line.qty, 0)
 
-    this.orderLinesTarget.innerHTML = entries.map(([matchId, s]) => {
+    this.orderLinesTarget.innerHTML = entries.map((s) => {
+      const matchId = s.matchId
       const card = this.cardTargets.find(c => c.dataset.matchId === matchId)
       const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === s.supplierId)
       if (!card || !cell) return ""
@@ -532,9 +575,9 @@ export default class extends Controller {
             <p class="text-[11px] text-gray-500"><span class="font-bold">${cell.dataset.short}</span>${s.uom === "PC" ? " · PC" : ""} · ${this.currency(price)} ea</p>
           </div>
           <div class="flex items-center gap-0.5">
-            <button type="button" data-action="mobile-order-builder#decrement" data-match-id="${matchId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">−</button>
+            <button type="button" data-action="mobile-order-builder#decrement" data-match-id="${matchId}" data-supplier-id="${s.supplierId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">−</button>
             <span class="w-7 text-center text-sm font-extrabold">${s.qty}</span>
-            <button type="button" data-action="mobile-order-builder#increment" data-match-id="${matchId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">+</button>
+            <button type="button" data-action="mobile-order-builder#increment" data-match-id="${matchId}" data-supplier-id="${s.supplierId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">+</button>
           </div>
           <span class="text-sm font-extrabold text-brand-navy w-[62px] text-right">${this.currency(price * s.qty)}</span>
         </div>`
@@ -551,8 +594,8 @@ export default class extends Controller {
   refreshRibbon() {
     const totals = {}
     const names = {}
-    Object.entries(this.state).forEach(([matchId, s]) => {
-      const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === s.supplierId)
+    this.allLines().forEach(s => {
+      const cell = this.cellsFor(s.matchId).find(c => c.dataset.supplierId === s.supplierId)
       if (!cell) return
       totals[s.supplierId] = (totals[s.supplierId] || 0) + this.effectivePrice(cell, s.uom) * s.qty
       names[s.supplierId] = cell.dataset.short
@@ -687,7 +730,7 @@ export default class extends Controller {
     const usual = [], pantry = [], best = []
     this.cardTargets.forEach(card => {
       const matchId = card.dataset.matchId
-      if (this.state[matchId]) return
+      if (this.lineFor(matchId, supplierId)) return
       const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === supplierId)
       if (!cell || cell.dataset.inStock === "false" || !(parseFloat(cell.dataset.price) > 0)) return
       const count = parseInt(cell.dataset.orderedCount || "0", 10)
@@ -713,9 +756,9 @@ export default class extends Controller {
     const gapEl = this._suggestionSheet.querySelector("[data-suggestion-gap]")
     const min = this.minimumsValue[supplierId]
     let total = 0
-    Object.entries(this.state).forEach(([matchId, s]) => {
+    this.allLines().forEach(s => {
       if (s.supplierId !== supplierId) return
-      const cell = this.cellsFor(matchId).find(c => c.dataset.supplierId === supplierId)
+      const cell = this.cellsFor(s.matchId).find(c => c.dataset.supplierId === supplierId)
       if (cell) total += this.effectivePrice(cell, s.uom) * s.qty
     })
     if (min == null || total >= min) {
@@ -769,12 +812,11 @@ export default class extends Controller {
   writeHiddenFields() {
     const container = this.hiddenFieldsTarget
     container.innerHTML = ""
-    Object.entries(this.state).forEach(([matchId, s]) => {
+    this.allLines().forEach(s => {
       if (s.qty <= 0) return
       container.insertAdjacentHTML("beforeend",
-        `<input type="hidden" name="quantities[${matchId}]" value="${s.qty}">` +
-        `<input type="hidden" name="supplier_overrides[${matchId}]" value="${s.supplierId}">` +
-        (s.uom === "PC" ? `<input type="hidden" name="uom_overrides[${matchId}]" value="PC">` : ""))
+        `<input type="hidden" name="quantities[${s.matchId}][${s.supplierId}]" value="${s.qty}">` +
+        `<input type="hidden" name="uom_overrides[${s.matchId}][${s.supplierId}]" value="${s.uom || "CS"}">`)
     })
   }
 

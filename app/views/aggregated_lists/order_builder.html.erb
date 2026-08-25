@@ -42,6 +42,10 @@
     <% end %>
     <%# Supplier overrides are populated by JS when user clicks a non-default supplier %>
     <div id="supplier-overrides"></div>
+    <%# The builder JS writes quantities[match_id][supplier_id] and the matching
+        uom_overrides here — one product can carry a quantity from more than one
+        supplier, so the row's own box can't be the form field. %>
+    <div id="order-selections"></div>
     <%# UOM overrides are populated by JS when user toggles CS/PC on a product %>
     <div id="uom-overrides"></div>
 
@@ -207,6 +211,8 @@
                       <%= render "aggregated_lists/order_builder_desktop_card",
                                  match: match, idx: idx, suppliers: @suppliers,
                                  quantities: @quantities,
+                                 selections: @selections,
+                                 primary_supplier_id: @prefill_suppliers[match.id.to_s],
                                  frequently_ordered: @frequently_ordered[match.id],
                                  user_favorited: @user_favorited[match.id],
                                  match_sp_id: @match_sp_ids[match.id],
@@ -229,6 +235,8 @@
                       <%= render "aggregated_lists/order_builder_mobile_card",
                                  match: match, idx: idx, suppliers: @suppliers,
                                  quantities: @quantities,
+                                 selections: @selections,
+                                 primary_supplier_id: @prefill_suppliers[match.id.to_s],
                                  frequently_ordered: @frequently_ordered[match.id],
                                  user_favorited: @user_favorited[match.id],
                                  match_sp_id: @match_sp_ids[match.id] %>
@@ -266,6 +274,8 @@
                       <%= render "aggregated_lists/order_builder_desktop_card",
                                  match: match, idx: idx, suppliers: @suppliers,
                                  quantities: @quantities,
+                                 selections: @selections,
+                                 primary_supplier_id: @prefill_suppliers[match.id.to_s],
                                  frequently_ordered: @frequently_ordered[match.id],
                                  user_favorited: @user_favorited[match.id],
                                  match_sp_id: @match_sp_ids[match.id],
@@ -294,6 +304,8 @@
                       <%= render "aggregated_lists/order_builder_mobile_card",
                                  match: match, idx: idx, suppliers: @suppliers,
                                  quantities: @quantities,
+                                 selections: @selections,
+                                 primary_supplier_id: @prefill_suppliers[match.id.to_s],
                                  frequently_ordered: @frequently_ordered[match.id],
                                  user_favorited: @user_favorited[match.id],
                                  match_sp_id: @match_sp_ids[match.id] %>

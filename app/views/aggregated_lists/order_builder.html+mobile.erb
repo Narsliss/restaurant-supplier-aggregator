@@ -154,6 +154,9 @@
                   pack = item.pack_size || sp&.pack_size
                   is_best = cheapest_id == supplier.id
                   piece = item.piece_price if item.piece_price.present? && item.piece_price.positive?
+                  # A product can be sourced from several suppliers at once, so
+                  # the restored quantity belongs to the cell, not the card.
+                  cell_selection = (@selections[match.id.to_s] || {})[supplier.id.to_s] || {}
                 %>
                 <div data-mobile-order-builder-target="cell"
                      data-match-id="<%= match.id %>"
@@ -167,6 +170,8 @@
                      data-piece-display="<%= number_to_currency(piece) if piece %>"
                      data-best="<%= is_best %>"
                      data-ordered-count="<%= @ordered_counts[sp&.id] || 0 %>"
+                     data-initial-qty="<%= cell_selection["qty"].to_i %>"
+                     data-initial-uom="<%= cell_selection["uom"].presence || "CS" %>"
                      data-in-stock="<%= in_stock %>"></div>
               <% end %>
             <% end %>

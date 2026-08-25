@@ -4,6 +4,12 @@
 <% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
 
 <% is_ol = local_assigns.fetch(:order_list_item, false) %>
+<%# A product can be sourced from several suppliers at once: `row_selections`
+    holds each supplier's own quantity, and the highlighted cell is the one the
+    +/- controls feed. %>
+<% row_selections = local_assigns.fetch(:selections, {})[match.id.to_s] || {} %>
+<% row_total = quantities[match.id.to_s].to_i %>
+<% primary_supplier_id = local_assigns.fetch(:primary_supplier_id, nil) || cheapest_supplier_id %>
 <div class="bg-white shadow rounded-lg overflow-hidden <%= is_ol ? 'ring-1 ring-brand-green/30' : '' %>"
      data-order-builder-row data-product-name="<%= match.display_name.downcase %>" data-category="<%= category %>">
   <div class="flex flex-col sm:flex-row">
@@ -47,14 +53,11 @@
             &minus;
           </button>
           <input type="number"
-                 name="quantities[<%= match.id %>]"
-                 value="<%= quantities[match.id.to_s] || 0 %>"
+                 value="<%= row_total %>"
                  min="0"
                  class="w-14 rounded-md border-gray-300 text-sm text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                  data-order-builder-target="quantityInput"
-                 data-action="input->order-builder#updateTotals"
-                 data-price="<%= cheapest_price %>"
-                 data-supplier-id="<%= cheapest_supplier_id %>"
+                 data-action="input->order-builder#quantityTyped blur->order-builder#quantityBlurred"
                  data-match-id="<%= match.id %>">
           <button type="button"
                   data-action="order-builder#increment"
@@ -88,15 +91,20 @@
             <% effective_pack_size = item.pack_size || sp&.pack_size %>
             <% if effective_price %>
               <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-              <% is_default = cheapest && cheapest[:supplier] == supplier %>
+              <% is_default = supplier.id == primary_supplier_id %>
               <% cell_price = item.estimated_total_price || effective_price %>
-              <% cell_ordered = is_default && (quantities[match.id.to_s] || 0).to_i > 0 %>
+              <% cell_selection = row_selections[supplier.id.to_s] || {} %>
+              <% cell_qty = cell_selection["qty"].to_i %>
+              <% cell_uom = cell_selection["uom"].presence || "CS" %>
+              <% cell_ordered = cell_qty > 0 %>
+              <% piece_uom = cell_uom == "PC" && item.piece_price.present? %>
+              <% cell_active_price = piece_uom ? item.piece_price : cell_price %>
               <div class="rounded-lg relative min-w-0 cursor-pointer transition-all border border-gray-200
                           <%= is_default ? 'ring-2 ring-brand-orange' : '' %>
                           <%= cell_ordered ? 'bg-brand-orange-50' : 'bg-gray-50' %>"
                    style="padding:10px;"
                    data-action="click->order-builder#selectSupplier"
-                   data-supplier-price="<%= cell_price %>"
+                   data-supplier-price="<%= cell_active_price %>"
                    data-supplier-id-value="<%= supplier.id %>"
                    data-match-id="<%= match.id %>"
                    data-order-builder-target="supplierCell"
@@ -105,7 +113,12 @@
                    data-case-price="<%= cell_price %>"
                    data-piece-price="<%= item.piece_price %>"
                    data-piece-pack-size="<%= item.piece_pack_size %>"
-                   data-current-uom="CS">
+                   data-cell-qty="<%= cell_qty %>"
+                   data-current-uom="<%= cell_uom %>">
+                <%# How many of this product are coming from THIS supplier %>
+                <span data-cell-count
+                      class="absolute font-bold text-brand-orange-dark <%= cell_ordered ? '' : 'hidden' %>"
+                      style="bottom:7px; right:8px; font-size:12px; line-height:1;"><%= cell_qty %></span>
                 <% if is_cheapest %>
                   <span data-best-badge class="absolute bg-green-600 text-white font-bold rounded-full" style="top:-8px; right:-8px; padding:2px 7px; font-size:9px;">BEST</span>
                 <% else %>
@@ -125,13 +138,14 @@
                 </div>
 
                 <%# Pack size — 10px %>
-                <% if effective_pack_size.present? %>
-                  <div class="text-gray-500" data-pack-size style="font-size:10px;"><%= effective_pack_size %></div>
+                <% pack_label = piece_uom ? (item.piece_pack_size.presence || "PC") : effective_pack_size %>
+                <% if pack_label.present? %>
+                  <div class="text-gray-500" data-pack-size style="font-size:10px;"><%= pack_label %></div>
                 <% end %>
 
                 <%# Price — 14px bold %>
                 <div data-price-label class="text-gray-900" style="font-size:14px; font-weight:700; margin-top:4px;">
-                  <%= item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
+                  <%= piece_uom ? number_to_currency(item.piece_price) : item.formatted_price %><%= render "aggregated_lists/price_direction_arrow", direction: item.price_direction %>
                 </div>
                 <% if item.estimated_total_price.present? && item.estimated_total_price != effective_price %>
                   <span class="text-gray-500" style="font-size:10px;">~<%= number_to_currency(item.estimated_total_price) %></span>
@@ -142,7 +156,7 @@
                   <div data-per-unit-price class="text-amber-600" style="font-size:10px; margin-top:1px;">
                     <%= item.catch_weight_note %>
                   </div>
-                <% elsif (per_unit_display = match.display_per_unit_for(item)) %>
+                <% elsif (per_unit_display = piece_uom ? item.formatted_piece_per_unit_price : match.display_per_unit_for(item)) %>
                   <div data-per-unit-price class="text-gray-500" style="font-size:10px; margin-top:1px;">
                     <%= per_unit_display %>
                   </div>
@@ -152,7 +166,7 @@
                 <% if item.piece_price.present? %>
                   <div class="inline-flex rounded border border-gray-300" style="font-size:11px; margin-top:6px;" data-order-builder-target="uomToggle">
                     <button type="button"
-                            class="bg-gray-200 text-gray-900 font-medium border-0 cursor-pointer" style="padding:2px 8px; border-radius:3px 0 0 3px;"
+                            class="<%= piece_uom ? 'text-gray-500 bg-transparent' : 'bg-gray-200 text-gray-900 font-medium' %> border-0 cursor-pointer" style="padding:2px 8px; border-radius:3px 0 0 3px;"
                             data-action="click->order-builder#selectUom"
                             data-uom="CS"
                             data-uom-price="<%= cell_price %>"
@@ -161,7 +175,7 @@
                             data-match-id="<%= match.id %>"
                             data-supplier-id="<%= supplier.id %>">CS</button>
                     <button type="button"
-                            class="text-gray-500 border-0 cursor-pointer bg-transparent" style="padding:2px 8px; border-radius:0 3px 3px 0;"
+                            class="<%= piece_uom ? 'bg-gray-200 text-gray-900 font-medium' : 'text-gray-500 bg-transparent' %> border-0 cursor-pointer" style="padding:2px 8px; border-radius:0 3px 3px 0;"
                             data-action="click->order-builder#selectUom"
                             data-uom="PC"
                             data-uom-price="<%= item.piece_price %>"

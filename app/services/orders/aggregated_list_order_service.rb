@@ -1,13 +1,11 @@
 module Orders
   class AggregatedListOrderService
-    attr_reader :user, :aggregated_list, :quantities, :supplier_overrides, :uom_overrides, :location, :delivery_date, :order_list
+    attr_reader :user, :aggregated_list, :selections, :location, :delivery_date, :order_list
 
     def initialize(user:, aggregated_list:, quantities:, supplier_overrides: {}, uom_overrides: {}, location: nil, delivery_date: nil, order_list: nil)
       @user = user
       @aggregated_list = aggregated_list
-      @quantities = quantities.transform_keys(&:to_s).transform_values(&:to_i)
-      @supplier_overrides = supplier_overrides.transform_keys(&:to_s).transform_values(&:to_i)
-      @uom_overrides = uom_overrides.transform_keys(&:to_s).transform_values(&:to_s)
+      @selections = normalize_selections(quantities, supplier_overrides, uom_overrides)
       @location = location
       @delivery_date = delivery_date
       @order_list = order_list
@@ -100,58 +98,106 @@ module Orders
         .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
 
       product_matches.each do |pm|
-        qty = quantities[pm.id.to_s]
-        next if qty.nil? || qty <= 0
+        lines = selections[pm.id.to_s]
+        next if lines.blank?
 
         # Compute prices once per match (avoid 3x recalculation via cheapest/most_expensive)
         prices = pm.prices_by_supplier
-        in_stock_prices = prices.select { |p| p[:price].present? && p[:in_stock] }
-
-        override_supplier_id = supplier_overrides[pm.id.to_s]
-        chosen = if override_supplier_id
-          prices.find { |p| p[:supplier].id == override_supplier_id && p[:price].present? }
-        end
-        # Use the same per-unit-aware logic as ProductMatch#cheapest_supplier
-        # so the order routing matches what the UI highlights as "cheapest".
-        chosen ||= pm.cheapest_supplier
-        next unless chosen
-
         most_expensive = pm.most_expensive_supplier
 
-        supplier_list_item = chosen[:item]
-        supplier_product = supplier_list_item.supplier_product
+        # A product can be sourced from several suppliers at once. Each line is
+        # its own order item; because orders are grouped by supplier below, the
+        # lines land in different Orders and no single order ever repeats a
+        # product.
+        lines.each do |line|
+          qty = line[:qty]
+          next if qty <= 0
 
-        # Skip items without a linked SupplierProduct — linking belongs in the matching phase
-        next unless supplier_product
+          chosen = if line[:supplier_id]
+            prices.find { |p| p[:supplier].id == line[:supplier_id] && p[:price].present? }
+          end
+          # Use the same per-unit-aware logic as ProductMatch#cheapest_supplier
+          # so the order routing matches what the UI highlights as "cheapest".
+          chosen ||= pm.cheapest_supplier
+          next unless chosen
 
-        # Check for UOM override (CS/PC toggle)
-        uom = uom_overrides[pm.id.to_s]
-        unit_price = if uom == "PC" && supplier_list_item.piece_price.present?
-                       supplier_list_item.piece_price
-                     else
-                       # Use estimated_total_price to convert per-unit prices
-                       # (e.g., $18.92/LB) into the full case cost (~$189 for a
-                       # 10 LB case). Quantity is in cases, so unit_price must
-                       # reflect the cost per case for line_total to be accurate.
-                       supplier_list_item.estimated_total_price ||
-                         supplier_list_item.price ||
-                         supplier_product.current_price
-                     end
+          supplier_list_item = chosen[:item]
+          supplier_product = supplier_list_item.supplier_product
 
-        selected << {
-          product_match_id: pm.id,
-          supplier_id: chosen[:supplier].id,
-          supplier_product_id: supplier_product.id,
-          quantity: qty,
-          unit_price: unit_price,
-          uom: uom,
-          product_name: supplier_product.supplier_name,
-          product_sku: supplier_product.supplier_sku,
-          worst_price: most_expensive&.dig(:estimated_price) || most_expensive&.dig(:price)
-        }
+          # Skip items without a linked SupplierProduct — linking belongs in the matching phase
+          next unless supplier_product
+
+          # Check for UOM override (CS/PC toggle)
+          uom = line[:uom]
+          unit_price = if uom == "PC" && supplier_list_item.piece_price.present?
+                         supplier_list_item.piece_price
+                       else
+                         # Use estimated_total_price to convert per-unit prices
+                         # (e.g., $18.92/LB) into the full case cost (~$189 for a
+                         # 10 LB case). Quantity is in cases, so unit_price must
+                         # reflect the cost per case for line_total to be accurate.
+                         supplier_list_item.estimated_total_price ||
+                           supplier_list_item.price ||
+                           supplier_product.current_price
+                       end
+
+          selected << {
+            product_match_id: pm.id,
+            supplier_id: chosen[:supplier].id,
+            supplier_product_id: supplier_product.id,
+            quantity: qty,
+            unit_price: unit_price,
+            uom: uom,
+            product_name: supplier_product.supplier_name,
+            product_sku: supplier_product.supplier_sku,
+            worst_price: most_expensive&.dig(:estimated_price) || most_expensive&.dig(:price)
+          }
+        end
       end
 
+      # Two lines for the same product and supplier would place the same item
+      # twice in one order — fold them into one.
       selected
+        .group_by { |item| [item[:product_match_id], item[:supplier_id], item[:uom]] }
+        .map do |_key, group|
+          group.size == 1 ? group.first : group.first.merge(quantity: group.sum { |i| i[:quantity] })
+        end
+    end
+
+    # Accepts both shapes:
+    #   nested  quantities[match_id][supplier_id]  — a product split across suppliers
+    #   flat    quantities[match_id] + supplier_overrides[match_id] — the pre-split
+    #           form, still sent by saved carts and older clients
+    # Returns { match_id => [{ supplier_id:, qty:, uom: }, ...] }, supplier_id
+    # nil meaning "whatever the match's cheapest supplier is".
+    def normalize_selections(quantities, supplier_overrides, uom_overrides)
+      # Params arrive as ActionController::Parameters, which is not Enumerable —
+      # flatten to plain hashes before walking them.
+      quantities = to_plain_hash(quantities)
+      overrides = to_plain_hash(supplier_overrides)
+      uoms = to_plain_hash(uom_overrides)
+
+      quantities.each_with_object({}) do |(match_id, value), out|
+        match_id = match_id.to_s
+        lines = if value.respond_to?(:each_pair)
+          value.map do |supplier_id, qty|
+            uom = uoms[match_id].respond_to?(:[]) ? uoms[match_id][supplier_id.to_s] : uoms[match_id]
+            { supplier_id: supplier_id.to_i, qty: qty.to_i, uom: uom.to_s }
+          end
+        else
+          uom = uoms[match_id]
+          uom = uom.values.first if uom.respond_to?(:values)
+          [{ supplier_id: overrides[match_id].presence&.to_i, qty: value.to_i, uom: uom.to_s }]
+        end
+        lines = lines.select { |l| l[:qty] > 0 }
+        out[match_id] = lines if lines.any?
+      end
+    end
+
+    def to_plain_hash(value)
+      return {} if value.blank?
+      value = value.to_unsafe_h if value.respond_to?(:to_unsafe_h)
+      value.to_h.transform_keys(&:to_s)
     end
   end
 end
