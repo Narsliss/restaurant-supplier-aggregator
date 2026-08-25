@@ -148,6 +148,7 @@ class UnitParser
       # parse_pound_sign) so "6 #10" reads as 6 cans, not "6 lb".
       result = parse_mixed_fraction(text) ||
                parse_can_size(text) ||
+               parse_ranged_case_pack(text) ||
                parse_case_pack(text) ||
                parse_multiplied_pack(text) ||
                parse_simple_quantity(text) ||
@@ -290,6 +291,34 @@ class UnitParser
 
     # Parses "Case - 12-2#" → 12 packs × 2 lb = 24 lb
     # Also: "Case 12/2 LB", "CS 6-5 LB", "12/2 LB", "4 3 LB" (space-separated)
+    # Parses "2/6-9 LBA", "4x17.8-22.8#" — a case count followed by the weight
+    # RANGE of one piece. The two halves of the range are close in magnitude
+    # (a 6-to-9 lb brisket), which is what separates them from a nested pack
+    # count; the case is count × the average piece weight.
+    #
+    # Without this, parse_case_pack's triple-number rule multiplied all three
+    # numbers: "2/6-9 LBA" read as 108 lb instead of 15, so a $11.89/lb brisket
+    # estimated at $1,284 the case. Anchored to the start of the string so
+    # deeper nestings ("2/2/2-2.25#") fall through to the existing rules
+    # untouched.
+    RANGE_MAGNITUDE_LIMIT = 2.0
+
+    def parse_ranged_case_pack(text)
+      # No trailing \b — "#" is not a word character, so it would reject the
+      # pound-sign packs this exists to fix ("4x17.8-22.8#").
+      return nil unless text =~ /\A\s*(\d+)\s*[x\/]\s*(\d+\.?\d*)\s*-\s*(\d+\.?\d*)\s*(#{unit_pattern})/i
+
+      count = $1.to_f
+      low = $2.to_f
+      high = $3.to_f
+      unit = normalize_unit_str($4)
+
+      return nil unless count.positive? && low.positive? && high > low
+      return nil unless (high / low) <= RANGE_MAGNITUDE_LIMIT
+
+      build_result(count * ((low + high) / 2.0), unit)
+    end
+
     def parse_case_pack(text)
       # Pattern 0: triple-number — "8/2/1.9 LB" → 8 packs × 2 pieces × 1.9 lb = 30.4 lb
       # US Foods count/sub-count/weight-each format: total = first × middle × last.

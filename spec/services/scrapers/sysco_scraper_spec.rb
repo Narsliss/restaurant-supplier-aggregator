@@ -112,4 +112,62 @@ RSpec.describe Scrapers::SyscoScraper do
       expect(scraper).to have_received(:navigate_to).with(described_class::SHOP_LOGIN_URL)
     end
   end
+
+  describe '#price_unit_for' do
+    def node(catch_weight:, case_price: nil, each_price: nil)
+      {
+        'productInfo' => { 'isCatchWeight' => catch_weight },
+        'priceInfoV2' => {
+          'case' => case_price ? { 'netPrice' => case_price } : {},
+          'each' => each_price ? { 'netPrice' => each_price } : {}
+        }
+      }
+    end
+
+    def unit_for(pp)
+      scraper.send(:price_unit_for, pp, pp.dig('priceInfoV2', 'case') || {}, pp.dig('priceInfoV2', 'each') || {})
+    end
+
+    # Regression: Sysco bills catch-weight items (meat, whole cheeses) at a
+    # per-POUND rate in priceInfoV2.case.netPrice. Stamping those 'CS' made a
+    # 24 lb case of smoked gouda read as $5.12 for the case, so Sysco undercut
+    # every competitor by the pack weight and the savings reports showed
+    # impossible numbers. The API tells us via productInfo.isCatchWeight.
+    it 'labels a catch-weight case price per pound' do
+      expect(unit_for(node(catch_weight: true, case_price: 5.46))).to eq('LB')
+    end
+
+    it 'labels an ordinary case price as a case' do
+      expect(unit_for(node(catch_weight: false, case_price: 43.45))).to eq('CS')
+    end
+
+    it 'treats a missing isCatchWeight flag as an ordinary case' do
+      pp = { 'priceInfoV2' => { 'case' => { 'netPrice' => 43.45 }, 'each' => {} } }
+      expect(unit_for(pp)).to eq('CS')
+    end
+
+    it 'labels an each-only price as EA regardless of catch weight' do
+      expect(unit_for(node(catch_weight: true, each_price: 3.99))).to eq('EA')
+    end
+
+    it 'returns nil when there is no price at all' do
+      expect(unit_for(node(catch_weight: true))).to be_nil
+    end
+  end
+
+  describe 'catch-weight pricing end to end' do
+    # A per-pound quote must survive into a comparable per-oz rate rather than
+    # being spread across the whole case.
+    it 'yields a per-oz rate from the pound rate, not the case' do
+      sp = SupplierProduct.new(current_price: 5.46, price_unit: 'LB', pack_size: '4x6 LB')
+      expect(sp.per_unit_price.to_f).to be_within(0.001).of(0.34125)
+      expect(sp.estimated_case_price.to_f).to be_within(0.01).of(131.04)
+    end
+
+    it 'reads an ordinary case price across the pack' do
+      sp = SupplierProduct.new(current_price: 43.45, price_unit: 'CS', pack_size: '4x5 LB')
+      expect(sp.per_unit_price.to_f).to be_within(0.001).of(0.1358)
+      expect(sp.estimated_case_price.to_f).to eq(43.45)
+    end
+  end
 end

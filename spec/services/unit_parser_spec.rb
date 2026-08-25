@@ -286,4 +286,57 @@ RSpec.describe UnitParser do
       expect(UnitParser.format_per_unit(2.5, nil)).to be_nil
     end
   end
+
+  describe 'ranged case packs (count + piece weight range)' do
+    # Regression: parse_case_pack's triple-number rule multiplied all three
+    # numbers, so "2/6-9 LBA" (two briskets weighing 6-9 lb each) read as
+    # 108 lb instead of 15. A $11.89/lb brisket then estimated at $1,284 the
+    # case, and any per-oz comparison against it was off by ~7x.
+    it 'averages the piece range and multiplies by the case count' do
+      expect(described_class.parse('2/6-9 LBA')[:quantity]).to eq(15.0)
+      expect(described_class.parse('2/5-7 LBA')[:quantity]).to eq(12.0)
+      expect(described_class.parse('2/13-17 LBA')[:quantity]).to eq(30.0)
+      expect(described_class.parse('4/2-3 LBA')[:quantity]).to eq(10.0)
+    end
+
+    it 'handles the "x" separator and pound-sign packs' do
+      expect(described_class.parse('2x6-11LB')[:quantity]).to eq(17.0)
+      expect(described_class.parse('3x12-13#')[:quantity]).to eq(37.5)
+      expect(described_class.parse('4/17.8-22.8#')[:quantity]).to eq(81.2)
+    end
+
+    it 'normalizes to ounces off the averaged weight' do
+      expect(described_class.parse('2/6-9 LBA')[:normalized_quantity]).to eq(240.0)
+      expect(described_class.parse('2/6-9 LBA')[:normalized_unit]).to eq('oz')
+    end
+
+    it 'leaves a genuine triple pack alone' do
+      expect(described_class.parse('8/2/1.9 LB')[:quantity]).to eq(30.4)
+    end
+
+    it 'leaves a nested pack deeper than one level alone' do
+      expect(described_class.parse('2/2/2-2.25#A')[:quantity]).to eq(9.0)
+    end
+
+    # "12-2#" is a case MULTIPLIER (12 pieces x 2 lb), not a range — the two
+    # numbers are far apart in magnitude. Only close pairs read as a range.
+    it 'does not treat a far-apart pair as a range' do
+      expect(described_class.parse('Case - 12-2#')[:quantity]).to eq(24.0)
+    end
+
+    it 'leaves bare weight ranges to the existing rule' do
+      expect(described_class.parse('10-16 LBA')[:quantity]).to eq(13.0)
+      expect(described_class.parse('30-40 LB')[:quantity]).to eq(35.0)
+    end
+
+    it 'leaves plain multiplied packs alone' do
+      expect(described_class.parse('4x5 LB')[:quantity]).to eq(20.0)
+      expect(described_class.parse('4/2.5 LB')[:quantity]).to eq(10.0)
+    end
+
+    it 'leaves produce count sizing alone' do
+      expect(described_class.parse('80/88 CT')[:quantity]).to eq(84.0)
+      expect(described_class.parse('120-135 CT')[:quantity]).to eq(128.0)
+    end
+  end
 end

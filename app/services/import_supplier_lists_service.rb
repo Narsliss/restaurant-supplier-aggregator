@@ -23,6 +23,10 @@ class ImportSupplierListsService
   # from the same scrape.
   SUCCESSOR_MIN_SKU_OVERLAP = 0.3
 
+  # UnitParser reports Sysco's "#" packs under their own unit key; it means
+  # pounds, same as "lb".
+  POUND_UNITS = %w[lb #].freeze
+
   attr_reader :credential, :results
 
   def initialize(credential)
@@ -223,9 +227,21 @@ class ImportSupplierListsService
 
     # Update price: use estimated case total for per-unit priced items
     # so SupplierProduct.current_price always represents the full case cost.
-    effective_price = item.estimated_total_price
+    #
+    # Exception: when we also propagate a per-weight price_unit below (a
+    # catch-weight "$5.46/LB" quote), storing the case total under that unit
+    # would double-convert — SupplierProduct#per_unit_price divides by the unit
+    # factor, so a case total tagged 'LB' reads as a per-pound price 16x too
+    # high. The catalog importer and VerifyItemPriceJob both cache the price as
+    # quoted, per its unit; match them and let callers convert.
+    effective_price = if per_weight_unit?(item.price_unit)
+      item.effective_price
+    else
+      item.estimated_total_price
+    end
     if effective_price.present? && effective_price != sp.current_price
-      if sp.current_price.present? && sp.current_price > 0 && extreme_price_change?(sp.current_price, effective_price)
+      if sp.current_price.present? && sp.current_price > 0 &&
+         extreme_price_change?(sp.current_price, effective_price, item.pack_size.presence || sp.pack_size)
         Rails.logger.warn "[ImportLists] EXTREME price change for #{sp.supplier_name} (SKU: #{sp.supplier_sku}): " \
                           "$#{sp.current_price} -> $#{effective_price} — skipping update"
       else
@@ -292,8 +308,10 @@ class ImportSupplierListsService
     end
 
     # Strategy 2: heuristic for lb-based packs
+    # "#" is pounds — Sysco writes its packs that way ("2x6#", "1x10#AVG"), so
+    # gating on "lb" alone skipped most of their catch-weight catalogue.
     parsed = UnitParser.parse(pack)
-    return unless parsed[:parseable] && parsed[:unit] == "lb" && parsed[:quantity] >= 5
+    return unless parsed[:parseable] && POUND_UNITS.include?(parsed[:unit]) && parsed[:quantity] >= 5
 
     implied_per_lb = item.price / parsed[:quantity]
 
@@ -304,12 +322,44 @@ class ImportSupplierListsService
     end
   end
 
+  # True when the price is quoted per unit of weight or volume ("$5.46/LB")
+  # rather than for the whole pack ("CS", "EA").
+  def per_weight_unit?(unit)
+    return false if unit.blank?
+
+    key = UnitParser.normalize_unit_key(unit)
+    UnitParser::WEIGHT_TO_OZ.key?(key) || UnitParser::VOLUME_TO_FL_OZ.key?(key)
+  end
+
   # Guard against extreme price swings from bad supplier API data.
   # Allows normal fluctuations (up to 5x) but blocks obvious errors.
-  def extreme_price_change?(old_price, new_price)
+  #
+  # A per-unit price being corrected to a case total is the one big jump that
+  # is legitimate: a catch-weight item stored at $13.69/lb becomes a $136.90
+  # case, and the ratio is the pack weight. Blocking those froze the wrong
+  # (low) figure in place permanently — the item then undercut every competitor
+  # by 10-20x and no later import could repair it. Let the correction through
+  # when the new price lands on the pack multiple.
+  def extreme_price_change?(old_price, new_price, pack_size = nil)
     return false if old_price.nil? || old_price <= 0
     ratio = new_price / old_price
+    return false if ratio > 5.0 && pack_multiple?(ratio, pack_size)
+
     ratio > 5.0 || ratio < 0.2
+  end
+
+  # Does this ratio match the pack's own size — i.e. is it price-per-unit
+  # becoming price-per-case rather than a bad number?
+  PACK_MULTIPLE_TOLERANCE = 0.02
+
+  def pack_multiple?(ratio, pack_size)
+    parsed = UnitParser.parse(pack_size.to_s)
+    return false unless parsed[:parseable]
+
+    quantity = parsed[:quantity].to_f
+    return false unless quantity > 0
+
+    (ratio - quantity).abs <= quantity * PACK_MULTIPLE_TOLERANCE
   end
 
   # Find the SupplierList this rotated guide succeeds, or nil.

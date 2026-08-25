@@ -279,4 +279,145 @@ RSpec.describe ImportSupplierListsService do
       }.not_to change { sli.reload.supplier_product_id }
     end
   end
+
+  describe 'catch-weight prices (per-LB quotes)' do
+    let(:supplier) { create(:supplier) }
+    let(:credential) { create(:supplier_credential, supplier: supplier) }
+    let(:supplier_list) do
+      SupplierList.create!(
+        supplier: supplier,
+        supplier_credential: credential,
+        organization_id: credential.organization_id,
+        name: 'Order Guide'
+      )
+    end
+    let(:service) { described_class.new(credential) }
+
+    def make_pair(price:, pack_size:, price_unit:, sp_price: nil, sp_unit: nil)
+      sp = SupplierProduct.create!(
+        supplier: supplier, supplier_sku: '7993187',
+        supplier_name: 'BLOCK & BARREL CHEESE GOUDA SMOKED',
+        current_price: sp_price, price_unit: sp_unit, pack_size: pack_size
+      )
+      sli = supplier_list.supplier_list_items.create!(
+        name: 'Gouda Smoked', sku: '7993187', price: price,
+        pack_size: pack_size, price_unit: price_unit, supplier_product_id: sp.id
+      )
+      [sp, sli]
+    end
+
+    # Regression: Sysco quotes catch-weight items per pound. The list importer
+    # converted that to a case total AND propagated price_unit='LB', so
+    # SupplierProduct#per_unit_price divided the case total by 16 again — the
+    # item read as $5.46 x 12 / 16 = $4.10 per POUND of a 12 lb case. The
+    # catalog importer and VerifyItemPriceJob both cache the price as quoted;
+    # this path has to agree with them or the same SKU flips convention
+    # depending on which job ran last.
+    it 'stores the quoted per-LB price, not a case total, when the unit is a weight' do
+      sp, sli = make_pair(price: 5.46, pack_size: '2x6#', price_unit: 'LB')
+
+      service.send(:refresh_linked_product, sli)
+
+      expect(sp.reload.current_price.to_f).to eq(5.46)
+      expect(sp.price_unit).to eq('LB')
+    end
+
+    it 'gives a catch-weight product a sane per-oz rate and case estimate' do
+      sp, sli = make_pair(price: 5.46, pack_size: '2x6#', price_unit: 'LB')
+
+      service.send(:refresh_linked_product, sli)
+      sp.reload
+
+      # $5.46/lb is $0.34/oz — not the $0.0284/oz a case-total reading produced.
+      expect(sp.per_unit_price.to_f).to be_within(0.001).of(0.34125)
+      expect(sp.estimated_case_price.to_f).to be_within(0.01).of(65.52)
+    end
+
+    it 'still converts to a case total for container-priced items' do
+      sp, sli = make_pair(price: 26.95, pack_size: '4/2.5LB CS', price_unit: 'CS')
+
+      service.send(:refresh_linked_product, sli)
+
+      expect(sp.reload.current_price.to_f).to eq(26.95)
+    end
+  end
+
+  describe '#extreme_price_change? (private)' do
+    let(:supplier) { create(:supplier) }
+    let(:credential) { create(:supplier_credential, supplier: supplier) }
+    let(:service) { described_class.new(credential) }
+
+    it 'blocks a genuinely wild swing' do
+      expect(service.send(:extreme_price_change?, 10.0, 900.0, '4/2.5 LB')).to be(true)
+    end
+
+    it 'blocks a collapse to a fraction of the old price' do
+      expect(service.send(:extreme_price_change?, 100.0, 5.0, '4/2.5 LB')).to be(true)
+    end
+
+    it 'allows an ordinary fluctuation' do
+      expect(service.send(:extreme_price_change?, 10.0, 14.0, '4/2.5 LB')).to be(false)
+    end
+
+    # Regression: a per-LB price being corrected to its case total is a 10-20x
+    # jump — exactly the shape this guard blocked. Freezing the low figure left
+    # the item undercutting every competitor by the pack weight, permanently,
+    # since no later import could get past the guard either.
+    it 'allows a per-LB price being corrected to the case total' do
+      expect(service.send(:extreme_price_change?, 13.69, 136.90, '1x10 LB')).to be(false)
+      expect(service.send(:extreme_price_change?, 9.56, 191.20, '1x20 LB')).to be(false)
+    end
+
+    it 'still blocks a big jump that does not match the pack size' do
+      expect(service.send(:extreme_price_change?, 13.69, 136.90, '1x30 LB')).to be(true)
+    end
+
+    it 'blocks a big jump when the pack size is unparseable' do
+      expect(service.send(:extreme_price_change?, 13.69, 136.90, 'ASSORTED')).to be(true)
+    end
+  end
+
+  describe '#infer_per_unit_pricing! (private)' do
+    let(:supplier) { create(:supplier) }
+    let(:credential) { create(:supplier_credential, supplier: supplier) }
+    let(:supplier_list) do
+      SupplierList.create!(
+        supplier: supplier, supplier_credential: credential,
+        organization_id: credential.organization_id, name: 'Order Guide'
+      )
+    end
+    let(:service) { described_class.new(credential) }
+
+    def sli_with(pack_size:, price:)
+      supplier_list.supplier_list_items.create!(
+        name: 'Onions', sku: '111', price: price, pack_size: pack_size
+      )
+    end
+
+    # Regression: UnitParser reports "#" packs under their own unit key, so
+    # gating the heuristic on "lb" skipped Sysco's entire "2x6#" catalogue.
+    it 'infers per-LB pricing on a "#" pack' do
+      item = sli_with(pack_size: '5x10#', price: 6.48)
+
+      service.send(:infer_per_unit_pricing!, item)
+
+      expect(item.reload.price_unit).to eq('lb')
+    end
+
+    it 'still infers per-LB pricing on an "LB" pack' do
+      item = sli_with(pack_size: '5x10 LB', price: 6.48)
+
+      service.send(:infer_per_unit_pricing!, item)
+
+      expect(item.reload.price_unit).to eq('lb')
+    end
+
+    it 'leaves a plausible case price alone' do
+      item = sli_with(pack_size: '5x10#', price: 48.00)
+
+      service.send(:infer_per_unit_pricing!, item)
+
+      expect(item.reload.price_unit).to be_blank
+    end
+  end
 end

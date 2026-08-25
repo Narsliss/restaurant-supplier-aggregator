@@ -311,11 +311,7 @@ module Scrapers
         current_price = case_info['netPrice'] || case_info['price'] ||
                         each_info['netPrice'] || each_info['price']
 
-        price_unit = if case_info['netPrice'] || case_info['price']
-                       'CS'
-                     elsif each_info['netPrice'] || each_info['price']
-                       'EA'
-                     end
+        price_unit = price_unit_for(pp, case_info, each_info)
 
         updates << {
           supplier_sku: sku_str,
@@ -519,6 +515,10 @@ module Scrapers
           results << {
             supplier_sku: product_id,
             current_price: current_price.to_f,
+            # Price verification needs to know whether this figure is a case
+            # total or a per-pound rate; without the hint OrderItem falls back
+            # to the stored unit and a catch-weight quote reads as a case price.
+            price_unit: price_unit_for(pp, case_price_info, each_price_info),
             in_stock: true, # If the API returns a price, it's available
             supplier_name: pp.dig('productInfo', 'name') || product_id
           }
@@ -2640,6 +2640,35 @@ module Scrapers
       {}
     end
 
+    # Which unit the price figure we just read is quoted in.
+    #
+    # Sysco bills catch-weight items (meat, whole cheeses, anything sold by
+    # actual weight) at a PER-POUND rate, and priceInfoV2.case.netPrice carries
+    # that rate — not a case total. The API flags them with
+    # productInfo.isCatchWeight; the Sysco web UI shows the same items as
+    # "$14.050 LB" while a normal case reads "$21.31 CS".
+    #
+    # Labelling those 'CS' is what made a 24 lb case of smoked gouda look like
+    # $5.12: every comparison divided a per-pound rate across the whole case and
+    # Sysco won on price by 10-20x. 'LB' puts them on the same footing as US
+    # Foods "LBA" items, which SupplierProduct#per_unit_price,
+    # #estimated_case_price and OrderItem#comparable_verified_price already
+    # understand — the price stays as quoted and callers convert.
+    def price_unit_for(price_product, case_info, each_info)
+      has_case = case_info['netPrice'] || case_info['price']
+      has_each = each_info['netPrice'] || each_info['price']
+
+      return 'LB' if has_case && catch_weight?(price_product)
+      return 'CS' if has_case
+      return 'EA' if has_each
+
+      nil
+    end
+
+    def catch_weight?(price_product)
+      (price_product || {}).dig('productInfo', 'isCatchWeight') == true
+    end
+
     # Build a clean pack_size string from Sysco's packSize API object.
     # The API returns { pack: "12", size: "12 OZ", uom: "OZ" } — pack is the
     # case count and size is the per-unit size (which usually already includes
@@ -2701,16 +2730,7 @@ module Scrapers
       current_price = case_price_info['netPrice'] || case_price_info['price'] ||
                       each_price_info['netPrice'] || each_price_info['price']
 
-      # If we have a case price, unit is CS; if only each, unit is EA
-      if case_price_info['netPrice'] || case_price_info['price']
-        price_unit = 'CS'
-      elsif each_price_info['netPrice'] || each_price_info['price']
-        price_unit = 'EA'
-      else
-        price_unit = split_code
-      end
-
-      unit_price = case_price_info['unitPrice'] || each_price_info['unitPrice']
+      price_unit = price_unit_for(price_data, case_price_info, each_price_info) || split_code
 
       # Build category from category info
       category = info.dig('category', 'displayName') || info.dig('category', 'mainName')
@@ -2797,7 +2817,8 @@ module Scrapers
             item[:price] = case_info['netPrice'] || case_info['price'] ||
                            each_info['netPrice'] || each_info['price'] || item[:price]
             item[:price] = item[:price]&.to_f
-            item[:price_unit] = case_info['price'] ? 'CS' : 'EA' if case_info['price'] || each_info['price']
+            unit = price_unit_for(pp, case_info, each_info)
+            item[:price_unit] = unit if unit
           end
         rescue StandardError => e
           logger.warn "[Sysco] List pricing error: #{e.message}"
