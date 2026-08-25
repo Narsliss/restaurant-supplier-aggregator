@@ -337,6 +337,16 @@ export default class extends Controller {
     return this._sel[matchId]?.[supplierId]?.qty || 0
   }
 
+  // The biggest line still on the row — where - falls through to once the
+  // highlighted cell is empty.
+  _largestLine(matchId) {
+    const sel = this._sel[matchId]
+    if (!sel) return null
+    return Object.entries(sel)
+      .filter(([, line]) => line.qty > 0)
+      .sort((a, b) => b[1].qty - a[1].qty)[0]?.[0] || null
+  }
+
   // Clear every supplier on the row, not just the highlighted one.
   _clearMatch(matchId) {
     delete this._sel[matchId]
@@ -783,9 +793,16 @@ export default class extends Controller {
   decrement(event) {
     const matchId = this._rowMatchId(event)
     if (!matchId) return
-    const current = this._primaryQuantity(matchId)
-    if (current <= 0) return
-    this._setPrimaryQuantity(matchId, current - 1)
+    // The highlighted cell can be empty while the row still has quantity on
+    // another supplier. Rather than going inert — a dead button under a row
+    // that plainly shows a total — walk down what's left, and take the
+    // highlight with it so the next + lands where the last - came from.
+    if (this._primaryQuantity(matchId) <= 0) {
+      const fallback = this._largestLine(matchId)
+      if (!fallback) return
+      this._primary[matchId] = fallback
+    }
+    this._setPrimaryQuantity(matchId, this._primaryQuantity(matchId) - 1)
     this._renderMatch(matchId)
     this._scheduleUpdateTotals()
   }
