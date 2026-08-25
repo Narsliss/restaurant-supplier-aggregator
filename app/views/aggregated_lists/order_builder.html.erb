@@ -54,9 +54,13 @@
       <%# Mobile: stacked layout with collapsible supplier breakdown %>
       <div class="flex flex-col gap-2 sm:hidden">
         <div class="flex items-center justify-between gap-2">
-          <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 flex-1 justify-center">
+          <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 flex-1 justify-center cursor-pointer"
+               data-order-panel-toggle>
             <span class="text-xs font-medium text-gray-500 uppercase">Items</span>
             <span class="text-lg font-bold text-gray-900" data-order-builder-target="itemCount">0</span>
+            <svg class="w-3 h-3 text-gray-400 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
+            </svg>
           </div>
           <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 flex-1 justify-center">
             <span class="text-xs font-medium text-gray-500 uppercase">Total</span>
@@ -115,9 +119,14 @@
       </div>
       <%# Desktop: single row layout with per-supplier mini-cards %>
       <div class="hidden sm:flex items-center gap-2">
-        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">
+        <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0 cursor-pointer"
+             data-order-panel-toggle
+             title="See everything in this order">
           <span class="text-xs font-medium text-gray-500 uppercase">Items</span>
           <span class="text-lg font-bold text-gray-900" data-order-builder-target="itemCount">0</span>
+          <svg class="w-3 h-3 text-gray-400 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
+          </svg>
         </div>
         <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">
           <span class="text-xs font-medium text-gray-500 uppercase">Total</span>

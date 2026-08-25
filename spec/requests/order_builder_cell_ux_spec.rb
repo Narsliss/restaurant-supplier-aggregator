@@ -149,4 +149,25 @@ RSpec.describe "Order builder cell UX", type: :request do
       expect(quantities).to eq(cheap_supplier.id => 5, pricey_supplier.id => 1)
     end
   end
+
+  # Desktop had no itemized view of the order — a line added weeks ago stayed
+  # invisible unless you scrolled past its row. The Items card in the command
+  # bar opens the list; the JS fills it from the live selection model.
+  describe "the order panel handle" do
+    it "makes both Items cards open the panel" do
+      handles = Nokogiri::HTML(response.body).css("[data-order-panel-toggle]")
+      expect(handles.size).to eq(2) # narrow-screen bar + desktop bar
+      handles.each { |h| expect(h.text).to include("Items") }
+    end
+
+    it "gives every row the name, thumbnail and id the panel renders from" do
+      rows = Nokogiri::HTML(response.body).css("[data-order-builder-row]")
+      expect(rows).to be_present
+      rows.each do |row|
+        expect(row["data-match-id"]).to be_present
+        expect(row["data-display-name"]).to be_present
+        expect(row["data-thumb"]).to be_present
+      end
+    end
+  end
 end

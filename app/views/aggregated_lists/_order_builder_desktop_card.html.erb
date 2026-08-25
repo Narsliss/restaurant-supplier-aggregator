@@ -11,7 +11,10 @@
 <% row_total = quantities[match.id.to_s].to_i %>
 <% primary_supplier_id = local_assigns.fetch(:primary_supplier_id, nil) || cheapest_supplier_id %>
 <div class="bg-white shadow rounded-lg overflow-hidden <%= is_ol ? 'ring-1 ring-brand-green/30' : '' %>"
-     data-order-builder-row data-product-name="<%= match.display_name.downcase %>" data-category="<%= category %>">
+     data-order-builder-row data-product-name="<%= match.display_name.downcase %>"
+     data-match-id="<%= match.id %>"
+     data-display-name="<%= match.display_name %>"
+     data-thumb="<%= product_thumb_url(match.canonical_image_source) %>" data-category="<%= category %>">
   <div class="flex flex-col sm:flex-row">
     <%# Left: Product name + qty controls + line total %>
     <div class="shrink-0 border-b sm:border-b-0 sm:border-r border-gray-100 flex flex-col justify-between" style="width:200px; padding:14px;">

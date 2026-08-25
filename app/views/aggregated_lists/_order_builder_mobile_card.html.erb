@@ -11,7 +11,10 @@
 <% primary_supplier_id = local_assigns.fetch(:primary_supplier_id, nil) || cheapest_supplier_id %>
 
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-3 overflow-hidden <%= has_quantity ? '' : '' %>"
-     data-order-builder-row data-product-name="<%= match.display_name.downcase %>">
+     data-order-builder-row data-product-name="<%= match.display_name.downcase %>"
+     data-match-id="<%= match.id %>"
+     data-display-name="<%= match.display_name %>"
+     data-thumb="<%= product_thumb_url(match.canonical_image_source) %>">
   <div class="p-3">
     <%# Product name + line total %>
     <div class="flex items-start justify-between mb-2">

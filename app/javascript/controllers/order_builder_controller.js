@@ -18,6 +18,7 @@ export default class extends Controller {
     if (this._floatingHeader) this._floatingHeader.remove()
     if (this._floatingCategory) this._floatingCategory.remove()
     if (this._scrollTopBtn) this._scrollTopBtn.remove()
+    if (this._orderPanel) this._orderPanel.remove()
   }
 
   _setupFixedUI() {
@@ -77,6 +78,8 @@ export default class extends Controller {
       if (!this._fixedSupplierMinLabels[id]) this._fixedSupplierMinLabels[id] = []
       this._fixedSupplierMinLabels[id].push(el)
     })
+
+    this._buildOrderPanel()
 
     // Store ref to mobile supplier detail panel in the clone
     this._fixedMobileSupplierDetail = this._fixedBar.querySelector("[data-order-builder-target='mobileSupplierDetail']")
@@ -202,6 +205,8 @@ export default class extends Controller {
           }
         }
 
+        this._positionOrderPanel()
+
         // Show scroll-to-top button after scrolling past one viewport height
         if (this._scrollTopBtn) {
           const barBottom = parseFloat(this._fixedBar.style.bottom) || 0
@@ -269,6 +274,14 @@ export default class extends Controller {
     // the + button.
     Object.keys(this._sel).forEach(matchId => {
       if (!this._primary[matchId]) this._primary[matchId] = Object.keys(this._sel[matchId])[0]
+    })
+    // Rows by match, for the order panel: it renders product names and thumbs
+    // and scrolls back to whichever copy of a row is on screen.
+    this._matchRows = {}
+    this.element.querySelectorAll("[data-order-builder-row][data-match-id]").forEach(row => {
+      const matchId = row.dataset.matchId
+      if (!this._matchRows[matchId]) this._matchRows[matchId] = []
+      this._matchRows[matchId].push(row)
     })
     // Cache category sections for scroll handler (fires every scroll event)
     this._cachedCategorySections = this.categorySectionTargets
@@ -513,6 +526,9 @@ export default class extends Controller {
 
     // Update per-supplier delivery status badges
     this._updateDeliveryStatus(supplierTotals)
+
+    // Keep the itemized panel honest while it's open
+    this._renderOrderPanel()
 
     // Persist the working order (CurrentOrder) — skip the initial render so
     // page loads don't rewrite an unchanged state.
@@ -904,6 +920,171 @@ export default class extends Controller {
         })
       }
     }
+  }
+
+  // Desktop had no itemized view of the order at all: the bar showed a count and
+  // a total, so a line added weeks ago stayed invisible unless you happened to
+  // scroll past its row. This panel is that missing list, grouped by supplier so
+  // "why is Chef's Warehouse at $25?" is answerable at a glance.
+  _buildOrderPanel() {
+    this._orderPanel = document.createElement("div")
+    this._orderPanel.style.cssText =
+      "position:fixed;left:0;right:0;z-index:49;display:none;background:#fff;" +
+      "border-top:1px solid #e5e7eb;box-shadow:0 -8px 24px rgba(0,0,0,0.12);" +
+      "max-height:min(60vh,32rem);overflow-y:auto;"
+    document.body.appendChild(this._orderPanel)
+
+    // The panel lives outside the controller's element, so data-action never
+    // fires here — delegate from the container instead.
+    this._orderPanel.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-panel-action]")
+      if (btn) {
+        const { panelAction, matchId, supplierId } = btn.dataset
+        if (panelAction === "close") return this.toggleOrderPanel()
+        this._primary[matchId] = supplierId
+        if (panelAction === "remove") {
+          this._setPrimaryQuantity(matchId, 0)
+        } else {
+          const current = this._sel[matchId]?.[supplierId]?.qty || 0
+          this._setPrimaryQuantity(matchId, current + (panelAction === "increment" ? 1 : -1))
+        }
+        this._renderMatch(matchId)
+        this.updateTotals()
+        return
+      }
+      const line = event.target.closest("[data-panel-line]")
+      if (line) this._jumpToMatch(line.dataset.matchId)
+    })
+
+    this._fixedBar.querySelectorAll("[data-order-panel-toggle]").forEach(el => {
+      el.addEventListener("click", () => this.toggleOrderPanel())
+    })
+  }
+
+  toggleOrderPanel() {
+    if (!this._orderPanel) return
+    this._orderPanelOpen = !this._orderPanelOpen
+    if (this._orderPanelOpen) this._renderOrderPanel()
+    this._orderPanel.style.display = this._orderPanelOpen ? "block" : "none"
+    this._positionOrderPanel()
+  }
+
+  _positionOrderPanel() {
+    if (!this._orderPanel || !this._orderPanelOpen) return
+    this._orderPanel.style.bottom = (this._fixedBar?.offsetHeight || 0) +
+      (parseFloat(this._fixedBar?.style.bottom) || 0) + "px"
+  }
+
+  // Scroll the grid to a product and flash it, so a line in the panel leads
+  // back to the row it came from.
+  _jumpToMatch(matchId) {
+    const row = this._matchRows?.[matchId]?.find(r => r.offsetParent !== null)
+    if (!row) return
+    if (this._orderPanelOpen) this.toggleOrderPanel()
+    row.scrollIntoView({ behavior: "smooth", block: "center" })
+    row.classList.add("ring-2", "ring-brand-orange")
+    setTimeout(() => row.classList.remove("ring-2", "ring-brand-orange"), 1600)
+  }
+
+  _renderOrderPanel() {
+    if (!this._orderPanel || !this._orderPanelOpen) return
+    const minimums = this.supplierMinimumsValue || {}
+
+    // Group by supplier: the totals in the bar are per supplier, so the list
+    // that explains them should be too.
+    const bySupplier = {}
+    Object.entries(this._sel).forEach(([matchId, lines]) => {
+      Object.entries(lines).forEach(([supplierId, line]) => {
+        if (!(line.qty > 0)) return
+        const cell = this._cellFor(matchId, supplierId)
+        const row = this._matchRows?.[matchId]?.[0]
+        if (!cell || !row) return
+        const price = parseFloat(cell.dataset.supplierPrice) || 0
+        ;(bySupplier[supplierId] ||= []).push({
+          matchId, supplierId, qty: line.qty, uom: line.uom, price,
+          name: row.dataset.displayName || "",
+          thumb: row.dataset.thumb || ""
+        })
+      })
+    })
+
+    const supplierIds = Object.keys(bySupplier)
+    if (supplierIds.length === 0) {
+      this._orderPanel.innerHTML = `
+        <div style="max-width:72rem;margin:0 auto;" class="px-4 py-8 text-center text-sm text-gray-500">
+          Nothing in this order yet.
+        </div>`
+      return
+    }
+
+    const groups = supplierIds.map(supplierId => {
+      const lines = bySupplier[supplierId]
+      const config = minimums[supplierId] || {}
+      const subtotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0)
+      const min = config.minimum
+      const short = this._supplierShortName(supplierId)
+      const minLabel = min > 0
+        ? (subtotal >= min
+            ? `<span class="text-brand-green font-semibold">&#10003; $${min.toFixed(0)} minimum met</span>`
+            : `<span class="text-brand-orange font-semibold">$${(min - subtotal).toFixed(2)} to reach the $${min.toFixed(0)} minimum</span>`)
+        : `<span class="text-gray-400">No minimum</span>`
+
+      return `
+        <div class="border-b border-gray-100 last:border-b-0">
+          <div class="flex items-baseline justify-between gap-3 px-4 pt-3 pb-1.5">
+            <span class="text-xs font-bold uppercase tracking-wide text-gray-700">${short}</span>
+            <span class="text-[11px]">${minLabel}</span>
+            <span class="ml-auto text-sm font-bold text-gray-900">$${subtotal.toFixed(2)}</span>
+          </div>
+          ${lines.map(l => this._orderPanelLine(l)).join("")}
+        </div>`
+    }).join("")
+
+    this._orderPanel.innerHTML = `
+      <div style="max-width:72rem;margin:0 auto;">
+        <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 sticky top-0 bg-white">
+          <span class="text-sm font-bold text-gray-900">In this order</span>
+          <button type="button" data-panel-action="close"
+                  class="text-xs font-semibold text-gray-500 hover:text-gray-900 px-2 py-1">Close</button>
+        </div>
+        ${groups}
+      </div>`
+  }
+
+  _orderPanelLine(l) {
+    const stepper = (action, label) =>
+      `<button type="button" data-panel-action="${action}" data-match-id="${l.matchId}" data-supplier-id="${l.supplierId}"
+               class="w-7 h-7 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100 text-sm leading-none">${label}</button>`
+
+    return `
+      <div data-panel-line data-match-id="${l.matchId}"
+           class="flex items-center gap-3 px-4 py-2 cursor-pointer hover:bg-gray-50">
+        <img src="${l.thumb}" alt="" class="w-9 h-9 rounded-md object-cover border border-gray-200 bg-gray-50 shrink-0">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm text-gray-900 truncate">${l.name}</div>
+          <div class="text-[11px] text-gray-500">$${l.price.toFixed(2)}${l.uom === "PC" ? " / PC" : " / CS"}</div>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          ${stepper("decrement", "&minus;")}
+          <span class="w-7 text-center text-sm font-bold text-gray-900">${l.qty}</span>
+          ${stepper("increment", "+")}
+        </div>
+        <span class="w-20 text-right text-sm font-bold text-gray-900 shrink-0">$${(l.price * l.qty).toFixed(2)}</span>
+        <button type="button" data-panel-action="remove" data-match-id="${l.matchId}" data-supplier-id="${l.supplierId}"
+                title="Remove" class="shrink-0 w-7 h-7 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 text-sm leading-none">&times;</button>
+      </div>`
+  }
+
+  _supplierShortName(supplierId) {
+    if (!this._supplierNames) {
+      this._supplierNames = {}
+      this.supplierCellTargets.forEach(cell => {
+        const label = cell.querySelector("[data-supplier-label]")
+        if (label) this._supplierNames[cell.dataset.supplierIdValue] = label.textContent.trim()
+      })
+    }
+    return this._supplierNames[supplierId] ||
+      (this.supplierMinimumsValue || {})[supplierId]?.name || "Supplier"
   }
 
   toggleMobileSupplierDetail() {
