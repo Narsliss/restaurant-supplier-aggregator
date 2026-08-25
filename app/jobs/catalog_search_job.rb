@@ -11,6 +11,12 @@ class CatalogSearchJob < ApplicationJob
     service = CatalogSearchService.new(aggregated_list, match_ids: match_ids)
     service.call
   ensure
-    aggregated_list&.mark_catalog_search_done! if aggregated_list
+    if aggregated_list
+      aggregated_list.mark_catalog_search_done!
+      # End of the sign-up chain (match → catalog search). A re-search of
+      # specific rows from the matching screen is a chef tidying up, not a list
+      # being built, so it stays quiet.
+      MatchCompletionNotifier.call(aggregated_list.reload) if match_ids.nil?
+    end
   end
 end

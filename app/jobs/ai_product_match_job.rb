@@ -17,6 +17,11 @@ class AiProductMatchJob < ApplicationJob
     if aggregated_list.reload.matched? && aggregated_list.unmatched_count > 0
       aggregated_list.mark_searching_catalog!
       CatalogSearchJob.perform_later(aggregated_list.id)
+    else
+      # Nothing left to chain — this list is as done as it gets, so a first-time
+      # customer can be told. When catalog search DOES run, it owns the notice
+      # instead, otherwise the email would quote counts that are still moving.
+      MatchCompletionNotifier.call(aggregated_list)
     end
 
     # Refresh teaser suggestions (non-credentialed supplier columns).
