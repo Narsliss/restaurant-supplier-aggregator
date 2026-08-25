@@ -1,4 +1,12 @@
-<%# Matching modal body, loaded into the #match_modal Turbo Frame on row click.
+<%# NOTE: link_out is OFF. Every supplier_url in the database is built by
+    string interpolation in the scrapers rather than captured from the site,
+    and the US Foods pattern (/desktop/product/<sku>) 404s for a chef in a
+    normal browser — it only ever resolved inside an authenticated Ferrum
+    session. PPO stores two conflicting formats, so at least one of those is
+    wrong too. Turn this back on per-supplier once a format is verified
+    against the live site. A dead link is worse than no link.
+
+    Matching modal body, loaded into the #match_modal Turbo Frame on row click.
     This is the sole editor for a match: canonical name + canonical image +
     per-supplier matching. Locals: match, aggregated_list %>
 <% suppliers = aggregated_list.supplier_lists.map(&:supplier).uniq %>
@@ -79,7 +87,7 @@
                          search_url: search_url, supplier_id: supplier.id,
                          is_cheapest: (item && cheapest == supplier), is_most_expensive: false,
                          left_out: (comparison == :exact && item && !compared_ids.include?(supplier.id)),
-                         readonly: readonly, show_image: true, link_out: true %>
+                         readonly: readonly, show_image: true, link_out: false %>
             <% end %>
           </div>
         </div>

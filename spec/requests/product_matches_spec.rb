@@ -10,10 +10,13 @@ RSpec.describe 'ProductMatches', type: :request do
 
   before { sign_in owner }
 
-  # The matching modal is where a chef decides whether two supplier products
-  # are the same thing, and that decision often needs the supplier's own
-  # product page. Suppliers differ: US Foods, Sysco, PPO and Chef's Warehouse
-  # record a supplier_url at import; What Chefs Want and Blue Ribbon never do.
+  # Outbound supplier links are currently OFF. Every supplier_url in the
+  # database is built by string interpolation in the scrapers rather than
+  # captured from the site, and the US Foods pattern 404s for a chef in a
+  # normal browser — it only ever resolved inside an authenticated scraper
+  # session. These specs pin the off state so it can't be switched back on by
+  # accident, while keeping the rendering mechanism covered for the day a
+  # format is actually verified against the live site.
   describe 'GET edit (the matching modal)' do
     let(:linked_supplier) { Supplier.find_by(code: 'sysco') || create(:supplier, name: 'Sysco', code: 'sysco') }
     let(:bare_supplier) { Supplier.find_by(code: 'whatchefswant') || create(:supplier, name: 'What Chefs Want', code: 'whatchefswant') }
@@ -31,19 +34,47 @@ RSpec.describe 'ProductMatches', type: :request do
       sli
     end
 
-    it 'links the product name and image out to the supplier product page' do
+    def render_cell(supplier, url:, link_out:)
+      sl = create(:supplier_list, supplier: supplier, organization: org, location: location)
+      sp = create(:supplier_product, supplier: supplier, supplier_url: url)
+      item = create(:supplier_list_item, supplier_list: sl, supplier_product: sp,
+                                         name: "#{supplier.short_name} Gouda")
+      ApplicationController.renderer.render(
+        partial: 'aggregated_lists/supplier_cell_card',
+        locals: { product_match: match, supplier: supplier, item: item, pmi: nil,
+                  search_url: '/x', supplier_id: supplier.id,
+                  is_cheapest: false, is_most_expensive: false,
+                  readonly: true, show_image: true, link_out: link_out }
+      )
+    end
+
+    it 'sends a chef nowhere, even when a URL is on file' do
       matched_item(linked_supplier, url: 'https://shop.sysco.com/app/product/8462550')
 
       get edit_aggregated_list_product_match_path(aggregated_list, match)
       expect(response).to have_http_status(:ok)
 
-      links = cell_for(response.body, linked_supplier).css("a[href='https://shop.sysco.com/app/product/8462550']")
+      expect(response.body).not_to include('https://shop.sysco.com/app/product/8462550')
+      expect(Nokogiri::HTML(response.body).css('a[target="_blank"]')).to be_empty
+    end
+
+    it 'still links image and name when a cell is explicitly asked to' do
+      html = render_cell(linked_supplier, url: 'https://shop.sysco.com/app/product/8462550', link_out: true)
+
+      links = Nokogiri::HTML(html).css("a[href='https://shop.sysco.com/app/product/8462550']")
       # Both the image and the name are click targets.
       expect(links.size).to eq(2)
       expect(links.map { |a| a['target'] }.uniq).to eq(['_blank'])
       expect(links.map { |a| a['rel'] }.uniq).to eq(['noopener noreferrer'])
       expect(links.last.text).to include('Gouda')
       expect(links.last.at_css('svg')).to be_present
+    end
+
+    it 'renders plain text even with link_out on when there is no URL' do
+      html = render_cell(linked_supplier, url: nil, link_out: true)
+
+      expect(html).to include('Gouda')
+      expect(Nokogiri::HTML(html).css('a')).to be_empty
     end
 
     it 'renders plain text when the supplier records no product URL' do
