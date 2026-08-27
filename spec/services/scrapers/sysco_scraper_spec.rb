@@ -10,6 +10,30 @@ RSpec.describe Scrapers::SyscoScraper do
       scraper.send(:build_pack_size, { 'pack' => pack, 'size' => size })
     end
 
+    # Regression: Sysco splits some sizes into a bare number plus a separate
+    # `uom` ("11.5" + "OZ"). Discarding uom produced "12x11.5", which UnitParser
+    # cannot read at all, so the item never earned a per-unit price and sat out
+    # every comparison.
+    context 'when the size carries no unit of its own' do
+      def build_with_uom(pack, size, uom)
+        scraper.send(:build_pack_size, { 'pack' => pack, 'size' => size, 'uom' => uom })
+      end
+
+      it 'reattaches uom so the pack string parses' do
+        packed = build_with_uom('12', '11.5', 'OZ')
+        expect(packed).to eq('12x11.5 OZ')
+        expect(UnitParser.parse(packed)[:normalized_quantity]).to eq(138.0)
+      end
+
+      it 'leaves a size that already names its own unit untouched' do
+        expect(build_with_uom('12', '12 OZ', 'OZ')).to eq('12x12 OZ')
+      end
+
+      it 'changes nothing when the API omits uom' do
+        expect(build_with_uom('12', '11.5', nil)).to eq('12x11.5')
+      end
+    end
+
     it 'joins case count and per-unit size with an explicit "x" multiplier' do
       expect(build('12', '12 OZ')).to eq('12x12 OZ')
       expect(build('4', '3 LB')).to eq('4x3 LB')

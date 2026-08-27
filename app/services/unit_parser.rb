@@ -27,6 +27,10 @@ class UnitParser
     "kg" => 35.274,
     "kgs" => 35.274,
     "kilogram" => 35.274,
+    # Sysco abbreviates ounce as a bare trailing "Z" in some pack strings
+    # ("6x17.5Z", "4x141.1Z"). unit_pattern matches longest-first, so real
+    # "oz" is always consumed before this single-letter fallback.
+    "z" => 1.0,
     "gr" => 0.03527,
     "gram" => 0.03527,
     "grams" => 0.03527,
@@ -147,6 +151,7 @@ class UnitParser
       # Try each parsing strategy in order. parse_can_size runs early (before
       # parse_pound_sign) so "6 #10" reads as 6 cans, not "6 lb".
       result = parse_mixed_fraction(text) ||
+               parse_cw_can_pack(text) ||
                parse_can_size(text) ||
                parse_ranged_case_pack(text) ||
                parse_case_pack(text) ||
@@ -255,6 +260,21 @@ class UnitParser
     end
 
     private
+
+    # Chef's Warehouse writes can packs as "6xLB10 CAN BC" — its own encoding
+    # of six #10 cans, not six pounds of anything. The trailing "CAN" token is
+    # required so this never claims a real weight pack ("6xLB10" alone is left
+    # to the ordinary rules). Sizes outside CAN_SIZE_TO_OZ fall through rather
+    # than being guessed, matching parse_can_size.
+    def parse_cw_can_pack(text)
+      return nil unless text =~ /\A\s*(\d+)\s*x\s*lb(\d+)\s+can\b/i
+
+      count = $1.to_f
+      oz_each = CAN_SIZE_TO_OZ[$2]
+      return nil unless count.positive? && oz_each
+
+      build_result(count * oz_each, "oz")
+    end
 
     # Parses mixed fractions: "1-1/9 BUSH" → 1 + 1/9 = 1.111 bushels
     # Common in produce (bushel fractions): "1/2 BUSHEL", "1-1/9 BUSH"

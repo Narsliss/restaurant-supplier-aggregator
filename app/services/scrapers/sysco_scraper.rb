@@ -2685,6 +2685,16 @@ module Scrapers
       pack = pack_info['pack'].to_s.strip
       size = pack_info['size'].to_s.strip
 
+      # Sysco sometimes returns a bare numeric size ("11.5") with the unit
+      # split out into `uom`. Dropping `uom` produced unit-less pack strings
+      # ("12x11.5") that UnitParser cannot read at all, so the item never
+      # earns a per-unit price and sits out every comparison. Re-attach it
+      # only when the size carries no unit of its own — when `size` already
+      # says "12 OZ", `uom` is a duplicate and the existing de-dup below
+      # would have to strip it again.
+      uom = pack_info['uom'].to_s.strip
+      size = "#{size} #{uom}" if size.present? && uom.present? && !size.match?(/[A-Za-z]/)
+
       raw = if pack.present? && size.present? && pack.match?(/\A\d+\z/) && size.match?(/\A\d/)
               "#{pack}x#{size}"
             else

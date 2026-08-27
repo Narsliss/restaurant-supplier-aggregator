@@ -339,4 +339,36 @@ RSpec.describe UnitParser do
       expect(described_class.parse('120-135 CT')[:quantity]).to eq(128.0)
     end
   end
+
+  # Two supplier-specific encodings that left real catalog rows with no
+  # per-unit price at all, so they sat out every cross-supplier comparison.
+  describe 'supplier-specific pack encodings' do
+    context 'Sysco bare "Z" for ounce' do
+      it 'reads "6X17.5Z" as six 17.5 oz units' do
+        result = described_class.parse('6X17.5Z')
+        expect(result).to include(parseable: true, normalized_unit: 'oz')
+        expect(result[:normalized_quantity]).to eq(105.0)
+      end
+
+      it 'still matches a real "OZ" ahead of the single-letter fallback' do
+        expect(described_class.parse('6X17.5 OZ')[:normalized_quantity]).to eq(105.0)
+      end
+    end
+
+    context "Chef's Warehouse #10 can packs" do
+      it 'reads "6xLB10 CAN BC" as six #10 cans, not six pounds' do
+        result = described_class.parse('6xLB10 CAN BC')
+        expect(result).to include(parseable: true, normalized_unit: 'oz')
+        expect(result[:normalized_quantity]).to eq(630.0)
+      end
+
+      it 'requires the CAN token before claiming a can pack' do
+        expect(described_class.parse('6xLB10 BC')[:parseable]).to be(false)
+      end
+
+      it 'refuses to guess a can size it has no net weight for' do
+        expect(described_class.parse('6xLB7 CAN')[:parseable]).to be(false)
+      end
+    end
+  end
 end
