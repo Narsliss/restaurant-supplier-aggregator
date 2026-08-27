@@ -35,6 +35,12 @@
     navigation in scrape_product (which price verification depends on, and
     which works on the singular path) are all deliberately untouched. %>
 <% product_url = link_out ? item&.supplier_product&.supplier_url.presence&.sub("/desktop/product/", "/desktop/products/") : nil %>
+<%# Premiere Produce One has no product page to link to. Its catalogue only
+    ever opens products as modals over the order guide, so BOTH stored shapes
+    (/item/<uuid> and /products/<sku>) dump a chef on their order list —
+    verified by hand on both. A link that silently relocates you is worse than
+    no link, so PPO renders as plain text. %>
+<% product_url = nil if supplier.code == "premiereproduceone" %>
 
 <div id="match_<%= product_match.id %>_supplier_<%= supplier.id %>"
      class="rounded-lg relative min-w-0 <%= is_cheapest ? 'border-2 border-green-500/50 bg-green-50' : 'border border-gray-200 bg-gray-50' %>"

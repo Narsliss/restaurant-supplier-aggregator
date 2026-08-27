@@ -83,6 +83,22 @@ RSpec.describe 'ProductMatches', type: :request do
       expect(href).to eq('https://shop.sysco.com/app/product/8462550')
     end
 
+    # PPO opens products as modals over the order guide and has no product
+    # route: both stored shapes (/item/<uuid> and /products/<sku>) land a chef
+    # on their order list. Verified by hand on both, Aug 2026.
+    it 'renders PPO as plain text even though it has a URL on file' do
+      ppo = Supplier.find_by(code: 'premiereproduceone') ||
+            create(:supplier, name: 'Premiere Produce One', code: 'premiereproduceone')
+      matched_item(ppo, url: 'https://premierproduceone.pepr.app/item/9f2a7b80-6b16-4e65-a0d3-ce44e62469ad')
+
+      get edit_aggregated_list_product_match_path(aggregated_list, match)
+
+      cell = cell_for(response.body, ppo)
+      expect(cell.text).to include('Gouda')
+      expect(cell.css('a')).to be_empty
+      expect(response.body).not_to include('premierproduceone.pepr.app')
+    end
+
     it 'leaves a supplier with no URL on file as plain text' do
       matched_item(bare_supplier, url: nil)
 
