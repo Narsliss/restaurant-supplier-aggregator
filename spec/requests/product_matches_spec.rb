@@ -59,6 +59,30 @@ RSpec.describe 'ProductMatches', type: :request do
       expect(links.map { |a| a['rel'] }.uniq).to eq(['noopener noreferrer'])
     end
 
+    # US Foods stores /desktop/product/<sku>, which 404s in a browser. The link
+    # is rewritten to /desktop/products/ at render time only — the stored URL is
+    # left as the scrapers wrote it, because scrape_product navigates the
+    # singular path for order price verification and that works.
+    it "points the US Foods link at /desktop/products/, not the stored /product/" do
+      usf = Supplier.find_by(code: 'usfoods') || create(:supplier, name: 'US Foods', code: 'usfoods')
+      matched_item(usf, url: 'https://order.usfoods.com/desktop/product/1268138')
+
+      get edit_aggregated_list_product_match_path(aggregated_list, match)
+
+      href = cell_for(response.body, usf).at_css('a')['href']
+      expect(href).to eq('https://order.usfoods.com/desktop/products/1268138')
+      expect(response.body).not_to include('/desktop/product/1268138')
+    end
+
+    it 'leaves other suppliers\' URLs exactly as stored' do
+      matched_item(linked_supplier, url: 'https://shop.sysco.com/app/product/8462550')
+
+      get edit_aggregated_list_product_match_path(aggregated_list, match)
+
+      href = cell_for(response.body, linked_supplier).at_css('a')['href']
+      expect(href).to eq('https://shop.sysco.com/app/product/8462550')
+    end
+
     it 'leaves a supplier with no URL on file as plain text' do
       matched_item(bare_supplier, url: nil)
 

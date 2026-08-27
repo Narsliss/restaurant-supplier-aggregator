@@ -27,8 +27,14 @@
 <% link_out = local_assigns.fetch(:link_out, false) %>
 <%# Not every supplier records a product URL (What Chefs Want and Blue Ribbon
     never do), so this is nil often enough that both call sites below must
-    degrade to unlinked markup rather than render a dead anchor. %>
-<% product_url = link_out ? item&.supplier_product&.supplier_url.presence : nil %>
+    degrade to unlinked markup rather than render a dead anchor.
+
+    US Foods is stored as /desktop/product/<sku>, which 404s in a browser; the
+    path that works is /desktop/products/. Rewritten HERE, for the outbound
+    link only. The stored supplier_url, the scrapers, and the authenticated
+    navigation in scrape_product (which price verification depends on, and
+    which works on the singular path) are all deliberately untouched. %>
+<% product_url = link_out ? item&.supplier_product&.supplier_url.presence&.sub("/desktop/product/", "/desktop/products/") : nil %>
 
 <div id="match_<%= product_match.id %>_supplier_<%= supplier.id %>"
      class="rounded-lg relative min-w-0 <%= is_cheapest ? 'border-2 border-green-500/50 bg-green-50' : 'border border-gray-200 bg-gray-50' %>"
