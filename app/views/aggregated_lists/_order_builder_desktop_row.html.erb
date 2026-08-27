@@ -28,6 +28,12 @@
     </div>
     <% if comparable %>
       <span class="text-xs text-gray-400">compared by per-unit price</span>
+    <% else %>
+      <%# The suppliers on this line don't quote in a common unit, so no honest
+        cheapest exists. A supplier is still pre-selected — removing the default
+        drops the + button through to whichever cell renders first — but it is
+        styled as what it is: the lowest sticker price, not a verdict. %>
+      <span class="text-xs text-gray-400">lowest price &middot; packs differ</span>
     <% end %>
   </td>
 
@@ -40,11 +46,14 @@
         <% effective_price = item.price || sp&.current_price %>
         <% effective_pack_size = item.pack_size || sp&.pack_size %>
         <% if effective_price %>
-          <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
-          <% is_most_expensive = most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+          <%# Cheapest and most-expensive are comparison verdicts, so they are
+              withheld unless the units actually line up. The pre-selection is
+              not a verdict and stays either way — see the note above the row. %>
+          <% is_cheapest = comparable && cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+          <% is_most_expensive = comparable && most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
           <% is_default = cheapest && cheapest[:supplier] == supplier %>
           <div class="cursor-pointer rounded-md px-1.5 py-1 -mx-1.5 -my-1 transition-all
-                      <%= is_default ? 'ring-2 ring-brand-green bg-green-50' : 'hover:bg-gray-100' %>"
+                      <%= is_default ? (comparable ? 'ring-2 ring-brand-green bg-green-50' : 'ring-2 ring-gray-300 bg-gray-50') : 'hover:bg-gray-100' %>"
                data-action="click->order-builder#selectSupplier"
                data-supplier-price="<%= item.estimated_total_price || effective_price %>"
                data-supplier-id-value="<%= supplier.id %>"

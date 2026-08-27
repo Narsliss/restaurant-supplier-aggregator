@@ -1,5 +1,8 @@
 <%# Wired from mockups/mobile/order-builder-a.html product card design %>
 <% cheapest = match.cheapest_supplier %>
+<%# No shared unit means no honest cheapest, so the best-price styling is
+    withheld even though a supplier stays pre-selected. %>
+<% comparable = match.per_unit_comparable? %>
 <% cheapest_price = cheapest&.dig(:price) || 0 %>
 <% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
 <%# Quantities come back off the saved working order as floats — the box shows
@@ -54,7 +57,7 @@
           <% effective_pack_size = item.pack_size || sp&.pack_size %>
           <% in_stock = sp ? sp.in_stock : item.in_stock %>
           <% if effective_price %>
-            <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+            <% is_cheapest = comparable && cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
             <% is_default = supplier.id == primary_supplier_id %>
             <% cell_selection = row_selections[supplier.id.to_s] || {} %>
             <% cell_qty = cell_selection["qty"].to_i %>

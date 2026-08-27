@@ -43,6 +43,8 @@
           </div>
           <% if comparable %>
             <span class="text-xs text-gray-400">compared by per-unit price</span>
+          <% else %>
+            <span class="text-xs text-gray-400">lowest price &middot; packs differ</span>
           <% end %>
         </div>
       </div>
@@ -93,7 +95,9 @@
             <% effective_price = item.price || sp&.current_price %>
             <% effective_pack_size = item.pack_size || sp&.pack_size %>
             <% if effective_price %>
-              <% is_cheapest = cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
+              <%# BEST is a comparison verdict — withheld when the units clash,
+                  even though a supplier is still pre-selected below. %>
+              <% is_cheapest = comparable && cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
               <% is_default = supplier.id == primary_supplier_id %>
               <% cell_price = item.estimated_total_price || effective_price %>
               <% cell_selection = row_selections[supplier.id.to_s] || {} %>
