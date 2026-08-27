@@ -4,6 +4,9 @@ class ProductMatch < ApplicationRecord
   belongs_to :off_list_added_by, class_name: "User", optional: true
   has_many :product_match_items, dependent: :destroy
   has_many :supplier_list_items, through: :product_match_items
+  # teaser_matches.product_match_id is a real FK with no ON DELETE, so a match
+  # can't be destroyed while its (display-only) teasers still point at it.
+  has_many :teaser_matches, dependent: :destroy
   # Chef-chosen source of the canonical thumbnail (one of this match's own
   # suppliers' products). Nil → falls back to the primary item's product.
   belongs_to :canonical_image_supplier_product, class_name: 'SupplierProduct', optional: true

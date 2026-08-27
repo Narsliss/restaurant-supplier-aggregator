@@ -4,6 +4,11 @@ class AggregatedList < ApplicationRecord
   belongs_to :created_by, class_name: 'User'
   has_many :aggregated_list_mappings, dependent: :destroy
   has_many :supplier_lists, through: :aggregated_list_mappings
+  has_many :current_orders, dependent: :destroy
+  # Declared BEFORE :product_matches on purpose. teaser_matches FKs both
+  # aggregated_lists and product_matches with no ON DELETE, so destroying the
+  # matches first would trip fk_rails_7a0b85ca4b on teaser_matches.
+  has_many :teaser_matches, dependent: :destroy
   has_many :product_matches, dependent: :destroy
 
   # Validations
