@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_25_171559) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_27_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -496,7 +496,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_25_171559) do
     t.jsonb "location_ids", default: []
     t.index ["invited_by_id"], name: "index_organization_invitations_on_invited_by_id"
     t.index ["location_id"], name: "index_organization_invitations_on_location_id"
-    t.index ["organization_id", "email"], name: "index_organization_invitations_on_organization_id_and_email", unique: true
+    t.index ["organization_id", "email"], name: "index_org_invitations_on_org_and_email_open", unique: true, where: "(accepted_at IS NULL)"
     t.index ["organization_id"], name: "index_organization_invitations_on_organization_id"
     t.index ["token"], name: "index_organization_invitations_on_token", unique: true
   end

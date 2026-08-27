@@ -49,12 +49,27 @@ class OrganizationInvitation < ApplicationRecord
     return false if expired? || accepted?
 
     transaction do
-      # Create membership
-      membership = organization.memberships.create!(
-        user: user,
-        role: role,
-        invitation_accepted_at: Time.current
-      )
+      # Removing a member only deactivates their membership, so a returning
+      # member still has a row here. Revive it instead of creating a second
+      # one — Membership rejects duplicates per organization.
+      membership = organization.memberships.find_by(user: user)
+
+      if membership
+        membership.update!(
+          role: role,
+          active: true,
+          deactivated_at: nil,
+          invitation_accepted_at: Time.current
+        )
+        # The re-invite decides the restaurants; drop the old assignments.
+        membership.membership_locations.destroy_all
+      else
+        membership = organization.memberships.create!(
+          user: user,
+          role: role,
+          invitation_accepted_at: Time.current
+        )
+      end
 
       # Create location assignments
       if role == 'chef' && location_id.present?

@@ -61,6 +61,77 @@ RSpec.describe "Re-inviting after a stale invitation", type: :request do
     end
   end
 
+  # Regression: removing a chef and inviting the same email back used to fail
+  # twice over — the create action raised RecordNotUnique against an
+  # unconditional (organization_id, email) index that the accepted row still
+  # occupied, and accepting the invite raised on a duplicate membership.
+  describe "re-inviting a REMOVED member" do
+    let(:chef) { create(:user, email: "returning.chef@example.com") }
+    let(:other_location) { create(:location, organization: organization) }
+
+    def invite_accept_and_remove!
+      invitation = organization.organization_invitations.create!(
+        email: chef.email, role: "chef", location_id: location.id, invited_by: owner
+      )
+      membership = invitation.accept!(chef)
+      membership.deactivate!
+      membership
+    end
+
+    it "creates a fresh invitation past the accepted row" do
+      invite_accept_and_remove!
+
+      expect {
+        post organization_invitations_path, params: {
+          organization_invitation: { email: chef.email, role: "chef", location_id: other_location.id }
+        }
+      }.to change(organization.organization_invitations.pending, :count).by(1)
+
+      expect(response).to redirect_to(organization_path(invited: chef.email))
+    end
+
+    it "reactivates the existing membership on accept instead of duplicating it" do
+      removed = invite_accept_and_remove!
+      fresh = organization.organization_invitations.create!(
+        email: chef.email, role: "chef", location_id: other_location.id, invited_by: owner
+      )
+
+      expect { fresh.accept!(chef) }
+        .not_to change { organization.memberships.where(user: chef).count }
+
+      expect(organization.member?(chef)).to be(true)
+      expect(removed.reload).to be_active
+      expect(removed.deactivated_at).to be_nil
+      # The re-invite's restaurant replaces the old assignment.
+      expect(removed.locations).to contain_exactly(other_location)
+    end
+
+    it "still rejects an email that is currently an ACTIVE member" do
+      invitation = organization.organization_invitations.create!(
+        email: chef.email, role: "chef", location_id: location.id, invited_by: owner
+      )
+      invitation.accept!(chef)
+
+      post organization_invitations_path, params: {
+        organization_invitation: { email: chef.email, role: "chef", location_id: location.id }
+      }
+
+      expect(response).to redirect_to(organization_path(error: "already_member"))
+    end
+
+    it "keeps a database guard against two OPEN invitations for one email" do
+      organization.organization_invitations.create!(
+        email: chef.email, role: "chef", location_id: location.id, invited_by: owner
+      )
+      duplicate = organization.organization_invitations.new(
+        email: chef.email, role: "chef", location_id: location.id, invited_by: owner,
+        token: SecureRandom.urlsafe_base64(32), expires_at: 7.days.from_now
+      )
+
+      expect { duplicate.save!(validate: false) }.to raise_error(ActiveRecord::RecordNotUnique)
+    end
+  end
+
   describe "Team page visibility" do
     it "lists expired un-accepted invitations in the Expired section" do
       create_invitation(expires_at: 2.days.ago)
