@@ -10,13 +10,11 @@ RSpec.describe 'ProductMatches', type: :request do
 
   before { sign_in owner }
 
-  # Outbound supplier links are currently OFF. Every supplier_url in the
-  # database is built by string interpolation in the scrapers rather than
-  # captured from the site, and the US Foods pattern 404s for a chef in a
-  # normal browser — it only ever resolved inside an authenticated scraper
-  # session. These specs pin the off state so it can't be switched back on by
-  # accident, while keeping the rendering mechanism covered for the day a
-  # format is actually verified against the live site.
+  # Outbound supplier links are ON with the URL formats unverified — every
+  # supplier_url is interpolated by the scrapers rather than captured from the
+  # site, and US Foods is known to 404. That's deliberate: real clicks decide
+  # which suppliers are broken. These specs cover the rendering, NOT whether a
+  # URL resolves; nothing here can tell you a link works.
   describe 'GET edit (the matching modal)' do
     let(:linked_supplier) { Supplier.find_by(code: 'sysco') || create(:supplier, name: 'Sysco', code: 'sysco') }
     let(:bare_supplier) { Supplier.find_by(code: 'whatchefswant') || create(:supplier, name: 'What Chefs Want', code: 'whatchefswant') }
@@ -48,14 +46,27 @@ RSpec.describe 'ProductMatches', type: :request do
       )
     end
 
-    it 'sends a chef nowhere, even when a URL is on file' do
+    it 'links a matched cell out to the supplier page' do
       matched_item(linked_supplier, url: 'https://shop.sysco.com/app/product/8462550')
 
       get edit_aggregated_list_product_match_path(aggregated_list, match)
       expect(response).to have_http_status(:ok)
 
-      expect(response.body).not_to include('https://shop.sysco.com/app/product/8462550')
-      expect(Nokogiri::HTML(response.body).css('a[target="_blank"]')).to be_empty
+      links = cell_for(response.body, linked_supplier)
+               .css("a[href='https://shop.sysco.com/app/product/8462550']")
+      expect(links.size).to eq(2) # image + name
+      expect(links.map { |a| a['target'] }.uniq).to eq(['_blank'])
+      expect(links.map { |a| a['rel'] }.uniq).to eq(['noopener noreferrer'])
+    end
+
+    it 'leaves a supplier with no URL on file as plain text' do
+      matched_item(bare_supplier, url: nil)
+
+      get edit_aggregated_list_product_match_path(aggregated_list, match)
+
+      cell = cell_for(response.body, bare_supplier)
+      expect(cell.text).to include('WCW Gouda')
+      expect(cell.css('a')).to be_empty
     end
 
     it 'still links image and name when a cell is explicitly asked to' do

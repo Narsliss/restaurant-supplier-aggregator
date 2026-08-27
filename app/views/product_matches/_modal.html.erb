@@ -1,10 +1,15 @@
-<%# NOTE: link_out is OFF. Every supplier_url in the database is built by
-    string interpolation in the scrapers rather than captured from the site,
-    and the US Foods pattern (/desktop/product/<sku>) 404s for a chef in a
-    normal browser — it only ever resolved inside an authenticated Ferrum
-    session. PPO stores two conflicting formats, so at least one of those is
-    wrong too. Turn this back on per-supplier once a format is verified
-    against the live site. A dead link is worse than no link.
+<%# NOTE: link_out is ON with the URL formats UNVERIFIED, deliberately.
+    Every supplier_url is built by string interpolation in the scrapers rather
+    than captured from the site, and the US Foods pattern
+    (/desktop/product/<sku>) is known to 404 for a chef in a normal browser —
+    it only ever resolved inside an authenticated Ferrum session. PPO stores
+    two conflicting shapes, so one of those is wrong as well. Sysco and Chef's
+    Warehouse are simply untested.
+
+    Carmin's call (Aug 2026): ship it and let real clicks say which suppliers
+    are broken, rather than keep guessing at formats. Expect dead links,
+    US Foods worst of all — that is 16,682 of the products. Once the working
+    formats are known, gate this per supplier code instead of all-or-nothing.
 
     Matching modal body, loaded into the #match_modal Turbo Frame on row click.
     This is the sole editor for a match: canonical name + canonical image +
@@ -87,7 +92,7 @@
                          search_url: search_url, supplier_id: supplier.id,
                          is_cheapest: (item && cheapest == supplier), is_most_expensive: false,
                          left_out: (comparison == :exact && item && !compared_ids.include?(supplier.id)),
-                         readonly: readonly, show_image: true, link_out: false %>
+                         readonly: readonly, show_image: true, link_out: true %>
             <% end %>
           </div>
         </div>
