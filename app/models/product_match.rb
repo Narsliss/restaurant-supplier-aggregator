@@ -113,9 +113,64 @@ class ProductMatch < ApplicationRecord
 
   # This match's comparison verdict, for callers that don't already hold the
   # price rows (single-record Turbo re-renders).
+  #
+  # DEPRECATED for display. This is the same-unit-only reading and it cannot
+  # see the estimated conversions #comparable_group makes, so a page driven by
+  # it disagrees with the order builder about who is cheapest. Use
+  # #comparison_verdict. Kept because .compare_by_unit is still the honest
+  # answer to "do two suppliers literally share a unit".
   def unit_comparison
     in_stock = prices_by_supplier.select { |p| p[:price].to_f > 0 && p[:in_stock] }
     self.class.compare_by_unit(in_stock).first
+  end
+
+  # The single comparison verdict every screen renders from, so the matched
+  # list, the order builder and the match modal cannot disagree about who is
+  # cheapest on the same line.
+  #
+  #   :single       — fewer than two suppliers priced and in stock
+  #   :exact        — ranked on units the suppliers themselves quoted
+  #   :estimated    — ranked, but only because we converted a count or a bushel
+  #                   with a weight nobody stated. Earns a marked BEST, never
+  #                   a clean one, and offers the chef a Set Weight control.
+  #   :incomparable — no two suppliers can be ranked at all
+  def comparison_verdict
+    return @comparison_verdict if defined?(@comparison_verdict)
+
+    in_stock = prices_by_supplier.select { |p| p[:price].to_f > 0 && p[:in_stock] }
+    @comparison_verdict =
+      if in_stock.size < 2
+        :single
+      elsif comparable_group.size < 2
+        :incomparable
+      elsif comparable_group.any? { |p| p[:comparison_estimated] }
+        :estimated
+      else
+        :exact
+      end
+  end
+
+  # True when this supplier's price only joins the comparison through an
+  # estimate — the cell that should offer Set Weight.
+  def estimated_basis_for?(supplier)
+    entry = comparable_group.find { |p| p[:supplier] == supplier }
+    entry.present? && entry[:comparison_estimated].present?
+  end
+
+  # Everything a list row needs to render its price story. Built here rather
+  # than inline in each controller: three separate copies of this had already
+  # drifted apart, and only one of them consulted comparison_per_oz.
+  def price_summary
+    cheapest = cheapest_supplier
+    priciest = most_expensive_supplier
+
+    {
+      cheapest_supplier: cheapest&.dig(:supplier),
+      most_expensive_supplier: priciest&.dig(:supplier),
+      spread: price_spread,
+      comparison: comparison_verdict,
+      compared_supplier_ids: comparable_group.map { |p| p[:supplier].id }
+    }
   end
 
   # Price comparison across matched items (memoized — safe to call repeatedly).

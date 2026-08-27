@@ -5,7 +5,7 @@
     3. Close the modal — the work on this line is done. %>
 <%= turbo_stream.replace "match_left_#{@product_match.id}" do %>
   <%= render "aggregated_lists/match_row_left", match: @product_match, aggregated_list: @aggregated_list,
-                                              comparison: @product_match.unit_comparison %>
+                                              comparison: @product_match.comparison_verdict %>
 <% end %>
 
 <%= turbo_stream.append "match-cards-container" do %>

@@ -120,59 +120,12 @@ class AggregatedListsController < ApplicationController
       end
       @match_supplier_map[match.id] = supplier_map
 
-      # Pre-compute price comparison per match (cheapest/most_expensive/spread)
-      # Avoids calling prices_by_supplier 3× per row in the view
-      prices = match.product_match_items.map do |pmi|
-        item = pmi.supplier_list_item
-        sp = item.supplier_product
-        {
-          supplier: pmi.supplier,
-          price: item.price || sp&.current_price,
-          # Case-equivalent: a $2.00/lb catch-weight quote is not a $2.00 case.
-          estimated_price: item.estimated_total_price || item.price || sp&.current_price,
-          per_unit_price: item.per_unit_price,
-          normalized_unit: item.normalized_unit,
-          in_stock: sp ? sp.in_stock : item.read_attribute(:in_stock)
-        }
-      end
-
-      in_stock_prices = prices.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
-
-      comparison, largest_group = ProductMatch.compare_by_unit(in_stock_prices)
-
-      cheapest = most_expensive = nil
-      spread = nil
-      compared_supplier_ids = []
-
-      case comparison
-      when :exact
-        # At least two suppliers quote in the same unit — a real like-for-like read.
-        compared_supplier_ids = largest_group.map { |p| p[:supplier].id }
-        cheapest = largest_group.min_by { |p| p[:per_unit_price] }
-        most_expensive = largest_group.max_by { |p| p[:per_unit_price] }
-        spread = largest_group.map { |p| p[:per_unit_price] }.max - largest_group.map { |p| p[:per_unit_price] }.min
-      when :single
-        cheapest = in_stock_prices.first
-      else
-        # Two or more suppliers, and no two of them quote in the same unit:
-        # "each" against "oz", a sheet against a bushel. We do NOT try to
-        # convert between them — any winner picked here is a guess about which
-        # pack is bigger, so the view withholds BEST and flags the line instead.
-        # Case-equivalents at least stop a per-lb quote beating a whole case.
-        comparison = :incomparable
-        cheapest = in_stock_prices.min_by { |p| p[:estimated_price] || p[:price] }
-        most_expensive = in_stock_prices.max_by { |p| p[:estimated_price] || p[:price] }
-        totals = in_stock_prices.map { |p| p[:estimated_price] || p[:price] }
-        spread = totals.max - totals.min if totals.size >= 2
-      end
-
-      @price_data[match.id] = {
-        cheapest_supplier: cheapest&.dig(:supplier),
-        most_expensive_supplier: most_expensive&.dig(:supplier),
-        spread: spread,
-        comparison: comparison,
-        compared_supplier_ids: compared_supplier_ids
-      }
+      # One verdict, computed in one place. This used to be ~50 lines of
+      # inline comparison here, a second copy in ProductMatchItemsController
+      # and a third in ProductMatch — and only the model's consulted
+      # comparison_per_oz, so this page and the order builder could name
+      # different suppliers as cheapest on the very same line.
+      @price_data[match.id] = match.price_summary
     end
 
     # Teaser columns: show catalog data from suppliers not mapped to this list.

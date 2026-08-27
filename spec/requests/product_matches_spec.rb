@@ -335,24 +335,33 @@ RSpec.describe 'ProductMatches', type: :request do
         line('sysco', 'Cherry tomato by count', '24 CT', 57.52)  # the odd unit out
       end
 
-      it 'still names a best among the comparable suppliers' do
+      # Cherry tomatoes are produce the estimator knows, so the 24 CT supplier
+      # converts to $/oz and competes rather than being dropped. The order
+      # builder has always read the line this way; before the comparison was
+      # consolidated the list page did not, and the two screens could name
+      # different suppliers as cheapest on the same row.
+      it 'names a best and discloses that the ranking rests on an estimate' do
         get aggregated_list_path(aggregated_list)
 
         card = Nokogiri::HTML(response.body).at_css("##{ActionView::RecordIdentifier.dom_id(match)}")
-        expect(card.css('span').map { |n| n.text.strip }).to include('BEST')
+        expect(card.css('span').map { |n| n.text.strip }).to include('BEST est')
+        expect(card.css('span').map { |n| n.text.strip }).not_to include('BEST')
+        expect(card.text).to include('Estimated units')
         expect(card.text).not_to include("Units don't match")
       end
 
-      it "marks the odd supplier's cell as not compared" do
+      it 'pulls the odd unit into the comparison instead of dropping it' do
         get aggregated_list_path(aggregated_list)
 
         doc = Nokogiri::HTML(response.body)
         sysco = Supplier.find_by(code: 'sysco')
-        cell = doc.at_css("#match_#{match.id}_supplier_#{sysco.id}")
-        expect(cell.text).to include('Not compared')
+        expect(doc.at_css("#match_#{match.id}_supplier_#{sysco.id}").text).not_to include('Not compared')
+      end
 
-        usf = Supplier.find_by(code: 'usfoods')
-        expect(doc.at_css("#match_#{match.id}_supplier_#{usf.id}").text).not_to include('Not compared')
+      # The reason consolidation happened: one verdict, so the matched list and
+      # the order builder cannot disagree about who is cheapest.
+      it 'names the same cheapest supplier as the order builder' do
+        expect(match.price_summary[:cheapest_supplier]).to eq(match.cheapest_supplier[:supplier])
       end
     end
 

@@ -16,12 +16,11 @@
     per-supplier matching. Locals: match, aggregated_list %>
 <% suppliers = aggregated_list.supplier_lists.map(&:supplier).uniq %>
 <% search_url = supplier_items_search_aggregated_list_path(aggregated_list) %>
-<%# BEST only goes out when suppliers actually quote in a common unit — see
-    ProductMatch.compare_by_unit. Otherwise the cheapest is a guess. %>
-<% in_stock_prices = match.prices_by_supplier.select { |p| p[:price].to_f > 0 && p[:in_stock] } %>
-<% comparison, compared_group = ProductMatch.compare_by_unit(in_stock_prices) %>
-<% compared_ids = compared_group.map { |p| p[:supplier].id } %>
-<% cheapest = comparison == :exact ? compared_group.min_by { |p| p[:per_unit_price] }&.dig(:supplier) : nil %>
+<%# The same verdict the matched-list page and the order builder render from,
+    so all three agree about who is cheapest on this line. %>
+<% comparison = match.comparison_verdict %>
+<% compared_ids = match.comparable_group.map { |p| p[:supplier].id } %>
+<% cheapest = comparison.in?(%i[exact estimated]) ? match.cheapest_supplier&.dig(:supplier) : nil %>
 <% readonly = aggregated_list.promoted? %>
 <turbo-frame id="match_modal">
   <%# No click-to-close on the backdrop. Selecting the canonical name and
@@ -91,7 +90,8 @@
                          product_match: match, supplier: supplier, item: item, pmi: pmi,
                          search_url: search_url, supplier_id: supplier.id,
                          is_cheapest: (item && cheapest == supplier), is_most_expensive: false,
-                         left_out: (comparison == :exact && item && !compared_ids.include?(supplier.id)),
+                         left_out: (comparison.in?(%i[exact estimated]) && item && !compared_ids.include?(supplier.id)),
+                         best_estimated: comparison == :estimated,
                          readonly: readonly, show_image: true, link_out: true %>
             <% end %>
           </div>

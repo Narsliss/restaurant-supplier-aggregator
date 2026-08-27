@@ -24,7 +24,11 @@
     vs bushels) and any "cheapest" would be a guess. Only :exact earns BEST. %>
 <% comparison = price_info && price_info[:comparison] %>
 <% compared_ids = (price_info && price_info[:compared_supplier_ids]) || [] %>
-<% comparison_trusted = comparison == :exact %>
+<%# :estimated ranks too, but only because we converted a count or a bushel
+    with a weight nobody stated, so it earns a marked BEST and never a clean
+    one. :incomparable earns none at all. %>
+<% comparison_trusted = comparison == :exact || comparison == :estimated %>
+<% comparison_estimated = comparison == :estimated %>
 
 <div id="<%= dom_id(match) %>"
      data-match-filter-target="row"
@@ -56,6 +60,7 @@
                      supplier_id: supplier.id,
                      is_cheapest: is_cheapest,
                      is_most_expensive: is_most_expensive,
+                     best_estimated: comparison_estimated,
                      left_out: left_out,
                      readonly: true %>
         <% end %>

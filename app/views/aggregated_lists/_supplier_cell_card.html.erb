@@ -45,7 +45,14 @@
 <div id="match_<%= product_match.id %>_supplier_<%= supplier.id %>"
      class="rounded-lg relative min-w-0 <%= is_cheapest ? 'border-2 border-green-500/50 bg-green-50' : 'border border-gray-200 bg-gray-50' %>"
      style="padding: 10px;">
-  <% if is_cheapest %>
+  <%# A BEST resting on an estimated pack weight says so. Solid fill means the
+      suppliers' own units settled it; the outline means we converted. %>
+  <% best_estimated = local_assigns.fetch(:best_estimated, false) %>
+  <% if is_cheapest && best_estimated %>
+    <span class="absolute bg-white text-green-700 font-bold rounded-full z-10 border border-green-600"
+          title="Ranked using an estimated pack weight, not one the suppliers stated"
+          style="top:-8px; right:-8px; padding:2px 6px; font-size:9px;">BEST est</span>
+  <% elsif is_cheapest %>
     <span class="absolute bg-green-600 text-white font-bold rounded-full z-10" style="top:-8px; right:-8px; padding:2px 7px; font-size:9px;">BEST</span>
   <% end %>
 

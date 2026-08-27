@@ -49,6 +49,18 @@
         <%# The suppliers on this line don't quote in a common unit — one sells
             by the each, another by the ounce, another by the sheet. There is no
             honest cheapest here, so no BEST badge goes out; this says why. %>
+        <%# Ranked, but only because we converted a count or a bushel using a
+            weight nobody stated. Outline rather than fill: the comparison
+            stands, it just isn't resting on the suppliers' own numbers. %>
+        <% if comparison == :estimated %>
+          <span class="inline-flex items-center gap-1 rounded-full border border-amber-500 bg-white px-2 py-0.5 text-[10px] font-bold text-amber-700"
+                title="These suppliers price in different units. The comparison uses an estimated pack weight, not one the suppliers stated — open the line to set it yourself.">
+            <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+            </svg>
+            Estimated units
+          </span>
+        <% end %>
         <% if comparison == :incomparable %>
           <span class="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white"
                 title="These suppliers price in different units, so their prices can't be compared like for like. Check the pack sizes before ordering.">
