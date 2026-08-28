@@ -170,6 +170,7 @@ Rails.application.routes.draw do
     resources :product_matches, only: %i[index] do
       member do
         post :confirm
+        post :unconfirm
         post :reject
         patch :rename
         get :edit

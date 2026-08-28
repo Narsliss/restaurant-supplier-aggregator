@@ -117,10 +117,15 @@
       <% end %>
     <% end %>
 
-    <%# Per-unit price — 10px %>
-    <% if item.formatted_per_unit_price %>
+    <%# Per-unit price — 10px.
+        Shows the basis the line was actually RANKED on, not the item's own raw
+        per-unit price. Printing "$0.09/ea" beside "$0.41/oz" is the apples-to-
+        oranges problem this whole feature exists to remove, and it survived
+        right up to the cell that displays it. %>
+    <% per_unit_display = product_match.display_per_unit_for(item) %>
+    <% if per_unit_display %>
       <div class="<%= is_cheapest ? 'text-green-600' : 'text-gray-500' %>" style="font-size:10px; margin-top:1px;">
-        <%= item.formatted_per_unit_price %>
+        <%= per_unit_display %>
       </div>
     <% end %>
 

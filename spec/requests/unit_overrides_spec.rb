@@ -150,14 +150,18 @@ RSpec.describe "Set Weight", type: :request do
       post unit_overrides_path, params: { supplier_list_item_id: item.id, weight: 28,
                                           unit: "lb", return_to_match_id: match.id }
 
-      expect(response).to redirect_to(edit_aggregated_list_product_match_path(aggregated_list, match))
+      expect(response).to redirect_to(
+        edit_aggregated_list_product_match_path(aggregated_list, match, opened_item: item.id)
+      )
     end
 
     it "returns there on a rejected weight too, so the chef sees why" do
       post unit_overrides_path, params: { supplier_list_item_id: item.id, weight: 0.05,
                                           unit: "lb", return_to_match_id: match.id }
 
-      expect(response).to redirect_to(edit_aggregated_list_product_match_path(aggregated_list, match))
+      expect(response).to redirect_to(
+        edit_aggregated_list_product_match_path(aggregated_list, match, opened_item: item.id)
+      )
       expect(flash[:alert]).to be_present
     end
 
@@ -177,6 +181,38 @@ RSpec.describe "Set Weight", type: :request do
     def modal_body(match)
       get edit_aggregated_list_product_match_path(aggregated_list, match)
       response.body
+    end
+  end
+
+  describe "the cell shows the basis it was ranked on" do
+    let(:aggregated_list) { create(:aggregated_list, organization: organization, location_id: location.id) }
+
+    it "prints $/oz on both cells, not each against oz" do
+      peer_list = create(:supplier_list, supplier: create(:supplier, name: "What Chefs Want"),
+                                         organization: organization, location: location)
+      peer = create(:supplier_list_item, supplier_list: peer_list, name: "Lady Fingers", sku: "SKU-9",
+                                         pack_size: "10/14 OZ CS", price: 57.70,
+                                         supplier_product: create(:supplier_product, supplier: peer_list.supplier,
+                                                                  supplier_sku: "SKU-9", pack_size: "10/14 OZ CS",
+                                                                  current_price: 57.70, in_stock: true))
+      item.update!(pack_size: "15x48 Count Case", price: 61.77)
+      item.supplier_product.update!(pack_size: "15x48 Count Case")
+
+      match = create(:product_match, aggregated_list: aggregated_list, canonical_name: "Cookies - Lady Finger")
+      [[item, supplier], [peer, peer_list.supplier]].each do |sli, sup|
+        aggregated_list.aggregated_list_mappings.find_or_create_by!(supplier_list: sli.supplier_list)
+        create(:product_match_item, product_match: match, supplier_list_item: sli, supplier: sup)
+      end
+
+      sign_in member("chef")
+      post unit_overrides_path, params: { supplier_list_item_id: item.id, weight: 10, unit: "lb" }
+
+      get edit_aggregated_list_product_match_path(aggregated_list, match)
+
+      # Before this, the chef-weighted cell still printed its raw "$0.09/ea"
+      # beside the peer's "$0.41/oz" — the exact mismatch the feature removes.
+      expect(response.body).not_to include("/ea")
+      expect(response.body).to include("est")
     end
   end
 

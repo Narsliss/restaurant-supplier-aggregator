@@ -81,6 +81,17 @@ class ProductMatch < ApplicationRecord
     update!(match_status: 'confirmed', reviewed_at: reviewed_at || Time.current)
   end
 
+  # Take a sign-off back. Confirming was a one-way door: nothing anywhere
+  # could return a match to the queue, so a stray click left a line marked
+  # "Chef confirmed" for good — and confirmed lines sink to the bottom of the
+  # page, out of the way of the very review that would have caught it.
+  def unconfirm!
+    return unless confirmed?
+
+    update!(match_status: product_match_items.any? ? "auto_matched" : "unmatched",
+            reviewed_at: nil)
+  end
+
   # Reject this match (AI got it wrong)
   def reject!
     update!(match_status: 'rejected')

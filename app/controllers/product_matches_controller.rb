@@ -1,8 +1,8 @@
 class ProductMatchesController < ApplicationController
   before_action :require_location_context!
   before_action :set_aggregated_list
-  before_action :set_product_match, only: %i[confirm reject rename edit set_canonical_image]
-  before_action :require_list_write_access!, only: %i[confirm reject rename confirm_all set_canonical_image]
+  before_action :set_product_match, only: %i[confirm unconfirm reject rename edit set_canonical_image]
+  before_action :require_list_write_access!, only: %i[confirm unconfirm reject rename confirm_all set_canonical_image]
 
   def index
     @product_matches = @aggregated_list.product_matches
@@ -20,6 +20,15 @@ class ProductMatchesController < ApplicationController
       format.html { redirect_to aggregated_list_product_matches_path(@aggregated_list) }
       format.turbo_stream
     end
+  end
+
+  # Undo a sign-off, including one nobody meant to give.
+  def unconfirm
+    @product_match.unconfirm!
+    @confirmed_count = @aggregated_list.product_matches.confirmed.count
+
+    redirect_to edit_aggregated_list_product_match_path(@aggregated_list, @product_match),
+                notice: "Sign-off removed."
   end
 
   def reject

@@ -59,7 +59,8 @@ class UnitOverridesController < ApplicationController
   def back_to_modal(message)
     match_id = params[:return_to_match_id]
     if match_id.present? && (match = ProductMatch.find_by(id: match_id))
-      redirect_to edit_aggregated_list_product_match_path(match.aggregated_list_id, match),
+      redirect_to edit_aggregated_list_product_match_path(match.aggregated_list_id, match,
+                                                         opened_item: @item.id),
                   notice: message
     else
       redirect_back fallback_location: root_path, notice: message
@@ -123,7 +124,8 @@ class UnitOverridesController < ApplicationController
   def reject(message)
     match_id = params[:return_to_match_id]
     if match_id.present? && (match = ProductMatch.find_by(id: match_id))
-      redirect_to edit_aggregated_list_product_match_path(match.aggregated_list_id, match), alert: message
+      redirect_to edit_aggregated_list_product_match_path(match.aggregated_list_id, match,
+                                                         opened_item: @item.id), alert: message
     else
       redirect_back fallback_location: root_path, alert: message
     end

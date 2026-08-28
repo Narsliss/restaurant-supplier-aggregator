@@ -110,6 +110,9 @@
                 </svg>
                 Chef confirmed
               </span>
+              <%= button_to "Undo", unconfirm_aggregated_list_product_match_path(aggregated_list, match),
+                            method: :post, form: { class: "inline-block ml-2" },
+                            class: "text-xs font-medium text-gray-500 underline hover:text-gray-700" %>
             <% elsif match.product_match_items.any? %>
               <%= button_to confirm_aggregated_list_product_match_path(aggregated_list, match),
                             method: :post,
