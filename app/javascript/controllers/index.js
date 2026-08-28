@@ -50,6 +50,7 @@ import MobileReviewController from "./mobile_review_controller"
 import MatchFilterController from "./match_filter_controller"
 import DeliveryScheduleGridController from "./delivery_schedule_grid_controller"
 import OnboardingWizardController from "./onboarding_wizard_controller"
+import SetWeightController from "./set_weight_controller"
 
 application.register("admin-search", AdminSearchController)
 application.register("two-factor", TwoFactorController)
@@ -101,3 +102,4 @@ application.register("mobile-review", MobileReviewController)
 application.register("match-filter", MatchFilterController)
 application.register("delivery-schedule-grid", DeliveryScheduleGridController)
 application.register("onboarding-wizard", OnboardingWizardController)
+application.register("set-weight", SetWeightController)

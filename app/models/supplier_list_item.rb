@@ -120,6 +120,16 @@ class SupplierListItem < ApplicationRecord
     @unit_override = key.present? ? supplier_list&.unit_overrides_by_sku&.[](key) : nil
   end
 
+  # True when this cell's comparison rests on anything other than a weight the
+  # supplier stated: nothing at all, the platform's guess, or a chef's. This is
+  # where Set Weight is offered — not merely where units clash, because a
+  # bushel of peppers ranked off a guessed 0.45 lb per pepper looks comparable
+  # and is not, and a chef must be able to correct it.
+  def needs_pack_weight?
+    basis = comparison_per_oz
+    basis.nil? || basis[:estimated].present?
+  end
+
   def unit_override_stale?
     ov = unit_override
     ov.present? && ov.stale_against?(pack_size.presence || supplier_product&.pack_size)

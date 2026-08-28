@@ -33,10 +33,14 @@ class UnitParser
     "z" => 1.0,
     "gr" => 0.03527,
     "gram" => 0.03527,
-    "grams" => 0.03527,
-    "bushel" => 25.0 * 16.0,  # ~25 lbs, approximate for produce comparison
-    "bu" => 25.0 * 16.0,
-    "bush" => 25.0 * 16.0
+    "grams" => 0.03527
+    # NOTE: bushel is deliberately NOT here. It used to map to a flat 25 lb,
+    # which made a bushel parse as an EXACT weight and let it win a solid green
+    # BEST with no "~" and nothing on screen saying a number had been guessed.
+    # A bushel of spinach is ~20 lb, peppers ~28, apples ~42, so that badge
+    # could be wrong by 40%. It lives in PRODUCE_UNITS now: bushels compare
+    # honestly against other bushels, and against anything else they need a
+    # weight from the chef who takes the delivery.
   }.freeze
 
   # Volume conversions to fluid ounces
@@ -79,10 +83,6 @@ class UnitParser
     "dozen" => 12.0
   }.freeze
 
-  # Bushel conversion: ~25 lbs is a reasonable average for produce (peppers,
-  # squash, greens). Approximate but enables cross-supplier price comparison.
-  BUSHEL_TO_OZ = 25.0 * 16.0  # 400 oz
-
   # Produce/specialty units (not convertible to weight/volume/count — compared within their own category)
   PRODUCE_UNITS = {
     "bunch" => "bunch",
@@ -94,7 +94,13 @@ class UnitParser
     "stalks" => "stalk",
     "flat" => "flat",
     "flats" => "flat",
-    "pint" => "pint"  # pint of berries = count unit in produce
+    "pint" => "pint",  # pint of berries = count unit in produce
+    # A bushel is a size of container, not a weight: what it holds depends
+    # entirely on what is in it. Compared within its own kind, never converted.
+    "bushel" => "bushel",
+    "bushels" => "bushel",
+    "bu" => "bushel",
+    "bush" => "bushel"
   }.freeze
 
   # Standard food-service can sizes → approximate net weight in ounces.

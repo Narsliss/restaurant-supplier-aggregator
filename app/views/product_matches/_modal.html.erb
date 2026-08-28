@@ -92,7 +92,8 @@
                          is_cheapest: (item && cheapest == supplier), is_most_expensive: false,
                          left_out: (comparison.in?(%i[exact estimated]) && item && !compared_ids.include?(supplier.id)),
                          best_estimated: comparison == :estimated,
-                         readonly: readonly, show_image: true, link_out: true %>
+                         readonly: readonly, show_image: true, link_out: true,
+                         allow_set_weight: !readonly %>
             <% end %>
           </div>
         </div>

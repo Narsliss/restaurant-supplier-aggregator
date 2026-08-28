@@ -33,10 +33,13 @@ RSpec.describe "Chef pack weights stay out of ordering and costing" do
     SupplierListItem.find(item.id)
   end
 
-  it "moves the comparison basis, which is the whole point" do
-    before_oz = fresh.comparison_per_oz[:value]
+  it "gives the line a comparison basis it did not have, which is the whole point" do
+    # A bushel is a size of container, not a weight. Without a chef there is
+    # nothing honest to compare it on.
+    expect(fresh.comparison_per_oz).to be_nil
+
     set_weight(448)
-    expect(fresh.comparison_per_oz[:value]).not_to eq(before_oz)
+    expect(fresh.comparison_per_oz[:value]).to eq((32.00 / 448).round(4))
   end
 
   # Everything below must be identical either side of that weight existing.

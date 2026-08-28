@@ -36,15 +36,21 @@ RSpec.describe "Chef pack weights in the comparison ladder" do
     expect(result[:source]).to eq(:chef)
   end
 
-  # A bushel of peppers is only comparable today because UnitParser hardcodes
-  # 25 lb. A chef who takes the delivery outranks that constant.
-  it "outranks the platform's own guess" do
-    without_override = item_at(boston).comparison_per_oz
-    set_weight(448)
-    with_override = item_at(california).comparison_per_oz
+  # ProduceWeightEstimator puts a bell pepper at 0.45 lb, which is a decent
+  # guess and still a guess. The chef who takes the delivery outranks it.
+  it "outranks the platform's own guess on a count pack" do
+    guessed = item_at(boston, pack_size: "24 CT").comparison_per_oz
+    expect(guessed[:estimated]).to be(true)
+    expect(guessed[:source]).to be_nil
 
-    expect(without_override[:value]).not_to eq(with_override[:value])
-    expect(with_override[:value]).to eq((32.00 / 448).round(4))
+    # 8 oz a pepper rather than the table's 7.2
+    UnitOverride.create!(organization: organization, supplier: supplier, supplier_sku: "SKU-2",
+                         basis: "per_piece", net_weight_oz: 8, pack_size_fingerprint: "24 CT")
+    corrected = item_at(california, pack_size: "24 CT", sku: "SKU-2").comparison_per_oz
+
+    expect(corrected[:source]).to eq(:chef)
+    expect(corrected[:value]).to eq((32.00 / 192).round(4))
+    expect(corrected[:value]).not_to eq(guessed[:value])
   end
 
   describe "a restaurant group with rooms in two cities" do

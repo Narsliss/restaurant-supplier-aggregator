@@ -184,6 +184,14 @@ Rails.application.routes.draw do
   # Product Match Item create + update (manual supplier item assignment)
   resources :product_match_items, only: [:create, :update]
 
+  # Set Weight: a chef supplying the pack weight their supplier never gave.
+  # Identified by the list item it was opened from, so the server derives the
+  # organization, location, supplier and SKU rather than trusting any of them
+  # from the request.
+  resources :unit_overrides, only: %i[create]
+  delete "unit_overrides/for_item/:supplier_list_item_id",
+         to: "unit_overrides#destroy", as: :unit_override_for_item
+
   # Favorite Products (toggle from order builder)
   resources :favorite_products, only: [] do
     collection do

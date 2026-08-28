@@ -75,6 +75,16 @@ class UnitOverride < ApplicationRecord
     net_weight_oz.to_f * count
   end
 
+  # How many pieces the box holds. A parsed count pack answers directly
+  # ("24 CT" -> 24); otherwise fall back to the leading number, which is what
+  # carries the count in the unparseable packs this exists for ("10 SHEET").
+  def self.piece_count_in(pack_size)
+    parsed = UnitParser.parse(pack_size)
+    return parsed[:normalized_quantity].to_f if parsed[:parseable] && parsed[:normalized_unit] == "each"
+
+    pack_size.to_s[/\A\s*(\d+(?:\.\d+)?)/, 1]&.to_f
+  end
+
   def self.plausible_per_lb?(price, total_oz)
     return false unless price.to_f.positive? && total_oz.to_f.positive?
 
@@ -84,15 +94,8 @@ class UnitOverride < ApplicationRecord
 
   private
 
-  # How many pieces the box holds. A parsed count pack answers directly
-  # ("24 CT" → 24); otherwise fall back to the leading number, which is what
-  # carries the count in the unparseable packs this exists for ("10 SHEET").
   def piece_count_in(pack_size)
-    parsed = UnitParser.parse(pack_size)
-    return parsed[:normalized_quantity].to_f if parsed[:parseable] && parsed[:normalized_unit] == "each"
-
-    lead = pack_size.to_s[/\A\s*(\d+(?:\.\d+)?)/, 1]
-    lead&.to_f
+    self.class.piece_count_in(pack_size)
   end
 
   def normalize_pack(str)
