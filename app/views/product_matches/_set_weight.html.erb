@@ -45,24 +45,39 @@
       <%= hidden_field_tag :supplier_list_item_id, item.id %>
 
       <p class="text-[10px] text-gray-700">
-        About how much does one <span class="font-semibold"><%= pack.presence || "pack" %></span> weigh?
+        How much does one whole <span class="font-semibold"><%= pack.presence || "pack" %></span>
+        weigh, as it arrives? That is the unit the
+        <%= number_to_currency(item.price || item.supplier_product&.current_price) %> buys.
       </p>
 
-      <div class="flex gap-1">
+      <%# A supplier cell is narrow. Flex items will not shrink below their own
+          content by default, so three controls on one row push straight out
+          through the side of the card — min-w-0 lets them give, and the basis
+          gets its own row rather than fighting for the last few pixels. %>
+      <div class="flex gap-1 min-w-0">
         <%= number_field_tag :weight, existing&.then { |o| (o.net_weight_oz / 16.0).round(2) },
               step: "any", min: "0", placeholder: "28",
-              class: "w-16 text-xs border border-gray-300 rounded px-1.5 py-1",
+              class: "flex-1 min-w-0 text-xs border border-gray-300 rounded px-1.5 py-1",
               data: { set_weight_target: "weight", action: "input->set-weight#render" } %>
 
         <%= select_tag :unit, options_for_select([%w[lb lb], %w[oz oz], %w[kg kg]], "lb"),
-              class: "text-xs border border-gray-300 rounded px-1 py-1",
+              class: "shrink-0 w-14 text-xs border border-gray-300 rounded px-1 py-1",
               data: { set_weight_target: "unit", action: "change->set-weight#render" } %>
-
-        <%= select_tag :basis,
-              options_for_select([["per pack", "per_pack"], ["each", "per_piece"]], existing&.basis || "per_pack"),
-              class: "text-xs border border-gray-300 rounded px-1 py-1",
-              data: { set_weight_target: "basis", action: "change->set-weight#render" } %>
       </div>
+
+      <%# "each one" is meaningless without saying each of WHAT: a 15x48 Count
+          Case is 720 lady fingers, not 15 boxes, and a chef should not have to
+          guess which we meant. The count goes in the label, and the option is
+          dropped entirely when we cannot count the pieces. %>
+      <% basis_options = [["that is the whole thing", "per_pack"]] %>
+      <% basis_options << ["that is each one, x#{piece_count.to_i}", "per_piece"] if piece_count.to_i > 1 %>
+      <% if basis_options.size > 1 %>
+        <%= select_tag :basis, options_for_select(basis_options, existing&.basis || "per_pack"),
+              class: "w-full min-w-0 text-xs border border-gray-300 rounded px-1 py-1",
+              data: { set_weight_target: "basis", action: "change->set-weight#render" } %>
+      <% else %>
+        <%= hidden_field_tag :basis, "per_pack", data: { set_weight_target: "basis" } %>
+      <% end %>
 
       <%# The guardrail: the price this number produces, beside the peers. %>
       <div class="rounded bg-gray-50 border border-gray-200 px-1.5 py-1">

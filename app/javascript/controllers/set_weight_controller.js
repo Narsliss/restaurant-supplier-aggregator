@@ -31,8 +31,15 @@ export default class extends Controller {
     const perLb = this.priceValue / (totalOz / 16)
     if (!isFinite(perLb) || perLb <= 0) return this.clear()
 
+    // Show the multiplication when there is one, so "each one" can never be
+    // mistaken for "the whole case".
+    const lbs = this.round(totalOz / 16)
+    const workings = this.basisValue() === "per_piece" && this.pieceCountValue > 1
+      ? `${this.round(weight * this.unitFactor() / 16)} lb x ${this.pieceCountValue} = ${lbs} lb`
+      : `${lbs} lb`
+
     this.previewTarget.textContent =
-      `${this.money(this.priceValue)} ÷ ${this.round(totalOz / 16)} lb = ${this.money(perLb)}/lb`
+      `${this.money(this.priceValue)} ÷ ${workings} = ${this.money(perLb)}/lb`
 
     this.verdictTarget.textContent = this.verdictFor(perLb)
   }
