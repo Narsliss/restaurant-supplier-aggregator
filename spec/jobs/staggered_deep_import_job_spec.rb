@@ -7,6 +7,13 @@ RSpec.describe StaggeredDeepImportJob, type: :job do
   let(:monday) { Time.zone.local(2026, 1, 5) }
 
   it 'enqueues one deep-capable supplier on its scheduled weekday' do
+    # Builds its own supplier, like the three examples below it. Reading the
+    # deep-capable set out of whatever happened to be seeded made this the one
+    # example in the file that failed on a fresh test database.
+    deep_capable = Supplier.find_by(scraper_class: 'Scrapers::WhatChefsWantScraper') ||
+                   create(:supplier, scraper_class: 'Scrapers::WhatChefsWantScraper', active: true)
+    allow(Supplier).to receive(:active).and_return(Supplier.where(id: deep_capable.id))
+
     captured_id = nil
     allow(DeepCatalogImportJob).to receive(:perform_later) { |id| captured_id = id }
 

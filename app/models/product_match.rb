@@ -150,6 +150,23 @@ class ProductMatch < ApplicationRecord
       end
   end
 
+  # What a routing decision on this line rests on, recorded against the order
+  # item so the choice stays auditable after the fact.
+  #
+  #   "exact"      — the suppliers' own shared unit settled it
+  #   "estimated"  — settled by a pack weight nobody stated
+  #   "single"     — only one supplier carries it; nothing was compared
+  #   "case_total" — no shared basis at all, so the lowest case total won,
+  #                  which knows nothing about how much is in the box
+  def routing_basis
+    case comparison_verdict
+    when :exact then "exact"
+    when :estimated then "estimated"
+    when :single then "single"
+    else "case_total"
+    end
+  end
+
   # True when this supplier's price only joins the comparison through an
   # estimate — the cell that should offer Set Weight.
   def estimated_basis_for?(supplier)

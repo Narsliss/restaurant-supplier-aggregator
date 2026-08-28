@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_27_180000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_27_190000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -365,6 +365,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_27_180000) do
     t.string "product_name"
     t.string "product_sku"
     t.string "uom"
+    t.string "comparison_basis"
+    t.index ["comparison_basis"], name: "index_order_items_on_comparison_basis"
     t.index ["order_id"], name: "index_order_items_on_order_id"
     t.index ["status"], name: "index_order_items_on_status"
     t.index ["supplier_product_id"], name: "index_order_items_on_supplier_product_id"

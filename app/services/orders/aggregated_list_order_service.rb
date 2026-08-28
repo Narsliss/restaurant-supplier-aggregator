@@ -48,9 +48,15 @@ module Orders
             line_total = item[:unit_price] * item[:quantity]
             subtotal += line_total
 
+            # Dollars are only claimed on a comparison the suppliers' own units
+            # settled. An estimated basis still routes the order and still shows
+            # its ranking, but the platform does not tell a chef it saved them
+            # money on the strength of a pack weight nobody stated.
+            claimable = item[:comparison_basis] == "exact"
+
             # Skip implausible per-line savings — a cross-unit mismatch or bad
             # scrape, not a real deal (order #80 recorded 2,027% saved).
-            if item[:worst_price] && item[:worst_price] > item[:unit_price]
+            if claimable && item[:worst_price] && item[:worst_price] > item[:unit_price]
               line_savings = (item[:worst_price] - item[:unit_price]) * item[:quantity]
               if line_savings > line_total * Order::MAX_SAVINGS_MULTIPLE
                 Rails.logger.warn "[Savings] #{supplier.name} #{item[:product_name]}: implausible " \
@@ -68,6 +74,7 @@ module Orders
               line_total: line_total,
               uom: item[:uom],
               status: "pending",
+              comparison_basis: item[:comparison_basis],
               # insert_all skips the snapshot_product_info callback — set the
               # name/sku snapshot explicitly or order views show bare SKUs
               product_name: item[:product_name],
@@ -150,6 +157,7 @@ module Orders
             uom: uom,
             product_name: supplier_product.supplier_name,
             product_sku: supplier_product.supplier_sku,
+            comparison_basis: pm.routing_basis,
             worst_price: most_expensive&.dig(:estimated_price) || most_expensive&.dig(:price)
           }
         end

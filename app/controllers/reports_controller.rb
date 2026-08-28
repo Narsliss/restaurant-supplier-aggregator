@@ -379,6 +379,13 @@ class ReportsController < ApplicationController
       next unless pmi
 
       pm = pmi.product_match
+      # Missed-savings is a dollar claim about a choice a chef made, so it is
+      # only made where the suppliers' own units settled the comparison. A line
+      # ranked through an estimated pack weight still shows its ranking on the
+      # list; nobody gets told it cost them money on the strength of a weight
+      # no supplier ever stated.
+      next unless pm.comparison_verdict == :exact
+
       cheapest = pm.cheapest_supplier
       ordered_supplier = pmi.supplier
       next unless cheapest && cheapest[:supplier].id != ordered_supplier.id

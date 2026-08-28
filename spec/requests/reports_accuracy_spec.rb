@@ -161,9 +161,12 @@ RSpec.describe "Reporting accuracy", type: :request do
       expect(response.body).to match(/\$57\.9\d/)  # 28.99 x 2
     end
 
-    it "falls back to the peer's case cost when there is no shared per-unit basis" do
-      # Unparseable packs leave nothing to compare per ounce, so case cost is the
-      # best comparison available — and no rate line is shown, because there isn't one.
+    it "claims nothing when there is no shared basis to claim it on" do
+      # Two "assorted" packs have no comparable basis at all, so the old case-cost
+      # fallback was announcing $69.96 of missed savings on the strength of two
+      # sticker prices and no idea what was in either box. A dollar figure is a
+      # promise about a choice the chef made; it is only made where the suppliers'
+      # own units settled the comparison.
       sp = matched_pair(
         ordered: { name: "AVANTI - EMPANADA DISCS", price: 66.94, pack_size: "assorted" },
         peer: { name: "EMPANADA DISCS", price: 49.45, pack_size: "assorted" }
@@ -173,8 +176,7 @@ RSpec.describe "Reporting accuracy", type: :request do
       get missed_savings_reports_path
       expect(response).to have_http_status(:ok)
 
-      expect(response.body).to include("$49.45")
-      expect(response.body).to include("$69.96")   # (66.94 - 49.45) x 4
+      expect(response.body).not_to include("$69.96")
       expect(response.body).not_to include("/oz")
     end
 
