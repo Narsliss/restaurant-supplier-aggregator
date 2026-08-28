@@ -55,6 +55,7 @@ class DashboardController < ApplicationController
       .order(:created_at)
 
     @unreviewed_off_list = unreviewed_off_list_matches
+    @stale_weights = stale_pack_weights
 
     @pending_2fa_requests = current_user.supplier_2fa_requests
       .pending
@@ -151,6 +152,7 @@ class DashboardController < ApplicationController
       .order(:created_at)
 
     @unreviewed_off_list = unreviewed_off_list_matches
+    @stale_weights = stale_pack_weights
 
     @pending_2fa_requests = Supplier2faRequest.none
 
@@ -247,6 +249,7 @@ class DashboardController < ApplicationController
       .order(:created_at)
 
     @unreviewed_off_list = unreviewed_off_list_matches
+    @stale_weights = stale_pack_weights
 
     @pending_2fa_requests = current_user.supplier_2fa_requests
       .pending
@@ -437,6 +440,17 @@ class DashboardController < ApplicationController
   # Products chefs ordered mid-shift that were not on any matched list. They
   # arrive with one supplier and no price comparison, so owners/managers get an
   # alert until someone reviews them.
+  # Pack weights a chef set that the supplier has since changed the box on.
+  # Unlike off-list review this IS a chef's job — they set the weight, they take
+  # the delivery, and the annual pass down the matched list is where it gets
+  # fixed. Managers create nothing anywhere in the app, so they are not asked.
+  def stale_pack_weights
+    org = current_user.current_organization
+    return [] unless org && (owner? || chef?)
+
+    UnitOverride.stale_for(org)
+  end
+
   def unreviewed_off_list_matches
     org = current_user.current_organization
     # Curation is an owner/manager job — chefs don't get nagged about it

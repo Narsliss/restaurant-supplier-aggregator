@@ -33,6 +33,7 @@
 </div>
 
 <%= render "dashboard/credential_health_alert" %>
+<%= render "dashboard/stale_weights_alert" %>
 
 <!-- 2FA Alerts -->
 <% if @pending_2fa_requests.any? %>

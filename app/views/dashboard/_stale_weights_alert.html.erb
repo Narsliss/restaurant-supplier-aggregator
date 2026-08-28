@@ -1,0 +1,50 @@
+<%# A supplier changed a pack that somebody had told us the weight of, so the
+    weight no longer describes the box and has gone dormant. Same shape as the
+    off-list review alert — this is the same kind of thing: a short list of
+    lines needing a look, with a way into each. %>
+<% if @stale_weights&.any? %>
+  <div class="mb-6 rounded-lg border-2 border-amber-300 bg-amber-50 p-4 sm:p-5" role="alert">
+    <div class="flex items-start gap-3">
+      <svg class="h-6 w-6 flex-shrink-0 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+      </svg>
+      <div class="flex-1 min-w-0">
+        <h3 class="text-base font-heading font-bold text-amber-900">
+          <%= pluralize(@stale_weights.size, "pack size") %> changed since you set the weight
+        </h3>
+        <p class="mt-1 text-sm text-amber-800">
+          The weight you gave <%= @stale_weights.size == 1 ? "this" : "these" %> no longer describes the box,
+          so <%= @stale_weights.size == 1 ? "it has" : "they have" %> been set aside rather than left to
+          quietly get the price per pound wrong. Nothing changes until you say so.
+        </p>
+
+        <ul class="mt-3 space-y-2">
+          <% @stale_weights.first(5).each do |row| %>
+            <li class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-white rounded-md border border-amber-200 px-3 py-2.5">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold text-gray-900 truncate"><%= row[:item].name %></p>
+                <p class="text-xs text-amber-700 mt-0.5">
+                  <%= row[:override].supplier.name %> ·
+                  was <span class="font-medium"><%= row[:override].pack_size_fingerprint %></span>,
+                  now <span class="font-medium"><%= row[:now] %></span>
+                </p>
+              </div>
+              <% if row[:aggregated_list] %>
+                <%= link_to "Set it again →", aggregated_list_path(row[:aggregated_list]),
+                    class: "flex-shrink-0 inline-flex items-center justify-center rounded-md bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 transition-colors" %>
+              <% end %>
+            </li>
+          <% end %>
+        </ul>
+
+        <% if @stale_weights.size > 5 && @stale_weights.first[:aggregated_list] %>
+          <p class="mt-3 text-sm">
+            <%= link_to "See all #{@stale_weights.size} in matching →",
+                aggregated_list_path(@stale_weights.first[:aggregated_list]),
+                class: "font-semibold text-amber-900 underline" %>
+          </p>
+        <% end %>
+      </div>
+    </div>
+  </div>
+<% end %>

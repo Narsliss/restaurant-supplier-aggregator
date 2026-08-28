@@ -85,6 +85,37 @@ class UnitOverride < ApplicationRecord
     pack_size.to_s[/\A\s*(\d+(?:\.\d+)?)/, 1]&.to_f
   end
 
+  # Weights whose pack has changed underneath them, with the item they no
+  # longer describe. Dormant, not deleted: the chef sees what they set and why
+  # it is paused, and decides.
+  #
+  # Staleness cannot be a WHERE clause — it is a comparison against whatever
+  # the supplier is calling the pack today — so this loads the org's overrides
+  # (a small table) and their current items in two queries, not per row.
+  def self.stale_for(organization, limit: 25)
+    overrides = where(organization: organization).includes(:supplier).to_a
+    return [] if overrides.empty?
+
+    items = SupplierListItem.joins(:supplier_list)
+                            .where(supplier_lists: { organization_id: organization.id })
+                            .where(sku: overrides.map(&:supplier_sku).uniq)
+                            .includes(:supplier_product, :supplier_list,
+                                      product_match_items: { product_match: :aggregated_list })
+    by_key = items.group_by { |i| [i.supplier_list.supplier_id, i.sku] }
+
+    overrides.flat_map { |override|
+      Array(by_key[[override.supplier_id, override.supplier_sku]]).filter_map do |item|
+        next unless override.location_id.nil? || override.location_id == item.supplier_list.location_id
+
+        pack = item.pack_size.presence || item.supplier_product&.pack_size
+        next unless override.stale_against?(pack)
+
+        { override: override, item: item, now: pack,
+          aggregated_list: item.product_match_items.first&.product_match&.aggregated_list }
+      end
+    }.first(limit)
+  end
+
   def self.plausible_per_lb?(price, total_oz)
     return false unless price.to_f.positive? && total_oz.to_f.positive?
 
