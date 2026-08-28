@@ -64,6 +64,33 @@ class UnitOverride < ApplicationRecord
     end
   end
 
+  # WHY a weight went stale, which decides what the chef should be offered.
+  #
+  #   :resized     — same unit, different quantity. "1 BUSHEL" became
+  #                  "1/2 BUSHEL": the box provably changed size, so the old
+  #                  weight is provably wrong and "still right" is not an
+  #                  answer anyone should be able to give.
+  #   :now_stated  — the supplier now names a weight or volume themselves.
+  #                  Their number outranks ours; the override is moot.
+  #   :reworded    — one side does not parse, so nothing here can tell a
+  #                  renamed box from a different one. Only the chef can.
+  #
+  # Returns nil when nothing changed.
+  def staleness_reason(current_pack_size)
+    return nil unless stale_against?(current_pack_size)
+
+    was = UnitParser.parse(pack_size_fingerprint)
+    now = UnitParser.parse(current_pack_size)
+
+    # Their weight outranks ours, whether or not the old pack ever parsed.
+    return :now_stated if now[:parseable] && WEIGHT_OR_VOLUME_UNITS.include?(now[:normalized_unit])
+    return :reworded unless was[:parseable] && now[:parseable]
+
+    :resized
+  end
+
+  WEIGHT_OR_VOLUME_UNITS = ["oz", "fl oz"].freeze
+
   # Total net weight of the pack as sold, in ounces, or nil when the basis is
   # per-piece and we cannot tell how many pieces are in the box.
   def total_oz_for(pack_size)

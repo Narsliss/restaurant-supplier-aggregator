@@ -98,11 +98,18 @@
                                                             opened_item: row[:item].id),
                     data: { turbo_frame: "match_modal" },
                     class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md bg-brand-green text-white hover:opacity-90 transition-opacity" %>
-                <%# The tripwire cannot tell a reworded box from a different one.
-                    The chef can. %>
-                <%= button_to "Still right", reconfirm_unit_overrides_path(supplier_list_item_id: row[:item].id),
-                    method: :post,
-                    class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+                <%# Offered only where nothing here can tell a renamed box from a
+                    different one. A pack that provably changed size gets no
+                    one-click way to keep a weight we know is wrong. %>
+                <% if row[:override].staleness_reason(row[:now]) == :reworded %>
+                  <%= button_to "Still right", reconfirm_unit_overrides_path(supplier_list_item_id: row[:item].id),
+                      method: :post,
+                      class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+                <% else %>
+                  <%= button_to "Remove it", unit_override_for_item_path(supplier_list_item_id: row[:item].id),
+                      method: :delete,
+                      class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+                <% end %>
               </div>
             </li>
           <% end %>

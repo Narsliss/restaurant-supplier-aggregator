@@ -39,6 +39,34 @@ RSpec.describe UnitOverride do
     end
   end
 
+  # Why it went stale decides what the chef is offered. "Still right" is only a
+  # legitimate answer where nothing here can tell a renamed box from a
+  # different one.
+  describe "#staleness_reason" do
+    def override(fingerprint, basis: "per_pack", oz: 448)
+      described_class.new(net_weight_oz: oz, basis: basis, pack_size_fingerprint: fingerprint)
+    end
+
+    it "is nil while the pack still matches" do
+      expect(override("1 BUSHEL").staleness_reason("1 BU")).to be_nil
+    end
+
+    # The trap: per-pack ounces do not change, so the resulting price stays
+    # believable and a plausibility check would wave this straight through.
+    it "calls a half-sized pack resized, not merely reworded" do
+      expect(override("1 BUSHEL").staleness_reason("1/2 BUSHEL")).to eq(:resized)
+    end
+
+    it "notices when the supplier starts stating a weight themselves" do
+      expect(override("1 BUSHEL").staleness_reason("20 LB")).to eq(:now_stated)
+      expect(override("10 SHEET", basis: "per_piece", oz: 11).staleness_reason("6/10 LB")).to eq(:now_stated)
+    end
+
+    it "admits it cannot judge a pack neither side can parse" do
+      expect(override("10 SHEET", basis: "per_piece", oz: 11).staleness_reason("12 SHEET")).to eq(:reworded)
+    end
+  end
+
   describe "#total_oz_for" do
     it "returns the pack weight as-is on a per-pack basis" do
       override = described_class.new(basis: "per_pack", net_weight_oz: 448)

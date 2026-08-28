@@ -49,10 +49,19 @@ class UnitOverridesController < ApplicationController
                                     location_id: @item.supplier_list.location_id,
                                     supplier_id: @item.supplier_list.supplier_id,
                                     supplier_sku: sku)
-    if override && pack_size.present?
-      override.update!(pack_size_fingerprint: pack_size, confirmed_at: Time.current,
-                       created_by_user: current_user)
+    return reject("That weight is no longer set.") if override.blank? || pack_size.blank?
+
+    # Only where nothing here can tell a renamed box from a different one. When
+    # the pack provably changed size, or the supplier now states a weight of
+    # their own, "still right" is an answer the chef should not be able to give
+    # — every other route into a weight shows the resulting price first, and
+    # this one does not.
+    unless override.staleness_reason(pack_size) == :reworded
+      return reject("#{@item.name} is sold in a different size now — set the weight again rather than keeping the old one.")
     end
+
+    override.update!(pack_size_fingerprint: pack_size, confirmed_at: Time.current,
+                     created_by_user: current_user)
 
     redirect_back fallback_location: root_path,
                   notice: "Kept your weight for #{@item.name}."
