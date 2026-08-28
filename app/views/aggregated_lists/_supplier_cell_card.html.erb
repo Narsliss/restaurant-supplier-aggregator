@@ -141,7 +141,7 @@
         other than a weight the supplier stated: nothing at all, our estimate,
         or a chef's. Modal only; the order builder gets the badge, not the
         input, because a chef mid-shift is not the person to ask. %>
-    <% if local_assigns.fetch(:allow_set_weight, false) && item.needs_pack_weight? %>
+    <% if local_assigns.fetch(:allow_set_weight, false) && product_match.needs_pack_weight_for?(item) %>
       <%= render "product_matches/set_weight", match: product_match, item: item, supplier: supplier %>
     <% end %>
 

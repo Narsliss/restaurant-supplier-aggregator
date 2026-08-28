@@ -167,6 +167,34 @@ class ProductMatch < ApplicationRecord
     end
   end
 
+  # Units the supplier themselves put a weight or volume on. Anything else —
+  # a count, a bushel, a sheet, a bunch — is a pack we were never told the
+  # weight of.
+  SUPPLIER_STATED_UNITS = ["oz", "fl oz"].freeze
+
+  # Should this cell offer Set Weight?
+  #
+  # Asked of the MATCH, not the item, because the answer depends on what the
+  # other suppliers on the line quote. Three suppliers all selling gloves by
+  # the each compare perfectly well per each and need nothing; the same cell
+  # sitting beside a supplier quoting pounds needs a weight to join.
+  #
+  #   in the comparison, not estimated -> no (the units settled it)
+  #   in the comparison via an estimate -> yes (a guess a chef can correct)
+  #   not in the comparison at all      -> yes (it cannot join without one)
+  #
+  # With nothing to compare against, fall back to whether the supplier stated
+  # a weight at all — a chef may want the $/lb on a lone supplier for its own
+  # sake, and cannot get it from a bushel.
+  def needs_pack_weight_for?(item)
+    if comparable_group.size >= 2
+      entry = comparable_group.find { |p| p[:item] == item }
+      entry.nil? || entry[:comparison_estimated].present?
+    else
+      !SUPPLIER_STATED_UNITS.include?(item.normalized_unit)
+    end
+  end
+
   # True when this supplier's price only joins the comparison through an
   # estimate — the cell that should offer Set Weight.
   def estimated_basis_for?(supplier)
