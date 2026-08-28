@@ -132,6 +132,54 @@ RSpec.describe "Set Weight", type: :request do
     end
   end
 
+  # Two bugs found driving it on dev: the first save appeared to do nothing but
+  # close the modal, and pressing Update afterwards raised a routing error on
+  # DELETE /unit_overrides.
+  describe "returning to the modal" do
+    let(:aggregated_list) { create(:aggregated_list, organization: organization, location_id: location.id) }
+    let(:match) do
+      m = create(:product_match, aggregated_list: aggregated_list, canonical_name: "Peppers")
+      aggregated_list.aggregated_list_mappings.find_or_create_by!(supplier_list: item.supplier_list)
+      create(:product_match_item, product_match: m, supplier_list_item: item, supplier: supplier)
+      m
+    end
+
+    before { sign_in member("chef") }
+
+    it "sends the frame back to the modal, not the list page" do
+      post unit_overrides_path, params: { supplier_list_item_id: item.id, weight: 28,
+                                          unit: "lb", return_to_match_id: match.id }
+
+      expect(response).to redirect_to(edit_aggregated_list_product_match_path(aggregated_list, match))
+    end
+
+    it "returns there on a rejected weight too, so the chef sees why" do
+      post unit_overrides_path, params: { supplier_list_item_id: item.id, weight: 0.05,
+                                          unit: "lb", return_to_match_id: match.id }
+
+      expect(response).to redirect_to(edit_aggregated_list_product_match_path(aggregated_list, match))
+      expect(flash[:alert]).to be_present
+    end
+
+    # The Remove button renders its own <form>. Nested inside the save form that
+    # is invalid HTML, the browser hoists it out, and Update submits with this
+    # button's DELETE verb against the save form's action.
+    it "keeps the remove form out of the save form" do
+      set_weight(weight: 28)
+      body = modal_body(match)
+      save_form = body[/<form[^>]*action="#{Regexp.escape(unit_overrides_path)}"[^>]*>(.*?)<\/form>/m, 1]
+
+      expect(save_form).to be_present
+      expect(save_form).not_to include("<form")
+      expect(body).to include(unit_override_for_item_path(supplier_list_item_id: item.id))
+    end
+
+    def modal_body(match)
+      get edit_aggregated_list_product_match_path(aggregated_list, match)
+      response.body
+    end
+  end
+
   describe "removing one" do
     it "lets a chef clear a weight another chef set" do
       first_chef = member("chef")

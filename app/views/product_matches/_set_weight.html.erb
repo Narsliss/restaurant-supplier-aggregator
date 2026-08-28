@@ -43,6 +43,10 @@
 
     <%= form_with url: unit_overrides_path, method: :post, class: "mt-1.5 flex flex-col gap-1.5" do %>
       <%= hidden_field_tag :supplier_list_item_id, item.id %>
+      <%# Send the frame back to itself so the cell re-renders with the new
+          weight, rather than to the list page, which replaces this frame with
+          an empty one and reads as "nothing happened". %>
+      <%= hidden_field_tag :return_to_match_id, match.id %>
 
       <p class="text-[10px] text-gray-700">
         How much does one whole <span class="font-semibold"><%= pack.presence || "pack" %></span>
@@ -90,16 +94,20 @@
         drop it and ask you again.
       </p>
 
-      <div class="flex gap-1.5">
-        <%= submit_tag existing ? "Update" : "Save weight",
-              class: "text-[10px] font-semibold text-white bg-brand-green rounded px-2 py-1 cursor-pointer" %>
-        <% if existing %>
-          <%= button_to "Remove", unit_override_for_item_path(supplier_list_item_id: item.id),
-                method: :delete,
-                form: { data: { turbo_confirm: "Remove this weight? The line goes back to comparing on what the suppliers stated." } },
-                class: "text-[10px] font-semibold text-gray-600 border border-gray-300 rounded px-2 py-1" %>
-        <% end %>
-      </div>
+      <%= submit_tag existing ? "Update" : "Save weight",
+            class: "text-[10px] font-semibold text-white bg-brand-green rounded px-2 py-1 cursor-pointer" %>
+    <% end %>
+
+    <%# button_to renders its own <form>, so it has to live OUTSIDE the one
+        above: a nested form is invalid HTML, the browser hoists it out, and
+        Update ends up submitting with this button's DELETE verb. %>
+    <% if existing %>
+      <%= button_to "Remove weight", unit_override_for_item_path(supplier_list_item_id: item.id),
+            method: :delete,
+            params: { return_to_match_id: match.id },
+            form: { class: "mt-1.5",
+                    data: { turbo_confirm: "Remove this weight? The line goes back to comparing on what the suppliers stated." } },
+            class: "text-[10px] font-semibold text-gray-600 border border-gray-300 rounded px-2 py-1" %>
     <% end %>
   </details>
 </div>

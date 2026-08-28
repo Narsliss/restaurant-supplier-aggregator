@@ -34,7 +34,7 @@ class UnitOverridesController < ApplicationController
     )
 
     if override.save
-      redirect_back fallback_location: root_path, notice: "Weight saved for #{@item.name}."
+      back_to_modal "Weight saved for #{@item.name}."
     else
       reject(override.errors.full_messages.to_sentence)
     end
@@ -46,10 +46,25 @@ class UnitOverridesController < ApplicationController
                        supplier_id: @item.supplier_list.supplier_id,
                        supplier_sku: sku).destroy_all
 
-    redirect_back fallback_location: root_path, notice: "Weight removed for #{@item.name}."
+    back_to_modal "Weight removed for #{@item.name}."
   end
 
   private
+
+  # The form lives inside the #match_modal Turbo Frame. Redirecting back to the
+  # list page hands that frame a fresh empty copy of itself, so the modal simply
+  # vanishes and a successful save reads as though nothing happened. Send it
+  # back to its own edit URL instead and the cell re-renders in place, showing
+  # the weight, the new per-pound price and the changed badge.
+  def back_to_modal(message)
+    match_id = params[:return_to_match_id]
+    if match_id.present? && (match = ProductMatch.find_by(id: match_id))
+      redirect_to edit_aggregated_list_product_match_path(match.aggregated_list_id, match),
+                  notice: message
+    else
+      redirect_back fallback_location: root_path, notice: message
+    end
+  end
 
   def set_item
     @item = SupplierListItem.includes(:supplier_product, :supplier_list)
@@ -106,6 +121,11 @@ class UnitOverridesController < ApplicationController
   end
 
   def reject(message)
-    redirect_back fallback_location: root_path, alert: message
+    match_id = params[:return_to_match_id]
+    if match_id.present? && (match = ProductMatch.find_by(id: match_id))
+      redirect_to edit_aggregated_list_product_match_path(match.aggregated_list_id, match), alert: message
+    else
+      redirect_back fallback_location: root_path, alert: message
+    end
   end
 end
