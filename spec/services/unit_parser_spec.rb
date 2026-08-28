@@ -340,6 +340,38 @@ RSpec.describe UnitParser do
     end
   end
 
+  # A bushel used to map to a flat 25 lb, which made it parse as an EXACT
+  # weight: a clean $/oz, no tilde, and a solid green BEST over a number
+  # nobody had measured. A bushel of spinach is ~20 lb, peppers ~28, apples
+  # ~42, butternut squash ~50 — production had a "CASE - 1 BUSHEL" butternut
+  # ranked against a "30-40LB CS", wrong by half.
+  describe 'bushels are a size of container, not a weight' do
+    it 'no longer converts a bushel into ounces' do
+      result = described_class.parse('1 BUSHEL')
+
+      expect(result[:parseable]).to be(true)
+      expect(result[:normalized_unit]).to eq('bushel')
+      expect(result[:normalized_quantity]).to eq(1.0)
+    end
+
+    it 'still reads the abbreviations and the fractions produce is sold in' do
+      expect(described_class.parse('2 BU')).to include(normalized_unit: 'bushel', normalized_quantity: 2.0)
+      expect(described_class.parse('1/2 BUSHEL')).to include(normalized_unit: 'bushel', normalized_quantity: 0.5)
+      expect(described_class.parse('1-1/9 BUSH')[:normalized_quantity]).to be_within(0.001).of(1.1111)
+    end
+
+    # Bushel against bushel is a real comparison and always was. It is bushel
+    # against pounds that needs a weight from the chef.
+    it 'lets bushels compare with each other' do
+      expect(described_class.comparable?('1 BUSHEL', '2 BU')).to be(true)
+      expect(described_class.comparable?('1 BUSHEL', '25 LB')).to be(false)
+    end
+
+    it 'no longer offers a flat bushel conversion constant at all' do
+      expect(described_class.const_defined?(:BUSHEL_TO_OZ)).to be(false)
+    end
+  end
+
   # Two supplier-specific encodings that left real catalog rows with no
   # per-unit price at all, so they sat out every cross-supplier comparison.
   describe 'supplier-specific pack encodings' do
