@@ -199,7 +199,7 @@ class ProductMatchItemsController < ApplicationController
 
     # Build supplier map for this one match
     supplier_map = {}
-    match.product_match_items.reload.includes(:supplier, :supplier_list_item).each do |pmi|
+    match.product_match_items.reload.includes(:supplier, supplier_list_item: [:supplier_product, :supplier_list]).each do |pmi|
       supplier_map[pmi.supplier_id] = { pmi: pmi, item: pmi.supplier_list_item }
     end
     @match_supplier_map = { match.id => supplier_map }

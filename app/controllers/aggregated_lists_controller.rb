@@ -76,7 +76,7 @@ class AggregatedListsController < ApplicationController
     # and zero-item husk lines. Display-only here; all actions are explicit.
     @flagged_duplicates = @aggregated_list.product_matches.flagged_duplicates
                                           .includes(:possible_duplicate_of,
-                                                    product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+                                                    product_match_items: [:supplier, { supplier_list_item: [:supplier_product, :supplier_list] }])
                                           .order(:position)
     @empty_husk_count = MatchedListCleanupService.new(@aggregated_list).empty_husks.count
 

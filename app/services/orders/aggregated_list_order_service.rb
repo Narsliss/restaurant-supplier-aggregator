@@ -95,7 +95,7 @@ module Orders
 
       product_matches = aggregated_list.product_matches
         .where.not(match_status: 'rejected')
-        .includes(product_match_items: [:supplier, { supplier_list_item: :supplier_product }])
+        .includes(product_match_items: [:supplier, { supplier_list_item: [:supplier_product, :supplier_list] }])
 
       product_matches.each do |pm|
         lines = selections[pm.id.to_s]

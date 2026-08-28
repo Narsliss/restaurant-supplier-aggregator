@@ -371,7 +371,7 @@ class ReportsController < ApplicationController
       .joins(:supplier_list_item)
       .where(supplier_list_items: { supplier_product_id: lines_by_product.keys })
       .where(product_match_id: agg_lists.joins(:product_matches).select("product_matches.id"))
-      .includes(product_match: { product_match_items: [{ supplier_list_item: :supplier_product }, :supplier] })
+      .includes(product_match: { product_match_items: [{ supplier_list_item: [:supplier_product, :supplier_list] }, :supplier] })
       .index_by { |pmi| pmi.supplier_list_item.supplier_product_id }
 
     lines_by_product.filter_map do |sp_id, lines|

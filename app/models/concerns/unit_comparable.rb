@@ -12,6 +12,13 @@ module UnitComparable
     price = comparison_price
     return nil unless price.present? && price.positive?
 
+    # Rung 1: a weight a chef set for this exact pack. It outranks the platform
+    # estimate below because a chef who takes the delivery knows what is in the
+    # box and the lookup table is guessing. It is still an estimate, so it is
+    # still marked one — a chef's weight buys a comparison, never a clean badge.
+    chef_oz = chef_pack_weight_oz
+    return { value: (price / chef_oz).round(4), estimated: true, source: :chef } if chef_oz.to_f.positive?
+
     pu = per_unit_price
     case normalized_unit
     when "oz"
@@ -37,6 +44,13 @@ module UnitComparable
       return nil unless piece_lbs && pu && pu.positive?
       { value: (pu / (piece_lbs * 16.0)).round(4), estimated: true }
     end
+  end
+
+  # A pack weight supplied by a chef, in ounces, or nil. Only records that
+  # belong to an organization can carry one — the global catalog has no owner,
+  # so SupplierProduct never consults an override.
+  def chef_pack_weight_oz
+    nil
   end
 
   # Display string for the comparison basis: "~$0.06/oz est" for estimated

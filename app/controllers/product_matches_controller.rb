@@ -52,7 +52,7 @@ class ProductMatchesController < ApplicationController
   # Renders the matching modal body (loaded into a Turbo Frame on row click).
   def edit
     @product_match = @aggregated_list.product_matches
-                                     .includes(product_match_items: { supplier_list_item: :supplier_product })
+                                     .includes(product_match_items: { supplier_list_item: [:supplier_product, :supplier_list] })
                                      .find(params[:id])
     render partial: "product_matches/modal", locals: { match: @product_match, aggregated_list: @aggregated_list }
   end

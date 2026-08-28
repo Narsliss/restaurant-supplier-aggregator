@@ -109,6 +109,29 @@ class SupplierListItem < ApplicationRecord
   end
 
   # Per-unit price comparison (delegates to UnitParser)
+  # The chef-set weight for this exact pack, or nil when none exists or when
+  # the supplier has changed the pack out from under it. A stale override goes
+  # dormant rather than deleting itself: the chef still sees what they set and
+  # why it is paused, and decides.
+  def unit_override
+    return @unit_override if defined?(@unit_override)
+
+    key = sku.presence || supplier_product&.supplier_sku
+    @unit_override = key.present? ? supplier_list&.unit_overrides_by_sku&.[](key) : nil
+  end
+
+  def unit_override_stale?
+    ov = unit_override
+    ov.present? && ov.stale_against?(pack_size.presence || supplier_product&.pack_size)
+  end
+
+  def chef_pack_weight_oz
+    ov = unit_override
+    return nil if ov.blank? || unit_override_stale?
+
+    ov.total_oz_for(pack_size.presence || supplier_product&.pack_size)
+  end
+
   def parsed_pack_size
     @parsed_pack_size ||= UnitParser.parse(pack_size)
   end

@@ -1,4 +1,21 @@
 class SupplierList < ApplicationRecord
+  # Chef-set pack weights for this org and supplier, keyed by SKU. Loaded once
+  # per list rather than once per item — the matched list renders hundreds of
+  # rows off a handful of lists, so a per-row lookup would be an N+1.
+  def unit_overrides_by_sku
+    @unit_overrides_by_sku ||=
+      if organization_id
+        # Org-wide rows first, then this location's, so a location-specific
+        # weight overwrites the group default for the same SKU.
+        UnitOverride.where(organization_id: organization_id, supplier_id: supplier_id)
+                    .where(location_id: [nil, location_id])
+                    .order(Arel.sql("location_id ASC NULLS FIRST"))
+                    .index_by(&:supplier_sku)
+      else
+        {}
+      end
+  end
+
   # Associations
   belongs_to :supplier_credential, optional: true
   belongs_to :supplier
