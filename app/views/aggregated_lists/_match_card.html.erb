@@ -44,25 +44,9 @@
           <% lookup = supplier_map[supplier.id] %>
           <% item = lookup&.dig(:item) %>
           <% pmi = lookup&.dig(:pmi) %>
-          <% spread = price_info && price_info[:spread] %>
-          <% is_cheapest = comparison_trusted && item && price_info[:cheapest_supplier] == supplier && spread && spread > 0 %>
-          <% is_most_expensive = comparison_trusted && item && price_info[:most_expensive_supplier] == supplier && spread && spread > 0 %>
-          <%# This supplier's unit wouldn't line up with the group that was
-              compared, so its price never competed for BEST. Say so in the cell
-              rather than letting it look like a considered loser. %>
-          <% left_out = comparison_trusted && item && !compared_ids.include?(supplier.id) %>
-          <%= render "aggregated_lists/supplier_cell_card",
-                     product_match: match,
-                     supplier: supplier,
-                     item: item,
-                     pmi: pmi,
-                     search_url: search_url,
-                     supplier_id: supplier.id,
-                     is_cheapest: is_cheapest,
-                     is_most_expensive: is_most_expensive,
-                     best_estimated: comparison_estimated,
-                     left_out: left_out,
-                     readonly: true %>
+          <%= render "aggregated_lists/list_supplier_cell",
+                     match: match, supplier: supplier, price_info: price_info,
+                     item: item, pmi: pmi, search_url: search_url %>
         <% end %>
 
         <%# Teaser cells for suppliers the chef hasn't connected yet %>

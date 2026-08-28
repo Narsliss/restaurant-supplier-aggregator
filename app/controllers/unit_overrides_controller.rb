@@ -57,13 +57,29 @@ class UnitOverridesController < ApplicationController
   # back to its own edit URL instead and the cell re-renders in place, showing
   # the weight, the new per-pound price and the changed badge.
   def back_to_modal(message)
-    match_id = params[:return_to_match_id]
-    if match_id.present? && (match = ProductMatch.find_by(id: match_id))
-      redirect_to edit_aggregated_list_product_match_path(match.aggregated_list_id, match,
-                                                         opened_item: @item.id),
-                  notice: message
-    else
-      redirect_back fallback_location: root_path, notice: message
+    @match = ProductMatch.find_by(id: params[:return_to_match_id])
+
+    respond_to do |format|
+      # Redraw the row behind the modal as well as the modal itself. Refreshing
+      # only the frame left the chef closing it onto the stale per-unit prices
+      # and the old BEST badge they had just changed.
+      format.turbo_stream do
+        if @match
+          flash.now[:notice] = message
+          render :create
+        else
+          redirect_back fallback_location: root_path, notice: message
+        end
+      end
+      format.html do
+        if @match
+          redirect_to edit_aggregated_list_product_match_path(@match.aggregated_list_id, @match,
+                                                              opened_item: @item.id),
+                      notice: message
+        else
+          redirect_back fallback_location: root_path, notice: message
+        end
+      end
     end
   end
 

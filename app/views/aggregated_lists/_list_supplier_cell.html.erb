@@ -1,0 +1,27 @@
+<%# One supplier cell as the matched-list page draws it. Extracted so the
+    Turbo Stream that refreshes a row after a weight is set renders the cell
+    exactly the way the page did, rather than a second copy of this logic
+    drifting away from it.
+    Locals: match, supplier, price_info, item, pmi, search_url %>
+<% comparison = price_info && price_info[:comparison] %>
+<% compared_ids = (price_info && price_info[:compared_supplier_ids]) || [] %>
+<% comparison_trusted = comparison == :exact || comparison == :estimated %>
+<% spread = price_info && price_info[:spread] %>
+<% is_cheapest = comparison_trusted && item && price_info[:cheapest_supplier] == supplier && spread && spread > 0 %>
+<% is_most_expensive = comparison_trusted && item && price_info[:most_expensive_supplier] == supplier && spread && spread > 0 %>
+<%# This supplier's unit wouldn't line up with the group that was compared, so
+    its price never competed for BEST. Say so in the cell rather than letting
+    it look like a considered loser. %>
+<% left_out = comparison_trusted && item && !compared_ids.include?(supplier.id) %>
+<%= render "aggregated_lists/supplier_cell_card",
+           product_match: match,
+           supplier: supplier,
+           item: item,
+           pmi: pmi,
+           search_url: search_url,
+           supplier_id: supplier.id,
+           is_cheapest: is_cheapest,
+           is_most_expensive: is_most_expensive,
+           best_estimated: comparison == :estimated,
+           left_out: left_out,
+           readonly: true %>

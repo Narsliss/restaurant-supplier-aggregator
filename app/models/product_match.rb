@@ -296,12 +296,21 @@ class ProductMatch < ApplicationRecord
   # $/oz conversion when this match compares mixed units ("~$0.06/oz est"),
   # otherwise the item's own exact per-unit string.
   def display_per_unit_for(item)
-    entry = comparable_group.find { |p| p[:item] == item }
-    if entry && entry[:comparison_estimated]
-      "~#{UnitParser.format_per_unit(entry[:comparison_metric], 'oz')} est"
-    else
-      item.formatted_per_unit_price
-    end
+    # Only when a real comparison happened — comparable_group hands back a
+    # group of ONE for a lone supplier, which is not something anything was
+    # ranked against.
+    entry = per_unit_comparable? ? comparable_group.find { |p| p[:item] == item } : nil
+    return "~#{UnitParser.format_per_unit(entry[:comparison_metric], 'oz')} est" if entry && entry[:comparison_estimated]
+    return item.formatted_per_unit_price if entry
+
+    # Outside the comparison — a lone supplier, or a cell left out of it. A
+    # chef who went to the trouble of setting a weight here wanted the price
+    # per pound; showing them the supplier's own "per each" instead ignores the
+    # only thing they asked for. Platform guesses stay quiet: nobody asked.
+    own = item.comparison_per_oz
+    return item.formatted_per_unit_price unless own && own[:source] == :chef
+
+    "~#{UnitParser.format_per_unit(own[:value], 'oz')} est"
   end
 
   # Are per-unit prices comparable across suppliers? (at least 2 items share the same unit)

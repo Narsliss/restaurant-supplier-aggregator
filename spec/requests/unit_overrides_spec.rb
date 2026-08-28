@@ -216,6 +216,47 @@ RSpec.describe "Set Weight", type: :request do
     end
   end
 
+  # Carmin set 10 lb, watched the modal show Chef's WH as cheapest, closed it,
+  # and the row behind still read the old numbers. Refreshing the frame alone
+  # leaves the chef looking at exactly what they just changed.
+  describe "refreshing the row behind the modal" do
+    let(:aggregated_list) { create(:aggregated_list, organization: organization, location_id: location.id) }
+    let!(:match) do
+      m = create(:product_match, aggregated_list: aggregated_list, canonical_name: "Cookies - Lady Finger")
+      item.update!(pack_size: "15x48 Count Case", price: 61.77)
+      item.supplier_product.update!(pack_size: "15x48 Count Case")
+      aggregated_list.aggregated_list_mappings.find_or_create_by!(supplier_list: item.supplier_list)
+      create(:product_match_item, product_match: m, supplier_list_item: item, supplier: supplier)
+      m
+    end
+
+    before { sign_in member("chef") }
+
+    it "redraws the badge, the cells and the modal in one response" do
+      post unit_overrides_path,
+           params: { supplier_list_item_id: item.id, weight: 10, unit: "lb", return_to_match_id: match.id },
+           as: :turbo_stream
+
+      expect(response.media_type).to eq("text/vnd.turbo-stream.html")
+      expect(response.body).to include(%(target="match_left_#{match.id}"))
+      expect(response.body).to include(%(target="match_#{match.id}_supplier_#{supplier.id}"))
+      expect(response.body).to include(%(target="match_modal"))
+      # $61.77 over 10 lb is $0.386/oz — the cell must carry the new basis.
+      expect(response.body).to include("/oz")
+    end
+
+    it "redraws the row when a weight is removed too" do
+      post unit_overrides_path,
+           params: { supplier_list_item_id: item.id, weight: 10, unit: "lb", return_to_match_id: match.id }
+
+      delete unit_override_for_item_path(supplier_list_item_id: item.id),
+             params: { return_to_match_id: match.id }, as: :turbo_stream
+
+      expect(response.body).to include(%(target="match_left_#{match.id}"))
+      expect(UnitOverride.count).to eq(0)
+    end
+  end
+
   describe "removing one" do
     it "lets a chef clear a weight another chef set" do
       first_chef = member("chef")

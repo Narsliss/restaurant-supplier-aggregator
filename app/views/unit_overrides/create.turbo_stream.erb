@@ -1,0 +1,23 @@
+<%# A weight changes the whole line, not just the cell it was typed into: the
+    badge, every cell's per-unit basis, and which supplier wears BEST. Redraw
+    all of it, or the chef closes the modal onto the numbers they just changed. %>
+<% list = @match.aggregated_list %>
+<% price_info = @match.price_summary %>
+<% search_url = supplier_items_search_aggregated_list_path(list) %>
+
+<%= turbo_stream.replace "match_left_#{@match.id}" do %>
+  <%= render "aggregated_lists/match_row_left", match: @match, aggregated_list: list,
+                                                comparison: price_info[:comparison] %>
+<% end %>
+
+<% @match.product_match_items.includes(:supplier, supplier_list_item: %i[supplier_product supplier_list]).each do |pmi| %>
+  <%= turbo_stream.replace "match_#{@match.id}_supplier_#{pmi.supplier_id}" do %>
+    <%= render "aggregated_lists/list_supplier_cell",
+               match: @match, supplier: pmi.supplier, price_info: price_info,
+               item: pmi.supplier_list_item, pmi: pmi, search_url: search_url %>
+  <% end %>
+<% end %>
+
+<%= turbo_stream.replace "match_modal" do %>
+  <%= render "product_matches/modal", match: @match, aggregated_list: list %>
+<% end %>
