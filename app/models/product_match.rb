@@ -183,6 +183,22 @@ class ProductMatch < ApplicationRecord
   # weight of.
   SUPPLIER_STATED_UNITS = ["oz", "fl oz"].freeze
 
+  # Suppliers that are priced, in stock, and still could not be ranked, on a
+  # line that otherwise compared cleanly. They sit beside a green BEST they
+  # never competed for, and the row says nothing — so on a pass down the list
+  # the only thing that surfaces them is opening every single line.
+  #
+  # Often it is not a unit problem at all: a hot dog bun matched to a case of
+  # paper cups also lands here, priced per each against everyone else's ounces.
+  def uncompared_price_rows
+    return [] unless per_unit_comparable?
+
+    ranked = comparable_group.map { |p| p[:supplier].id }
+    prices_by_supplier.select do |p|
+      p[:price].to_f > 0 && p[:in_stock] && !ranked.include?(p[:supplier].id)
+    end
+  end
+
   # Should this cell offer Set Weight?
   #
   # Asked of the MATCH, not the item, because the answer depends on what the
