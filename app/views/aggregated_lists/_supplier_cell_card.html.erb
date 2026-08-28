@@ -48,12 +48,17 @@
   <%# A BEST resting on an estimated pack weight says so. Solid fill means the
       suppliers' own units settled it; the outline means we converted. %>
   <% best_estimated = local_assigns.fetch(:best_estimated, false) %>
+  <%# When somebody on this line could not be ranked, "BEST" would be claiming
+      best PRICE while meaning best of the ones we managed to compare. Say how
+      many that was. %>
+  <% best_of = local_assigns.fetch(:best_of, nil) %>
+  <% best_label = best_of ? "BEST of #{best_of}" : "BEST" %>
   <% if is_cheapest && best_estimated %>
     <span class="absolute bg-white text-green-700 font-bold rounded-full z-10 border border-green-600"
           title="Ranked using an estimated pack weight, not one the suppliers stated"
-          style="top:-8px; right:-8px; padding:2px 6px; font-size:9px;">BEST est</span>
+          style="top:-8px; right:-8px; padding:2px 6px; font-size:9px;"><%= best_label %> est</span>
   <% elsif is_cheapest %>
-    <span class="absolute bg-green-600 text-white font-bold rounded-full z-10" style="top:-8px; right:-8px; padding:2px 7px; font-size:9px;">BEST</span>
+    <span class="absolute bg-green-600 text-white font-bold rounded-full z-10" style="top:-8px; right:-8px; padding:2px 7px; font-size:9px;"><%= best_label %></span>
   <% end %>
 
   <% if show_image %>

@@ -23,5 +23,6 @@
            is_cheapest: is_cheapest,
            is_most_expensive: is_most_expensive,
            best_estimated: comparison == :estimated,
+           best_of: (match.uncompared_price_rows.any? ? compared_ids.size : nil),
            left_out: left_out,
            readonly: true %>

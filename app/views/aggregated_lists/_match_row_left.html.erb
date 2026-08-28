@@ -55,8 +55,11 @@
             invisible without opening the line. %>
         <% uncompared = match.uncompared_price_rows %>
         <% if uncompared.any? %>
-          <span class="inline-flex items-center gap-1 rounded-full border border-amber-500 bg-white px-2 py-0.5 text-[10px] font-bold text-amber-700"
-                title="<%= uncompared.map { |p| p[:supplier].name }.to_sentence %> <%= uncompared.size == 1 ? "prices" : "price" %> in a unit nobody else quotes, so <%= uncompared.size == 1 ? "it" : "they" %> never competed for BEST. Open the line to set a weight — or check the match is right.">
+          <span class="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white"
+                title="<%= uncompared.map { |p| p[:supplier].name }.to_sentence %> <%= uncompared.size == 1 ? "prices" : "price" %> in a unit nobody else quotes, so <%= uncompared.size == 1 ? "it was" : "they were" %> never in the running. The BEST on this line is the best of the rest — open it to set a weight, or check the match is right.">
+            <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke-width="3" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+            </svg>
             <%= uncompared.size %> not compared
           </span>
         <% end %>

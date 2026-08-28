@@ -51,6 +51,16 @@ RSpec.describe "Suppliers left out of a clean comparison", type: :request do
       expect(match.uncompared_price_rows.map { |p| p[:supplier] }).to eq([@odd])
     end
 
+    it "stops the pill claiming a best price it cannot know" do
+      get aggregated_list_path(aggregated_list)
+
+      card = Nokogiri::HTML(response.body).at_css("##{ActionView::RecordIdentifier.dom_id(match)}")
+      # "BEST" reads as best price. It is the best of the two that could be
+      # ranked, and the pill has to say which.
+      expect(card.text).to include("BEST of 2")
+      expect(card.css("span").map { |n| n.text.strip }).not_to include("BEST")
+    end
+
     it "says so on the row, not only inside the odd cell" do
       get aggregated_list_path(aggregated_list)
 
