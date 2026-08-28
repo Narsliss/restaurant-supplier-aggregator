@@ -8,6 +8,7 @@ class UnitOverridesController < ApplicationController
   before_action :set_item
   before_action :require_write_access!
 
+
   def create
     oz = ounces_from_params
     return reject("Enter a weight greater than zero.") unless oz&.positive?
@@ -38,6 +39,23 @@ class UnitOverridesController < ApplicationController
     else
       reject(override.errors.full_messages.to_sentence)
     end
+  end
+
+  # The supplier changed what they call the pack, we set the weight aside, and
+  # the chef says the box is the same. Re-pin it to today's wording rather than
+  # making them retype a number they already knew.
+  def reconfirm
+    override = UnitOverride.find_by(organization_id: @item.supplier_list.organization_id,
+                                    location_id: @item.supplier_list.location_id,
+                                    supplier_id: @item.supplier_list.supplier_id,
+                                    supplier_sku: sku)
+    if override && pack_size.present?
+      override.update!(pack_size_fingerprint: pack_size, confirmed_at: Time.current,
+                       created_by_user: current_user)
+    end
+
+    redirect_back fallback_location: root_path,
+                  notice: "Kept your weight for #{@item.name}."
   end
 
   def destroy

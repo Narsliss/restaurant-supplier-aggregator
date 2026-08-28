@@ -80,6 +80,12 @@ class AggregatedListsController < ApplicationController
                                           .order(:position)
     @empty_husk_count = MatchedListCleanupService.new(@aggregated_list).empty_husks.count
 
+    # Pack weights this list's suppliers have changed the box on. Surfaced in
+    # the same cleanup panel as duplicates and husks: the chef is already here
+    # doing exactly this kind of tidying.
+    @stale_weights = UnitOverride.stale_for(@aggregated_list.organization)
+                                 .select { |row| row[:aggregated_list]&.id == @aggregated_list.id }
+
     # @suppliers is the union of (suppliers with a list in this agg) and
     # (suppliers with a credential at this list's location). Credential-based
     # inclusion guarantees a chef sees a column for every supplier they're set

@@ -1,7 +1,7 @@
 <%# Chef-driven cleanup: flagged duplicate lines + empty husks. Rendered only
     when the scan (or catalog-search) has something for the chef to decide.
     Every action here is explicit — merge and dismiss act on one line each. %>
-<% if @flagged_duplicates.any? || @empty_husk_count.positive? %>
+<% if @flagged_duplicates.any? || @empty_husk_count.positive? || @stale_weights&.any? %>
   <div id="cleanup" class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4">
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
       <div>
@@ -65,6 +65,48 @@
           </li>
         <% end %>
       </ul>
+      </details>
+    <% end %>
+
+    <%# Pack weights whose box has changed underneath them. Same panel as the
+        duplicates above because it is the same job: the chef is already here
+        going down the list deciding what is still right. Nothing is applied
+        until they choose, and the weight stays dormant meanwhile. %>
+    <% if @stale_weights&.any? %>
+      <details class="mt-3" <%= "open" if @stale_weights.size <= 5 %>>
+        <summary class="cursor-pointer text-sm font-medium text-amber-900 py-1 select-none">
+          <%= pluralize(@stale_weights.size, "pack size") %> changed since you set the weight
+        </summary>
+        <ul class="divide-y divide-amber-200">
+          <% @stale_weights.each do |row| %>
+            <li class="py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0">
+                <p class="text-sm text-gray-900 truncate">
+                  <span class="font-medium"><%= row[:item].name %></span>
+                  <span class="text-gray-500">(<%= row[:override].supplier.name %>)</span>
+                </p>
+                <p class="text-xs text-gray-600 truncate">
+                  you said <span class="font-medium"><%= number_with_precision(row[:override].net_weight_oz / 16.0, precision: 2, strip_insignificant_zeros: true) %> lb</span>
+                  for <span class="font-medium"><%= row[:override].pack_size_fingerprint %></span>,
+                  now sold as <span class="font-medium"><%= row[:now] %></span>
+                </p>
+              </div>
+              <div class="flex gap-2 shrink-0">
+                <%= link_to "Set it again",
+                    edit_aggregated_list_product_match_path(@aggregated_list,
+                                                            row[:item].product_match_items.first&.product_match_id,
+                                                            opened_item: row[:item].id),
+                    data: { turbo_frame: "match_modal" },
+                    class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md bg-brand-green text-white hover:opacity-90 transition-opacity" %>
+                <%# The tripwire cannot tell a reworded box from a different one.
+                    The chef can. %>
+                <%= button_to "Still right", reconfirm_unit_overrides_path(supplier_list_item_id: row[:item].id),
+                    method: :post,
+                    class: "inline-flex items-center px-3 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors" %>
+              </div>
+            </li>
+          <% end %>
+        </ul>
       </details>
     <% end %>
   </div>

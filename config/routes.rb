@@ -189,7 +189,13 @@ Rails.application.routes.draw do
   # Identified by the list item it was opened from, so the server derives the
   # organization, location, supplier and SKU rather than trusting any of them
   # from the request.
-  resources :unit_overrides, only: %i[create]
+  resources :unit_overrides, only: %i[create] do
+    collection do
+      # "Still right" — the chef knows the box did not really change, so re-pin
+      # the weight to what the supplier calls it now.
+      post :reconfirm
+    end
+  end
   delete "unit_overrides/for_item/:supplier_list_item_id",
          to: "unit_overrides#destroy", as: :unit_override_for_item
 

@@ -85,6 +85,49 @@ RSpec.describe "Stale pack weights on the dashboard", type: :request do
     expect(response.body).not_to include("changed since you set the weight")
   end
 
+  describe "the cleanup panel on the matched list" do
+    before do
+      set_weight
+      item.update!(pack_size: "20 LB")
+      sign_in member("chef")
+    end
+
+    it "lists it beside the duplicates and husks, not on a page of its own" do
+      get aggregated_list_path(aggregated_list)
+
+      panel = Nokogiri::HTML(response.body).at_css("#cleanup")
+      expect(panel).to be_present
+      expect(panel.text).to include("1 pack size changed since you set the weight")
+      expect(panel.text).to include("Green Bell Peppers")
+      expect(panel.text).to include("Set it again")
+      expect(panel.text).to include("Still right")
+    end
+
+    # The tripwire cannot tell a reworded box from a different one. The chef
+    # can, and saying so re-pins the weight rather than making them retype it.
+    it "re-pins the weight to today's wording when the chef says it is still right" do
+      post reconfirm_unit_overrides_path(supplier_list_item_id: item.id)
+
+      override = UnitOverride.last
+      expect(override.pack_size_fingerprint).to eq("20 LB")
+      expect(override.net_weight_oz).to eq(448)
+      expect(item.reload.unit_override_stale?).to be(false)
+    end
+
+    it "drops out of the panel once it has been dealt with" do
+      post reconfirm_unit_overrides_path(supplier_list_item_id: item.id)
+      get aggregated_list_path(aggregated_list)
+
+      expect(response.body).not_to include("changed since you set the weight")
+    end
+
+    it "refuses a manager, who cannot set weights in the first place" do
+      sign_in member("manager")
+      expect { post reconfirm_unit_overrides_path(supplier_list_item_id: item.id) }
+        .not_to change { UnitOverride.last.pack_size_fingerprint }
+    end
+  end
+
   it "ignores a supplier merely renaming the same pack" do
     set_weight
     item.update!(pack_size: "1 BU")
