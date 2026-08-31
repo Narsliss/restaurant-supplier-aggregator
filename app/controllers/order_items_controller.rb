@@ -40,7 +40,7 @@ class OrderItemsController < ApplicationController
     end
 
     @order.recalculate_totals!
-    @order.update!(savings_amount: @order.calculate_savings)
+    @order.recalculate_savings!
 
     # Queue background price verification for newly added items (not qty bumps)
     verification_pending = false
@@ -109,7 +109,7 @@ class OrderItemsController < ApplicationController
       render json: { removed: true, order_removed: true, order_id: order_id }
     else
       @order.recalculate_totals!
-      @order.update!(savings_amount: @order.calculate_savings)
+      @order.recalculate_savings!
       render json: { removed: true, order_removed: false, order: order_json }
     end
   end

@@ -82,7 +82,7 @@ module Orders
           end
 
           order.recalculate_totals!
-          order.update!(savings_amount: order.calculate_savings)
+          order.recalculate_savings!
           orders << order
         end
 

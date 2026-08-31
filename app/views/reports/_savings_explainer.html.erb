@@ -1,0 +1,81 @@
+<%#
+  How the savings figures are worked out, in the chef's own terms.
+
+  This exists so nobody -- staff or chef -- has to reverse-engineer the method
+  from the number. Every claim on the reports pages traces back to the rules
+  stated here, and if a figure ever contradicts one of them, that is a bug.
+%>
+<details class="group border-t border-gray-200">
+  <summary class="flex items-center gap-2 px-6 py-3 cursor-pointer text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 select-none">
+    <svg class="w-4 h-4 shrink-0 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+    </svg>
+    <span class="font-medium">How we work this out</span>
+  </summary>
+
+  <div class="px-6 pb-6 pt-1 text-sm text-gray-600 space-y-5 max-w-3xl">
+    <div>
+      <p class="font-semibold text-gray-900 mb-1">The two numbers</p>
+      <p>
+        For every line you ordered, we look at what the same item costs at your other
+        suppliers and compare it to what you actually paid.
+      </p>
+      <ul class="mt-2 space-y-1.5 list-disc list-inside">
+        <li><span class="font-medium text-gray-900">Saved</span> — what you beat the most expensive supplier by.</li>
+        <li><span class="font-medium text-gray-900">Left on the table</span> — what you'd have saved buying from the cheapest.</li>
+      </ul>
+      <p class="mt-2">
+        Buy the cheapest and you left nothing behind. Buy the dearest and you saved nothing.
+        Buy something in the middle and both are true at once — the two always add up to the
+        full price spread on that item.
+      </p>
+    </div>
+
+    <div>
+      <p class="font-semibold text-gray-900 mb-1">Everything is priced per unit first</p>
+      <p>
+        Suppliers quote differently — a case price from one, a price per pound from another.
+        A 40&nbsp;lb case at $2.50/lb is $100, not $2.50. We convert every price to the same
+        unit before comparing, then multiply by the amount you actually bought.
+      </p>
+    </div>
+
+    <div>
+      <p class="font-semibold text-gray-900 mb-1">We only compare like with like</p>
+      <p>A line is left out of the numbers entirely when:</p>
+      <ul class="mt-2 space-y-1.5 list-disc list-inside">
+        <li>no other supplier carries anything matched to it</li>
+        <li>the only alternatives come in a very different pack — a single pound is not a substitute for a 36&nbsp;lb case</li>
+        <li>the cheapest and dearest are so far apart they can't be the same product</li>
+        <li>the pack size can't be read well enough to be sure</li>
+      </ul>
+      <p class="mt-2">
+        Left out means <span class="font-medium text-gray-900">not counted</span>, not counted as zero.
+        We would rather show a smaller number we can stand behind than a bigger one we can't.
+      </p>
+    </div>
+
+    <% if defined?(compared_lines) && compared_lines.to_i.positive? %>
+      <div class="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+        <p class="font-semibold text-gray-900 mb-1">What this covers</p>
+        <p>
+          <%= number_with_delimiter(compared_lines) %> of
+          <%= number_with_delimiter(total_lines) %> order lines had an alternative we could
+          compare<% if defined?(compared_spend) && compared_spend.to_f.positive? %>,
+          covering <%= number_to_currency(compared_spend) %> of
+          <%= number_to_currency(total_spend) %> spent<% end %>.
+          The rest is either single-source or not matched yet, so no saving is claimed on it either way.
+        </p>
+      </div>
+    <% end %>
+
+    <div>
+      <p class="font-semibold text-gray-900 mb-1">Where the comparisons come from</p>
+      <p>
+        Three places: items your team matched by hand, items linked to the same product across
+        suppliers, and automatic matches we make across the products you actually buy. Anything
+        your team has rejected is never used.
+      </p>
+    </div>
+  </div>
+</details>

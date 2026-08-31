@@ -386,19 +386,49 @@ class Order < ApplicationRecord
   #      actually paid is treated as a data error (cross-unit mismatch or bad
   #      scrape) and skipped, not trusted.
   def calculate_savings
+    savings_breakdown[:realized]
+  end
+
+  # Persist both halves together. They come from one calculation and drift
+  # apart if written separately.
+  def recalculate_savings!
+    breakdown = savings_breakdown
+    update!(savings_amount: breakdown[:realized], missed_savings_amount: breakdown[:missed])
+    breakdown
+  end
+
+  # The other half of the same calculation: what was left on the table.
+  def calculate_missed_savings
+    savings_breakdown[:missed]
+  end
+
+  # Both sides at once, from the one definition in Orders::SavingsCalculator.
+  #
+  # realized = (dearest comparable peer - what you paid) x what you bought
+  # missed   = (what you paid - cheapest peer)          x what you bought
+  #
+  # They always sum to the market spread on the line, so a middle pick earns
+  # both and no choice falls into a gap. Peers come from the Product spine, the
+  # chef's own matched lists, and the automatic basket candidates.
+  def savings_breakdown
     items = order_items.includes(:supplier_product).to_a
-    return 0 if items.empty?
+    return { realized: 0, missed: 0, compared: 0, lines: 0 } if items.empty?
 
-    product_ids = items.filter_map { |item| item.supplier_product&.product_id }.uniq
-    return 0 if product_ids.empty?
+    peers = ComparisonCandidate.peers_for(items.filter_map(&:supplier_product))
+    realized = 0.0
+    missed = 0.0
+    compared = 0
 
-    peers_by_product = SupplierProduct
-      .where(product_id: product_ids, discontinued: false)
-      .where.not(current_price: nil)
-      .group_by(&:product_id)
+    items.each do |item|
+      result = Orders::SavingsCalculator.call(item, peers[item.supplier_product_id] || [])
+      next unless result.comparable?
 
-    total = items.sum { |item| line_savings_for(item, peers_by_product) }
-    total.round(2)
+      compared += 1
+      realized += result.realized
+      missed += result.missed
+    end
+
+    { realized: realized.round(2), missed: missed.round(2), compared: compared, lines: items.size }
   end
 
   # Per-line savings, or 0 when there's no valid/plausible comparison.

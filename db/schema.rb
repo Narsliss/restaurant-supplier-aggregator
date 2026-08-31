@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_31_140000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_31_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -479,6 +479,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_31_140000) do
     t.datetime "received_at"
     t.jsonb "supplier_exceptions", default: [], null: false
     t.datetime "exceptions_checked_at"
+    t.decimal "missed_savings_amount", precision: 10, scale: 2
     t.index ["batch_id"], name: "index_orders_on_batch_id"
     t.index ["confirmation_number"], name: "index_orders_on_confirmation_number"
     t.index ["location_id"], name: "index_orders_on_location_id"

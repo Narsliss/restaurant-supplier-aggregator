@@ -79,13 +79,17 @@ RSpec.describe Order, type: :model do
     let(:pricey_supplier) { create(:supplier) }
     let(:order) { create(:order, supplier: cheap_supplier) }
 
-    def bought(price, quantity: 1)
-      sp = create(:supplier_product, product: product, supplier: cheap_supplier, current_price: price)
+    # Packs must be readable on both sides. Without a parseable pack there is no
+    # way to know the two cases hold the same amount, and the calculator refuses
+    # to claim rather than compare two boxes of unknown size.
+    def bought(price, quantity: 1, pack_size: '4/10 LB')
+      sp = create(:supplier_product, product: product, supplier: cheap_supplier,
+                                     current_price: price, pack_size: pack_size)
       create(:order_item, order: order, supplier_product: sp, quantity: quantity, unit_price: price)
       order.recalculate_totals!
     end
 
-    def peer(price, price_unit: nil, pack_size: '1 case')
+    def peer(price, price_unit: nil, pack_size: '4/10 LB')
       create(:supplier_product, product: product, supplier: pricey_supplier,
                                 current_price: price, price_unit: price_unit, pack_size: pack_size)
     end
@@ -106,9 +110,27 @@ RSpec.describe Order, type: :model do
 
     it 'compares a catch-weight peer as a case equivalent, not per pound' do
       bought(80.00)
-      peer(2.50, price_unit: 'LB', pack_size: '4/10 LB') # $2.50/lb = $100/case
+      peer(2.50, price_unit: 'LB') # $2.50/lb across a 40 lb case = $100
 
       expect(order.calculate_savings).to eq(20.00)
+    end
+
+    it 'declines a line whose own pack cannot be read' do
+      bought(80.00, pack_size: 'assorted')
+      peer(100.00)
+
+      expect(order.calculate_savings).to eq(0)
+    end
+
+    it 'records what was left on the table alongside what was beaten' do
+      bought(80.00)
+      peer(100.00)
+      create(:supplier_product, product: product, supplier: create(:supplier),
+                                current_price: 60.00, pack_size: '4/10 LB')
+
+      breakdown = order.savings_breakdown
+      expect(breakdown[:realized]).to eq(20.00) # vs the dearest
+      expect(breakdown[:missed]).to eq(20.00)   # vs the cheapest
     end
 
     it 'returns 0 when no peer supplier carries the product' do
