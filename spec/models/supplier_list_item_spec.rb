@@ -1,6 +1,105 @@
 require 'rails_helper'
 
 RSpec.describe SupplierListItem, type: :model do
+  # Sysco quotes catch-weight items at a rate per pound, and the scraper labels
+  # them price_unit "LB". CatalogSearchService built its rows by copying the
+  # product's price and nothing else, and PriceClassifiers skipped inference on
+  # catalog-search rows — so the rate was read as a case total and divided
+  # across the pack a second time. The missed-savings report offered a 64 lb
+  # case of pork butt at $1.83 against the $80.80 the chef paid: a claimed
+  # saving of 97% of their own invoice, sliding just under the
+  # Order::MAX_SAVINGS_MULTIPLE guard.
+  describe 'catch-weight pricing carried in from the catalog' do
+    # seed_suppliers creates Sysco on boot, so claim the existing row.
+    let(:sysco) do
+      Supplier.find_or_create_by!(code: 'sysco') { |s| s.name = 'Sysco' }
+              .tap { |s| s.update!(case_pricing: true) }
+    end
+    let(:credential) { create(:supplier_credential, supplier: sysco) }
+    let(:list) do
+      SupplierList.create!(supplier: sysco, supplier_credential: credential,
+                           organization_id: credential.organization_id, name: 'Sysco')
+    end
+
+    def product(attrs = {})
+      SupplierProduct.create!({ supplier: sysco, supplier_sku: 'CW-1',
+                                supplier_name: 'PORK BUTT', current_price: 2.35,
+                                pack_size: '4x16#AVG' }.merge(attrs))
+    end
+
+    def row(source:, sp:, price_unit: nil, price: 2.35, pack_size: '4x16#AVG')
+      list.supplier_list_items.create!(name: 'PORK BUTT', sku: "S-#{source}-#{price_unit || 'nil'}-#{pack_size}",
+                                       price: price, pack_size: pack_size,
+                                       price_unit: price_unit, supplier_product: sp,
+                                       source: source)
+    end
+
+    it 'reads the same product the same way from either source' do
+      sp = product(price_unit: 'LB')
+      guide = row(source: 'order_guide', price_unit: 'LB', sp: sp)
+      found = row(source: 'catalog_search', price_unit: 'LB', sp: sp)
+
+      # $2.35 per lb, not $2.35 spread across 64 lb.
+      expect(guide.per_unit_price).to be_within(0.0001).of(2.35 / 16)
+      expect(found.per_unit_price).to eq(guide.per_unit_price)
+      expect(found.estimated_total_price).to be_within(0.01).of(2.35 * 64)
+    end
+
+    it 'borrows the unit off the product when the copied row never stored one' do
+      sp = product(price_unit: 'LB')
+      found = row(source: 'catalog_search', sp: sp)
+
+      expect(found.stated_price_unit).to eq('LB')
+      expect(found.per_unit_price).to be_within(0.0001).of(2.35 / 16)
+    end
+
+    # The pack alone is enough when nothing upstream labelled the price.
+    it 'infers per-lb on a catalog-search row with no unit anywhere' do
+      found = row(source: 'catalog_search', sp: product)
+
+      expect(found.per_unit_price).to be_within(0.0001).of(2.35 / 16)
+      expect(found).to be_priced_per_weight
+    end
+
+    it 'does not borrow the product unit for a row that priced itself' do
+      guide = row(source: 'order_guide', sp: product(price_unit: 'LB'), price: 150.40)
+
+      expect(guide.stated_price_unit).to be_nil
+    end
+
+    # A fixed-weight pack carries no marker to infer from, so only the unit
+    # stated on the product keeps this one honest.
+    it 'keeps a stated per-lb unit on a fixed-weight pack' do
+      sp = product(supplier_sku: 'CW-2', pack_size: '1x12 LB',
+                   current_price: 5.53, price_unit: 'LB')
+      found = row(source: 'catalog_search', sp: sp, price: 5.53, pack_size: '1x12 LB')
+
+      expect(found.per_unit_price).to be_within(0.0001).of(5.53 / 16)
+      expect(found.estimated_total_price).to be_within(0.01).of(5.53 * 12)
+    end
+
+    # Sysco lists a ribeye as "1x4-5 PC" at $18.35/LB. The pack resolves to
+    # pieces, not pounds. Converting anyway invented a $5.16 case cost — cheaper
+    # than the raw price, and cheap enough to win order routing outright.
+    it 'refuses to spread a per-pound rate across a pack measured in pieces' do
+      sp = product(supplier_sku: 'CW-4', pack_size: '1x4-5 PC',
+                   current_price: 18.35, price_unit: 'LB')
+      found = row(source: 'catalog_search', sp: sp, price: 18.35, pack_size: '1x4-5 PC')
+
+      expect(found.estimated_total_price.to_f).to be_within(0.01).of(18.35)
+      expect(found.estimated_total_price.to_f).not_to be < 18.35
+    end
+
+    it 'still treats a genuine case price as a case price' do
+      sp = product(supplier_sku: 'CW-3', pack_size: '12x12 OZ',
+                   current_price: 91.85, price_unit: 'CS')
+      found = row(source: 'catalog_search', sp: sp, price: 91.85, pack_size: '12x12 OZ')
+
+      expect(found.per_unit_price).to be_within(0.0001).of(91.85 / 144)
+      expect(found).not_to be_priced_per_weight
+    end
+  end
+
   describe '#link_to_supplier_product!' do
     let(:supplier) { create(:supplier) }
     let(:credential) { create(:supplier_credential, supplier: supplier) }

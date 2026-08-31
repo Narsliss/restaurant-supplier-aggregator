@@ -179,9 +179,12 @@ class CatalogSearchService
   def build_catalog_index(supplier_ids)
     index = {}
     supplier_ids.each do |sid|
+      # price_unit rides along because the list item we build from a hit copies
+      # the price, and a price is meaningless without the unit it is quoted in.
       products = SupplierProduct.where(supplier_id: sid, discontinued: false)
                                 .select(:id, :supplier_id, :supplier_sku, :supplier_name,
-                                        :current_price, :pack_size, :in_stock, :product_id)
+                                        :current_price, :pack_size, :in_stock, :product_id,
+                                        :price_unit)
       entries = products.map do |sp|
         normalized = ProductNormalizer.normalize(sp.supplier_name)
         {
@@ -300,6 +303,10 @@ class CatalogSearchService
       name: supplier_product.supplier_name,
       sku: supplier_product.supplier_sku,
       price: supplier_product.current_price,
+      # The price is copied straight off the product, so the unit it is quoted
+      # in has to come with it. Sysco quotes catch-weight items per pound; a row
+      # that kept the number and dropped the "LB" was compared as a case price.
+      price_unit: supplier_product.price_unit,
       pack_size: supplier_product.pack_size,
       in_stock: supplier_product.in_stock,
       supplier_product_id: supplier_product.id,

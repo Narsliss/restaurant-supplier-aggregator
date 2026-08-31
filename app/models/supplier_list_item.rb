@@ -151,7 +151,7 @@ class SupplierListItem < ApplicationRecord
   def per_unit_price
     return nil unless effective_price
 
-    effective_price_unit = price_unit.presence || inferred_price_unit
+    effective_price_unit = stated_price_unit || inferred_price_unit
     if effective_price_unit.present?
       unit_key = UnitParser.normalize_unit_key(effective_price_unit)
 
@@ -202,7 +202,7 @@ class SupplierListItem < ApplicationRecord
   # when inferred_price_unit fires (inference already handles it), or when the
   # pack isn't in lbs.
   def derived_per_lb_price
-    return nil if price_unit.present? || inferred_price_unit.present?
+    return nil if stated_price_unit.present? || inferred_price_unit.present?
     return nil unless effective_price && effective_price > 0
 
     parsed = parsed_pack_size
@@ -242,7 +242,7 @@ class SupplierListItem < ApplicationRecord
   # billing where the invoice depends on delivered weight, so any case total
   # we show is an estimate.
   def priced_per_weight?
-    unit = price_unit.presence || inferred_price_unit
+    unit = stated_price_unit || inferred_price_unit
     return false if unit.blank?
 
     UnitParser::WEIGHT_TO_OZ.key?(UnitParser.normalize_unit_key(unit))
@@ -265,7 +265,7 @@ class SupplierListItem < ApplicationRecord
   # For per-unit pricing: price × quantity in that unit.
   # For case pricing: the price itself.
   def estimated_total_price
-    effective_unit = price_unit.presence || inferred_price_unit
+    effective_unit = stated_price_unit || inferred_price_unit
     if effective_unit.present?
       unit_key = UnitParser.normalize_unit_key(effective_unit)
 
@@ -284,6 +284,12 @@ class SupplierListItem < ApplicationRecord
         return UnitParser.estimated_total(effective_price, inferred, pack_size) if inferred.present?
         return effective_price
       end
+    end
+
+    # Same refusal as per_unit_price: a per-weight rate cannot be spread across
+    # a pack measured in pieces.
+    if effective_unit.present? && !unit_matches_pack?(effective_unit)
+      return effective_price
     end
 
     # Per-piece pricing (Piece/PC suffix): multiply by case count.
@@ -339,6 +345,26 @@ class SupplierListItem < ApplicationRecord
     price.presence || supplier_product&.current_price
   end
 
+  # The unit `effective_price` is actually quoted in, before any inference.
+  #
+  # effective_price borrows the linked product's price when this row has none,
+  # and a catalog-search row was built by copying that same price at search
+  # time. The label belongs with the number, but only the price was carried
+  # over: a Sysco catch-weight quote is a rate per pound, so a 16 lb case of
+  # pork tenderloin quoted at $3.16/lb was read as a $3.16 case and compared at
+  # $0.20/lb. The missed-savings report then offered chefs nearly the whole
+  # price of their own case as a saving.
+  #
+  # Returns nil when this row priced itself and said nothing about the unit —
+  # callers fall through to inference exactly as before.
+  def stated_price_unit
+    own = price_unit.presence
+    return own if own
+    return nil unless price.blank? || catalog_search?
+
+    supplier_product&.price_unit.presence
+  end
+
   # Price display — shows "/lb", "/oz" etc. when price is per-unit.
   # Container types (CS, CASE, etc.) are suppressed since case pricing is the default.
   def formatted_price
@@ -346,7 +372,7 @@ class SupplierListItem < ApplicationRecord
     return 'N/A' unless ep
 
     base = "$#{'%.2f' % ep}"
-    effective_unit = price_unit.presence || inferred_price_unit
+    effective_unit = stated_price_unit || inferred_price_unit
     if effective_unit.present?
       unit_key = UnitParser.normalize_unit_key(effective_unit)
       # Don't show "/CS", "/CASE", etc. — case pricing is the default display
@@ -384,9 +410,30 @@ class SupplierListItem < ApplicationRecord
     @inferred_price_unit = PriceClassifiers::Base.for(self).inferred_price_unit
   end
 
+  # A per-weight quote only converts against a weight-based pack.
+  #
+  # Sysco lists a ribeye as "1x4-5 PC" at $18.35/LB. The pack resolves to pieces,
+  # not pounds, so applying the per-pound rate to it invented a $5.16 case cost —
+  # cheaper than the $18.35 it reads as today, and cheap enough to win order
+  # routing outright. When the price unit and the pack measure different things,
+  # we cannot convert; treat the price as the pack total instead of fabricating one.
+  def unit_matches_pack?(unit)
+    key = UnitParser.normalize_unit_key(unit)
+    expected =
+      if UnitParser::WEIGHT_TO_OZ.key?(key) then "oz"
+      elsif UnitParser::VOLUME_TO_FL_OZ.key?(key) then "fl oz"
+      elsif UnitParser::COUNT_TO_EACH.key?(key) then "each"
+      end
+    return true if expected.nil? # not a convertible unit; existing paths handle it
+
+    normalized_unit == expected
+  end
+
   # Price is already per the stored price_unit (e.g., $12.50/lb).
   # Convert to the pack's normalized base unit.
-  def per_unit_price_from_unit_pricing(unit = price_unit)
+  def per_unit_price_from_unit_pricing(unit = stated_price_unit)
+    return per_unit_price_from_case_pricing unless unit_matches_pack?(unit)
+
     unit_key = UnitParser.normalize_unit_key(unit)
 
     # Find how many base units (oz, fl oz, each) one price_unit represents

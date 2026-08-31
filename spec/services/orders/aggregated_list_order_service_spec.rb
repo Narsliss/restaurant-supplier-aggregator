@@ -41,6 +41,88 @@ RSpec.describe Orders::AggregatedListOrderService do
     ).create_pending_orders!
   end
 
+  # ORDERING SAFETY — the catch-weight unit fix reaches order creation through
+  # exactly two doors, and these pin both.
+  #
+  #   1. cheapest_supplier decides WHICH supplier lands in the cart
+  #   2. estimated_total_price becomes order_items.unit_price, which is sent as
+  #      expected_price in build_cart_items and gates verify_cart_matches!
+  #
+  # Before the fix a Sysco per-pound quote read as a case total, so a $2.35/lb
+  # pork butt looked like a $2.35 case: it won routing against a real $100 case
+  # and booked the line at $2.35, which is also the number cart verification
+  # would have checked against a supplier billing ~$150.
+  describe "catch-weight routing and captured price" do
+    let(:usf) { create(:supplier, name: "Catch US Foods", case_pricing: false) }
+    let(:sysco) { create(:supplier, name: "Catch Sysco", case_pricing: true) }
+
+    let!(:catch_list) do
+      list = create(:aggregated_list, organization: organization, location_id: location.id)
+      match = create(:product_match, aggregated_list: list, canonical_name: "Pork Boston Butt")
+
+      # US Foods sells the 68 lb case outright for $100.60.
+      # Sysco quotes the same case at $2.26 PER POUND — $153.68 for the case.
+      # The "8x7-10# LB" weight-range pack is the shape the old regex could not
+      # read at all, so the rate was taken for a case total.
+      [[usf, "68 LB", 100.60, nil], [sysco, "8x7-10# LB", 2.26, nil]].each do |supplier, pack, price, unit|
+        supplier_list = create(:supplier_list, supplier: supplier, organization: organization, location: location)
+        list.aggregated_list_mappings.find_or_create_by!(supplier_list: supplier_list)
+        sp = create(:supplier_product, supplier: supplier, current_price: price, in_stock: true,
+                                       pack_size: pack, price_unit: unit)
+        sli = create(:supplier_list_item, supplier_list: supplier_list, name: "Pork Boston Butt",
+                                          price: price, pack_size: pack, price_unit: unit,
+                                          supplier_product: sp)
+        create(:product_match_item, product_match: match, supplier_list_item: sli, supplier: supplier)
+      end
+      list
+    end
+    let(:catch_match) { catch_list.product_matches.first }
+
+    def run_catch(quantities)
+      described_class.new(
+        user: user, aggregated_list: catch_list, quantities: quantities,
+        supplier_overrides: {}, uom_overrides: {},
+        location: location, delivery_date: Date.tomorrow
+      ).create_pending_orders!
+    end
+
+    it "does not route to the supplier whose per-pound quote merely looks cheap" do
+      run_catch({ catch_match.id.to_s => 1 })
+      order = Order.where(organization: organization).order(:created_at).last
+
+      expect(order.supplier).to eq(usf)
+    end
+
+    it "captures the per-pound quote as a full case cost, not the rate" do
+      sysco_sli = catch_match.product_match_items.find { |i| i.supplier_id == sysco.id }.supplier_list_item
+
+      # 8 pieces averaging 8.5 lb = 68 lb at $2.26/lb.
+      expect(sysco_sli.estimated_total_price).to be_within(0.01).of(153.68)
+      expect(sysco_sli.estimated_total_price).not_to be_within(1.0).of(2.26)
+    end
+
+    it "sends the case cost as expected_price, never the per-pound rate" do
+      run_catch({ catch_match.id.to_s => 1 })
+      order = Order.where(organization: organization).order(:created_at).last
+      item = order.order_items.first
+
+      # unit_price is what build_cart_items hands verify_cart_matches! —
+      # a per-pound figure here would trip a false price-changed halt.
+      expect(item.unit_price.to_f).to be_within(0.01).of(100.60)
+    end
+
+    it "still routes to the genuinely cheaper supplier when the units agree" do
+      sysco_sli = catch_match.product_match_items.find { |i| i.supplier_id == sysco.id }.supplier_list_item
+      sysco_sli.update!(price: 1.20, price_unit: nil) # $1.20/lb = $81.60 a case
+
+      run_catch({ catch_match.id.to_s => 1 })
+      order = Order.where(organization: organization).order(:created_at).last
+
+      expect(order.supplier).to eq(sysco)
+      expect(order.order_items.first.unit_price.to_f).to be_within(0.01).of(81.60)
+    end
+  end
+
   describe "one product split across two suppliers" do
     it "creates one order per supplier, each with its own quantity and price" do
       orders, batch_id = run(quantities: {
