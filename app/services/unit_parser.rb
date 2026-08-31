@@ -290,7 +290,11 @@ class UnitParser
     def parse_mixed_fraction(text)
       # Mixed fraction: "1-1/9 BUSH", "2-1/2 BUSHEL" → whole + numerator/denominator
       # Only for bushel units — other units use digit/digit as case pack multipliers.
-      if text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*[\-]\s*(\d+)\s*\/\s*(\d+)\s*(bushel|bush|bu)\b/i
+      # The separator between the whole number and the fraction is a hyphen or a
+      # space depending on the supplier: PPO writes "CASE - 1-1/9 BUSH", Sysco
+      # writes "1 1/9 BUSH". Requiring the hyphen dropped the whole number and
+      # read a 1-1/9 bushel case of peppers as one NINTH of a bushel.
+      if text =~ /(?:case|cs|box|bag|each|ea)?\s*[\-\s]*(\d+)\s*[\-\s]\s*(\d+)\s*\/\s*(\d+)\s*(bushel|bush|bu)\b/i
         whole = $1.to_f
         numerator = $2.to_f
         denominator = $3.to_f
@@ -378,7 +382,13 @@ class UnitParser
         is_count_unit = COUNT_TO_EACH.key?(unit)
         is_weight_unit = WEIGHT_TO_OZ.key?(unit)
         close_in_magnitude = num1 > 1 && num2 > 1 && [num1 / num2, num2 / num1].max <= 2.0
-        is_produce_sizing = is_count_unit && num1 >= 40 && num2 >= 40
+        # For counts, the separator carries the meaning. Every small slash pack
+        # in production is a real multiplier -- "24/1 EA" chafing fuel is 24,
+        # "20/25 EA" foam cups is 500 -- while a hyphen is a size range. Apples
+        # written "20-22 EA" were read as 440 apples, making them look 21x
+        # cheaper than they are. Large counts stay a range either way: that is
+        # produce sizing ("80/88 CT").
+        is_produce_sizing = is_count_unit && (separator == "-" || (num1 >= 40 && num2 >= 40))
         product_in_lbs = is_weight_unit ? (num1 * num2 * (WEIGHT_TO_OZ[unit] || 1.0)) / 16.0 : 0
         unrealistic_weight = is_weight_unit && product_in_lbs > 100
 

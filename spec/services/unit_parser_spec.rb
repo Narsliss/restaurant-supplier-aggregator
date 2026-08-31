@@ -403,4 +403,43 @@ RSpec.describe UnitParser do
       end
     end
   end
+
+  # Both of these were misreading real production packs, and both feed
+  # cheapest_supplier, so a wrong quantity moves order routing.
+  describe 'pack shapes that were being misread' do
+    it 'reads a space-separated mixed fraction as the whole plus the fraction' do
+      # PPO writes "CASE - 1-1/9 BUSH", Sysco writes "1 1/9 BUSH". Requiring the
+      # hyphen dropped the whole number and read a case of peppers as 1/9 of a bushel.
+      expect(described_class.parse('1 1/9 BUSH')[:quantity]).to be_within(0.001).of(1.111)
+      expect(described_class.parse('2 1/2 BUSHEL')[:quantity]).to be_within(0.001).of(2.5)
+    end
+
+    it 'still reads a bare fraction as a fraction' do
+      expect(described_class.parse('1/9 BUSH')[:quantity]).to be_within(0.001).of(0.111)
+      expect(described_class.parse('1/2 BUSHEL')[:quantity]).to be_within(0.001).of(0.5)
+      expect(described_class.parse('1/4 POUND')[:quantity]).to be_within(0.001).of(0.25)
+    end
+
+    # For counts the separator carries the meaning. Every small slash pack in
+    # production is a genuine multiplier; a hyphen is a size range. Apples
+    # written "20-22 EA" parsed as 440, making them look 21x cheaper.
+    it 'reads a hyphenated count as a size range' do
+      expect(described_class.parse('20-22 EA')[:normalized_quantity]).to be_within(0.5).of(21)
+    end
+
+    it 'still reads a slashed count as a case multiplier' do
+      {
+        '24/1 EA' => 24, '6/12 EA' => 72, '25/4 EA' => 100,
+        '20/25 EA' => 500, '16/8 EA' => 128, '18/20 EA' => 360
+      }.each do |pack, expected|
+        expect(described_class.parse(pack)[:normalized_quantity]).to be_within(0.5).of(expected),
+               "expected #{pack} to parse as #{expected}"
+      end
+    end
+
+    it 'still reads large counts as produce sizing either way' do
+      expect(described_class.parse('80/88 CT')[:normalized_quantity]).to be_within(0.5).of(84)
+      expect(described_class.parse('120-135 CT')[:normalized_quantity]).to be_within(0.5).of(128)
+    end
+  end
 end
