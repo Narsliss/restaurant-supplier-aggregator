@@ -62,9 +62,16 @@ module Orders
 
     Result = Struct.new(
       :realized, :missed, :benchmark_rate, :best_rate, :paid_rate,
-      :units_per_case, :peer_count, :reason,
+      :units_per_case, :peer_count, :reason, :best_peer, :benchmark_peer,
       keyword_init: true
     ) do
+      # What the cheapest alternative would have cost for the quantity bought.
+      def best_equivalent_cost
+        return nil unless best_rate && units_per_case
+
+        (best_rate * units_per_case).round(2)
+      end
+
       def comparable? = reason.nil?
       def total_spread = realized.to_f + missed.to_f
     end
@@ -85,14 +92,17 @@ module Orders
       return incomparable(:no_paid_price) unless paid_rate&.positive?
       return incomparable(:no_quantity) unless quantity.positive?
 
-      rates = comparable_peer_rates
-      return incomparable(:no_comparable_peer) if rates.empty?
+      priced = comparable_peers
+      return incomparable(:no_comparable_peer) if priced.empty?
 
+      rates = priced.map(&:last)
       best = (rates + [paid_rate]).min
       return incomparable(:implausible_spread) if rates.max / best > MAX_SPREAD_RATIO
-      return incomparable(:paid_below_market) if paid_rate < best_of(rates) * MIN_PAID_RATIO
+      return incomparable(:paid_below_market) if paid_rate < rates.min * MIN_PAID_RATIO
 
       benchmark = rates.max
+      cheapest_peer = priced.min_by(&:last)
+      dearest_peer = priced.max_by(&:last)
       Result.new(
         realized: scale(benchmark - paid_rate),
         missed: scale(paid_rate - best),
@@ -101,7 +111,9 @@ module Orders
         paid_rate: paid_rate,
         units_per_case: units_per_case,
         peer_count: rates.size,
-        reason: nil
+        reason: nil,
+        best_peer: cheapest_peer&.first,
+        benchmark_peer: dearest_peer&.first
       )
     end
 
@@ -166,7 +178,10 @@ module Orders
 
     def quantity = item.quantity.to_f
 
-    def comparable_peer_rates
+    # [product, rate] for every peer that survives the unit, pack and price
+    # checks. Kept as pairs so callers can name the supplier behind a figure --
+    # a savings number nobody can trace to a supplier is not much use.
+    def comparable_peers
       peers.filter_map do |peer|
         next if peer.id == product.id
         next if peer.supplier_id == product.supplier_id
@@ -176,7 +191,7 @@ module Orders
         next unless within_pack_band?(peer_size)
 
         rate = peer_rate(peer, peer_size)
-        rate if rate&.positive?
+        [peer, rate] if rate&.positive?
       end
     end
 
@@ -203,8 +218,6 @@ module Orders
 
       (rate_delta * units_per_case * quantity).round(2)
     end
-
-    def best_of(rates) = rates.min
 
     def incomparable(reason)
       Result.new(realized: 0.0, missed: 0.0, peer_count: 0, reason: reason)

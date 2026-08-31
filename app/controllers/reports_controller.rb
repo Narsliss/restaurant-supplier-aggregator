@@ -195,6 +195,25 @@ class ReportsController < ApplicationController
     orders.sum(:savings_amount) || 0
   end
 
+  # Every ordered line scored once, by the one definition, with the peer that
+  # produced each figure attached. Both savings tables read this: they used to
+  # run their own comparisons, which is how the product ended up showing three
+  # numbers called savings that disagreed with each other.
+  def scored_lines(orders)
+    items = OrderItem.where(order_id: orders.select(:id)).where.not(supplier_product_id: nil)
+                     .includes(:supplier_product, :order).to_a
+    return [] if items.empty?
+
+    peers = ComparisonCandidate.peers_for(items.filter_map(&:supplier_product))
+    overrides = UnitOverride.lookup_for(current_user.current_organization)
+
+    items.filter_map do |item|
+      result = Orders::SavingsCalculator.call(item, peers[item.supplier_product_id] || [],
+                                              overrides: overrides)
+      [item, result] if result.comparable?
+    end
+  end
+
   # How much of the spend the savings figures could actually speak to. Shown
   # beside every total, because a dollar figure without its coverage invites the
   # reader to assume it covers everything.
@@ -317,39 +336,48 @@ class ReportsController < ApplicationController
   end
 
   # Per-product realized savings: what was paid vs the most expensive supplier alternative
+  # Per-product realized savings: what was paid against the dearest comparable
+  # alternative, on a shared per-unit basis and in a comparable pack.
+  #
+  # This was a raw MAX(current_price) over anything sharing a Product id, with
+  # no unit conversion and no check that the two packs held the same amount. It
+  # set a 5 lb bag of peeled garlic against a 20 lb case from the SAME supplier
+  # and called the $495 difference a saving; a 5 lb box of pecans against a
+  # 30 lb case; pistachios against a bag several times the size. Every figure it
+  # produced was a pack-size difference wearing a dollar sign.
   def product_savings_for(orders, limit: 15)
-    OrderItem
-      .joins(:order)
-      .joins("INNER JOIN supplier_products ON supplier_products.id = order_items.supplier_product_id")
-      .joins(<<~SQL)
-        INNER JOIN (
-          SELECT product_id, MAX(current_price) AS max_price
-          FROM supplier_products
-          WHERE discontinued = false AND current_price IS NOT NULL
-          GROUP BY product_id
-        ) max_prices ON max_prices.product_id = supplier_products.product_id
-      SQL
-      .where(orders: { id: orders.select(:id) })
-      .where("max_prices.max_price > order_items.unit_price")
-      .where.not(order_items: { supplier_product_id: nil })
-      # Drop implausible lines (mirrors Order::MAX_SAVINGS_MULTIPLE): a peer
-      # price many times what was paid is a data error, not a realized saving.
-      .where(
-        "(max_prices.max_price - order_items.unit_price) * order_items.quantity <= order_items.line_total * ?",
-        Order::MAX_SAVINGS_MULTIPLE
-      )
-      .group(ITEM_NAME_SQL)
-      .order(Arel.sql("SUM((max_prices.max_price - order_items.unit_price) * order_items.quantity) DESC"))
-      .limit(limit)
-      .pluck(
-        ITEM_NAME_SQL,
-        Arel.sql("SUM(order_items.line_total)"),
-        Arel.sql("SUM(max_prices.max_price * order_items.quantity)"),
-        Arel.sql("SUM((max_prices.max_price - order_items.unit_price) * order_items.quantity)"),
-        Arel.sql("SUM(order_items.quantity)")
-      )
+    grouped = Hash.new { |h, k| h[k] = { paid: 0.0, benchmark: 0.0, savings: 0.0, qty: 0.0 } }
+
+    scored_lines(orders).each do |item, result|
+      next unless result.realized.positive?
+
+      row = grouped[item.product_name.to_s]
+      quantity = item.quantity.to_f
+      row[:paid] += item.line_total.to_f
+      row[:benchmark] += result.benchmark_rate * result.units_per_case * quantity
+      row[:savings] += result.realized
+      row[:qty] += quantity
+    end
+
+    rows = grouped.map { |name, v| [name, v[:paid].round(2), v[:benchmark].round(2), v[:savings].round(2), v[:qty].round(1)] }
+                  .sort_by { |r| -r[3] }
+    limit ? rows.first(limit) : rows
   end
 
+  # Products where a cheaper supplier alternative existed but wasn't chosen.
+  #
+  # Two things make this arithmetic delicate, and both were wrong until Aug 2026,
+  # when the dashboard offered "$48.74 paid, $3.90 at Chef's Warehouse" — a case
+  # price set against a per-LB one:
+  #
+  #   1. The peer's price has to be expressed as what they would charge for the
+  #      SAME QUANTITY the chef actually buys. See #peer_equivalent_cost.
+  #   2. Savings are summed PER LINE rather than extrapolated from
+  #      AVG(unit_price) x SUM(quantity) — one averaged spread applied to every unit
+  #      ever bought overstates the total whenever prices moved between orders.
+  #
+  # A line claiming more than Order::MAX_SAVINGS_MULTIPLE x what was actually paid
+  # is dropped as a data error, mirroring Order#line_savings_for.
   # Products where a cheaper supplier alternative existed but wasn't chosen.
   #
   # Two things make this arithmetic delicate, and both were wrong until Aug 2026,
