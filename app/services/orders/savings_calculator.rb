@@ -55,6 +55,11 @@ module Orders
     # wrong. Allow a real discount, reject a fantasy one.
     MIN_PAID_RATIO = 0.5
 
+    # Where a supplier states a weight or a volume we trust it absolutely, and a
+    # chef weight is never consulted. UnitOverride exists for the packs quoted
+    # in bushels, sheets and counts, where nobody said what is in the box.
+    STATED_UNITS = ["oz", "fl oz"].freeze
+
     Result = Struct.new(
       :realized, :missed, :benchmark_rate, :best_rate, :paid_rate,
       :units_per_case, :peer_count, :reason,
@@ -64,13 +69,14 @@ module Orders
       def total_spread = realized.to_f + missed.to_f
     end
 
-    def self.call(order_item, peers)
-      new(order_item, peers).call
+    def self.call(order_item, peers, overrides: {})
+      new(order_item, peers, overrides: overrides).call
     end
 
-    def initialize(order_item, peers)
+    def initialize(order_item, peers, overrides: {})
       @item = order_item
       @peers = Array(peers)
+      @overrides = overrides || {}
     end
 
     def call
@@ -101,7 +107,38 @@ module Orders
 
     private
 
-    attr_reader :item, :peers
+    attr_reader :item, :peers, :overrides
+
+    # A weight the chef supplied for a pack the supplier never described, in oz.
+    #
+    # UnitOverride feeds comparison and nothing else by design, so this is
+    # exactly the right consumer: it lets a bushel or a count of sheets be
+    # compared without touching the raw price that ordering reads. A weight is
+    # ignored once the supplier changes the pack out from under it.
+    def chef_weight_oz(product)
+      override = overrides[[product.supplier_id, product.supplier_sku]]
+      return nil if override.nil?
+      return nil if override.stale_against?(product.pack_size)
+
+      oz = override.total_oz_for(product.pack_size)
+      oz if oz.to_f.positive?
+    end
+
+    # Size and unit to compare this product on: the chef's weight when they set
+    # one, otherwise whatever the pack itself says.
+    def size_and_unit(product)
+      parsed = product.parsed_pack_size
+      stated = parsed[:parseable] && STATED_UNITS.include?(parsed[:normalized_unit])
+
+      unless stated
+        oz = chef_weight_oz(product)
+        return [oz, "oz"] if oz
+      end
+
+      return [nil, nil] unless parsed[:parseable]
+
+      [parsed[:normalized_quantity].to_f, parsed[:normalized_unit]]
+    end
 
     def product = @product ||= item.supplier_product
 
@@ -109,11 +146,14 @@ module Orders
     def units_per_case
       return @units_per_case if defined?(@units_per_case)
 
-      parsed = product.parsed_pack_size
-      @units_per_case =
-        if parsed[:parseable] && parsed[:normalized_quantity].to_f.positive?
-          parsed[:normalized_quantity].to_f
-        end
+      size, unit = size_and_unit(product)
+      @base_unit = unit
+      @units_per_case = size if size.to_f.positive?
+    end
+
+    def base_unit
+      units_per_case
+      @base_unit
     end
 
     # What they actually paid, per normalized unit. The invoice, not the
@@ -130,22 +170,31 @@ module Orders
       peers.filter_map do |peer|
         next if peer.id == product.id
         next if peer.supplier_id == product.supplier_id
-        next unless peer.normalized_unit == product.normalized_unit
-        next unless within_pack_band?(peer)
+        peer_size, peer_unit = size_and_unit(peer)
+        next unless peer_unit == base_unit
+        next unless peer_size.to_f.positive?
+        next unless within_pack_band?(peer_size)
 
-        rate = peer.comparison_rate
+        rate = peer_rate(peer, peer_size)
         rate if rate&.positive?
       end
     end
 
-    def within_pack_band?(peer)
-      parsed = peer.parsed_pack_size
-      return false unless parsed[:parseable]
+    def within_pack_band?(peer_size)
+      peer_size >= units_per_case * PACK_BAND_MIN && peer_size <= units_per_case * PACK_BAND_MAX
+    end
 
-      qty = parsed[:normalized_quantity].to_f
-      return false unless qty.positive?
+    # A per-weight quote converts against its own unit; anything else is spread
+    # across the pack, using the chef's weight when they supplied one.
+    def peer_rate(peer, peer_size)
+      unit = peer.effective_price_unit
+      if unit.present?
+        key = UnitParser.normalize_unit_key(unit)
+        factor = UnitParser::WEIGHT_TO_OZ[key] || UnitParser::VOLUME_TO_FL_OZ[key]
+        return peer.current_price.to_f / factor if factor.to_f.positive?
+      end
 
-      qty >= units_per_case * PACK_BAND_MIN && qty <= units_per_case * PACK_BAND_MAX
+      peer.current_price.to_f / peer_size
     end
 
     # Dollars for the whole line, from a per-unit difference.

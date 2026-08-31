@@ -143,6 +143,17 @@ class UnitOverride < ApplicationRecord
     }.first(limit)
   end
 
+  # Every weight an organization has set, keyed [supplier_id, sku], for callers
+  # that need to resolve many products at once. Location-specific weights win
+  # over org-wide ones for that location.
+  def self.lookup_for(organization, location_id: nil)
+    rows = where(organization_id: organization&.id)
+           .where(location_id: [nil, location_id].uniq)
+           .to_a
+    rows.sort_by { |o| o.location_id.nil? ? 0 : 1 }
+        .each_with_object({}) { |o, acc| acc[[o.supplier_id, o.supplier_sku]] = o }
+  end
+
   def self.plausible_per_lb?(price, total_oz)
     return false unless price.to_f.positive? && total_oz.to_f.positive?
 

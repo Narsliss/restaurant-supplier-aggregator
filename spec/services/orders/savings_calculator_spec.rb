@@ -155,6 +155,60 @@ RSpec.describe Orders::SavingsCalculator do
     end
   end
 
+  # UnitOverride exists so a chef can supply the weight of a bushel, a count of
+  # sheets, a case of pieces -- packs their supplier never described. It feeds
+  # comparison and nothing else by design, and the savings figure is a
+  # comparison, so a weight a chef sets has to reach it. It did not.
+  describe 'a weight the chef supplied' do
+    let(:org) { create(:organization) }
+
+    def weight(sup, sku, oz, fingerprint)
+      UnitOverride.create!(organization: org, supplier: sup, supplier_sku: sku,
+                           pack_size_fingerprint: fingerprint, basis: "per_pack",
+                           net_weight_oz: oz)
+    end
+
+    it 'compares two packs a supplier never described' do
+      bought = product(cw,  name: "Red Peppers", pack: "10 SHEET", price: 29.75)
+      peer   = product(usf, name: "Red Peppers", pack: "10 SHEET", price: 40.00)
+      lookup = {
+        [cw.id, bought.supplier_sku]  => weight(cw,  bought.supplier_sku, 400.0, "10 SHEET"),
+        [usf.id, peer.supplier_sku]   => weight(usf, peer.supplier_sku,   400.0, "10 SHEET")
+      }
+
+      without = described_class.call(line(bought, unit_price: 29.75), [bought, peer])
+      with = described_class.call(line(bought, unit_price: 29.75), [bought, peer], overrides: lookup)
+
+      expect(without).not_to be_comparable
+      expect(with).to be_comparable
+      expect(with.realized).to be_within(0.01).of(40.00 - 29.75)
+    end
+
+    it 'ignores a weight once the supplier changes the pack under it' do
+      bought = product(cw,  name: "Red Peppers", pack: "12 SHEET", price: 29.75)
+      peer   = product(usf, name: "Red Peppers", pack: "12 SHEET", price: 40.00)
+      lookup = {
+        [cw.id, bought.supplier_sku] => weight(cw, bought.supplier_sku, 400.0, "10 SHEET"),
+        [usf.id, peer.supplier_sku]  => weight(usf, peer.supplier_sku,  400.0, "10 SHEET")
+      }
+
+      expect(described_class.call(line(bought, unit_price: 29.75), [bought, peer],
+                                  overrides: lookup)).not_to be_comparable
+    end
+
+    it 'never lets a chef weight outrank a weight the supplier stated' do
+      bought = product(cw,  name: "Butter", pack: "36x1 LB", price: 90.00)
+      peer   = product(usf, name: "Butter AA", pack: "36x1 LB", price: 94.00)
+      lookup = { [cw.id, bought.supplier_sku] => weight(cw, bought.supplier_sku, 999.0, "36x1 LB") }
+
+      plain = described_class.call(line(bought, unit_price: 90.00), [bought, peer])
+      with = described_class.call(line(bought, unit_price: 90.00), [bought, peer], overrides: lookup)
+
+      expect(plain.realized).to be_within(0.01).of(4.00)
+      expect(with.realized).to be_within(0.01).of(4.00)
+    end
+  end
+
   describe 'a peer from the same supplier' do
     it 'never counts as an alternative' do
       bought  = product(cw, name: "Heavy Cream", pack: "12/1 QT", price: 48.00)

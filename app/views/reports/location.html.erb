@@ -79,12 +79,14 @@
   </div>
 
   <%= render 'savings_section',
+      coverage: @savings_coverage,
       product_savings: @product_savings,
       total_savings: @total_realized_savings,
       title: "Best Deals at #{@location.name}",
       subtitle: "Products where ordering here saved vs. the most expensive option" %>
 
   <%= render 'missed_savings_section',
+      coverage: @savings_coverage,
       missed_items: @missed_items,
       total_missed: @total_missed_savings,
       limit: nil,

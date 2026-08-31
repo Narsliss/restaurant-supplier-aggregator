@@ -415,12 +415,16 @@ class Order < ApplicationRecord
     return { realized: 0, missed: 0, compared: 0, lines: 0 } if items.empty?
 
     peers = ComparisonCandidate.peers_for(items.filter_map(&:supplier_product))
+    # Weights the chef supplied for packs their supplier never described. Loaded
+    # once for the whole order rather than per line.
+    overrides = UnitOverride.lookup_for(organization, location_id: location_id)
     realized = 0.0
     missed = 0.0
     compared = 0
 
     items.each do |item|
-      result = Orders::SavingsCalculator.call(item, peers[item.supplier_product_id] || [])
+      result = Orders::SavingsCalculator.call(item, peers[item.supplier_product_id] || [],
+                                              overrides: overrides)
       next unless result.comparable?
 
       compared += 1

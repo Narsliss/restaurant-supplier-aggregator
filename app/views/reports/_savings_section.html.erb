@@ -15,11 +15,7 @@
         </div>
       </div>
     </div>
-    <%= render 'reports/savings_explainer',
-               compared_lines: defined?(compared_lines) ? compared_lines : nil,
-               total_lines: defined?(total_lines) ? total_lines : nil,
-               compared_spend: defined?(compared_spend) ? compared_spend : nil,
-               total_spend: defined?(total_spend) ? total_spend : nil %>
+    <%= render 'reports/savings_explainer', **(coverage || {}) %>
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">

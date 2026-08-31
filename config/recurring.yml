@@ -74,6 +74,16 @@ production:
     schedule: "0 0 * * *"
     description: "Nightly rotating full-catalog deep import (one supplier per night)"
 
+  # Cross-supplier alternatives for the products each org actually buys, so the
+  # savings figures have something to compare against. Runs after the catalog
+  # imports so it matches against fresh prices. A basket is a couple of hundred
+  # products and barely changes month to month, so daily is generous.
+  comparison_candidates:
+    class: BuildComparisonCandidatesJob
+    queue: low
+    schedule: "0 7 * * *"
+    description: "Rebuild cross-supplier comparison candidates for each org basket"
+
   # Disabled — only run on explicit user request:
   #   DeepCatalogImportJob (manual single-supplier deep import: perform_later(supplier_id))
   #   DiscontinueStaleProductsJob (stale product cleanup — no value without frequent imports)

@@ -55,6 +55,7 @@ class ReportsController < ApplicationController
 
     @product_savings = product_savings_for(orders)
     @total_realized_savings = realized_savings_total(orders)
+    @savings_coverage = savings_coverage(orders)
     @missed_items = missed_savings_for(orders)
     @total_missed_savings = @missed_items.sum { |r| r[:total_potential_savings] }
   end
@@ -96,6 +97,7 @@ class ReportsController < ApplicationController
 
     @product_savings = product_savings_for(orders)
     @total_supplier_savings = realized_savings_total(orders)
+    @savings_coverage = savings_coverage(orders)
     @missed_items = missed_savings_for(orders)
     @total_missed_savings = @missed_items.sum { |r| r[:total_potential_savings] }
   end
@@ -123,6 +125,7 @@ class ReportsController < ApplicationController
 
     @product_savings = product_savings_for(orders)
     @total_realized_savings = realized_savings_total(orders)
+    @savings_coverage = savings_coverage(orders)
     @missed_items = missed_savings_for(orders)
     @total_potential_savings = @missed_items.sum { |r| r[:total_potential_savings] }
   end
@@ -130,6 +133,7 @@ class ReportsController < ApplicationController
   def savings
     orders = filtered_orders
     @total_realized_savings = realized_savings_total(orders)
+    @savings_coverage = savings_coverage(orders)
 
     all_rows = product_savings_for(orders, limit: nil)
     @product_count = all_rows.size
@@ -189,6 +193,27 @@ class ReportsController < ApplicationController
   # not the total, and it must not be labelled as one.
   def realized_savings_total(orders)
     orders.sum(:savings_amount) || 0
+  end
+
+  # How much of the spend the savings figures could actually speak to. Shown
+  # beside every total, because a dollar figure without its coverage invites the
+  # reader to assume it covers everything.
+  def savings_coverage(orders)
+    items = OrderItem.where(order_id: orders.select(:id)).where.not(supplier_product_id: nil)
+                     .includes(:supplier_product).to_a
+    return { compared_lines: 0, total_lines: 0, compared_spend: 0, total_spend: 0 } if items.empty?
+
+    peers = ComparisonCandidate.peers_for(items.filter_map(&:supplier_product))
+    compared = items.select do |item|
+      Orders::SavingsCalculator.call(item, peers[item.supplier_product_id] || []).comparable?
+    end
+
+    {
+      compared_lines: compared.size,
+      total_lines: items.size,
+      compared_spend: compared.sum { |i| i.line_total.to_f }.round(2),
+      total_spend: items.sum { |i| i.line_total.to_f }.round(2)
+    }
   end
 
   def summary_stats(orders)
