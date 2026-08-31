@@ -118,10 +118,13 @@ module Catalog
       end
       return 0 if rows.empty?
 
+      # updated_at is NOT listed: Rails adds it to the SET clause itself when
+      # record_timestamps is on, and naming it here makes Postgres reject the
+      # statement with "multiple assignments to same column".
       ComparisonCandidate.upsert_all(
         rows,
         unique_by: %i[supplier_product_id candidate_supplier_product_id],
-        update_only: %i[similarity updated_at]
+        update_only: %i[similarity]
       )
       rows.size
     end
