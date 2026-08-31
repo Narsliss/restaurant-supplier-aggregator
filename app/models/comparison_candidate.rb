@@ -32,13 +32,46 @@ class ComparisonCandidate < ApplicationRecord
     return {} if products.empty?
 
     spine = spine_peers_for(products)
+    curated = curated_peers_for(products)
     auto = auto_peers_for(products)
 
     products.each_with_object({}) do |sp, acc|
-      combined = (spine[sp.product_id] || []) + (auto[sp.id] || [])
-      acc[sp.id] = combined.uniq(&:id).reject { |p| p.id == sp.id }
+      combined = (spine[sp.product_id] || []) + (curated[sp.id] || []) + (auto[sp.id] || [])
+      acc[sp.id] = combined
+                   .uniq(&:id)
+                   .reject { |p| p.id == sp.id || p.supplier_id == sp.supplier_id }
+                   .reject { |p| p.discontinued? || p.current_price.nil? }
     end
   end
+
+  # Peers a chef put together themselves, on their own matched list.
+  #
+  # This is the most authoritative source there is and it was missing: the
+  # calculator read the Product spine and these automatic candidates, while
+  # 885 of Alfios 905 cross-supplier pairings live only in ProductMatch and
+  # were invisible to it. Rejected matches are excluded — the chef said no.
+  def self.curated_peers_for(products)
+    ids = products.map(&:id)
+    anchors = ProductMatchItem
+              .joins(:supplier_list_item, :product_match)
+              .where(supplier_list_items: { supplier_product_id: ids })
+              .where.not(product_matches: { match_status: "rejected" })
+              .pluck(:product_match_id, Arel.sql("supplier_list_items.supplier_product_id"))
+    return {} if anchors.empty?
+
+    siblings = ProductMatchItem
+               .where(product_match_id: anchors.map(&:first).uniq)
+               .includes(supplier_list_item: :supplier_product)
+               .group_by(&:product_match_id)
+
+    anchors.each_with_object(Hash.new { |h, k| h[k] = [] }) do |(match_id, sp_id), acc|
+      (siblings[match_id] || []).each do |item|
+        peer = item.supplier_list_item&.supplier_product
+        acc[sp_id] << peer if peer && peer.id != sp_id
+      end
+    end
+  end
+  private_class_method :curated_peers_for
 
   def self.spine_peers_for(products)
     product_ids = products.filter_map(&:product_id).uniq
