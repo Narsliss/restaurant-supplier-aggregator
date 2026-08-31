@@ -151,6 +151,54 @@ class SupplierProduct < ApplicationRecord
     supplier_name
   end
 
+  # Price units that mean "this covers the whole pack" rather than naming a
+  # rate. A supplier that says CS has told us nothing about weight.
+  CONTAINER_PRICE_UNITS = Set.new(%w[cs case bag box unit tray bucket jar]).freeze
+
+  # Shape PriceClassifiers expects. SupplierProduct calls its price
+  # current_price and has no source column, so adapt rather than bend the model.
+  ClassifierView = Struct.new(:supplier, :pack_size, :price, :price_unit, :source)
+
+  # The unit this price is really quoted in — what the supplier stated, or what
+  # the pack size tells us when they stated nothing usable.
+  #
+  # Sysco labels only ~3% of its catalog as catch-weight, yet writes hundreds of
+  # per-pound quotes in packs like "8x7-10# LB". Reading those as case totals put
+  # boneless pork butt at $0.03/lb and made Sysco undercut every competitor by
+  # the weight of the pack.
+  def effective_price_unit
+    stated = price_unit.to_s.strip.downcase.presence
+    return stated if stated && !CONTAINER_PRICE_UNITS.include?(stated)
+
+    inferred_price_unit
+  end
+
+  def inferred_price_unit
+    return @inferred_price_unit if defined?(@inferred_price_unit)
+
+    view = ClassifierView.new(supplier, pack_size, current_price, price_unit, "catalog")
+    @inferred_price_unit = PriceClassifiers::Base.for(view).inferred_price_unit
+  end
+
+  # Price per normalized base unit (oz, fl oz, each), honouring a per-weight
+  # quote instead of dividing it across the pack a second time. This is the
+  # number every cross-supplier comparison is built on.
+  def comparison_rate
+    return nil unless current_price.to_f.positive?
+
+    unit = effective_price_unit
+    if unit.present?
+      key = UnitParser.normalize_unit_key(unit)
+      factor = UnitParser::WEIGHT_TO_OZ[key] || UnitParser::VOLUME_TO_FL_OZ[key]
+      return current_price.to_f / factor if factor.to_f.positive?
+    end
+
+    parsed = parsed_pack_size
+    return nil unless parsed[:parseable] && parsed[:normalized_quantity].to_f.positive?
+
+    current_price.to_f / parsed[:normalized_quantity].to_f
+  end
+
   def per_unit_price
     return nil unless current_price
 

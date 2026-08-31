@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_27_190000) do
+ActiveRecord::Schema[7.1].define(version: 2026_08_31_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -99,6 +99,18 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_27_190000) do
     t.index ["stripe_event_id"], name: "index_billing_events_on_stripe_event_id", unique: true
     t.index ["subscription_id"], name: "index_billing_events_on_subscription_id"
     t.index ["user_id"], name: "index_billing_events_on_user_id"
+  end
+
+  create_table "comparison_candidates", force: :cascade do |t|
+    t.bigint "supplier_product_id", null: false
+    t.bigint "candidate_supplier_product_id", null: false
+    t.decimal "similarity", precision: 5, scale: 4, null: false
+    t.string "source", default: "auto_basket", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["candidate_supplier_product_id"], name: "index_comparison_candidates_on_candidate_supplier_product_id"
+    t.index ["supplier_product_id", "candidate_supplier_product_id"], name: "idx_comparison_candidates_pair", unique: true
+    t.index ["supplier_product_id", "similarity"], name: "idx_comparison_candidates_lookup"
   end
 
   create_table "crm_activities", force: :cascade do |t|
@@ -1109,6 +1121,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_27_190000) do
   add_foreign_key "aggregated_lists", "users", column: "created_by_id"
   add_foreign_key "billing_events", "subscriptions"
   add_foreign_key "billing_events", "users"
+  add_foreign_key "comparison_candidates", "supplier_products"
+  add_foreign_key "comparison_candidates", "supplier_products", column: "candidate_supplier_product_id"
   add_foreign_key "crm_activities", "crm_leads", column: "lead_id"
   add_foreign_key "crm_activities", "users"
   add_foreign_key "crm_lead_tags", "crm_leads", column: "lead_id"
