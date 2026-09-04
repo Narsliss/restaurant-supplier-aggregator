@@ -106,6 +106,138 @@ RSpec.describe 'OrderLists', type: :request do
   end
 end
 
+RSpec.describe 'OrderLists sections and permissions', type: :request do
+  let(:owner) { create(:user, :fully_onboarded) }
+  let(:org) { owner.current_organization }
+  let(:location) { org.locations.first }
+  let(:supplier) { create(:supplier, name: 'US Foods') }
+  let(:chef) do
+    user = create(:user)
+    membership = create(:membership, user: user, organization: org, role: 'chef')
+    membership.locations << location
+    user.update!(current_organization: org)
+    # Chefs are onboarding-gated until they connect a supplier
+    create(:supplier_credential, supplier: supplier, user: user,
+                                 organization_id: org.id, location_id: location.id, status: 'active')
+    user
+  end
+
+  let!(:chef_list) do
+    OrderList.create!(user: chef, organization: org, location: location, name: "Chef's Produce")
+  end
+  let!(:owner_list) do
+    OrderList.create!(user: owner, organization: org, location: location, name: "Owner's Staples")
+  end
+  let!(:supplier_list) do
+    OrderList.create!(user: chef, organization: org, location: location,
+                      name: 'Recent US Foods Orders', seed_supplier_id: supplier.id)
+  end
+
+  describe 'GET /order_lists (three sections)' do
+    it 'groups lists into My / Shared / Supplier sections for the chef' do
+      sign_in chef
+      get order_lists_path
+
+      expect(response.body).to include('My Order Lists')
+      expect(response.body).to include('Shared Order Lists')
+      expect(response.body).to include('Supplier Order Lists')
+      # Seeded list lands in the Supplier section even though the chef created it
+      supplier_section = response.body.split('Supplier Order Lists').last
+      expect(supplier_section).to include('Recent US Foods Orders')
+    end
+
+    it 'hides the Shared section when nobody else has made a list' do
+      owner_list.destroy!
+      sign_in chef
+      get order_lists_path
+
+      expect(response.body).not_to include('Shared Order Lists')
+    end
+  end
+
+  describe 'supplier lists are view/use-only' do
+    before { sign_in chef }
+
+    it 'blocks editing even for the user who connected the supplier' do
+      patch order_list_path(supplier_list), params: { order_list: { name: 'Renamed' } }
+      expect(response).to redirect_to(order_lists_path)
+      expect(flash[:alert]).to include("can't be edited")
+      expect(supplier_list.reload.name).to eq('Recent US Foods Orders')
+    end
+
+    it 'blocks deleting for non-owners' do
+      expect {
+        delete order_list_path(supplier_list)
+      }.not_to change(OrderList, :count)
+      expect(flash[:alert]).to be_present
+    end
+
+    it 'blocks adding items to a supplier list' do
+      product = create(:product)
+      expect {
+        post order_list_order_list_items_path(supplier_list),
+             params: { order_list_item: { product_id: product.id, quantity: 1 } }
+      }.not_to change { supplier_list.order_list_items.count }
+    end
+
+    it 'lets anyone duplicate a supplier list into their own editable copy' do
+      supplier_list.order_list_items.create!(product: create(:product), quantity: 2)
+
+      expect {
+        post duplicate_order_list_path(supplier_list)
+      }.to change(OrderList, :count).by(1)
+
+      copy = OrderList.order(:id).last
+      expect(copy.user_id).to eq(chef.id)
+      expect(copy.seed_supplier_id).to be_nil
+      expect(copy.order_list_items.count).to eq(1)
+    end
+  end
+
+  describe 'owner override' do
+    before { sign_in owner }
+
+    it 'lets the owner delete a supplier list' do
+      expect {
+        delete order_list_path(supplier_list)
+      }.to change(OrderList, :count).by(-1)
+    end
+
+    it 'does not let the owner edit a supplier list (sync would overwrite it)' do
+      patch order_list_path(supplier_list), params: { order_list: { name: 'Renamed' } }
+      expect(supplier_list.reload.name).to eq('Recent US Foods Orders')
+    end
+
+    it 'lets the owner edit another user\'s list' do
+      patch order_list_path(chef_list), params: { order_list: { name: 'Renamed by owner' } }
+      expect(chef_list.reload.name).to eq('Renamed by owner')
+    end
+  end
+
+  describe 'chefs and each other\'s lists' do
+    before { sign_in chef }
+
+    it 'blocks editing a teammate\'s shared list' do
+      patch order_list_path(owner_list), params: { order_list: { name: 'Hijacked' } }
+      expect(response).to redirect_to(order_lists_path)
+      expect(owner_list.reload.name).to eq("Owner's Staples")
+    end
+
+    it 'blocks adding items to a teammate\'s list' do
+      product = create(:product)
+      expect {
+        post order_list_order_list_items_path(owner_list),
+             params: { order_list_item: { product_id: product.id, quantity: 1 } }
+      }.not_to change { owner_list.order_list_items.count }
+    end
+
+    it 'still allows editing their own list' do
+      patch order_list_path(chef_list), params: { order_list: { name: 'My Produce' } }
+      expect(chef_list.reload.name).to eq('My Produce')
+    end
+  end
+end
+
 RSpec.describe 'OrderListItems (nested)', type: :request do
   let(:owner) { create(:user, :fully_onboarded) }
   let(:org) { owner.current_organization }

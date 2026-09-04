@@ -2,14 +2,34 @@
   <div class="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900"><%= @order_list.name %></h1>
-      <% if @order_list.description.present? %>
+      <%# Seeded lists explain themselves in the banner below; their stored
+          description may predate the read-only change. %>
+      <% if @order_list.description.present? && !@order_list.supplier_seeded? %>
         <p class="text-sm text-gray-500 mt-1"><%= @order_list.description %></p>
       <% end %>
     </div>
     <div class="flex flex-wrap gap-2">
-      <%= link_to "Done Adding Items", order_lists_path, class: "rounded-md bg-brand-green px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" %>
+      <% if can_edit_order_list?(@order_list) %>
+        <%= link_to "Done Adding Items", order_lists_path, class: "rounded-md bg-brand-green px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" %>
+      <% else %>
+        <%= link_to "Back to Order Lists", order_lists_path, class: "rounded-md bg-brand-green px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-green-dark transition-colors" %>
+      <% end %>
     </div>
   </div>
+
+  <% if @order_list.supplier_seeded? %>
+    <div class="mb-6 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+      This supplier list updates automatically from
+      <%= @order_list.seed_supplier&.name || "your supplier" %> and can't be edited here.
+      <% if operator? || current_user&.super_admin? %>
+        <%= button_to "Duplicate it", duplicate_order_list_path(@order_list),
+            method: :post,
+            form: { class: "inline", data: { turbo: false } },
+            class: "underline font-medium hover:text-blue-900" %>
+        to make your own editable copy.
+      <% end %>
+    </div>
+  <% end %>
 
   <%# ===== CURRENT LIST ITEMS ===== %>
   <div class="bg-white shadow rounded-lg mb-6">
@@ -29,8 +49,7 @@
                 <p class="text-xs text-gray-500"><%= item.display_unit_info %></p>
               <% end %>
             </div>
-            <% can_edit = owner? || @order_list.user_id == current_user.id %>
-            <% if can_edit %>
+            <% if can_edit_order_list?(@order_list) %>
               <%= button_to "Remove", remove_match_order_list_path(@order_list, product_match_id: item.product_match_id),
                   method: :post,
                   class: "rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors" %>
@@ -46,8 +65,7 @@
   </div>
 
   <%# ===== AVAILABLE MATCHED PRODUCTS ===== %>
-  <% can_edit = owner? || @order_list.user_id == current_user.id %>
-  <% if can_edit %>
+  <% if can_edit_order_list?(@order_list) %>
     <div class="bg-white shadow rounded-lg" data-controller="list-filter">
       <div class="px-4 py-3 bg-gray-100 border-b border-gray-200">
         <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">

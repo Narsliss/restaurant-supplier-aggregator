@@ -6,7 +6,7 @@
         <%= button_to refresh_recent_order_lists_path,
             method: :post,
             class: "inline-flex items-center justify-center gap-1.5 border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm w-full sm:w-auto",
-            title: "Pull anything you've ordered recently at your suppliers into your Recent Orders lists" do %>
+            title: "Pull anything you've ordered recently at your suppliers into your supplier order lists" do %>
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
           Refresh Recent Orders
         <% end %>
@@ -15,73 +15,47 @@
     </div>
   </div>
 
-  <% if @order_lists.any? %>
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <% @order_lists.each do |list| %>
-        <div class="relative bg-white shadow rounded-lg p-5 <%= list.is_favorite? ? 'ring-2 ring-amber-300' : '' %>">
-          <% can_edit = owner? || list.user_id == current_user.id %>
-          <% if can_edit %>
-            <div class="absolute top-2 right-2 z-10 flex items-center gap-1">
-              <%= button_to toggle_favorite_order_list_path(list),
-                  method: :post,
-                  form: { data: { turbo: false } },
-                  class: "flex items-center justify-center h-7 w-7 rounded-full transition-colors #{list.is_favorite? ? 'text-amber-500 hover:bg-amber-50' : 'text-gray-300 hover:text-amber-500 hover:bg-amber-50'}",
-                  aria: { label: list.is_favorite? ? "Unfavorite" : "Mark as favorite" },
-                  title: list.is_favorite? ? "Unfavorite" : "Mark as favorite" do %>
-                <% if list.is_favorite? %>
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z"/></svg>
-                <% else %>
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z"/></svg>
-                <% end %>
-              <% end %>
-              <%= button_to order_list_path(list),
-                  method: :delete,
-                  form: { data: { turbo_confirm: "Delete \"#{list.name}\"? This cannot be undone." } },
-                  class: "flex items-center justify-center h-7 w-7 rounded-full text-red-600 hover:bg-red-100 transition-colors",
-                  aria: { label: "Delete order list" } do %>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              <% end %>
-            </div>
-          <% elsif list.is_favorite? %>
-            <div class="absolute top-2 right-2 z-10">
-              <span class="flex items-center justify-center h-7 w-7 text-amber-500" title="Favorite">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z"/></svg>
-              </span>
-            </div>
-          <% end %>
-          <h3 class="font-semibold text-gray-900 pr-16 flex items-center gap-1.5">
-            <%= list.name %>
-          </h3>
-          <p class="mt-1 text-sm text-gray-500">
-            <%= pluralize(list.order_list_items.size, "item") %>
-            <% if list.description.present? %>
-              &middot; <%= truncate(list.description, length: 60) %>
-            <% end %>
-          </p>
-          <div class="mt-4 space-y-2">
-            <% if can_edit %>
-              <div class="flex gap-2">
-                <%= link_to "Edit Details", edit_order_list_path(list),
-                    class: "flex-1 text-center rounded-md border border-brand-orange/40 px-3 py-1.5 text-xs font-medium text-brand-orange hover:bg-brand-orange hover:text-white hover:border-brand-orange transition-colors" %>
-                <%= link_to "Edit Items", order_list_path(list),
-                    class: "flex-1 text-center rounded-md border border-brand-orange/40 px-3 py-1.5 text-xs font-medium text-brand-orange hover:bg-brand-orange hover:text-white hover:border-brand-orange transition-colors" %>
-              </div>
-            <% end %>
-            <% matched_list = @promoted_list || @aggregated_lists&.first %>
-            <% if matched_list %>
-              <%= link_to "Order", order_builder_aggregated_list_path(matched_list, order_list_id: list.id),
-                  data: { turbo: false },
-                  class: "block w-full text-center rounded-md bg-brand-green px-3 py-2 text-sm font-semibold text-white hover:bg-brand-green-dark transition-colors" %>
-            <% else %>
-              <span class="block w-full text-center text-sm text-gray-400 py-2">No matched list available</span>
-            <% end %>
-          </div>
-        </div>
-      <% end %>
-    </div>
-  <% else %>
-    <div class="text-center py-12 bg-white rounded-lg shadow">
-      <p class="text-gray-500">No order lists yet. Create your first order list to get started.</p>
-    </div>
+  <% matched_list = @promoted_list || @aggregated_lists&.first %>
+
+  <%# ===== MY ORDER LISTS ===== %>
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-3">My Order Lists</h2>
+    <% if @my_lists.any? %>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <% @my_lists.each do |list| %>
+          <%= render "order_list_card", list: list, matched_list: matched_list %>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="text-center py-8 bg-white rounded-lg shadow">
+        <p class="text-gray-500">You haven't made an order list yet. Create your first order list to get started.</p>
+      </div>
+    <% end %>
+  </section>
+
+  <%# ===== SHARED ORDER LISTS (teammates' lists at this location) ===== %>
+  <% if @shared_lists.any? %>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-gray-900 mb-1">Shared Order Lists</h2>
+      <p class="text-sm text-gray-500 mb-3">Made by others at your restaurant. You can order from them or duplicate one to make your own copy.</p>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <% @shared_lists.each do |list| %>
+          <%= render "order_list_card", list: list, matched_list: matched_list, show_creator: true %>
+        <% end %>
+      </div>
+    </section>
+  <% end %>
+
+  <%# ===== SUPPLIER ORDER LISTS (seeded mirrors, view/use-only) ===== %>
+  <% if @supplier_lists.any? %>
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold text-gray-900 mb-1">Supplier Order Lists</h2>
+      <p class="text-sm text-gray-500 mb-3">Imported from your suppliers and kept up to date automatically. Duplicate one to make an editable copy.</p>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <% @supplier_lists.each do |list| %>
+          <%= render "order_list_card", list: list, matched_list: matched_list %>
+        <% end %>
+      </div>
+    </section>
   <% end %>
 </div>

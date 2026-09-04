@@ -3,7 +3,8 @@ module OrganizationAuthorization
 
   included do
     helper_method :current_membership, :current_role, :accessible_locations,
-                  :owner?, :manager_or_owner?, :chef?, :operator?
+                  :owner?, :manager_or_owner?, :chef?, :operator?,
+                  :can_edit_order_list?, :can_delete_order_list?
   end
 
   private
@@ -40,6 +41,24 @@ module OrganizationAuthorization
   # Operators can create/edit things (owners + chefs). Managers cannot.
   def operator?
     %w[owner chef].include?(current_role)
+  end
+
+  # Order-list permissions. Users edit only their own lists; owners can edit
+  # any user-created list. Supplier-seeded lists are view/use-only for
+  # everyone — their contents mirror the supplier account and the sync would
+  # overwrite any local edit. Duplicating one is the way to customize it.
+  def can_edit_order_list?(list)
+    return false if list.supplier_seeded?
+
+    owner? || list.user_id == current_user.id
+  end
+
+  # Owners may delete any list, supplier-seeded included (the tombstone stops
+  # the sync from resurrecting it). Others delete only their own user lists.
+  def can_delete_order_list?(list)
+    return true if owner?
+
+    !list.supplier_seeded? && list.user_id == current_user.id
   end
 
   # --- Scoped Queries (location-context aware) ---

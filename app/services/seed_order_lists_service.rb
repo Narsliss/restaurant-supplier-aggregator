@@ -1,7 +1,10 @@
-# Onboarding headstart: when a chef connects a supplier, give them an order
-# list mirroring what they already order there — a one-time welcome snapshot.
-# After seeding, the list is entirely theirs; this service never updates or
-# re-seeds an existing list (all later edits happen in EnPlace).
+# Maintains each location's "Supplier Order Lists": an order list per
+# connected supplier mirroring what the account orders there. Seeded lists
+# are view/use-only in the app (see OrderList#supplier_seeded?) — every sync
+# re-mirrors their items from the supplier source, so the daily list import
+# keeps them current: items the supplier feed dropped disappear, new ones
+# appear, quantities follow the feed. Chefs who want to customize duplicate
+# the list into an editable copy.
 #
 # Seed source per supplier, by preference:
 #   1. A "recently purchased" list (US Foods recentPurchase feed) — what the
@@ -32,10 +35,22 @@ class SeedOrderListsService
     @results = { seeded: false, refreshed: false, list_name: nil, items: 0, skipped: 0, reason: nil }
   end
 
-  # Automatic one-time seed on a location's first list import. Guarded:
-  # no-op when already seeded or when the chef already curates lists.
+  # Automatic path, run after every list import (daily 8 AM sync included):
+  #   - an existing seeded list is re-mirrored so it tracks the supplier;
+  #   - otherwise this is the one-time onboarding seed, guarded: no-op when
+  #     the list was deleted (tombstone — an owner's delete stays deleted)
+  #     or when the chef already curates their own lists.
   def call
     return skip(:no_location) unless location
+
+    if (existing = OrderList.for_location(location).find_by(seed_supplier_id: supplier.id))
+      source = seed_source_list
+      return skip(:no_seed_source) unless source
+
+      mirror_items(existing, source)
+      return results
+    end
+
     return skip(:already_seeded) if already_seeded?
     return skip(:location_has_own_lists) if location_curates_own_lists?
 
@@ -53,11 +68,9 @@ class SeedOrderListsService
     results
   end
 
-  # Chef-pressed "Refresh recent orders". Explicit user action, so:
-  #   - creates the seeded list if missing (even when the location has its
-  #     own curated lists — the chef asked for it);
-  #   - otherwise ADDITIVE ONLY: appends recently-ordered products not yet
-  #     on the list. Never removes or reorders anything the chef kept.
+  # Chef-pressed "Refresh recent orders". Explicit user action, so it also
+  # creates the seeded list if missing (even when the location curates its
+  # own lists, or deleted the seeded one — the chef asked for it back).
   # Reads the locally synced supplier lists (refreshed daily at 8 AM) — no
   # live scraping, so this returns instantly.
   def refresh
@@ -68,7 +81,7 @@ class SeedOrderListsService
 
     existing = OrderList.for_location(location).find_by(seed_supplier_id: supplier.id)
     if existing
-      append_new_items(existing, source)
+      mirror_items(existing, source)
     else
       items = seedable_items(source)
       return skip(:no_seedable_items) if items.empty?
@@ -93,7 +106,7 @@ class SeedOrderListsService
         organization: organization,
         location: location,
         name: name,
-        description: "Your recent #{supplier.name} activity, imported when you connected — edit freely, it's yours.",
+        description: seeded_description,
         seed_supplier_id: supplier.id,
         seeded_at: Time.current
       )
@@ -118,29 +131,50 @@ class SeedOrderListsService
                       "for location #{location.id} from supplier_list #{source.id}"
   end
 
-  def append_new_items(order_list, source)
-    existing_product_ids = order_list.order_list_items.where.not(product_id: nil).pluck(:product_id).to_set
-    additions = seedable_items(source).reject do |sli|
-      existing_product_ids.include?(sli.supplier_product.product_id)
-    end
+  # Make the seeded list match the supplier source exactly: remove items the
+  # feed no longer has, add the ones it gained, track quantity and guide
+  # order. Safe because seeded lists are view/use-only in the app.
+  def mirror_items(order_list, source)
+    desired = seedable_items(source)
+    # A feed that comes back empty is more likely a bad sync than a cleared
+    # account — never wipe the list over it.
+    return skip(:no_seedable_items) if desired.empty?
 
-    max_position = order_list.order_list_items.maximum(:position) || 0
+    desired_product_ids = desired.map { |sli| sli.supplier_product.product_id }.to_set
+    additions = 0
+    removals = 0
+
     OrderList.transaction do
-      additions.each_with_index do |sli, idx|
-        order_list.order_list_items.create!(
-          product: sli.supplier_product.product,
-          quantity: sli.quantity.presence || 1,
-          position: max_position + idx + 1
-        )
+      order_list.order_list_items.each do |item|
+        next if item.product_id && desired_product_ids.include?(item.product_id)
+
+        item.destroy!
+        removals += 1
       end
-      order_list.update!(seeded_at: Time.current)
+
+      existing_by_product = order_list.order_list_items.reload.index_by(&:product_id)
+      desired.each_with_index do |sli, idx|
+        quantity = sli.quantity.presence || 1
+        if (item = existing_by_product[sli.supplier_product.product_id])
+          item.update!(quantity: quantity, position: idx + 1) if item.quantity != quantity || item.position != idx + 1
+        else
+          order_list.order_list_items.create!(
+            product: sli.supplier_product.product,
+            quantity: quantity,
+            position: idx + 1
+          )
+          additions += 1
+        end
+      end
+
+      order_list.update!(seeded_at: Time.current, description: seeded_description)
     end
 
     results[:seeded] = true
     results[:refreshed] = true
     results[:list_name] = order_list.name
-    results[:items] = additions.size
-    Rails.logger.info "[SeedOrderLists] Refreshed '#{order_list.name}': +#{additions.size} items"
+    results[:items] = additions
+    Rails.logger.info "[SeedOrderLists] Mirrored '#{order_list.name}': +#{additions} / -#{removals} items"
   end
 
   def supplier = credential.supplier
@@ -173,6 +207,10 @@ class SeedOrderListsService
     lists.find_by(list_type: 'recently_purchased') ||
       lists.find_by(list_type: 'favorites', remote_list_id: '-1') ||
       lists.find_by(list_type: 'order_guide', remote_list_id: 'order-guide')
+  end
+
+  def seeded_description
+    "What this account orders at #{supplier.name} — kept in sync automatically. Duplicate it to make an editable copy."
   end
 
   def seeded_list_name(source)

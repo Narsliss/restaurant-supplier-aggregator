@@ -3,6 +3,7 @@ class OrderList < ApplicationRecord
   belongs_to :user
   belongs_to :organization, optional: true
   belongs_to :location, optional: true
+  belongs_to :seed_supplier, class_name: 'Supplier', optional: true
   has_many :order_list_items, dependent: :destroy
   has_many :products, through: :order_list_items
   has_many :orders, dependent: :nullify
@@ -22,8 +23,16 @@ class OrderList < ApplicationRecord
   scope :favorites, -> { where(is_favorite: true) }
   scope :recent, -> { order(last_used_at: :desc, updated_at: :desc) }
   scope :by_name, -> { order(:name) }
+  scope :supplier_seeded, -> { where.not(seed_supplier_id: nil) }
+  scope :user_created, -> { where(seed_supplier_id: nil) }
 
   # Methods
+
+  # Seeded lists mirror the supplier account and are view/use-only:
+  # nobody edits their contents in EnPlace (the sync would overwrite it).
+  def supplier_seeded?
+    seed_supplier_id.present?
+  end
   def item_count
     order_list_items.sum(:quantity)
   end
@@ -69,9 +78,11 @@ class OrderList < ApplicationRecord
     end
   end
 
-  def duplicate!(new_name = nil)
+  # Copies never carry seed_supplier_id — duplicating a supplier list is how
+  # a chef gets an editable copy of it.
+  def duplicate!(new_name = nil, for_user: user)
     new_list = OrderList.create!(
-      user: user,
+      user: for_user,
       organization: organization,
       location: location,
       name: new_name || "#{name} (Copy)",

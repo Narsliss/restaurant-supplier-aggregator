@@ -1,6 +1,7 @@
 class OrderListItemsController < ApplicationController
   before_action :require_location_context!
   before_action :set_order_list
+  before_action :require_editable_list!
   before_action :set_item, only: [:update, :destroy]
 
   def create
@@ -49,6 +50,18 @@ class OrderListItemsController < ApplicationController
 
   def set_order_list
     @order_list = scoped_order_lists.find(params[:order_list_id])
+  end
+
+  # Same rule as OrderListsController: creator or owner, and never a
+  # supplier-seeded list (its items mirror the supplier account).
+  def require_editable_list!
+    return if can_edit_order_list?(@order_list)
+
+    respond_to do |format|
+      format.html { redirect_to @order_list, alert: "You can only edit your own order lists." }
+      format.json { render json: { error: 'forbidden' }, status: :forbidden }
+      format.turbo_stream { head :forbidden }
+    end
   end
 
   def set_item

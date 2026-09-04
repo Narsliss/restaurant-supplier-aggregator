@@ -1,0 +1,83 @@
+<%# One order-list card. Locals:
+      list:         the OrderList
+      matched_list: promoted/first AggregatedList for the Order button (may be nil)
+      show_creator: show "by <name>" under the title (shared section) %>
+<% show_creator = local_assigns.fetch(:show_creator, false) %>
+<% can_edit = can_edit_order_list?(list) %>
+<% can_delete = can_delete_order_list?(list) %>
+<div class="relative bg-white shadow rounded-lg p-5 <%= list.is_favorite? ? 'ring-2 ring-amber-300' : '' %>">
+  <% if can_edit || can_delete %>
+    <div class="absolute top-2 right-2 z-10 flex items-center gap-1">
+      <% if can_edit %>
+        <%= button_to toggle_favorite_order_list_path(list),
+            method: :post,
+            form: { data: { turbo: false } },
+            class: "flex items-center justify-center h-7 w-7 rounded-full transition-colors #{list.is_favorite? ? 'text-amber-500 hover:bg-amber-50' : 'text-gray-300 hover:text-amber-500 hover:bg-amber-50'}",
+            aria: { label: list.is_favorite? ? "Unfavorite" : "Mark as favorite" },
+            title: list.is_favorite? ? "Unfavorite" : "Mark as favorite" do %>
+          <% if list.is_favorite? %>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z"/></svg>
+          <% else %>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z"/></svg>
+          <% end %>
+        <% end %>
+      <% end %>
+      <% if can_delete %>
+        <%= button_to order_list_path(list),
+            method: :delete,
+            form: { data: { turbo_confirm: "Delete \"#{list.name}\"? This cannot be undone." } },
+            class: "flex items-center justify-center h-7 w-7 rounded-full text-red-600 hover:bg-red-100 transition-colors",
+            aria: { label: "Delete order list" } do %>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        <% end %>
+      <% end %>
+    </div>
+  <% elsif list.is_favorite? %>
+    <div class="absolute top-2 right-2 z-10">
+      <span class="flex items-center justify-center h-7 w-7 text-amber-500" title="Favorite">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z"/></svg>
+      </span>
+    </div>
+  <% end %>
+  <h3 class="font-semibold text-gray-900 pr-16 flex items-center gap-1.5">
+    <%= list.name %>
+  </h3>
+  <p class="mt-1 text-sm text-gray-500">
+    <%= pluralize(list.order_list_items.size, "item") %>
+    <% if show_creator %>
+      &middot; by <%= list.user.full_name %>
+    <% end %>
+    <% if list.supplier_seeded? %>
+      &middot; updates automatically
+    <% elsif list.description.present? %>
+      &middot; <%= truncate(list.description, length: 60) %>
+    <% end %>
+  </p>
+  <div class="mt-4 space-y-2">
+    <% if can_edit %>
+      <div class="flex gap-2">
+        <%= link_to "Edit Details", edit_order_list_path(list),
+            class: "flex-1 text-center rounded-md border border-brand-orange/40 px-3 py-1.5 text-xs font-medium text-brand-orange hover:bg-brand-orange hover:text-white hover:border-brand-orange transition-colors" %>
+        <%= link_to "Edit Items", order_list_path(list),
+            class: "flex-1 text-center rounded-md border border-brand-orange/40 px-3 py-1.5 text-xs font-medium text-brand-orange hover:bg-brand-orange hover:text-white hover:border-brand-orange transition-colors" %>
+      </div>
+    <% elsif operator? || current_user&.super_admin? %>
+      <div class="flex gap-2">
+        <%= link_to "View Items", order_list_path(list),
+            class: "flex-1 text-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors" %>
+        <%= button_to "Duplicate", duplicate_order_list_path(list),
+            method: :post,
+            form: { class: "flex-1", data: { turbo: false } },
+            title: "Make your own editable copy of this list",
+            class: "w-full text-center rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors" %>
+      </div>
+    <% end %>
+    <% if matched_list %>
+      <%= link_to "Order", order_builder_aggregated_list_path(matched_list, order_list_id: list.id),
+          data: { turbo: false },
+          class: "block w-full text-center rounded-md bg-brand-green px-3 py-2 text-sm font-semibold text-white hover:bg-brand-green-dark transition-colors" %>
+    <% else %>
+      <span class="block w-full text-center text-sm text-gray-400 py-2">No matched list available</span>
+    <% end %>
+  </div>
+</div>

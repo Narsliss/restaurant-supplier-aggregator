@@ -76,15 +76,32 @@ RSpec.describe SeedOrderListsService do
       expect(OrderList.find_by(location: location, seed_supplier_id: supplier.id)).to be_present
     end
 
-    it 'is idempotent — a second call never creates a duplicate list' do
+    it 'never creates a duplicate list — a second call re-mirrors the existing one' do
       make_source_list(list_type: 'recently_purchased', remote_id: 'recentlyPurchased', skus: %w[A])
 
       described_class.new(credential).call
       results = described_class.new(credential).call
 
-      expect(results[:seeded]).to be(false)
-      expect(results[:reason]).to eq(:already_seeded)
+      expect(results[:refreshed]).to be(true)
       expect(OrderList.for_location(location).count).to eq(1)
+    end
+
+    it 'keeps an existing seeded list mirroring the supplier feed on every sync' do
+      source = make_source_list(list_type: 'recently_purchased', remote_id: 'recentlyPurchased', skus: %w[A B])
+      described_class.new(credential).call
+      list = OrderList.find_by(location: location, seed_supplier_id: supplier.id)
+
+      # Supplier feed drops B and gains C before the next daily sync
+      source.supplier_list_items.find_by(sku: 'B').destroy!
+      sp = create(:supplier_product, supplier: supplier, supplier_sku: 'C',
+                                     product: Product.create!(name: 'Product C'))
+      create(:supplier_list_item, supplier_list: source, sku: 'C', name: 'Item C',
+                                  position: 5, supplier_product: sp)
+
+      described_class.new(credential).call
+
+      expect(list.reload.order_list_items.by_position.map { |i| i.product.name })
+        .to eq(['Product A', 'Product C'])
     end
   end
 
@@ -134,15 +151,14 @@ RSpec.describe SeedOrderListsService do
   end
 
   describe '#refresh (chef-pressed button)' do
-    it 'appends newly ordered products without touching existing items' do
+    it 'mirrors the supplier feed: adds new items, drops removed ones, tracks guide order' do
       source = make_source_list(list_type: 'recently_purchased', remote_id: 'recentlyPurchased', skus: %w[A B])
       described_class.new(credential).call
       list = OrderList.find_by(location: location, seed_supplier_id: supplier.id)
-      original_item_ids = list.order_list_items.pluck(:id)
+      kept_item_id = list.order_list_items.joins(:product).find_by(products: { name: 'Product A' }).id
 
-      # Chef removes B; supplier syncs a new recent item C
-      removed_product = Product.find_by(name: 'Product B')
-      list.order_list_items.find_by(product_id: removed_product.id).destroy
+      # Supplier feed drops B and gains C
+      source.supplier_list_items.find_by(sku: 'B').destroy!
       sp = create(:supplier_product, supplier: supplier, supplier_sku: 'C',
                                      product: Product.create!(name: 'Product C'))
       create(:supplier_list_item, supplier_list: source, sku: 'C', name: 'Item C',
@@ -151,12 +167,23 @@ RSpec.describe SeedOrderListsService do
       results = described_class.new(credential).refresh
 
       expect(results[:refreshed]).to be(true)
-      names = list.reload.order_list_items.by_position.map { |i| i.product.name }
-      # A kept (same row), C appended at the end. B re-appears — additive
-      # refresh re-adds anything recently ordered; the chef can delete again.
-      expect(names.first).to eq('Product A')
-      expect(names).to include('Product C')
-      expect(list.order_list_items.where(id: original_item_ids.first)).to exist
+      expect(list.reload.order_list_items.by_position.map { |i| i.product.name })
+        .to eq(['Product A', 'Product C'])
+      # A kept as the same row, not destroyed and re-created
+      expect(list.order_list_items.where(id: kept_item_id)).to exist
+    end
+
+    it 'never wipes the list when the feed comes back with no seedable items (bad sync guard)' do
+      source = make_source_list(list_type: 'recently_purchased', remote_id: 'recentlyPurchased', skus: %w[A])
+      described_class.new(credential).call
+      list = OrderList.find_by(location: location, seed_supplier_id: supplier.id)
+
+      source.supplier_list_items.destroy_all
+
+      results = described_class.new(credential).refresh
+
+      expect(results[:reason]).to eq(:no_seedable_items)
+      expect(list.reload.order_list_items.count).to eq(1)
     end
 
     it 'reports zero additions when nothing new was ordered' do

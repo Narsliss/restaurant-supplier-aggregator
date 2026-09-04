@@ -17,8 +17,8 @@ class ImportSupplierListsJob < ApplicationJob
   limits_concurrency to: 1, key: ->(credential_id, **) { "import_lists_#{credential_id}" }
 
   # refresh_seeded: chef pressed "Refresh Recent Orders" — after the live
-  # scrape lands, create/top-up their seeded order lists (additive) so the
-  # button's promise completes without a second press.
+  # scrape lands, create/re-mirror their seeded order lists so the button's
+  # promise completes without a second press.
   def perform(credential_id, force: false, refresh_seeded: false)
     @refresh_seeded = refresh_seeded
     credential = SupplierCredential.find_by(id: credential_id)

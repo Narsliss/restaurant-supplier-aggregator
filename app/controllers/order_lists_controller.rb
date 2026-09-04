@@ -2,13 +2,20 @@ class OrderListsController < ApplicationController
   before_action :require_organization!
   before_action :set_order_list, only: %i[show edit update destroy duplicate price_comparison add_match remove_match toggle_favorite]
   before_action :require_operator!, only: %i[new create edit update destroy duplicate add_match remove_match toggle_favorite refresh_recent]
-  before_action :require_list_owner!, only: %i[edit update destroy duplicate add_match remove_match toggle_favorite]
+  before_action :require_editable_list!, only: %i[edit update add_match remove_match toggle_favorite]
+  before_action :require_deletable_list!, only: %i[destroy]
   before_action :require_location_context!
 
   def index
-    @order_lists = scoped_order_lists
-                               .includes(:order_list_items)
-                               .order(is_favorite: :desc, last_used_at: :desc, updated_at: :desc)
+    order_lists = scoped_order_lists
+                              .includes(:order_list_items, :seed_supplier)
+                              .order(is_favorite: :desc, last_used_at: :desc, updated_at: :desc)
+
+    # Three sections: supplier-seeded mirrors, the user's own lists, and
+    # lists other people at the location created. Favorites-first ordering
+    # carries into each section.
+    @supplier_lists, user_lists = order_lists.partition(&:supplier_seeded?)
+    @my_lists, @shared_lists = user_lists.partition { |l| l.user_id == current_user.id }
 
     org = current_user.current_organization
     if org
@@ -25,7 +32,8 @@ class OrderListsController < ApplicationController
   #   2. Kick off a LIVE fetch per connected supplier; when each lands, the
   #      import job re-runs the seeder (refresh_seeded) so new lists/items
   #      appear without a second press.
-  # Additive only — never removes anything the chef kept.
+  # Existing seeded lists are re-mirrored to the supplier feed (they're
+  # view/use-only, so there are no chef edits to preserve).
   def refresh_recent
     credentials = SupplierCredential.where(location_id: current_location.id, status: 'active')
                                     .order(updated_at: :desc)
@@ -123,9 +131,11 @@ class OrderListsController < ApplicationController
     redirect_to order_lists_path
   end
 
+  # Any operator can duplicate any visible list — it's how a chef turns a
+  # shared or supplier list into their own editable copy.
   def duplicate
     new_name = params[:name].presence || "#{@order_list.name} (Copy)"
-    new_list = @order_list.duplicate!(new_name)
+    new_list = @order_list.duplicate!(new_name, for_user: current_user)
     redirect_to new_list
   rescue StandardError => e
     redirect_to @order_list
@@ -178,12 +188,24 @@ class OrderListsController < ApplicationController
     @order_list = scoped_order_lists.find(params[:id])
   end
 
-  # Owners can edit any list; chefs/managers can only edit their own
-  def require_list_owner!
-    return if owner?
-    return if @order_list.user_id == current_user.id
+  # Owners can edit any user-created list; chefs can only edit their own.
+  # Supplier lists are view/use-only for everyone — the sync mirrors the
+  # supplier account, so local edits would be overwritten.
+  def require_editable_list!
+    return if can_edit_order_list?(@order_list)
 
-    redirect_to order_lists_path, alert: "You can only edit your own order lists."
+    alert = if @order_list.supplier_seeded?
+      "Supplier lists update automatically and can't be edited. Duplicate it to make your own copy."
+    else
+      "You can only edit your own order lists."
+    end
+    redirect_to order_lists_path, alert: alert
+  end
+
+  def require_deletable_list!
+    return if can_delete_order_list?(@order_list)
+
+    redirect_to order_lists_path, alert: "You can only delete your own order lists."
   end
 
   def order_list_params
