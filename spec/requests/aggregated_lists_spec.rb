@@ -118,6 +118,30 @@ RSpec.describe 'AggregatedLists', type: :request do
       expect(response.body).to include('AcmeFoodsUniqueName')
     end
 
+    # The name search filters client-side (match_filter Stimulus controller),
+    # so the server's job is the plumbing: the search box itself, a lowercased
+    # data-search-name on each row's left cell (that cell because rename
+    # re-renders it, keeping the attribute in step with the visible name),
+    # and the no-results empty state.
+    it 'renders the name search box and a lowercased data-search-name per row' do
+      supplier = create(:supplier)
+      sl = create(:supplier_list, supplier: supplier, organization: org, location: location)
+      sli = create(:supplier_list_item, supplier_list: sl, sku: 'C1',
+                                        supplier_product: create(:supplier_product, supplier: supplier, supplier_sku: 'C1'))
+      pm = create(:product_match, aggregated_list: aggregated_list, match_status: 'auto_matched',
+                                  canonical_name: 'Blue Farms CHICKEN Pieces')
+      create(:product_match_item, product_match: pm, supplier_list_item: sli)
+
+      get aggregated_list_path(aggregated_list)
+
+      expect(response.body).to include('data-match-filter-target="input"')
+      # Hint text names the scope — several searches can share a screen
+      # (nav Price Check, Add-a-Product modal), so no generic "Search products"
+      expect(response.body).to include('placeholder="Search matched products..."')
+      expect(response.body).to include('data-search-name="blue farms chicken pieces"')
+      expect(response.body).to include('data-match-filter-target="emptyState"')
+    end
+
     it 'still shows suppliers connected via a supplier_list at the location' do
       # show#action has a safety net that auto-links any supplier_list at the
       # list's location, so a bare SupplierList at this location is enough to

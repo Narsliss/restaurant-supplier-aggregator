@@ -1,7 +1,9 @@
 <%# AJAX-powered searchable select for product assignment.
     Fetches results from server on demand — renders zero items at page load.
     Locals: field_name (string), search_url (string), supplier_id (integer),
-            selected_id (integer or nil), show_no_match (boolean, optional) %>
+            selected_id (integer or nil), show_no_match (boolean, optional),
+            placeholder (string, optional — name the supplier being searched;
+            several of these sit side by side in the matching modal) %>
 <div data-controller="searchable-select"
      data-searchable-select-url-value="<%= search_url %>"
      data-searchable-select-supplier-id-value="<%= supplier_id %>"
@@ -19,7 +21,7 @@
     <input type="text"
            data-searchable-select-target="input"
            data-action="input->searchable-select#filter"
-           placeholder="Search items..."
+           placeholder="<%= local_assigns.fetch(:placeholder, "Search items...") %>"
            autocomplete="off"
            class="block w-full rounded-md border-gray-300 bg-gray-50 pl-8 pr-3 py-2 text-sm shadow-sm focus:border-brand-orange focus:ring-brand-orange focus:bg-white transition-colors">
   </div>

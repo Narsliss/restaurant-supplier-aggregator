@@ -7,14 +7,17 @@
 %>
 <% comparison = local_assigns.fetch(:comparison, nil) %>
 <% editable = !aggregated_list.promoted? %>
+<%# search_name lives here (not on the card root) because rename re-renders
+    only this cell — the attribute stays in step with the visible name. %>
 <% attrs = { id: "match_left_#{match.id}",
-             class: "sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100" } %>
+             class: "sm:w-48 md:w-56 shrink-0 p-4 border-b sm:border-b-0 sm:border-r border-gray-100",
+             data: { search_name: match.display_name.downcase } } %>
 <% if editable %>
   <% attrs[:class] += " cursor-pointer hover:bg-brand-orange/5 transition-colors group" %>
   <% attrs[:title] = "Click to edit match & image" %>
-  <% attrs[:data] = { controller: "open-match-modal",
-                      open_match_modal_url_value: edit_aggregated_list_product_match_path(aggregated_list, match),
-                      action: "click->open-match-modal#open" } %>
+  <% attrs[:data].merge!(controller: "open-match-modal",
+                         open_match_modal_url_value: edit_aggregated_list_product_match_path(aggregated_list, match),
+                         action: "click->open-match-modal#open") %>
 <% end %>
 
 <%= tag.div(**attrs) do %>

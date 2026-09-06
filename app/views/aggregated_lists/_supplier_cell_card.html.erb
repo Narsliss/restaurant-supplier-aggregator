@@ -162,6 +162,7 @@
         <div style="margin-top:4px;">
           <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
             <%= render "aggregated_lists/searchable_select",
+                       placeholder: "Search #{supplier.short_name} items...",
                        field_name: "product_match_item[supplier_list_item_id]",
                        search_url: search_url,
                        supplier_id: supplier_id,
@@ -181,6 +182,7 @@
           <div style="margin-top:4px;">
             <%= form_with url: product_match_item_path(pmi), method: :patch do |f| %>
               <%= render "aggregated_lists/searchable_select",
+                         placeholder: "Search #{supplier.short_name} items...",
                          field_name: "product_match_item[supplier_list_item_id]",
                          search_url: search_url,
                          supplier_id: supplier_id,
@@ -196,6 +198,7 @@
               <%= hidden_field_tag "product_match_item[product_match_id]", product_match.id %>
               <%= hidden_field_tag "product_match_item[supplier_id]", supplier.id %>
               <%= render "aggregated_lists/searchable_select",
+                         placeholder: "Search #{supplier.short_name} items...",
                          field_name: "product_match_item[supplier_list_item_id]",
                          search_url: search_url,
                          supplier_id: supplier_id,

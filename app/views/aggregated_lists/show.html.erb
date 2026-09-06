@@ -210,6 +210,32 @@
 
   <!-- Product match cards grouped by category -->
   <% if @product_matches.any? %>
+    <%# Name search — sticky under the navbar (h-16) so it stays reachable while
+        scrolling a long list. Filters client-side via match-filter, combined
+        with the Matched/Unmatched stat-card filter. Desktop/tablet page. %>
+    <div class="sticky top-16 z-30 mb-4 py-2 bg-brand-stone">
+      <div class="bg-white shadow rounded-lg px-3 py-2 flex items-center gap-2">
+        <svg class="h-4 w-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+        </svg>
+        <input type="search"
+               data-match-filter-target="input"
+               data-action="input->match-filter#search"
+               placeholder="Search matched products..."
+               autocomplete="off"
+               class="flex-1 border-0 p-0 text-sm text-gray-900 placeholder-gray-400 focus:ring-0">
+        <button type="button"
+                data-match-filter-target="clearButton"
+                data-action="click->match-filter#clearSearch"
+                class="hidden shrink-0 rounded-full p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                aria-label="Clear search">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <div id="match-cards-container" class="space-y-6">
       <% @sorted_categories.each do |category| %>
         <div data-match-filter-target="categoryGroup">
@@ -251,6 +277,11 @@
           <% end %>
         </div>
       </div>
+    </div>
+
+    <%# Shown when the search + status filter leave nothing visible %>
+    <div data-match-filter-target="emptyState" class="hidden bg-white shadow rounded-lg p-8 text-center">
+      <p class="text-gray-500">No products match your search.</p>
     </div>
   <% else %>
     <div class="bg-white shadow rounded-lg p-8 text-center">
