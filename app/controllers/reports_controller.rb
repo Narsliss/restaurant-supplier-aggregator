@@ -461,12 +461,23 @@ class ReportsController < ApplicationController
       total_paid = qualifying.sum { |line| line[:paid] }
       next unless total_savings.positive? && total_qty.positive?
 
+      ordered_price = (total_paid / total_qty).round(2)
+      canonical = pm.display_name
       {
-        product_name: lines.filter_map { |line| line[1] }.max,
+        # The match's own name heads the row; each supplier's catalog name
+        # rides under their column, so a grade or product-form substitution
+        # ("Jumbo Lump" matched to plain "LUMP") is visible on the report
+        # instead of hiding behind one shared label.
+        product_name: canonical == 'Unnamed Product' ? lines.filter_map { |line| line[1] }.max : canonical,
+        ordered_product_name: supplier_item_name(pmi.supplier_list_item),
+        cheaper_product_name: supplier_item_name(cheapest[:item]),
         ordered_from: ordered_supplier.name,
         ordered_pack: pmi.supplier_list_item.pack_size,
         # Weighted by quantity, so a big line counts for more than a one-off.
-        ordered_price: (total_paid / total_qty).round(2),
+        ordered_price: ordered_price,
+        # What was paid on the same per-unit basis as the peer's rate — the
+        # two rates are the actual apples-to-apples comparison.
+        ordered_rate: paid_rate_for(ordered_price, comparison),
         cheaper_supplier: cheapest[:supplier].name,
         cheaper_price: comparison[:price].round(2),
         # Present when the price above is the peer's RATE applied to the ordered
@@ -500,15 +511,41 @@ class ReportsController < ApplicationController
     units = ordered_entry && ordered_case_units(ordered_entry)
 
     if peer_rate.positive? && units && units.positive?
+      estimated = ordered_entry[:comparison_estimated].present?
       return {
         price: peer_rate * units,
         rate: pm.display_per_unit_for(cheapest[:item]),
-        pack: cheapest[:pack_size]
+        pack: cheapest[:pack_size],
+        # The basis the comparison ran on, kept so the paid side can be
+        # expressed in the same terms. Mixed-unit matches compare on
+        # estimated $/oz; same-unit matches on the ordered pack's own unit.
+        units: units,
+        rate_unit: estimated ? "oz" : ordered_entry[:normalized_unit],
+        rate_estimated: estimated
       }
     end
 
     price = (cheapest[:estimated_price] || cheapest[:price])&.to_f
     price&.positive? ? { price: price, rate: nil, pack: cheapest[:pack_size] } : nil
+  end
+
+  # The chef's weighted paid price on the same per-unit basis the peer's rate
+  # is shown in, formatted to match ("$0.19/oz", or "~$0.19/oz est" when the
+  # basis is an estimated weight). Nil when the comparison had no shared basis.
+  def paid_rate_for(ordered_price, comparison)
+    units = comparison[:units]
+    return nil unless units&.positive? && comparison[:rate_unit].present?
+
+    formatted = UnitParser.format_per_unit(ordered_price / units, comparison[:rate_unit])
+    comparison[:rate_estimated] ? "~#{formatted} est" : formatted
+  end
+
+  # A supplier's own catalog name for one matched row, for display beside the
+  # match's canonical name.
+  def supplier_item_name(supplier_list_item)
+    return nil unless supplier_list_item
+
+    supplier_list_item.name.presence || supplier_list_item.supplier_product&.supplier_name
   end
 
   # How many normalized units (oz, fl oz, each) one ordered case holds. Derived by

@@ -228,10 +228,12 @@ RSpec.describe "Reporting accuracy", type: :request do
       get missed_savings_reports_path
       expect(response).to have_http_status(:ok)
 
-      name_cell = response.body[%r{<td[^>]*>\s*#{Regexp.escape(long_name)}}m]
-      expect(name_cell).to be_present
-      expect(name_cell).not_to include("truncate")
-      expect(name_cell).not_to include("max-w-")
+      # The long supplier name now renders as the sub-line under Ordered From
+      # (the cell itself shows the match's canonical name).
+      name_el = response.body[%r{<(?:td|div)[^>]*>\s*#{Regexp.escape(long_name)}}m]
+      expect(name_el).to be_present
+      expect(name_el).not_to include("truncate")
+      expect(name_el).not_to include("max-w-")
     end
 
     it "says the comparison uses today's prices against past orders" do
@@ -262,6 +264,25 @@ RSpec.describe "Reporting accuracy", type: :request do
 
       expect(response.body).not_to include("$372.00")
       expect(response.body).to include("No missed savings found")
+    end
+
+    it "shows each supplier's own product name and both prices on one per-unit basis" do
+      sp = matched_pair(
+        ordered: { name: "GLENVIEW FARMS - CHEESE, CREAM", price: 48.74, pack_size: "6/13.5 OZ" },
+        peer: { name: "CREAM CHEESE LOAF", price: 3.90, price_unit: "LB", pack_size: "8/5 LB" }
+      )
+      order_line(sp, unit_price: 48.74, quantity: 2)
+
+      get missed_savings_reports_path
+      expect(response).to have_http_status(:ok)
+
+      # The peer's own catalog name is on the row, so a substitution (a grade
+      # or product-form swap wearing the same match) is visible at a glance.
+      expect(response.body).to include("CREAM CHEESE LOAF")
+      # And what was paid appears on the same basis as the peer's rate:
+      # $48.74 / 81 oz beside their $0.24/oz.
+      expect(response.body).to include("$0.60/oz")
+      expect(response.body).to include("$0.24/oz")
     end
 
     it "drops a row whose peer price can only be a data error" do

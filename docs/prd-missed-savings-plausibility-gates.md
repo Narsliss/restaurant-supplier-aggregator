@@ -64,6 +64,23 @@ so a **lone** bogus-cheap peer (ratio 1.0 against itself) also passed.
   considered and rejected: false positives would inflate Sysco prices 10–20x the
   other way and distort order routing.
 
+## Follow-up (same day): apples-to-apples row display
+
+Carmin reviewed the gated report and called it a half measure: the row showed one
+shared product name and only the peer's per-unit rate, so a substitution row
+(crab, curd) or a residual bad price (a Sysco cheddar at $0.07/oz slipped past
+the 0.25 gate at ratio 0.45 — the gate cannot be tightened because a legitimate
+cream-cheese row sits at 0.41) was invisible without a prod query. Changed:
+
+- Product column now shows the match's canonical name (`ProductMatch#display_name`,
+  falling back to the ordered line's name for unnamed matches).
+- Each supplier column carries that supplier's own catalog name underneath, so a
+  grade swap ("Jumbo Lump" vs "LUMP") reads directly off the row.
+- Price Paid carries the paid per-unit rate on the same basis as the peer's rate
+  (`paid_rate_for`), completing the per-unit comparison ("$0.60/oz vs $0.24/oz").
+- The compact embed truncates the sub-names; the full report page lets them wrap
+  (existing no-clip spec extended to the sub-line).
+
 ## Open items
 
 - **Data heal:** Sysco items last touched before 2026-08-25 still carry blank
