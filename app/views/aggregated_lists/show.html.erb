@@ -214,8 +214,11 @@
         scrolling a long list. Filters client-side via match-filter, combined
         with the Matched/Unmatched stat-card filter. Desktop/tablet page. %>
     <div class="sticky top-16 z-30 mb-4 py-2 bg-brand-stone">
-      <div class="bg-white shadow rounded-lg px-3 py-2 flex items-center gap-2">
-        <svg class="h-4 w-4 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <%# Focus accent comes from .match-search-bar in application.css — the
+          .dark border overrides are !important, so a focus-within utility
+          can't win; the custom rule sits after them and can. %>
+      <div class="match-search-bar bg-white shadow-md rounded-lg px-4 py-3 flex items-center gap-3 border-2 border-gray-200">
+        <svg class="h-5 w-5 shrink-0 text-brand-orange" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
         </svg>
         <input type="search"
@@ -223,13 +226,14 @@
                data-action="input->match-filter#search"
                placeholder="Search matched products..."
                autocomplete="off"
-               class="flex-1 border-0 p-0 text-sm text-gray-900 placeholder-gray-400 focus:ring-0">
+               class="flex-1 border-0 p-0 text-base text-gray-900 placeholder-gray-400 focus:ring-0 focus:outline-none">
+        <span data-match-filter-target="resultCount" class="hidden shrink-0 text-sm font-medium text-gray-500 tabular-nums"></span>
         <button type="button"
                 data-match-filter-target="clearButton"
                 data-action="click->match-filter#clearSearch"
                 class="hidden shrink-0 rounded-full p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                 aria-label="Clear search">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/>
           </svg>
         </button>

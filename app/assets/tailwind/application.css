@@ -706,3 +706,15 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
    text-gray-300 has no global dark override and reads as bright on dark. */
 #mobile-cal-sheet .cal-muted { color: #D1D5DB; }
 .dark #mobile-cal-sheet .cal-muted { color: #4B5563; }
+
+/* Matching-page search bar: the focus accent must beat the .dark border
+   overrides. Those are !important inside @layer base, and for !important
+   declarations layered rules beat unlayered ones — so this must sit in the
+   same layer, after them, to win the tie on source order. */
+@layer base {
+  .match-search-bar:focus-within {
+    border-color: var(--color-brand-orange) !important;
+    /* !important so it also beats the utilities-layer shadow-md */
+    box-shadow: 0 0 0 3px rgb(212 148 58 / 0.2) !important;
+  }
+}

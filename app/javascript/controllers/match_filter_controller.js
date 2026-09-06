@@ -4,7 +4,7 @@ import { Controller } from "@hotwired/stimulus"
 // KPI cards (Total / Matched / Unmatched) act as toggle buttons, and the
 // search box narrows by product name. The two combine: a row must pass both.
 export default class extends Controller {
-  static targets = ["card", "row", "categoryGroup", "input", "clearButton", "emptyState"]
+  static targets = ["card", "row", "categoryGroup", "input", "clearButton", "emptyState", "resultCount"]
 
   connect() {
     this._currentFilter = "all"
@@ -45,11 +45,11 @@ export default class extends Controller {
   }
 
   _applyFilter() {
-    let anyVisible = false
+    let visibleCount = 0
     this.rowTargets.forEach(row => {
       const visible = this._matchesStatus(row) && this._matchesSearch(row)
       row.classList.toggle("hidden", !visible)
-      if (visible) anyVisible = true
+      if (visible) visibleCount++
     })
     // Hide category groups that have no visible rows; keep the visible ones'
     // header counts honest while a filter is narrowing them.
@@ -60,7 +60,16 @@ export default class extends Controller {
       if (count) count.textContent = visibleRows.length
     })
     if (this.hasEmptyStateTarget) {
-      this.emptyStateTarget.classList.toggle("hidden", anyVisible)
+      this.emptyStateTarget.classList.toggle("hidden", visibleCount > 0)
+    }
+    // "14 of 172" beside the input while a search is narrowing the list —
+    // instant feedback that the box is doing something.
+    if (this.hasResultCountTarget) {
+      const searching = this._searchTokens.length > 0
+      this.resultCountTarget.classList.toggle("hidden", !searching)
+      if (searching) {
+        this.resultCountTarget.textContent = `${visibleCount} of ${this.rowTargets.length}`
+      }
     }
   }
 
