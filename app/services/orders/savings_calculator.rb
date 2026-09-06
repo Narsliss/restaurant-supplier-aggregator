@@ -99,6 +99,11 @@ module Orders
       best = (rates + [paid_rate]).min
       return incomparable(:implausible_spread) if rates.max / best > MAX_SPREAD_RATIO
       return incomparable(:paid_below_market) if paid_rate < rates.min * MIN_PAID_RATIO
+      # The mirror image: a peer far below what the chef actually pays is the
+      # same kind of error in the other direction (a per-lb quote read as a
+      # case sticker). With several peers the spread gate catches it; a lone
+      # bogus peer needs this check, or it mints a fantasy missed-savings claim.
+      return incomparable(:implausible_peer) if rates.min < paid_rate * MIN_PAID_RATIO
 
       benchmark = rates.max
       cheapest_peer = priced.min_by(&:last)

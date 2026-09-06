@@ -143,6 +143,21 @@ RSpec.describe Orders::SavingsCalculator do
       expect(result).not_to be_comparable
     end
 
+    it 'declines a lone peer priced far below what was paid' do
+      # A per-lb quote stored as a case sticker: $9.22 "case" of 20 lb of
+      # shredded mozzarella against a $60.93 purchase of the same weight. With
+      # only one peer the spread gate has nothing to compare it against, so
+      # without this gate the line minted $568 of fantasy missed savings.
+      bought = product(cw,  name: "Mozzarella Provolone Shred", pack: "4/5 LB",  price: 60.93)
+      bogus  = product(usf, name: "Mozzarella Provolone Shred", pack: "1x20 LB", price: 9.22)
+
+      result = described_class.call(line(bought, unit_price: 60.93, quantity: 11), [bought, bogus])
+
+      expect(result).not_to be_comparable
+      expect(result.reason).to eq(:implausible_peer)
+      expect(result.missed).to eq(0.0)
+    end
+
     it 'keeps a genuinely negotiated price rather than calling it broken' do
       bought = product(cw,  name: "Canola Frying Oil", pack: "1x35 LB", price: 42.54)
       other  = product(usf, name: "Canola Frying Oil", pack: "1x35 LB", price: 42.54)

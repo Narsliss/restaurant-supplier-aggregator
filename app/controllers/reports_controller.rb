@@ -9,6 +9,13 @@ class ReportsController < ApplicationController
   # headline total is NOT derived from these rows — see #realized_savings_total.
   PRODUCT_SAVINGS_ROWS = 50
 
+  # Missed-savings floor: a peer quote below this fraction of what the chef
+  # actually paid for the same quantity is treated as a data error, not a deal.
+  # Sysco catch-weight items imported before their per-lb quotes carried a
+  # price_unit priced a 12 lb case of shredded mozzarella at $9.22 against a
+  # $60.93 purchase, and the report offered the difference as savings.
+  MIN_PEER_PRICE_RATIO = 0.25
+
   def index
     @locations = accessible_locations
     orders = filtered_orders
@@ -524,6 +531,13 @@ class ReportsController < ApplicationController
       paid = line_total.to_f
       next unless paid.positive? && qty.positive?
       next unless paid_unit > cheaper_price
+      # A peer under a quarter of what the chef actually pays for the same
+      # exact-unit quantity is a unit-basis or match error — a per-lb quote read
+      # as a case sticker — not a deal. Same philosophy as
+      # Orders::SavingsCalculator::MIN_PAID_RATIO (claim nothing over fantasy),
+      # but looser: this path compares across pack sizes, where a genuine 2-3x
+      # rate premium for a small convenience pack is real and must survive.
+      next if cheaper_price < paid_unit * MIN_PEER_PRICE_RATIO
 
       savings = (paid_unit - cheaper_price) * qty
       next if savings > paid * Order::MAX_SAVINGS_MULTIPLE

@@ -249,16 +249,36 @@ RSpec.describe "Reporting accuracy", type: :request do
     it "drops a line whose claimed saving is implausible against what was paid" do
       sp = matched_pair(
         ordered: { name: "PATUXENT FARMS - PORK BUTT", price: 57.20, pack_size: "1/24 LB" },
-        peer: { name: "PORK BUTT BONELESS", price: 5.00, pack_size: "1/24 LB" }
+        peer: { name: "PORK BUTT BONELESS", price: 20.00, pack_size: "1/24 LB" }
       )
-      # A corrupt line_total (the order #80 shape) makes the spread 52 x 10 = $520
-      # look like 52x the $10 recorded as paid.
+      # A corrupt line_total (the order #80 shape) makes the spread 37.20 x 10 =
+      # $372 look like 37x the $10 recorded as paid. The peer price is kept above
+      # the MIN_PEER_PRICE_RATIO floor so this line reaches — and exercises — the
+      # MAX_SAVINGS_MULTIPLE cap itself.
       order_line(sp, unit_price: 57.20, quantity: 10, line_total: 10.00)
 
       get missed_savings_reports_path
       expect(response).to have_http_status(:ok)
 
-      expect(response.body).not_to include("$522.00")
+      expect(response.body).not_to include("$372.00")
+      expect(response.body).to include("No missed savings found")
+    end
+
+    it "drops a row whose peer price can only be a data error" do
+      # A Sysco catch-weight per-lb quote imported without its price_unit reads
+      # as $9.22 for 20 lb of shredded mozzarella against a $60.93 purchase of
+      # the same weight. The row must vanish rather than offer the chef 85% of
+      # their spend back as "missed savings".
+      sp = matched_pair(
+        ordered: { name: "ROSELI - CHEESE, PREMIUM MOZZARELLA PROVOLONE", price: 60.93, pack_size: "4/5 LB" },
+        peer: { name: "ARREZZIO CHEESE MOZZ SHRD", price: 9.22, pack_size: "1x20 LB" }
+      )
+      order_line(sp, unit_price: 60.93, quantity: 11)
+
+      get missed_savings_reports_path
+      expect(response).to have_http_status(:ok)
+
+      expect(response.body).not_to include("ROSELI")
       expect(response.body).to include("No missed savings found")
     end
   end
