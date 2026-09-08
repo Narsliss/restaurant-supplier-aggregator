@@ -93,14 +93,62 @@ module Scrapers
       false
     end
 
-    # ── Not yet implemented — later phases ─────────────────────────
-    # Return empty results (without opening a browser) so the post-validation
-    # import jobs no-op instead of flipping a freshly validated credential
-    # to failed.
+    # ── Catalog import (phase 3) ───────────────────────────────────
+    # Pure API, no browser: paginate SearchProductCatalog per term, merge in
+    # customer prices, yield batches in the importer's expected shape.
+    MAX_CATALOG_PAGES = 40        # NumberOfPages caps at 100; 40*25 = 1000/term
+    CATALOG_PAGE_SIZE = 25
+    CATALOG_BATCH_SIZE = 250      # products per import_batch flush
 
-    def scrape_catalog(_search_terms, max_per_term: 20, &_on_batch)
-      logger.info '[Performance] scrape_catalog not implemented yet — returning []'
-      []
+    def scrape_catalog(search_terms, max_per_term: nil, &on_batch)
+      api_client.ensure_session!
+
+      max_pages = max_per_term ? (max_per_term.to_f / CATALOG_PAGE_SIZE).ceil : MAX_CATALOG_PAGES
+      seen = Set.new
+      buffer = []
+      results = []
+
+      flush = lambda do
+        return if buffer.empty?
+
+        prices = api_client.fetch_prices(buffer.map { |p| p['ProductKey'] })
+        formatted = buffer.map { |p| format_catalog_product(p, prices) }
+        if on_batch
+          on_batch.call(formatted)
+        else
+          results.concat(formatted)
+        end
+        buffer = []
+      end
+
+      Array(search_terms).each do |term|
+        (0...max_pages).each do |page|
+          ro = api_client.search_catalog(term, page: page, page_size: CATALOG_PAGE_SIZE)
+          products = ro && ro['CatalogProducts']
+          break if products.blank?
+
+          products.each do |product|
+            sku = product['ProductNumber'].to_s
+            next if sku.blank? || seen.include?(sku)
+
+            seen.add(sku)
+            buffer << product
+            flush.call if buffer.size >= CATALOG_BATCH_SIZE
+          end
+
+          number_of_pages = ro['NumberOfPages'].to_i
+          break if number_of_pages.positive? && page + 1 >= number_of_pages
+          break if products.size < CATALOG_PAGE_SIZE
+
+          rate_limit_delay
+        end
+        flush.call # keep prices scoped per-term-ish; also bounds buffer memory
+      rescue Scrapers::PerformanceApi::ApiError => e
+        logger.warn "[Performance] Catalog search failed for '#{term}': #{e.message}"
+      end
+
+      logger.info "[Performance] Catalog scrape saw #{seen.size} unique products across #{Array(search_terms).size} terms"
+      on_batch ? [] : results.uniq { |r| r[:supplier_sku] }
     end
 
     def scrape_lists
@@ -132,6 +180,45 @@ module Scrapers
       # Give the SPA time to boot and MSAL time to acquire the API-scope
       # access token — save_session must capture it for PerformanceApi.
       wait_until_logged_in(timeout: 20)
+    end
+
+    # Map a raw CatalogProduct + merged price into the shape
+    # ImportSupplierProductsService expects.
+    #
+    # CRITICAL — catch-weight pricing: for a catch-weight case UOM, PFG's Price
+    # is the PER-POUND price, not the case price (e.g. $1.64/lb for a ~39 lb
+    # case). Storing it raw would make PFG look ~40x cheaper than reality and
+    # corrupt every savings comparison. The UOM-level ProductIsCatchWeight flag
+    # is authoritative (the top-level flag is always false); when set, the case
+    # price is Price x ProductAverageWeight. Non-catch-weight Price is already
+    # the case price.
+    def format_catalog_product(product, prices)
+      sku = product['ProductNumber'].to_s
+      uom = Array(product['UnitOfMeasureOrderQuantities']).first || {}
+      pack = [uom['PackSize'], uom['UnitOfMeasureAbbreviation']].compact.join(' ').presence
+
+      raw_price = prices[product['ProductKey'].to_s]
+      avg_weight = uom['ProductAverageWeight'].to_f
+      case_price =
+        if raw_price && uom['ProductIsCatchWeight'] && avg_weight.positive?
+          (raw_price * avg_weight).round(2)
+        else
+          raw_price
+        end
+
+      {
+        supplier_sku: sku,
+        supplier_name: [product['ProductBrand'].presence, product['ProductDescription']].compact.join(' - '),
+        current_price: case_price,
+        pack_size: pack,
+        # Don't set stock from catalog — only the order-guide sync has the
+        # per-location context to mark items out of stock (see USF).
+        in_stock: nil,
+        category: product['ProductCategory'].presence&.titleize,
+        subcategory: product['ShoppingCategory'].presence,
+        supplier_url: nil,
+        image_url: product['ProductImageUrlThumbnail'].presence
+      }
     end
 
     # US Foods stores auth in localStorage/sessionStorage; CustomerFirst's

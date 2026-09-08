@@ -115,4 +115,70 @@ RSpec.describe Scrapers::PerformanceApi do
         .to raise_error(described_class::AuthError, /restore_session/)
     end
   end
+
+  describe 'catalog methods' do
+    before do
+      credential.update!(session_data: session_blob(
+        'abc-tenant-accesstoken-client-tenant-scopes--' =>
+          msal_access_entry(secret: 'live-token', target: api_scope_target, expires_at: 1.hour.from_now)
+      ))
+      api.restore_session
+
+      # account_context: GetCurrentUserSite (UserCustomers) + GetActiveOrder
+      allow(api).to receive(:call).and_call_original
+      allow(api).to receive(:call).with('Site', 'GetCurrentUserSite', nil, http_method: :get)
+        .and_return({ 'ResultObject' => { 'UserCustomers' => [{
+          'CustomerId' => 'cust-guid', 'OperationCompanyNumber' => '790', 'BusinessUnitKey' => 0,
+          'CustomerNumber' => '12345', 'CustomerName' => 'Las Noches'
+        }] } })
+      allow(api).to receive(:call).with('OrderEntryHeader', 'GetActiveOrder', nil, http_method: :get, query: { 'CustomerId' => 'cust-guid' })
+        .and_return({ 'ResultObject' => { 'OrderEntryHeaderId' => 'oeh-1', 'DeliveryDate' => '2026-09-09T00:00:00' } })
+    end
+
+    describe '#account_context' do
+      it 'derives customer/opco/order context and memoizes it' do
+        ctx = api.account_context
+        expect(ctx).to include(customer_id: 'cust-guid', operation_company_number: '790',
+                               order_entry_header_id: 'oeh-1', delivery_date: '2026-09-09T00:00:00')
+        api.account_context # second call must not re-fetch
+        expect(api).to have_received(:call).with('Site', 'GetCurrentUserSite', nil, http_method: :get).once
+      end
+
+      it 'raises when the account has no customers' do
+        allow(api).to receive(:call).with('Site', 'GetCurrentUserSite', nil, http_method: :get)
+          .and_return({ 'ResultObject' => { 'UserCustomers' => [] } })
+        expect { api.account_context }.to raise_error(described_class::ApiError, /No UserCustomers/)
+      end
+    end
+
+    describe '#search_catalog' do
+      it 'posts the account-scoped body and returns the ResultObject' do
+        allow(api).to receive(:call).with('ProductCatalog', 'SearchProductCatalog', hash_including(
+          'OperationCompanyNumber' => '790', 'CustomerId' => 'cust-guid', 'QueryText' => 'chicken',
+          'CurrentPageNumber' => 2, 'Skip' => 50, 'LoadPricing' => false
+        )).and_return({ 'IsSuccess' => true, 'ResultObject' => { 'CatalogProducts' => [] } })
+
+        expect(api.search_catalog('chicken', page: 2, page_size: 25)).to eq('CatalogProducts' => [])
+      end
+
+      it 'raises ApiError when the envelope reports failure' do
+        allow(api).to receive(:call).with('ProductCatalog', 'SearchProductCatalog', anything)
+          .and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['nope'], 'ResultObject' => nil })
+        expect { api.search_catalog('chicken') }.to raise_error(described_class::ApiError, /nope/)
+      end
+    end
+
+    describe '#fetch_prices' do
+      it 'returns a ProductKey=>price map and drops zero/blank prices' do
+        allow(api).to receive(:call).with('CustomerProductPrice', 'GetOrderEntryCustomerProductPrice', anything)
+          .and_return({ 'ResultObject' => { 'CustomerProductPrices' => [
+            { 'ProductKey' => '541928', 'Price' => 42.19 },
+            { 'ProductKey' => '999', 'Price' => 0 },
+            { 'ProductKey' => '888', 'Price' => nil }
+          ] } })
+
+        expect(api.fetch_prices(%w[541928 999 888])).to eq('541928' => 42.19)
+      end
+    end
+  end
 end

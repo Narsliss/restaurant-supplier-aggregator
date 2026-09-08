@@ -5,16 +5,10 @@ RSpec.describe Scrapers::PerformanceScraper do
   let(:credential) { create(:supplier_credential, supplier: supplier) }
   let(:scraper) { described_class.new(credential) }
 
-  # Catalog/lists/prices are later phases. Until then these must no-op WITHOUT
-  # opening a browser — a freshly validated credential kicks off
-  # ImportSupplierProductsJob + ImportSupplierListsJob immediately, and a
-  # raise here would flip the brand-new credential to failed.
+  # Lists/prices are later phases. Until then these must no-op WITHOUT opening a
+  # browser — a freshly validated credential kicks off ImportSupplierListsJob
+  # immediately, and a raise here would flip the brand-new credential to failed.
   describe 'not-yet-implemented phases' do
-    it 'returns [] from scrape_catalog without opening a browser' do
-      expect(scraper).not_to receive(:with_browser)
-      expect(scraper.scrape_catalog(%w[chicken])).to eq([])
-    end
-
     it 'returns [] from scrape_lists without opening a browser' do
       expect(scraper).not_to receive(:with_browser)
       expect(scraper.scrape_lists).to eq([])
@@ -23,6 +17,119 @@ RSpec.describe Scrapers::PerformanceScraper do
     it 'returns [] from scrape_prices without opening a browser' do
       expect(scraper).not_to receive(:with_browser)
       expect(scraper.scrape_prices(%w[12345])).to eq([])
+    end
+  end
+
+  describe '#scrape_catalog (phase 3 — pure API, no browser)' do
+    let(:api) { instance_double(Scrapers::PerformanceApi) }
+
+    before do
+      allow(scraper).to receive(:api_client).and_return(api)
+      allow(api).to receive(:ensure_session!)
+      allow(scraper).to receive(:rate_limit_delay)
+    end
+
+    def catalog_product(sku, desc, brand: 'ACME', pack: '2/5 LB', cat: 'POULTRY', shop: 'Wings')
+      {
+        'ProductNumber' => sku, 'ProductKey' => sku, 'ProductDescription' => desc, 'ProductBrand' => brand,
+        'ProductCategory' => cat, 'ShoppingCategory' => shop,
+        'ProductImageUrlThumbnail' => "https://blob/#{sku}.jpg",
+        'UnitOfMeasureOrderQuantities' => [{ 'PackSize' => pack, 'UnitOfMeasureAbbreviation' => 'CS' }]
+      }
+    end
+
+    it 'never opens a browser' do
+      allow(api).to receive(:search_catalog).and_return({ 'CatalogProducts' => [], 'NumberOfPages' => 0 })
+      allow(api).to receive(:fetch_prices).and_return({})
+      expect(scraper).not_to receive(:with_browser)
+      scraper.scrape_catalog(%w[chicken])
+    end
+
+    it 'maps products to the importer shape and merges prices' do
+      allow(api).to receive(:search_catalog).with('chicken', page: 0, page_size: 25)
+        .and_return({ 'CatalogProducts' => [catalog_product('541928', 'CHICKEN WING BONELESS')], 'NumberOfPages' => 1 })
+      allow(api).to receive(:fetch_prices).with(['541928']).and_return({ '541928' => 42.19 })
+
+      items = scraper.scrape_catalog(%w[chicken])
+      expect(items.size).to eq(1)
+      expect(items.first).to include(
+        supplier_sku: '541928',
+        supplier_name: 'ACME - CHICKEN WING BONELESS',
+        current_price: 42.19,
+        pack_size: '2/5 LB CS',
+        category: 'Poultry',
+        subcategory: 'Wings',
+        in_stock: nil,
+        image_url: 'https://blob/541928.jpg'
+      )
+    end
+
+    it 'stops paginating when a page returns fewer than a full page' do
+      allow(api).to receive(:search_catalog).with('beef', page: 0, page_size: 25)
+        .and_return({ 'CatalogProducts' => [catalog_product('1', 'BEEF')], 'NumberOfPages' => 100 })
+      allow(api).to receive(:fetch_prices).and_return({})
+
+      scraper.scrape_catalog(%w[beef])
+      expect(api).to have_received(:search_catalog).once
+    end
+
+    # Regression: PFG returns catch-weight prices PER POUND. Storing them raw
+    # made a ~39 lb chicken case read as $1.64 instead of ~$64, which would make
+    # PFG look ~40x cheaper than reality and corrupt savings comparisons.
+    it 'converts a catch-weight per-pound price into a case price' do
+      cw = catalog_product('1008297', 'CHICKEN WITHOUT-GIBLETS', pack: '12/3.25 LB')
+      cw['UnitOfMeasureOrderQuantities'] = [{
+        'PackSize' => '12/3.25 LB', 'UnitOfMeasureAbbreviation' => 'CS',
+        'ProductIsCatchWeight' => true, 'ProductAverageWeight' => 39
+      }]
+      allow(api).to receive(:search_catalog).and_return({ 'CatalogProducts' => [cw], 'NumberOfPages' => 1 })
+      allow(api).to receive(:fetch_prices).and_return({ '1008297' => 1.64 })
+
+      item = scraper.scrape_catalog(%w[chicken]).first
+      expect(item[:current_price]).to eq(63.96) # 1.64 * 39
+    end
+
+    it 'leaves a non-catch-weight case price unchanged' do
+      fixed = catalog_product('541928', 'CHICKEN WING')
+      fixed['UnitOfMeasureOrderQuantities'] = [{
+        'PackSize' => '2/5 LB', 'UnitOfMeasureAbbreviation' => 'CS',
+        'ProductIsCatchWeight' => false, 'ProductAverageWeight' => 10
+      }]
+      allow(api).to receive(:search_catalog).and_return({ 'CatalogProducts' => [fixed], 'NumberOfPages' => 1 })
+      allow(api).to receive(:fetch_prices).and_return({ '541928' => 42.19 })
+
+      item = scraper.scrape_catalog(%w[chicken]).first
+      expect(item[:current_price]).to eq(42.19)
+    end
+
+    it 'de-duplicates a SKU seen under multiple terms' do
+      dup = catalog_product('999', 'SHARED ITEM')
+      allow(api).to receive(:search_catalog).and_return({ 'CatalogProducts' => [dup], 'NumberOfPages' => 1 })
+      allow(api).to receive(:fetch_prices).and_return({ '999' => 5.0 })
+
+      items = scraper.scrape_catalog(%w[chicken beef])
+      expect(items.map { |i| i[:supplier_sku] }).to eq(['999'])
+    end
+
+    it 'yields batches to the block and returns [] in incremental mode' do
+      allow(api).to receive(:search_catalog).and_return({ 'CatalogProducts' => [catalog_product('7', 'ITEM')], 'NumberOfPages' => 1 })
+      allow(api).to receive(:fetch_prices).and_return({ '7' => 1.0 })
+
+      batches = []
+      result = scraper.scrape_catalog(%w[chicken]) { |b| batches << b }
+      expect(result).to eq([])
+      expect(batches.flatten.first[:supplier_sku]).to eq('7')
+    end
+
+    it 'skips a term whose search errors without aborting the whole import' do
+      allow(api).to receive(:search_catalog).with('chicken', anything)
+        .and_raise(Scrapers::PerformanceApi::ApiError, 'boom')
+      allow(api).to receive(:search_catalog).with('beef', page: 0, page_size: 25)
+        .and_return({ 'CatalogProducts' => [catalog_product('2', 'BEEF')], 'NumberOfPages' => 1 })
+      allow(api).to receive(:fetch_prices).and_return({ '2' => 9.0 })
+
+      items = scraper.scrape_catalog(%w[chicken beef])
+      expect(items.map { |i| i[:supplier_sku] }).to eq(['2'])
     end
   end
 

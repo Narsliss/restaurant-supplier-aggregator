@@ -25,6 +25,35 @@ Fresh login against real credentials succeeded in 5.7s. Confirmed:
   `Customer/V1/GetCustomerDeliveryDates`, `OperationCompanyOrderType/V1/GetCustomerOperationCompanyOrderTypes`
 - Account: `AccountReceivable/V1/GetAccountReceivableBalance`, `Delivery/V1/GetDeliveries`
 
+## Phase 3 (catalog import) — DONE & live-verified 2026-09-08
+
+Pure API, no browser (mirrors UsFoodsApi). Two-call pattern:
+- `POST ProductCatalog/V1/SearchProductCatalog` — products, paginated
+  (`CurrentPageNumber`/`Skip`/`PageSize`), `LoadPricing:false`. Real pagination
+  confirmed (page 0/1 zero SKU overlap). `NumberOfPages` caps at 100.
+- `POST CustomerProductPrice/V1/GetOrderEntryCustomerProductPrice` — customer
+  prices keyed by ProductKey, batched 50.
+
+Both need account context (`PerformanceApi#account_context`, memoized):
+`OperationCompanyNumber` (e.g. "790") from `Site/V1/GetCurrentUserSite`
+→ `UserCustomers[0]`; `OrderEntryHeaderId` + `DeliveryDate` from
+`OrderEntryHeader/V1/GetActiveOrder`.
+
+Field mapping (`format_catalog_product`): ProductNumber→sku,
+ProductBrand+ProductDescription→name, PackSize+UOM abbrev→pack_size,
+ProductCategory→category, ShoppingCategory→subcategory,
+ProductImageUrlThumbnail→image (long-lived SAS token), IsOutOfStock ignored
+(catalog never sets stock — order guide is authoritative).
+
+**CRITICAL — catch-weight pricing.** For a catch-weight case UOM, PFG's `Price`
+is PER POUND, not per case. The **UOM-level** `ProductIsCatchWeight` flag is
+authoritative (the top-level flag is always false). Case price =
+`Price × ProductAverageWeight`. Verified live: $1.64/lb × 39 = $63.96,
+$1.60/lb × 58.71 = $93.94, salmon $5.51/lb × 20 = $110.20. Storing the raw
+per-lb price made cases read ~40x too cheap and would corrupt savings. Fixed +
+regression-specced. Live import of 5 terms → 397 products, all prices sane
+(only sub-$5 item is a genuine $0.01 dispenser).
+
 ## Incidental fix
 
 `BaseScraper#detect_maintenance` called `.text` on `browser.body` (Ferrum returns raw
@@ -97,7 +126,12 @@ a freshly validated credential to failed (spec-guarded).
 - [x] Live validation of the B2C login flow with real credentials — DONE 2026-09-08
 - [x] Confirm the API-scope token appears in the cache — DONE (`scp: customer-first-site-api`)
 - [x] Identify the customer-context call — `Site/V1/GetCurrentUserSite`; CustomerId GUID
+- [x] Product images — `ProductImageUrlThumbnail` (blob SAS URL, expires 2070)
+- [x] Phase 3 catalog — DONE (SearchProductCatalog + price merge, catch-weight fixed)
 - [ ] Session TTL: measure how long the B2C refresh token lives (PPO's Cognito cap was 30d)
-- [ ] Product images: recon says nothing yet — find the asset field during catalog phase
-- [ ] Phase 3: build `PerformanceApi#search_catalog` on `TypeAhead` / `GetSearchResults`
-      and wire `scrape_catalog` to it; then lists via `GetCustomersOrderEntryHeaders`
+- [ ] Phase 5 lists: `OrderEntryHeader/V1/GetCustomersOrderEntryHeaders` (POST, body
+      `["<customerId>"]`) + `ProductListNotification`; wire `scrape_lists`
+- [ ] Piece/each pricing: most products have a single CS UOM; handle multi-UOM
+      (CS + EA/LB) → piece_price/piece_pack_size when encountered
+- [ ] Deep import: SearchProductCatalog caps at 100 pages/term (~2500 items);
+      term-based shallow import only. Assess coverage vs a category crawl later.

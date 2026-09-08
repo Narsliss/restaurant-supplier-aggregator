@@ -24,6 +24,14 @@ module Scrapers
     CLIENT_ID = 'c68e7fae-80a1-42db-bd89-3fb37d1224a2'
     TOKEN_ENDPOINT = 'https://pfgcustomerfirst.b2clogin.com/pfgcustomerfirst.onmicrosoft.com/b2c_1a_signup_signin/oauth2/v2.0/token'
 
+    # SearchProductCatalog requires the full filter object even when empty.
+    EMPTY_ADVANCE_FILTER = {
+      'Badges' => [], 'CategoryIds' => [], 'Brands' => [], 'StorageTypes' => [],
+      'StateOfOriginAbbreviations' => [], 'DeliveryOptions' => {}, 'Nutritional' => {}, 'Manufacturers' => []
+    }.freeze
+
+    PRICE_BATCH_SIZE = 50
+
     class ApiError < StandardError; end
     class AuthError < ApiError; end
 
@@ -128,12 +136,103 @@ module Scrapers
       {}
     end
 
+    # Restore the API session or raise. Mirrors UsFoodsApi#ensure_session!.
+    def ensure_session!
+      return true if @access_token.present? && !token_expired?
+      return true if restore_session
+
+      raise AuthError, 'Performance API session expired — re-login required'
+    end
+
+    # Per-account context needed by nearly every catalog/order call:
+    # customer GUID, operation company, business unit, active order id, and the
+    # delivery date prices are quoted against. Derived from GetCurrentUserSite
+    # (UserCustomers) + GetActiveOrder. Memoized for the life of this client.
+    def account_context
+      @account_context ||= begin
+        site = call('Site', 'GetCurrentUserSite', nil, http_method: :get)
+        customers = site&.dig('ResultObject', 'UserCustomers') || []
+        customer = customers.first
+        raise ApiError, 'No UserCustomers on account — cannot derive customer context' if customer.nil?
+
+        customer_id = customer['CustomerId']
+        ctx = {
+          customer_id: customer_id,
+          operation_company_number: customer['OperationCompanyNumber'].to_s,
+          business_unit_key: customer['BusinessUnitKey'] || 0,
+          customer_number: customer['CustomerNumber'],
+          customer_name: customer['CustomerName']
+        }
+
+        active = call('OrderEntryHeader', 'GetActiveOrder', nil, http_method: :get,
+                                                             query: { 'CustomerId' => customer_id })
+        ctx[:order_entry_header_id] = active&.dig('ResultObject', 'OrderEntryHeaderId')
+        ctx[:delivery_date] = active&.dig('ResultObject', 'DeliveryDate')
+        ctx
+      end
+    end
+
+    # One page of catalog search results for a term. Returns the ResultObject
+    # hash ({ CatalogProducts:, NumberOfPages:, CurrentPageNumber:, ... }) or nil.
+    # Prices are NOT included (LoadPricing:false) — call fetch_prices separately.
+    def search_catalog(query_text, page: 0, page_size: 25)
+      ctx = account_context
+      body = {
+        'BusinessUnitKey' => ctx[:business_unit_key],
+        'OperationCompanyNumber' => ctx[:operation_company_number],
+        'CustomerId' => ctx[:customer_id],
+        'DeliveryDate' => ctx[:delivery_date],
+        'CurrentPageNumber' => page,
+        'PageSize' => page_size,
+        'QueryText' => query_text,
+        'Skip' => page * page_size,
+        'OrderEntryHeaderId' => ctx[:order_entry_header_id],
+        'LoadPricing' => false,
+        'AdvanceFilter' => EMPTY_ADVANCE_FILTER
+      }
+      res = call('ProductCatalog', 'SearchProductCatalog', body)
+      unless res && res['IsSuccess']
+        raise ApiError, "SearchProductCatalog failed for '#{query_text}': #{res && res['ErrorMessages']}"
+      end
+
+      res['ResultObject']
+    end
+
+    # Customer-specific case prices for a set of ProductKeys. Batches internally.
+    # Returns { product_key => price(Float) }. UnitOfMeasureType 0 = case.
+    def fetch_prices(product_keys)
+      ctx = account_context
+      out = {}
+      Array(product_keys).uniq.each_slice(PRICE_BATCH_SIZE) do |batch|
+        body = {
+          'BusinessUnitKey' => ctx[:business_unit_key],
+          'OperationCompanyNumber' => ctx[:operation_company_number],
+          'CustomerId' => ctx[:customer_id],
+          'DeliveryDate' => ctx[:delivery_date],
+          'OrderEntryHeaderId' => ctx[:order_entry_header_id],
+          'CustomerProductPriceRequests' => batch.map do |key|
+            { 'ProductKey' => key.to_s, 'UnitOfMeasureType' => 0, 'OrderEntryDetailId' => nil, 'LastViewedPrice' => nil }
+          end,
+          'IgnoreRetry' => false
+        }
+        res = call('CustomerProductPrice', 'GetOrderEntryCustomerProductPrice', body)
+        prices = res&.dig('ResultObject', 'CustomerProductPrices') || []
+        prices.each do |p|
+          price = p['Price']
+          out[p['ProductKey'].to_s] = price.to_f if price.present? && price.to_f.positive?
+        end
+      end
+      out
+    end
+
     # Generic RPC call: call('Order', 'GetOrderCart', body). The middleware is
-    # POST-heavy; pass http_method: :get for the few GET-style routes.
-    def call(service, method, body = nil, http_method: :post)
+    # POST-heavy; pass http_method: :get for the few GET-style routes, with an
+    # optional query: hash for GET query parameters.
+    def call(service, method, body = nil, http_method: :post, query: nil)
       raise AuthError, 'No access token — call restore_session first' if @access_token.blank?
 
       uri = URI("#{API_BASE}/api/#{service}/V1/#{method}")
+      uri.query = URI.encode_www_form(query) if query.present?
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = true
       http.read_timeout = 30
