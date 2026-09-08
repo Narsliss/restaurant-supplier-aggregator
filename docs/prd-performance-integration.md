@@ -129,8 +129,18 @@ a freshly validated credential to failed (spec-guarded).
 - [x] Product images — `ProductImageUrlThumbnail` (blob SAS URL, expires 2070)
 - [x] Phase 3 catalog — DONE (SearchProductCatalog + price merge, catch-weight fixed)
 - [ ] Session TTL: measure how long the B2C refresh token lives (PPO's Cognito cap was 30d)
-- [ ] Phase 5 lists: `OrderEntryHeader/V1/GetCustomersOrderEntryHeaders` (POST, body
-      `["<customerId>"]`) + `ProductListNotification`; wire `scrape_lists`
+- [ ] Phase 5 lists — endpoints identified, BLOCKED on a populated guide to verify:
+      - `ProductListHeader/V1/GetProductListHeaders?customerId=` (GET) → guides.
+        This account has ONE real order guide: **"alfios"**, ProductListHeaderId
+        `225278a5-0996-49df-826a-1e90600b375e`, ProductListType 3 — but
+        **ProductListDetailCount: 0** (brand-new supplier, guide not yet populated).
+        A second list is a type-4 all-zeros-GUID system list.
+      - Items via `ProductListCatalogSearch/V1/SearchProductListCatalog` (takes
+        ProductListHeaderId) — returns the SAME CatalogProduct shape as phase 3,
+        so `format_catalog_product` (incl. catch-weight) is reusable.
+      - Cannot live-verify the list-items response until "alfios" has ≥1 item.
+        Do NOT ship blind list parsing (cf. the WCW "synced zero items silently"
+        regression). Verify once the guide is populated.
 - [ ] Piece/each pricing: most products have a single CS UOM; handle multi-UOM
       (CS + EA/LB) → piece_price/piece_pack_size when encountered
 - [ ] Deep import: SearchProductCatalog caps at 100 pages/term (~2500 items);
