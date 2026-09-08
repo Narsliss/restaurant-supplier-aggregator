@@ -54,6 +54,14 @@ Rails.application.config.after_initialize do
       auth_type: 'two_fa'
     },
     {
+      code: 'performance',
+      name: 'Performance Foodservice',
+      base_url: 'https://www.customerfirstsolutions.com',
+      login_url: 'https://www.customerfirstsolutions.com/?bu=performance',
+      scraper_class: 'Scrapers::PerformanceScraper',
+      auth_type: 'password'
+    },
+    {
       code: 'sysco',
       name: 'Sysco',
       base_url: 'https://shop.sysco.com',

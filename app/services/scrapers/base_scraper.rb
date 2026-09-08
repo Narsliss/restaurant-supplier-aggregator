@@ -729,7 +729,14 @@ module Scrapers
     end
 
     def detect_maintenance
-      page_text = browser.body&.text&.downcase || ''
+      # Ferrum's browser.body returns the raw HTML String (no #text). Read the
+      # rendered text instead — matching against HTML source would false-positive
+      # on words like "maintenance" inside bundled JS.
+      page_text = begin
+        browser.evaluate("document.body ? document.body.innerText : ''").to_s.downcase
+      rescue StandardError
+        ''
+      end
       maintenance_indicators = [
         'maintenance',
         'temporarily unavailable',
