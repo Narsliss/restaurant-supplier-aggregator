@@ -260,6 +260,69 @@ module Scrapers
       end
     end
 
+    # ── Ordering (phase 7) ─────────────────────────────────────────
+    # READ helpers are always safe. WRITE helpers (update_order_detail,
+    # submit_order) mutate the customer's real draft order and must only be
+    # called through PerformanceScraper's cart-write guard.
+
+    # The active draft order header (READ). Returns the ResultObject hash
+    # ({ OrderEntryHeaderId, DeliveryDate, TotalQuantity, ... }).
+    def active_order
+      call('OrderEntryHeader', 'GetActiveOrder', nil, http_method: :get,
+                                                 query: { 'CustomerId' => account_context[:customer_id] })
+        &.dig('ResultObject')
+    end
+
+    # Full draft order incl. header totals and line items (READ).
+    def get_order(order_entry_header_id)
+      call('Order', 'GetOrder', nil, http_method: :get,
+                                query: { 'orderEntryHeaderId' => order_entry_header_id })
+        &.dig('ResultObject')
+    end
+
+    # Extract the draft's line items as [{ product_key:, sku:, quantity:,
+    # uom_type:, detail_id: }] (READ). PFG only exposes the line array once the
+    # cart has content; the key/shape is inferred from the OrderEntryDetail
+    # field names and must be confirmed against a populated cart (Stage B).
+    def order_lines(order_entry_header_id)
+      order = get_order(order_entry_header_id) || {}
+      raw = order['OrderEntryDetails'] || order['Details'] || order['OrderEntryHeaderDetails'] || []
+      Array(raw).map do |line|
+        {
+          product_key: (line['ProductKey'] || line['ProductNumber']).to_s,
+          sku: (line['ProductNumber'] || line['ProductKey']).to_s,
+          quantity: (line['Quantity'] || line['QuantityOrdered']).to_i,
+          uom_type: line['UnitOfMeasureType'] || 0,
+          detail_id: line['OrderEntryDetailId']
+        }
+      end
+    end
+
+    # WRITE — set a line item's quantity on the draft (add/update). Guarded by
+    # PerformanceScraper#cart_writes_enabled?; never call directly in Stage A.
+    def update_order_detail(order_entry_header_id:, product_key:, quantity:, uom_type: 0, detail_id: nil)
+      ctx = account_context
+      body = {
+        'OrderEntryHeaderId' => order_entry_header_id,
+        'CustomerId' => ctx[:customer_id],
+        'OperationCompanyNumber' => ctx[:operation_company_number],
+        'BusinessUnitKey' => ctx[:business_unit_key],
+        'DeliveryDate' => ctx[:delivery_date],
+        'ProductKey' => product_key.to_s,
+        'UnitOfMeasureType' => uom_type,
+        'Quantity' => quantity.to_i,
+        'OrderEntryDetailId' => detail_id
+      }
+      call('OrderEntryDetail', 'UpdateOrderEntryDetail', body)
+    end
+
+    # WRITE — submit the draft order (point of no return). Guarded; never
+    # reachable in Stage A. Live shape unverified until a real order is placed.
+    def submit_order(order_entry_header_id)
+      call('OrderEntryHeader', 'SubmitOrderEntryHeader',
+           { 'OrderEntryHeaderId' => order_entry_header_id, 'CustomerId' => account_context[:customer_id] })
+    end
+
     # Generic RPC call: call('Order', 'GetOrderCart', body). The middleware is
     # POST-heavy; pass http_method: :get for the few GET-style routes, with an
     # optional query: hash for GET query parameters.

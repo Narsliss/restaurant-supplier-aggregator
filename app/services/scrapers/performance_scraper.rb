@@ -201,6 +201,160 @@ module Scrapers
       []
     end
 
+    # ── Ordering (phase 7 — Stage A framework) ─────────────────────
+    #
+    # SAFETY MODEL. PFG's cart IS the customer's real draft order; add-to-cart
+    # (UpdateOrderEntryDetail) writes to it, submit (SubmitOrderEntryHeader) is
+    # the point of no return. Two independent gates protect it:
+    #
+    #   1. cart_writes_enabled? — a PFG-specific kill switch, OFF by default.
+    #      While OFF, add_to_cart/clear_cart make NO writes to PFG; they log what
+    #      they WOULD send and return success. This keeps dev/test at ZERO PFG
+    #      footprint even if place_order runs. Flip PERFORMANCE_CART_WRITES=true
+    #      only for a deliberate, supervised live cart test (Stage B).
+    #   2. checkout(dry_run:) — OrderPlacementService forces dry_run in non-prod
+    #      and checks supplier.checkout_enabled? in prod. submit is additionally
+    #      refused unless cart writes are enabled.
+    #
+    # The UpdateOrderEntryDetail / SubmitOrderEntryHeader request shapes and the
+    # draft's line-item response shape are inferred (bundle + empty-draft recon)
+    # and remain UNVERIFIED against a populated live cart until Stage B.
+    def cart_writes_enabled?
+      ENV.fetch('PERFORMANCE_CART_WRITES', 'false') == 'true'
+    end
+
+    def add_to_cart(items, delivery_date: nil)
+      api_client.ensure_session!
+      oeh = active_order_id!
+      logger.info "[Performance] add_to_cart: #{items.size} item(s), delivery_date=#{delivery_date}, writes_enabled=#{cart_writes_enabled?}"
+
+      added = []
+      failed = []
+      items.each do |item|
+        product_key = item[:sku].to_s
+        quantity = item[:quantity].to_i
+        next if product_key.blank? || quantity <= 0
+
+        if cart_writes_enabled?
+          begin
+            res = api_client.update_order_detail(order_entry_header_id: oeh, product_key: product_key, quantity: quantity)
+            if res && res['IsSuccess']
+              added << item
+            else
+              failed << item.merge(reason: (res && res['ErrorMessages'])&.join('; '))
+            end
+          rescue Scrapers::PerformanceApi::ApiError => e
+            failed << item.merge(reason: e.message)
+          end
+        else
+          logger.info "[Performance][cart-dry-run] would set ProductKey=#{product_key} qty=#{quantity} (no write)"
+          added << item
+        end
+      end
+
+      { added: added, failed: failed }
+    end
+
+    def clear_cart
+      api_client.ensure_session!
+      oeh = active_order_id!
+
+      unless cart_writes_enabled?
+        logger.info '[Performance][cart-dry-run] would clear cart (no write)'
+        return
+      end
+
+      api_client.order_lines(oeh).each do |line|
+        api_client.update_order_detail(
+          order_entry_header_id: oeh, product_key: line[:product_key],
+          quantity: 0, uom_type: line[:uom_type], detail_id: line[:detail_id]
+        )
+      rescue Scrapers::PerformanceApi::ApiError => e
+        logger.warn "[Performance] clear_cart: failed to zero #{line[:product_key]}: #{e.message}"
+      end
+      logger.info '[Performance] cart cleared'
+    end
+
+    # Fail CLOSED: assert the PFG draft holds exactly the items we intend to
+    # order (by SKU + quantity), so a stale/orphaned line in the server-side
+    # draft can never be submitted (cf. the CW phantom-cart incident). READ-only.
+    def verify_cart_matches!(expected_items)
+      api_client.ensure_session!
+      oeh = active_order_id!
+
+      # In Stage A (cart writes off) add_to_cart wrote nothing, so the live draft
+      # can't match — skip reconciliation rather than false-alarm. The guard IS
+      # the safety here: nothing was written, nothing can be submitted.
+      unless cart_writes_enabled?
+        logger.info '[Performance][cart-dry-run] skipping cart reconciliation (no items were written)'
+        return true
+      end
+
+      cart = tally_by_sku(api_client.order_lines(oeh).map { |l| { sku: l[:sku], quantity: l[:quantity] } })
+      expected = tally_by_sku(expected_items.map { |i| { sku: i[:sku], quantity: i[:quantity] } })
+
+      discrepancies = []
+      (cart.keys - expected.keys).sort.each { |sku| discrepancies << { type: 'extra_in_cart', sku: sku, cart_qty: cart[sku] } }
+      (expected.keys - cart.keys).sort.each { |sku| discrepancies << { type: 'missing_from_cart', sku: sku, expected_qty: expected[sku] } }
+      (cart.keys & expected.keys).sort.each do |sku|
+        discrepancies << { type: 'quantity_mismatch', sku: sku, cart_qty: cart[sku], expected_qty: expected[sku] } if cart[sku] != expected[sku]
+      end
+
+      if discrepancies.any?
+        raise Scrapers::BaseScraper::CartMismatchError.new(
+          "Performance draft does not match order (#{discrepancies.size} discrepancy(ies)): #{discrepancies.inspect}",
+          discrepancies: discrepancies
+        )
+      end
+
+      true
+    end
+
+    def checkout(dry_run: false)
+      api_client.ensure_session!
+      oeh = active_order_id!
+      order = api_client.get_order(oeh) || {}
+
+      item_count = order['TotalLines'].to_i
+      subtotal = (order['TotalOrderPrice'] || order['TotalExtendedPrice']).to_f
+      minimum = order['MinimumOrderAmount'].to_f
+
+      if dry_run
+        logger.info "[Performance] DRY RUN checkout — lines=#{item_count}, subtotal=$#{subtotal}, minimum=$#{minimum}"
+        return {
+          confirmation_number: "DRY-RUN-#{Time.current.strftime('%Y%m%d%H%M%S')}",
+          total: subtotal,
+          delivery_date: order['DeliveryDate'],
+          dry_run: true,
+          checkout_summary: { item_count: item_count, subtotal: subtotal, minimum: minimum }
+        }
+      end
+
+      # LIVE submit — doubly guarded. Never reachable while cart writes are off.
+      unless cart_writes_enabled?
+        raise ScrapingError, 'Performance live submit blocked: PERFORMANCE_CART_WRITES is not enabled'
+      end
+
+      raise ScrapingError, 'Performance cart is empty' if item_count.zero?
+      if minimum.positive? && subtotal < minimum
+        raise OrderMinimumError.new('Order minimum not met', minimum: minimum, current_total: subtotal)
+      end
+
+      logger.warn '[Performance] PLACING LIVE ORDER'
+      result = api_client.submit_order(oeh)
+      confirmation = result&.dig('ResultObject', 'OrderNumber') || result&.dig('ResultObject', 'ConfirmationNumber') ||
+                     "API-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      logger.warn "[Performance] LIVE order submitted: #{confirmation}"
+
+      {
+        confirmation_number: confirmation,
+        total: subtotal,
+        delivery_date: order['DeliveryDate'],
+        dry_run: false,
+        checkout_summary: result
+      }
+    end
+
     protected
 
     def perform_login_steps
@@ -238,6 +392,24 @@ module Scrapers
         supplier_url: nil,
         image_url: product['ProductImageUrlThumbnail'].presence
       }
+    end
+
+    def active_order_id!
+      oeh = api_client.account_context[:order_entry_header_id]
+      raise ScrapingError, 'No active PFG draft order found' if oeh.blank?
+
+      oeh
+    end
+
+    # Tally quantities by SKU. Keys normalized to strings; quantities summed so
+    # duplicate lines for the same SKU compare correctly.
+    def tally_by_sku(rows)
+      rows.each_with_object(Hash.new(0)) do |row, acc|
+        sku = row[:sku].to_s.strip
+        next if sku.blank?
+
+        acc[sku] += row[:quantity].to_i
+      end
     end
 
     # A real, syncable order guide: a concrete named/owned list, not the

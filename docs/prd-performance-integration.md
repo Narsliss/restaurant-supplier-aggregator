@@ -72,6 +72,41 @@ SupplierProducts, sync_status synced. Out-of-stock flags honored (truffle oil,
 mascarpone). Canonical Product links are 0/11 at this stage — that's phase 6
 (matching), a separate step.
 
+## Phase 7 (ordering) — Stage A framework only, NOT live-verified
+
+Built behind two independent gates; NO order was ever placed and no write ever
+reached PFG during development.
+
+Order model: the PFG cart IS the customer's real draft `OrderEntryHeader`.
+Add-to-cart = `OrderEntryDetail/V1/UpdateOrderEntryDetail` (write); submit =
+`OrderEntryHeader/V1/SubmitOrderEntryHeader` (point of no return); reads via
+`GetActiveOrder` / `GetOrder`.
+
+Scraper surface (consumed by OrderPlacementService): `add_to_cart`, `clear_cart`,
+`verify_cart_matches!` (fails CLOSED — CW phantom-cart lesson), `checkout(dry_run:)`.
+
+**Gates:**
+1. `cart_writes_enabled?` = `ENV['PERFORMANCE_CART_WRITES']=='true'`, default OFF.
+   While OFF: add_to_cart/clear_cart make ZERO writes (log-and-simulate),
+   verify_cart_matches! skips (nothing was written), and checkout REFUSES a live
+   submit. This is the authoritative gate and holds even in production (where
+   `checkout_enabled` seeds true) — so PFG ordering fails closed until explicitly
+   enabled. Nothing is orderable for real yet.
+2. `checkout(dry_run:)` — OrderPlacementService forces dry_run in non-prod.
+
+**UNVERIFIED (Stage B/C):** the UpdateOrderEntryDetail / SubmitOrderEntryHeader
+request shapes and the draft's line-item response shape (`order_lines`) are
+inferred from the bundle + empty-draft recon — never exercised live (the account
+has no test order to place). Stage B = one supervised, reversible cart write
+(add → read back → remove, no submit) to confirm the shapes. Stage C (submit)
+needs a real order.
+
+Risks captured (see session notes): cart reconciliation must stay fail-closed;
+catch-weight items bill on actual weight so totals are estimates; delivery
+date/cutoff may block submit on this account ("not set up for deliveries");
+single shared draft = concurrency hazard; retry idempotency; PlaceOrderJob bare
+rescue.
+
 ## Incidental fix
 
 `BaseScraper#detect_maintenance` called `.text` on `browser.body` (Ferrum returns raw
