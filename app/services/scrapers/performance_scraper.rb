@@ -151,9 +151,49 @@ module Scrapers
       on_batch ? [] : results.uniq { |r| r[:supplier_sku] }
     end
 
+    # ── Order guides / lists (phase 5) ─────────────────────────────
+    # Pure API. GetProductListHeaders → real order guides (type 3, owned/named);
+    # SearchProductList → each guide's items; prices merged via fetch_prices.
+    # System lists (all-zeros GUID / unnamed) are skipped.
     def scrape_lists
-      logger.info '[Performance] scrape_lists not implemented yet — returning []'
-      []
+      api_client.ensure_session!
+
+      headers = api_client.list_headers.select { |h| order_guide_header?(h) }
+      logger.info "[Performance] #{headers.size} order guide(s) to sync"
+
+      headers.filter_map do |header|
+        list_id = header['ProductListHeaderId']
+        entries = api_client.list_products(list_id)
+        prices = api_client.fetch_prices(entries.map { |e| e[:product]['ProductKey'] })
+
+        items = entries.each_with_index.map do |entry, idx|
+          product = entry[:product]
+          {
+            sku: product['ProductNumber'].to_s,
+            name: product_display_name(product),
+            price: case_price_for(product, prices),
+            pack_size: product_pack_size(product),
+            quantity: 1,
+            in_stock: !product['IsOutOfStock'],
+            position: entry[:sequence] || idx + 1
+          }
+        end
+
+        # Fail loudly rather than silently syncing an empty guide over a
+        # populated one (cf. the WCW "synced zero items" regression).
+        if items.empty?
+          logger.warn "[Performance] Order guide '#{header['ProductListTitle']}' (#{list_id}) returned 0 items — skipping"
+          next
+        end
+
+        {
+          name: header['ProductListTitle'].presence || 'Order Guide',
+          remote_id: list_id.to_s,
+          url: "#{BASE_URL}/list-management/#{list_id}/#{api_client.account_context[:customer_id]}",
+          list_type: 'order_guide',
+          items: items
+        }
+      end
     end
 
     def scrape_prices(_product_skus)
@@ -184,33 +224,12 @@ module Scrapers
 
     # Map a raw CatalogProduct + merged price into the shape
     # ImportSupplierProductsService expects.
-    #
-    # CRITICAL — catch-weight pricing: for a catch-weight case UOM, PFG's Price
-    # is the PER-POUND price, not the case price (e.g. $1.64/lb for a ~39 lb
-    # case). Storing it raw would make PFG look ~40x cheaper than reality and
-    # corrupt every savings comparison. The UOM-level ProductIsCatchWeight flag
-    # is authoritative (the top-level flag is always false); when set, the case
-    # price is Price x ProductAverageWeight. Non-catch-weight Price is already
-    # the case price.
     def format_catalog_product(product, prices)
-      sku = product['ProductNumber'].to_s
-      uom = Array(product['UnitOfMeasureOrderQuantities']).first || {}
-      pack = [uom['PackSize'], uom['UnitOfMeasureAbbreviation']].compact.join(' ').presence
-
-      raw_price = prices[product['ProductKey'].to_s]
-      avg_weight = uom['ProductAverageWeight'].to_f
-      case_price =
-        if raw_price && uom['ProductIsCatchWeight'] && avg_weight.positive?
-          (raw_price * avg_weight).round(2)
-        else
-          raw_price
-        end
-
       {
-        supplier_sku: sku,
-        supplier_name: [product['ProductBrand'].presence, product['ProductDescription']].compact.join(' - '),
-        current_price: case_price,
-        pack_size: pack,
+        supplier_sku: product['ProductNumber'].to_s,
+        supplier_name: product_display_name(product),
+        current_price: case_price_for(product, prices),
+        pack_size: product_pack_size(product),
         # Don't set stock from catalog — only the order-guide sync has the
         # per-location context to mark items out of stock (see USF).
         in_stock: nil,
@@ -219,6 +238,43 @@ module Scrapers
         supplier_url: nil,
         image_url: product['ProductImageUrlThumbnail'].presence
       }
+    end
+
+    # A real, syncable order guide: a concrete named/owned list, not the
+    # all-zeros-GUID system list PFG returns alongside it.
+    ZERO_GUID = '00000000-0000-0000-0000-000000000000'
+    def order_guide_header?(header)
+      id = header['ProductListHeaderId'].to_s
+      id.present? && id != ZERO_GUID
+    end
+
+    def product_display_name(product)
+      [product['ProductBrand'].presence, product['ProductDescription']].compact.join(' - ')
+    end
+
+    def product_pack_size(product)
+      uom = Array(product['UnitOfMeasureOrderQuantities']).first || {}
+      [uom['PackSize'], uom['UnitOfMeasureAbbreviation']].compact.join(' ').presence
+    end
+
+    # CRITICAL — catch-weight pricing: for a catch-weight case UOM, PFG's Price
+    # is the PER-POUND price, not the case price (e.g. $1.64/lb for a ~39 lb
+    # case). Storing it raw would make PFG look ~40x cheaper than reality and
+    # corrupt every savings comparison. The UOM-level ProductIsCatchWeight flag
+    # is authoritative (the top-level flag is always false); when set, the case
+    # price is Price x ProductAverageWeight. Non-catch-weight Price is already
+    # the case price. Shared by catalog and order-guide mapping.
+    def case_price_for(product, prices)
+      uom = Array(product['UnitOfMeasureOrderQuantities']).first || {}
+      raw_price = prices[product['ProductKey'].to_s]
+      return raw_price unless raw_price
+
+      avg_weight = uom['ProductAverageWeight'].to_f
+      if uom['ProductIsCatchWeight'] && avg_weight.positive?
+        (raw_price * avg_weight).round(2)
+      else
+        raw_price
+      end
     end
 
     # US Foods stores auth in localStorage/sessionStorage; CustomerFirst's

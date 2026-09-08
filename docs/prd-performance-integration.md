@@ -54,6 +54,24 @@ per-lb price made cases read ~40x too cheap and would corrupt savings. Fixed +
 regression-specced. Live import of 5 terms → 397 products, all prices sane
 (only sub-$5 item is a genuine $0.01 dispenser).
 
+## Phase 5 (order guides / lists) — DONE & live-verified 2026-09-08
+
+Pure API. `GetProductListHeaders` → guides; the real items call is
+**`POST ProductListSearch/V1/SearchProductList`** (body: CustomerId,
+ProductListHeaderId, QueryText:"", SortByType, IncludeRecipeItems). NOTE the
+header's `ProductListDetailCount` is unreliable (read 0 for a guide that has 11
+items — do not trust it). Response nests items as
+`ResultObject.ProductListCategories[].Products[].Product`, each `Product` in the
+SAME CatalogProduct shape as phase 3, so name/pack/catch-weight logic is shared
+(`case_price_for`, `product_display_name`, `product_pack_size`). Prices merged via
+`fetch_prices`. Zero-GUID system list is skipped; a guide returning 0 items is
+skipped (not synced empty — WCW regression guard).
+
+Live: "alfios" (`225278a5-…`, type 3) → 11 items imported, all linked to catalog
+SupplierProducts, sync_status synced. Out-of-stock flags honored (truffle oil,
+mascarpone). Canonical Product links are 0/11 at this stage — that's phase 6
+(matching), a separate step.
+
 ## Incidental fix
 
 `BaseScraper#detect_maintenance` called `.text` on `browser.body` (Ferrum returns raw
@@ -129,18 +147,7 @@ a freshly validated credential to failed (spec-guarded).
 - [x] Product images — `ProductImageUrlThumbnail` (blob SAS URL, expires 2070)
 - [x] Phase 3 catalog — DONE (SearchProductCatalog + price merge, catch-weight fixed)
 - [ ] Session TTL: measure how long the B2C refresh token lives (PPO's Cognito cap was 30d)
-- [ ] Phase 5 lists — endpoints identified, BLOCKED on a populated guide to verify:
-      - `ProductListHeader/V1/GetProductListHeaders?customerId=` (GET) → guides.
-        This account has ONE real order guide: **"alfios"**, ProductListHeaderId
-        `225278a5-0996-49df-826a-1e90600b375e`, ProductListType 3 — but
-        **ProductListDetailCount: 0** (brand-new supplier, guide not yet populated).
-        A second list is a type-4 all-zeros-GUID system list.
-      - Items via `ProductListCatalogSearch/V1/SearchProductListCatalog` (takes
-        ProductListHeaderId) — returns the SAME CatalogProduct shape as phase 3,
-        so `format_catalog_product` (incl. catch-weight) is reusable.
-      - Cannot live-verify the list-items response until "alfios" has ≥1 item.
-        Do NOT ship blind list parsing (cf. the WCW "synced zero items silently"
-        regression). Verify once the guide is populated.
+- [x] Phase 5 lists — DONE & live-verified 2026-09-08 (11-item "alfios" guide)
 - [ ] Piece/each pricing: most products have a single CS UOM; handle multi-UOM
       (CS + EA/LB) → piece_price/piece_pack_size when encountered
 - [ ] Deep import: SearchProductCatalog caps at 100 pages/term (~2500 items);

@@ -225,6 +225,41 @@ module Scrapers
       out
     end
 
+    # The customer's saved product lists (order guides). Returns the array of
+    # header hashes ({ ProductListHeaderId, ProductListTitle, ProductListType, ... }).
+    def list_headers
+      res = call('ProductListHeader', 'GetProductListHeaders', nil, http_method: :get,
+                                                               query: { 'customerId' => account_context[:customer_id] })
+      res&.dig('ResultObject') || []
+    end
+
+    # All products in one order guide, flattened across its categories. Each entry
+    # is { product: <CatalogProduct hash>, category_title:, sequence: }. Prices are
+    # NOT included in this response — merge via fetch_prices on the ProductKeys.
+    def list_products(list_header_id, sort_by_type: 5)
+      body = {
+        'CustomerId' => account_context[:customer_id],
+        'ProductListHeaderId' => list_header_id,
+        'QueryText' => '',
+        'SortByType' => sort_by_type,
+        'IncludeRecipeItems' => true
+      }
+      res = call('ProductListSearch', 'SearchProductList', body)
+      unless res && res['IsSuccess']
+        raise ApiError, "SearchProductList failed for #{list_header_id}: #{res && res['ErrorMessages']}"
+      end
+
+      categories = res.dig('ResultObject', 'ProductListCategories') || []
+      categories.flat_map do |cat|
+        Array(cat['Products']).filter_map do |detail|
+          product = detail['Product']
+          next if product.nil?
+
+          { product: product, category_title: cat['CategoryTitle'], sequence: detail['Sequence'] }
+        end
+      end
+    end
+
     # Generic RPC call: call('Order', 'GetOrderCart', body). The middleware is
     # POST-heavy; pass http_method: :get for the few GET-style routes, with an
     # optional query: hash for GET query parameters.

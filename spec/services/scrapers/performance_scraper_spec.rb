@@ -5,18 +5,82 @@ RSpec.describe Scrapers::PerformanceScraper do
   let(:credential) { create(:supplier_credential, supplier: supplier) }
   let(:scraper) { described_class.new(credential) }
 
-  # Lists/prices are later phases. Until then these must no-op WITHOUT opening a
-  # browser — a freshly validated credential kicks off ImportSupplierListsJob
-  # immediately, and a raise here would flip the brand-new credential to failed.
+  # scrape_prices (PriceVerificationService) is a later phase; must no-op WITHOUT
+  # opening a browser so it can't flip a freshly validated credential to failed.
   describe 'not-yet-implemented phases' do
-    it 'returns [] from scrape_lists without opening a browser' do
-      expect(scraper).not_to receive(:with_browser)
-      expect(scraper.scrape_lists).to eq([])
-    end
-
     it 'returns [] from scrape_prices without opening a browser' do
       expect(scraper).not_to receive(:with_browser)
       expect(scraper.scrape_prices(%w[12345])).to eq([])
+    end
+  end
+
+  describe '#scrape_lists (phase 5 — pure API, no browser)' do
+    let(:api) { instance_double(Scrapers::PerformanceApi) }
+    let(:list_id) { '225278a5-0996-49df-826a-1e90600b375e' }
+
+    before do
+      allow(scraper).to receive(:api_client).and_return(api)
+      allow(api).to receive(:ensure_session!)
+      allow(api).to receive(:account_context).and_return(customer_id: 'cust-guid')
+    end
+
+    def guide_entry(sku, desc, seq:, brand: 'PEAK', pack: '1/10 LB', catchwt: false, avgwt: 10)
+      { product: {
+          'ProductNumber' => sku, 'ProductKey' => sku, 'ProductDescription' => desc, 'ProductBrand' => brand,
+          'IsOutOfStock' => false,
+          'UnitOfMeasureOrderQuantities' => [{
+            'PackSize' => pack, 'UnitOfMeasureAbbreviation' => 'CS',
+            'ProductIsCatchWeight' => catchwt, 'ProductAverageWeight' => avgwt
+          }]
+        }, category_title: 'Uncategorized', sequence: seq }
+    end
+
+    it 'maps a real order guide, skipping the zero-GUID system list' do
+      allow(api).to receive(:list_headers).and_return([
+        { 'ProductListHeaderId' => list_id, 'ProductListTitle' => 'alfios', 'ProductListType' => 3 },
+        { 'ProductListHeaderId' => '00000000-0000-0000-0000-000000000000', 'ProductListType' => 4 }
+      ])
+      allow(api).to receive(:list_products).with(list_id).and_return([
+        guide_entry('328740', 'TOMATO 5X6 1 LAYER', seq: 0),
+        guide_entry('543638', 'OIL POMACE OLIVE', seq: 1, brand: 'LUIGI', pack: '4/1 GA')
+      ])
+      allow(api).to receive(:fetch_prices).and_return({ '328740' => 18.5, '543638' => 41.0 })
+
+      lists = scraper.scrape_lists
+      expect(api).to have_received(:list_products).once # zero-GUID list skipped
+      expect(lists.size).to eq(1)
+      guide = lists.first
+      expect(guide).to include(name: 'alfios', remote_id: list_id, list_type: 'order_guide')
+      expect(guide[:url]).to end_with("/list-management/#{list_id}/cust-guid")
+      expect(guide[:items].first).to include(
+        sku: '328740', name: 'PEAK - TOMATO 5X6 1 LAYER', price: 18.5,
+        pack_size: '1/10 LB CS', quantity: 1, in_stock: true, position: 0
+      )
+    end
+
+    it 'applies catch-weight conversion to order-guide prices too' do
+      allow(api).to receive(:list_headers).and_return([{ 'ProductListHeaderId' => list_id, 'ProductListTitle' => 'alfios' }])
+      allow(api).to receive(:list_products).and_return([
+        guide_entry('1008297', 'CHICKEN WITHOUT-GIBLETS', seq: 0, catchwt: true, avgwt: 39)
+      ])
+      allow(api).to receive(:fetch_prices).and_return({ '1008297' => 1.64 })
+
+      item = scraper.scrape_lists.first[:items].first
+      expect(item[:price]).to eq(63.96) # 1.64 * 39
+    end
+
+    it 'skips a guide that returns zero items instead of syncing it empty' do
+      allow(api).to receive(:list_headers).and_return([{ 'ProductListHeaderId' => list_id, 'ProductListTitle' => 'alfios' }])
+      allow(api).to receive(:list_products).and_return([])
+      allow(api).to receive(:fetch_prices).and_return({})
+
+      expect(scraper.scrape_lists).to eq([])
+    end
+
+    it 'never opens a browser' do
+      allow(api).to receive(:list_headers).and_return([])
+      expect(scraper).not_to receive(:with_browser)
+      scraper.scrape_lists
     end
   end
 

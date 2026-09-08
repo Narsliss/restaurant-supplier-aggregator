@@ -168,6 +168,38 @@ RSpec.describe Scrapers::PerformanceApi do
       end
     end
 
+    describe '#list_headers' do
+      it 'returns the ResultObject array of guide headers' do
+        allow(api).to receive(:call).with('ProductListHeader', 'GetProductListHeaders', nil,
+                                          http_method: :get, query: { 'customerId' => 'cust-guid' })
+          .and_return({ 'ResultObject' => [{ 'ProductListHeaderId' => 'g1', 'ProductListTitle' => 'alfios' }] })
+        expect(api.list_headers).to eq([{ 'ProductListHeaderId' => 'g1', 'ProductListTitle' => 'alfios' }])
+      end
+    end
+
+    describe '#list_products' do
+      it 'flattens ProductListCategories[].Products[] into product entries' do
+        allow(api).to receive(:call).with('ProductListSearch', 'SearchProductList', hash_including(
+          'ProductListHeaderId' => 'g1', 'CustomerId' => 'cust-guid'
+        )).and_return({ 'IsSuccess' => true, 'ResultObject' => { 'ProductListCategories' => [
+          { 'CategoryTitle' => 'Uncategorized', 'Products' => [
+            { 'Sequence' => 0, 'Product' => { 'ProductNumber' => '328740' } },
+            { 'Sequence' => 1, 'Product' => { 'ProductNumber' => '543638' } }
+          ] }
+        ] } })
+
+        entries = api.list_products('g1')
+        expect(entries.map { |e| e[:product]['ProductNumber'] }).to eq(%w[328740 543638])
+        expect(entries.first).to include(category_title: 'Uncategorized', sequence: 0)
+      end
+
+      it 'raises ApiError when the envelope reports failure' do
+        allow(api).to receive(:call).with('ProductListSearch', 'SearchProductList', anything)
+          .and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['bad'], 'ResultObject' => nil })
+        expect { api.list_products('g1') }.to raise_error(described_class::ApiError, /bad/)
+      end
+    end
+
     describe '#fetch_prices' do
       it 'returns a ProductKey=>price map and drops zero/blank prices' do
         allow(api).to receive(:call).with('CustomerProductPrice', 'GetOrderEntryCustomerProductPrice', anything)
