@@ -182,6 +182,25 @@ RSpec.describe "Mobile chef flow", type: :request do
     end
   end
 
+  # Regression: chef report 2026-09-13 — on the mobile suppliers page the 2FA
+  # code Submit button did nothing: the view named the code input target
+  # "tfaInput" but credential_validator_controller.js declares "tfaCodeInput",
+  # so submitCode() threw on a missing target before any UI feedback. PPO
+  # chefs hit this monthly (30-day session cap forces re-validation).
+  describe "mobile suppliers page 2FA code entry" do
+    let!(:two_fa_credential) do
+      create(:supplier_credential, user: chef, organization: organization, location: location,
+                                   supplier: create(:supplier, :two_fa), status: "expired")
+    end
+
+    it "names the code input with the target the Stimulus controller expects" do
+      get supplier_credentials_path, headers: MOBILE_UA
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include('data-credential-validator-target="tfaCodeInput"')
+      expect(response.body).not_to include('data-credential-validator-target="tfaInput"')
+    end
+  end
+
   # Regression: chef testing 2026-07 — an owner on Android got the legacy
   # 5-tab tray (Home/History/+Order/Suppliers/Search) while chefs on iPhone
   # got the new 3-tab bar. Every role now shares the 3-tab bar; owner/manager
