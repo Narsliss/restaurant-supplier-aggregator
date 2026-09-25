@@ -32,6 +32,13 @@ module Scrapers
 
     PRICE_BATCH_SIZE = 50
 
+    # "No active order" sentinel. Catalog/list/price calls require an
+    # OrderEntryHeaderId; when the account has no open draft (the normal resting
+    # state — drafts expire) GetActiveOrder returns none, and passing nil/omitted
+    # makes the middleware 400 with "Product Catalog page is not available". The
+    # all-zeros GUID is what the SPA itself sends in that state, and it works.
+    NO_ACTIVE_ORDER = '00000000-0000-0000-0000-000000000000'
+
     class ApiError < StandardError; end
     class AuthError < ApiError; end
 
@@ -166,7 +173,10 @@ module Scrapers
 
         active = call('OrderEntryHeader', 'GetActiveOrder', nil, http_method: :get,
                                                              query: { 'CustomerId' => customer_id })
-        ctx[:order_entry_header_id] = active&.dig('ResultObject', 'OrderEntryHeaderId')
+        # Fall back to the no-active-order sentinel so read paths (catalog/list/
+        # price) work whether or not a draft is open. Write paths (add_to_cart)
+        # must create a real draft first — see active_order_id_for_write!.
+        ctx[:order_entry_header_id] = active&.dig('ResultObject', 'OrderEntryHeaderId').presence || NO_ACTIVE_ORDER
         ctx[:delivery_date] = active&.dig('ResultObject', 'DeliveryDate')
         ctx
       end
@@ -196,6 +206,14 @@ module Scrapers
       end
 
       res['ResultObject']
+    end
+
+    # Look up a single catalog product by its SKU (== ProductKey). Returns the
+    # CatalogProduct hash (with UOM/catch-weight fields) or nil. Used by
+    # scrape_prices, which needs the product detail to compute the case price.
+    def product_by_sku(sku)
+      ro = search_catalog(sku.to_s, page: 0, page_size: 10)
+      (ro && ro['CatalogProducts'] || []).find { |p| p['ProductNumber'].to_s == sku.to_s }
     end
 
     # Customer-specific case prices for a set of ProductKeys. Batches internally.

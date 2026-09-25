@@ -5,12 +5,49 @@ RSpec.describe Scrapers::PerformanceScraper do
   let(:credential) { create(:supplier_credential, supplier: supplier) }
   let(:scraper) { described_class.new(credential) }
 
-  # scrape_prices (PriceVerificationService) is a later phase; must no-op WITHOUT
-  # opening a browser so it can't flip a freshly validated credential to failed.
-  describe 'not-yet-implemented phases' do
-    it 'returns [] from scrape_prices without opening a browser' do
+  describe '#scrape_prices (at-order verification — pure API, no browser)' do
+    let(:api) { instance_double(Scrapers::PerformanceApi) }
+
+    before do
+      allow(scraper).to receive(:api_client).and_return(api)
+      allow(api).to receive(:ensure_session!)
+    end
+
+    def catalog_product(sku, catchwt: false, avgwt: 10, pack: '2/5 LB')
+      {
+        'ProductNumber' => sku, 'ProductKey' => sku, 'ProductDescription' => 'CHICKEN', 'ProductBrand' => 'ROMA',
+        'IsOutOfStock' => false,
+        'UnitOfMeasureOrderQuantities' => [{
+          'PackSize' => pack, 'UnitOfMeasureAbbreviation' => 'CS',
+          'ProductIsCatchWeight' => catchwt, 'ProductAverageWeight' => avgwt
+        }]
+      }
+    end
+
+    it 'never opens a browser' do
+      allow(api).to receive(:fetch_prices).and_return({})
+      allow(api).to receive(:product_by_sku).and_return(nil)
       expect(scraper).not_to receive(:with_browser)
-      expect(scraper.scrape_prices(%w[12345])).to eq([])
+      scraper.scrape_prices(%w[541928])
+    end
+
+    it 'returns catch-weight-correct case prices for the queried SKUs' do
+      allow(api).to receive(:fetch_prices).with(%w[541928 1008297]).and_return({ '541928' => 39.95, '1008297' => 1.65 })
+      allow(api).to receive(:product_by_sku).with('541928').and_return(catalog_product('541928'))
+      allow(api).to receive(:product_by_sku).with('1008297').and_return(catalog_product('1008297', catchwt: true, avgwt: 39, pack: '12/3.25 LB'))
+
+      res = scraper.scrape_prices([{ sku: '541928', uom: 'CS' }, { sku: '1008297', uom: 'CS' }])
+      expect(res.find { |r| r[:supplier_sku] == '541928' }[:current_price]).to eq(39.95)
+      expect(res.find { |r| r[:supplier_sku] == '1008297' }[:current_price]).to eq(64.35) # 1.65 * 39
+    end
+
+    it 'skips a SKU whose lookup errors without aborting the rest' do
+      allow(api).to receive(:fetch_prices).and_return({ '111' => 5.0, '222' => 6.0 })
+      allow(api).to receive(:product_by_sku).with('111').and_raise(Scrapers::PerformanceApi::ApiError, 'boom')
+      allow(api).to receive(:product_by_sku).with('222').and_return(catalog_product('222'))
+
+      res = scraper.scrape_prices(%w[111 222])
+      expect(res.map { |r| r[:supplier_sku] }).to eq(%w[222])
     end
   end
 

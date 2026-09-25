@@ -144,6 +144,13 @@ RSpec.describe Scrapers::PerformanceApi do
         expect(api).to have_received(:call).with('Site', 'GetCurrentUserSite', nil, http_method: :get).once
       end
 
+      it 'falls back to the no-active-order sentinel when there is no open draft' do
+        allow(api).to receive(:call).with('OrderEntryHeader', 'GetActiveOrder', nil, http_method: :get, query: { 'CustomerId' => 'cust-guid' })
+          .and_return({ 'ResultObject' => { 'OrderEntryHeaderId' => nil, 'DeliveryDate' => '2026-09-25T00:00:00' } })
+
+        expect(api.account_context[:order_entry_header_id]).to eq(described_class::NO_ACTIVE_ORDER)
+      end
+
       it 'raises when the account has no customers' do
         allow(api).to receive(:call).with('Site', 'GetCurrentUserSite', nil, http_method: :get)
           .and_return({ 'ResultObject' => { 'UserCustomers' => [] } })

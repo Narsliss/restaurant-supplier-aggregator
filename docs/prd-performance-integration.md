@@ -107,6 +107,30 @@ date/cutoff may block submit on this account ("not set up for deliveries");
 single shared draft = concurrency hazard; retry idempotency; PlaceOrderJob bare
 rescue.
 
+## Robustness fix + price/validation helpers (2026-09-24)
+
+**Catalog/list/price broke with no open draft (found via a 16-day-stale session).**
+Those calls thread `OrderEntryHeaderId` through the request; when the account has no
+open draft (the normal resting state — drafts expire), `GetActiveOrder` returns none
+and the middleware 400s with *"Product Catalog page is not available"* for nil/omitted/
+empty OEH. Fix: `account_context` falls back to the **no-active-order sentinel**
+`00000000-0000-0000-0000-000000000000` (what the SPA itself sends in that state), which
+returns 200. Write paths (`add_to_cart`/`clear_cart`) call `require_real_draft!` and fail
+loudly on the sentinel — creating a real draft (`CreateOrderEntryHeader`) is a Stage B item.
+
+**Bucket 1 helpers (pure API, no writes):**
+- `scrape_prices` — implemented (was a stub). Per SKU: `product_by_sku` (catalog lookup,
+  SKU == ProductKey) + `fetch_prices`, catch-weight-corrected via `case_price_for`.
+  Powers at-order price verification + the per-item verify action. Verified live
+  ($1.65/lb × 39 = $64.35 case).
+- `get_order_minimum` / `get_delivery_availability` — read `MinimumOrderAmount` /
+  `CutoffDateTime` off the draft. Best-effort: return nil/empty when no draft is open
+  (resting state), populate on a real order. Pre-validation degrades gracefully.
+
+Also confirmed: password-auth **auto-relogin works** after session expiry (re-drove B2C
+with stored credentials, status → active). Recurring jobs (staggered import, sync lists,
+refresh sessions) auto-include Performance — no wiring needed.
+
 ## Incidental fix
 
 `BaseScraper#detect_maintenance` called `.text` on `browser.body` (Ferrum returns raw

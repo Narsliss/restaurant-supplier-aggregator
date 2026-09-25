@@ -196,9 +196,67 @@ module Scrapers
       end
     end
 
-    def scrape_prices(_product_skus)
-      logger.info '[Performance] scrape_prices not implemented yet — returning []'
-      []
+    # At-order price verification (PriceVerificationService / VerifyItemPriceJob).
+    # Pure API. For each SKU: look it up in the catalog (SKU == ProductKey) to get
+    # the UOM/catch-weight fields, then merge the customer price. Catch-weight
+    # aware via case_price_for so verification uses the true case price.
+    def scrape_prices(product_skus)
+      api_client.ensure_session!
+      queries = normalize_price_queries(product_skus)
+      skus = queries.map { |q| q[:sku] }.reject(&:blank?).uniq
+      return [] if skus.empty?
+
+      prices = api_client.fetch_prices(skus)
+      results = []
+      skus.each do |sku|
+        product = api_client.product_by_sku(sku)
+        next unless product
+
+        results << {
+          supplier_sku: sku,
+          current_price: case_price_for(product, prices),
+          in_stock: !product['IsOutOfStock'],
+          supplier_name: product_display_name(product),
+          pack_size: product_pack_size(product)
+        }
+      rescue Scrapers::PerformanceApi::ApiError => e
+        logger.warn "[Performance] scrape_prices: lookup failed for #{sku}: #{e.message}"
+      end
+      results
+    end
+
+    # Pre-order validation hooks (read-only). PFG carries the order minimum and
+    # the delivery cutoff on the draft/active order.
+    def get_order_minimum
+      api_client.ensure_session!
+      order = api_client.get_order(active_order_id!) || {}
+      minimum = order['MinimumOrderAmount'].to_f
+      return nil unless minimum.positive?
+
+      { minimum: minimum }
+    rescue Scrapers::PerformanceApi::ApiError => e
+      logger.warn "[Performance] get_order_minimum failed: #{e.message}"
+      nil
+    end
+
+    def get_delivery_availability(_delivery_date = nil)
+      api_client.ensure_session!
+      order = api_client.get_order(active_order_id!) || {}
+      cutoff_raw = order['CutoffDateTime']
+      cutoff = begin
+        Time.zone.parse(cutoff_raw.to_s) if cutoff_raw.present?
+      rescue ArgumentError
+        nil
+      end
+
+      {
+        available: true, # delivery scheduling is validated by PFG at submit
+        delivery_date: order['DeliveryDate'],
+        cutoff_time: cutoff
+      }
+    rescue Scrapers::PerformanceApi::ApiError => e
+      logger.warn "[Performance] get_delivery_availability failed: #{e.message}"
+      nil
     end
 
     # ── Ordering (phase 7 — Stage A framework) ─────────────────────
@@ -236,6 +294,7 @@ module Scrapers
         next if product_key.blank? || quantity <= 0
 
         if cart_writes_enabled?
+          require_real_draft!(oeh)
           begin
             res = api_client.update_order_detail(order_entry_header_id: oeh, product_key: product_key, quantity: quantity)
             if res && res['IsSuccess']
@@ -264,6 +323,7 @@ module Scrapers
         return
       end
 
+      require_real_draft!(oeh)
       api_client.order_lines(oeh).each do |line|
         api_client.update_order_detail(
           order_entry_header_id: oeh, product_key: line[:product_key],
@@ -399,6 +459,17 @@ module Scrapers
       raise ScrapingError, 'No active PFG draft order found' if oeh.blank?
 
       oeh
+    end
+
+    # A real draft is required to WRITE cart lines. account_context falls back to
+    # the no-active-order sentinel so read paths work with no open draft, but the
+    # sentinel can't hold line items. Creating a draft (CreateOrderEntryHeader)
+    # is a Stage B item — until then, a live cart write with no real draft fails
+    # loudly rather than silently targeting the sentinel.
+    def require_real_draft!(oeh)
+      return oeh unless oeh == Scrapers::PerformanceApi::NO_ACTIVE_ORDER
+
+      raise ScrapingError, 'No open PFG draft order; draft creation (CreateOrderEntryHeader) not implemented yet (Stage B)'
     end
 
     # Tally quantities by SKU. Keys normalized to strings; quantities summed so

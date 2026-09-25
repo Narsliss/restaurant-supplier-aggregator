@@ -37,6 +37,13 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
     context 'with cart writes ENABLED (Stage B)' do
       before { allow(scraper).to receive(:cart_writes_enabled?).and_return(true) }
 
+      it 'refuses to write when there is no real draft (only the sentinel)' do
+        allow(api).to receive(:account_context).and_return(order_entry_header_id: Scrapers::PerformanceApi::NO_ACTIVE_ORDER, customer_id: 'cust')
+        expect(api).not_to receive(:update_order_detail)
+        expect { scraper.add_to_cart(items) }
+          .to raise_error(Scrapers::BaseScraper::ScrapingError, /CreateOrderEntryHeader/)
+      end
+
       it 'writes each line via update_order_detail' do
         expect(api).to receive(:update_order_detail)
           .with(order_entry_header_id: oeh, product_key: '328740', quantity: 2)
