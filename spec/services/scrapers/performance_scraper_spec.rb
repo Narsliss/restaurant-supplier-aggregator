@@ -147,7 +147,7 @@ RSpec.describe Scrapers::PerformanceScraper do
     end
 
     it 'maps products to the importer shape and merges prices' do
-      allow(api).to receive(:search_catalog).with('chicken', page: 0, page_size: 25)
+      allow(api).to receive(:search_catalog).with('chicken', page: 0, page_size: described_class::CATALOG_PAGE_SIZE)
         .and_return({ 'CatalogProducts' => [catalog_product('541928', 'CHICKEN WING BONELESS')], 'NumberOfPages' => 1 })
       allow(api).to receive(:fetch_prices).with(['541928']).and_return({ '541928' => 42.19 })
 
@@ -166,7 +166,7 @@ RSpec.describe Scrapers::PerformanceScraper do
     end
 
     it 'stops paginating when a page returns fewer than a full page' do
-      allow(api).to receive(:search_catalog).with('beef', page: 0, page_size: 25)
+      allow(api).to receive(:search_catalog).with('beef', page: 0, page_size: described_class::CATALOG_PAGE_SIZE)
         .and_return({ 'CatalogProducts' => [catalog_product('1', 'BEEF')], 'NumberOfPages' => 100 })
       allow(api).to receive(:fetch_prices).and_return({})
 
@@ -225,7 +225,7 @@ RSpec.describe Scrapers::PerformanceScraper do
     it 'skips a term whose search errors without aborting the whole import' do
       allow(api).to receive(:search_catalog).with('chicken', anything)
         .and_raise(Scrapers::PerformanceApi::ApiError, 'boom')
-      allow(api).to receive(:search_catalog).with('beef', page: 0, page_size: 25)
+      allow(api).to receive(:search_catalog).with('beef', page: 0, page_size: described_class::CATALOG_PAGE_SIZE)
         .and_return({ 'CatalogProducts' => [catalog_product('2', 'BEEF')], 'NumberOfPages' => 1 })
       allow(api).to receive(:fetch_prices).and_return({ '2' => 9.0 })
 

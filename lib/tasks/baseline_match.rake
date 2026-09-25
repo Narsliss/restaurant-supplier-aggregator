@@ -126,6 +126,82 @@ namespace :baseline do
     puts "  by record type: #{BaselineLinkSnapshot.group(:record_type).count}"
   end
 
+  # Attach a NEW supplier's products to the existing spine, from a Claude sweep
+  # of that supplier against everyone else (e.g. Performance joining after the
+  # original baseline). Artifact rows are keyed by supplier CODE + SKU, not
+  # database id, so the same file applies to any environment:
+  #   [{ "sku": "543638", "target": { "supplier": "usfoods", "sku": "1234567" },
+  #      "confidence": "high", "reason": "..." }]
+  #
+  # SAFETY (narrower than baseline:apply):
+  #   * Only the new supplier's product moves — onto the target's existing
+  #     Product. The target product and every other supplier product are never
+  #     written. Chef matches (product_matches) are never read or written.
+  #   * One product per supplier per canonical (Product#supplier_product_for
+  #     returns the first match, so two would be ambiguous) — later rows that
+  #     would add a second are skipped.
+  #   * Deferred if the product's CURRENT Product is referenced by any
+  #     OrderListItem, so no existing order list changes how it builds.
+  #   * Snapshotted under RUN_TAG; `baseline:rollback RUN_TAG=... APPLY=1` restores.
+  #
+  #   rake baseline:attach SUPPLIER=performance FILE=db/baseline/performance_baseline_matches.json
+  #   rake baseline:attach SUPPLIER=performance APPLY=1 RUN_TAG=claude_baseline_performance_v1
+  task attach: :environment do
+    code = ENV.fetch("SUPPLIER")
+    run_tag = ENV.fetch("RUN_TAG", "claude_baseline_#{code}_v1")
+    write = ENV["APPLY"] == "1"
+    file = ENV.fetch("FILE", Rails.root.join("db/baseline/#{code}_baseline_matches.json").to_s)
+    supplier = Supplier.find_by!(code: code)
+    rows = JSON.parse(File.read(file))
+
+    puts "Baseline attach — #{supplier.name} — run_tag=#{run_tag} — #{write ? 'WRITE' : 'DRY RUN'}"
+    puts "Rows in artifact: #{rows.size}"
+
+    stats = Hash.new(0)
+    claimed = {} # canonical product_id => sku claimed in this run
+    rows.each do |row|
+      sp = SupplierProduct.find_by(supplier_id: supplier.id, supplier_sku: row["sku"])
+      target = SupplierProduct.joins(:supplier)
+                              .find_by(suppliers: { code: row.dig("target", "supplier") },
+                                       supplier_sku: row.dig("target", "sku"))
+      if sp.nil? || target.nil? || target.product_id.nil?
+        stats[:skipped_stale] += 1
+        next
+      end
+      canonical_id = target.product_id
+
+      if BaselineLinkSnapshot.exists?(run_tag: run_tag, record_type: "SupplierProduct", record_id: sp.id) ||
+         (sp.product_id == canonical_id && sp.match_source == "claude_baseline")
+        stats[:already_applied] += 1
+        next
+      end
+      if claimed.key?(canonical_id) ||
+         SupplierProduct.where(product_id: canonical_id, supplier_id: supplier.id).where.not(id: sp.id).exists?
+        stats[:skipped_supplier_already_on_canonical] += 1
+        next
+      end
+      if sp.product_id && sp.product_id != canonical_id && OrderListItem.exists?(product_id: sp.product_id)
+        stats[:skipped_order_list_ref] += 1
+        next
+      end
+
+      claimed[canonical_id] = row["sku"]
+      stats[:attached] += 1
+      stats[:"into_#{target.match_source == 'claude_baseline' ? 'baseline_group' : 'plain_spine_product'}"] += 1
+      next unless write
+
+      ActiveRecord::Base.transaction do
+        snapshot!(run_tag, "SupplierProduct", sp.id, sp.product_id)
+        sp.update_columns(product_id: canonical_id, match_source: "claude_baseline",
+                          match_confidence: row["confidence"])
+      end
+    end
+
+    puts "\n=== #{write ? 'ATTACHED' : 'WOULD ATTACH'} ==="
+    stats.sort.each { |k, v| puts "  #{k}: #{v}" }
+    puts "\nDRY RUN — pass APPLY=1 to write." unless write
+  end
+
   # Canonical = the Product the most members already point at (preserve history
   # and existing OrderList references); nil means "create a fresh Product".
   def choose_canonical(sps)

@@ -219,5 +219,58 @@ RSpec.describe Scrapers::PerformanceApi do
         expect(api.fetch_prices(%w[541928 999 888])).to eq('541928' => 42.19)
       end
     end
+
+    describe '#product_by_sku' do
+      it 'returns only the exact SKU, never a fuzzy search neighbor' do
+        allow(api).to receive(:call).with('ProductCatalog', 'SearchProductCatalog', hash_including('QueryText' => '541928'))
+          .and_return({ 'IsSuccess' => true, 'ResultObject' => { 'CatalogProducts' => [
+            { 'ProductNumber' => '5419280', 'ProductDescription' => 'NEIGHBOR' },
+            { 'ProductNumber' => '541928', 'ProductDescription' => 'EXACT' }
+          ] } })
+
+        expect(api.product_by_sku('541928')['ProductDescription']).to eq('EXACT')
+      end
+
+      it 'returns nil when the exact SKU is not in the results' do
+        allow(api).to receive(:call).with('ProductCatalog', 'SearchProductCatalog', anything)
+          .and_return({ 'IsSuccess' => true, 'ResultObject' => { 'CatalogProducts' => [{ 'ProductNumber' => '999' }] } })
+
+        expect(api.product_by_sku('541928')).to be_nil
+      end
+    end
+
+    describe '#update_order_detail' do
+      # Regression (verified live Sep 24): a ProductKey-only body returns
+      # IsSuccess:true but PFG silently creates NO cart line. The full product
+      # payload is what makes the line persist.
+      let(:product) do
+        { 'ProductKey' => '541928', 'ProductNumber' => '541928', 'BusinessUnitERPKey' => 10,
+          'ProductDescription' => 'CHICKEN WING BONELESS', 'ProductBrand' => 'ROMA', 'ShipLaterMaxEstimatedDays' => 0,
+          'UnitOfMeasureOrderQuantities' => [{ 'PackSize' => '2/5 LB', 'ProductIsCatchWeight' => false,
+                                                'ProductAverageWeight' => 10 }] }
+      end
+
+      it 'sends the full product payload with an absolute quantity' do
+        expect(api).to receive(:call).with('OrderEntryDetail', 'UpdateOrderEntryDetail', hash_including(
+          'OrderEntryHeaderId' => 'oeh-1', 'CustomerId' => 'cust-guid', 'BusinessUnitKey' => 0,
+          'BusinessUnitERPKey' => 10, 'ProductKey' => '541928', 'ProductNumber' => '541928',
+          'ProductDescription' => 'CHICKEN WING BONELESS', 'ProductBrand' => 'ROMA', 'ProductPackSize' => '2/5 LB',
+          'ProductIsCatchWeight' => false, 'ProductAverageWeight' => 10, 'Quantity' => 2, 'Price' => 39.95,
+          'UnitOfMeasureType' => 0
+        )).and_return({ 'IsSuccess' => true })
+
+        api.update_order_detail(order_entry_header_id: 'oeh-1', product: product, quantity: 2, price: 39.95)
+      end
+    end
+
+    describe '#submit_order' do
+      it 'posts the draft id and customer to SubmitOrderEntryHeader' do
+        expect(api).to receive(:call).with('OrderEntryHeader', 'SubmitOrderEntryHeader',
+                                           { 'OrderEntryHeaderId' => 'oeh-1', 'CustomerId' => 'cust-guid' })
+          .and_return({ 'IsSuccess' => true })
+
+        api.submit_order('oeh-1')
+      end
+    end
   end
 end

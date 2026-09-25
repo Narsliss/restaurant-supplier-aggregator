@@ -96,8 +96,8 @@ module Scrapers
     # ── Catalog import (phase 3) ───────────────────────────────────
     # Pure API, no browser: paginate SearchProductCatalog per term, merge in
     # customer prices, yield batches in the importer's expected shape.
-    MAX_CATALOG_PAGES = 40        # NumberOfPages caps at 100; 40*25 = 1000/term
-    CATALOG_PAGE_SIZE = 25
+    MAX_CATALOG_PAGES = 10        # 10*100 = 1000/term; a term rarely exceeds a few hundred
+    CATALOG_PAGE_SIZE = 100       # verified live: PFG honors 100/page (4x fewer calls than 25)
     CATALOG_BATCH_SIZE = 250      # products per import_batch flush
 
     def scrape_catalog(search_terms, max_per_term: nil, &on_batch)
@@ -263,22 +263,22 @@ module Scrapers
     #
     # SAFETY MODEL. PFG's cart IS the customer's real draft order; add-to-cart
     # (UpdateOrderEntryDetail) writes to it, submit (SubmitOrderEntryHeader) is
-    # the point of no return. Two independent gates protect it:
+    # the point of no return.
     #
-    #   1. cart_writes_enabled? — a PFG-specific kill switch, OFF by default.
-    #      While OFF, add_to_cart/clear_cart make NO writes to PFG; they log what
-    #      they WOULD send and return success. This keeps dev/test at ZERO PFG
-    #      footprint even if place_order runs. Flip PERFORMANCE_CART_WRITES=true
-    #      only for a deliberate, supervised live cart test (Stage B).
-    #   2. checkout(dry_run:) — OrderPlacementService forces dry_run in non-prod
-    #      and checks supplier.checkout_enabled? in prod. submit is additionally
-    #      refused unless cart writes are enabled.
+    # In PRODUCTION Performance orders like every other supplier: cart writes
+    # are on and the existing per-supplier `checkout_enabled` kill switch is the
+    # gate. OUTSIDE production cart writes are off unless
+    # PERFORMANCE_CART_WRITES=true — dev and prod share the customer's REAL PFG
+    # account and PFG exposes no line-list read, so a line left by a dev test
+    # would sit in the real cart and (correctly) fail verify_cart_matches! on the
+    # next real production order. Dev never submits either way (OrderPlacementService
+    # forces dry_run outside production).
     #
-    # SubmitOrderEntryHeader request shape and the draft's line-item response
-    # shape (order_lines) remain UNVERIFIED against a live populated cart until
-    # Stage C / a supervised cart read; add-to-cart IS verified (Stage B).
+    # Add-to-cart is verified live (Stage B). The SubmitOrderEntryHeader request
+    # and response shapes are unverified until the first real order — checkout
+    # therefore refuses to treat anything but IsSuccess:true as placed.
     def cart_writes_enabled?
-      ENV.fetch('PERFORMANCE_CART_WRITES', 'false') == 'true'
+      Rails.env.production? || ENV.fetch('PERFORMANCE_CART_WRITES', 'false') == 'true'
     end
 
     # Add/update cart lines. PFG's UpdateOrderEntryDetail needs the full product
@@ -430,9 +430,11 @@ module Scrapers
         }
       end
 
-      # LIVE submit — doubly guarded. Never reachable while cart writes are off.
+      # A live submit with nothing written to the cart would submit whatever
+      # happens to be in the draft. Can't happen in production (writes are on)
+      # or via OrderPlacementService (dry_run outside production); guards scripts.
       unless cart_writes_enabled?
-        raise ScrapingError, 'Performance live submit blocked: PERFORMANCE_CART_WRITES is not enabled'
+        raise ScrapingError, 'Performance live submit refused: cart writes are off outside production'
       end
 
       raise ScrapingError, 'Performance cart is empty' if item_count.zero?
@@ -442,8 +444,19 @@ module Scrapers
 
       logger.warn '[Performance] PLACING LIVE ORDER'
       result = api_client.submit_order(oeh)
-      confirmation = result&.dig('ResultObject', 'OrderNumber') || result&.dig('ResultObject', 'ConfirmationNumber') ||
-                     "API-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      # PFG reports rejections as HTTP 200 + IsSuccess:false. That must never
+      # read as a placed order — the chef would believe it went out when it didn't.
+      unless result.is_a?(Hash) && result['IsSuccess']
+        errors = result.is_a?(Hash) ? Array(result['ErrorMessages']).join('; ') : 'no response'
+        logger.error "[Performance] submit REJECTED: #{result.inspect.truncate(1500)}"
+        raise ScrapingError, "Performance rejected the order: #{errors.presence || 'IsSuccess false'}"
+      end
+      logger.warn "[Performance] submit response: #{result.inspect.truncate(1500)}"
+      # Response shape unverified until the first real order: prefer PFG's order
+      # number, else the draft's OrderEntryHeaderId — PFG's own id for this order,
+      # never a fabricated one.
+      ro = result['ResultObject'].is_a?(Hash) ? result['ResultObject'] : {}
+      confirmation = ro['OrderNumber'].presence || ro['ConfirmationNumber'].presence || oeh
       logger.warn "[Performance] LIVE order submitted: #{confirmation}"
 
       {

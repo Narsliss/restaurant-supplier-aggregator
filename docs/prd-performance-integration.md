@@ -167,6 +167,91 @@ verification set it only within throwaway scripts. Submit (Stage C) still needs 
 order. Remaining before live: find a line-read endpoint (or accept totals reconciliation),
 and verify SubmitOrderEntryHeader with one real order.
 
+## Production ordering enabled (2026-09-25) — supersedes the gate notes above
+
+Carmin's call: production exists to place REAL orders, so the Stage A kill switch no
+longer blocks production. `cart_writes_enabled?` = `Rails.env.production? ||
+PERFORMANCE_CART_WRITES=true`:
+- **Production:** Performance orders like every other supplier; the existing per-supplier
+  `checkout_enabled` switch is the only gate (seeded on in prod).
+- **Outside production:** cart writes stay off unless opted in. Not a blocker: dev and prod
+  share the customer's REAL PFG account and PFG has no line-list read, so a dev test line
+  left in the real cart would fail verify_cart_matches! on the next real prod order.
+
+**False-success bug fixed (found pre-deploy):** the live submit path didn't check
+`IsSuccess`; PFG rejects with HTTP 200 + IsSuccess:false, and the code fell back to a
+fabricated `API-<timestamp>` confirmation — a rejected order would have been marked
+submitted. Now: anything but IsSuccess:true raises with PFG's ErrorMessages (order →
+failed, visibly); on success the confirmation is PFG's OrderNumber, else the draft's
+OrderEntryHeaderId (PFG's own id), never fabricated. Full submit response is logged —
+the SubmitOrderEntryHeader shape is still unverified until the first real order.
+Regression-specced.
+
+Pre-deploy review also established: no migrations in the branch; the BaseScraper
+`detect_maintenance` fix has no prod effect on USF/PPO (their only caller,
+`validate_cart_before_checkout`, is never called); failed orders are excluded from
+reports (KPI_STATUSES = submitted/confirmed/dry_run_complete); PlaceOrderJob has no
+retry (no double-submit). Known reporting effect: savings peers come from the Product
+spine regardless of which suppliers a chef uses, so once PFG's catalog is in prod it
+becomes a peer in every org's savings (historicals recompute at today's prices).
+
+## Full catalog + blueprint (Claude baseline) sweep — DEV (2026-09-25)
+
+**Full catalog on dev.** Search requires text (empty/`*` queries rejected), so a
+"snowball" crawl: the importer's standard terms, then rounds of unsearched words
+harvested from PFG product names, until a round adds <40 SKUs. 4 rounds / 571 terms
+→ **3,600 products** (3,592 priced, 3,020 with images), converged. `CATALOG_PAGE_SIZE`
+raised 25→100 (verified live; 4x fewer calls — also cuts the prod daily import).
+Script: `tmp/baseline_pfg/snowball_import.rb` (gitignored, local only).
+
+**OPEN (prod) — full-catalog refresh:** the prod daily import uses only the standard
+~120 terms, which reach ~1,150 of the 3,600 products. Safe (miss-tracking skips when <60%
+of the catalog is seen, so nothing is falsely discontinued) but ~2/3 of PFG products
+would never get fresh prices. Fix: implement `PerformanceScraper#scrape_catalog_deep`
+with the snowball term-harvest so it joins the existing nightly `StaggeredDeepImportJob`
+rotation (additive, reinstate-only, no miss tracking — the deep path's contract).
+
+**Blueprint sweep** (same method + rubric as the July baseline, restricted to pairs
+with Performance on one side; working files in `tmp/baseline_pfg/`, gitignored):
+1. `export_catalog.rb` — read-only dev export (42,119 active SPs).
+2. `block_pfg.py` — original token-IDF blocking, >4x per-unit price gate, top-6/item →
+   5,231 pairs covering 1,560 of 3,600 PFG items (the rest have no counterpart —
+   exclusives/house brands/categories dev's older snapshot lacks).
+3. Claude (Sonnet) adjudication, `RUBRIC.md` = the July rubric verbatim + catch-weight
+   caution. Pass 1 = each item's top-2 (2,691 pairs); pass 2 = next-2 for unmatched
+   items (598). 3,289 decided: 1,479 match / 1,729 no_match / 81 uncertain; 0 coverage gaps.
+4. `build_artifact.py` → **`db/baseline/performance_baseline_matches.json`** (committed
+   artifact): best match per PFG item, high + medium only (low/uncertain never attach),
+   13 medium matches dropped because their own reason hedged ("likely", "?"). Keyed by
+   supplier CODE + SKU, not DB ids, so it applies to prod when PFG ships there.
+   Spot-check: high matches clean; 28/30 sampled cross-brand mediums correct (the
+   misses: purple rice vs purple sticky rice; deli vs Campbell's clam chowder).
+5. New **`rake baseline:attach SUPPLIER=performance [APPLY=1]`** (7 specs): moves ONLY the
+   new supplier's product onto the matched product's existing spine `Product`; never
+   writes the counterpart or chef `product_matches`; one-per-supplier-per-Product guard;
+   defers if the product's current Product is referenced by an OrderListItem; snapshots
+   under `claude_baseline_performance_v1` → `rake baseline:rollback RUN_TAG=... APPLY=1`.
+
+**Applied on dev:** 915 attached (19 into existing blueprint groups, 896 new
+cross-supplier links), 146 skipped by the one-per-supplier guard, 11 stale, 0 order-list
+deferrals. Dev blueprint 665 → 1,580 links; 948 PFG-shared Products now comparable.
+Verified: 0 non-PFG snapshot rows, original 665 links intact, 0 Products with 2+ PFG,
+chef list 8 unchanged today (its 825→813 drop was a user-initiated
+`bulk_merge_duplicates` on Sep 8 15:00, not this work).
+
+**Ordering impact (by design, same as the other suppliers' blueprint):** OrderBuilderService
+is supplier-scoped (unaffected); PriceComparisonService now shows PFG; **SplitOrderService
+auto-assigns each item to the cheapest connected supplier**, so PFG now wins items where
+it's cheapest. Placement still gated (`PERFORMANCE_CART_WRITES` off; dev always dry-runs).
+
+**NOT done (deliberately):** no re-run of `AiProductMatchJob` on a chef list — it
+`destroy_all`s product_matches. List 8's matches are untouched; new items syncing in
+join via the incremental matcher's Pass 1 (shared product link).
+
+**For prod:** migrate/deploy, import PFG catalog in prod, then
+`rake baseline:attach SUPPLIER=performance` (dry run first). Prod's blueprint is larger
+(~1,100 groups) so more rows will land in existing groups.
+
 ## Incidental fix
 
 `BaseScraper#detect_maintenance` called `.text` on `browser.body` (Ferrum returns raw

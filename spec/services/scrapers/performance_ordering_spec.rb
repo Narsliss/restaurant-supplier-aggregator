@@ -1,9 +1,9 @@
 require 'rails_helper'
 
-# Stage A ordering framework. The overriding guarantee under test: with cart
-# writes disabled (the default), NOTHING is ever written to PFG, and a live
-# submit is impossible.
-RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
+# Performance ordering. In production it orders like any other supplier; outside
+# production (shared REAL PFG account) nothing is written to PFG unless opted in;
+# and a submit PFG didn't accept can never read as a placed order.
+RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
   let(:supplier) { create(:supplier) }
   let(:credential) { create(:supplier_credential, supplier: supplier) }
   let(:scraper) { described_class.new(credential) }
@@ -19,8 +19,13 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
   let(:items) { [{ sku: '328740', name: 'TOMATO', quantity: 2 }, { sku: '543638', name: 'OIL', quantity: 1 }] }
 
   describe '#cart_writes_enabled?' do
-    it 'defaults to false (no env)' do
+    it 'is off outside production by default (dev shares the real PFG account)' do
       expect(scraper.cart_writes_enabled?).to be(false)
+    end
+
+    it 'is ON in production — Performance orders like every other supplier' do
+      allow(Rails.env).to receive(:production?).and_return(true)
+      expect(scraper.cart_writes_enabled?).to be(true)
     end
   end
 
@@ -136,6 +141,37 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
     end
   end
 
+  describe 'pre-order validation hooks (read-only)' do
+    it 'get_order_minimum returns the draft\'s minimum when PFG sets one' do
+      allow(api).to receive(:get_order).with(oeh).and_return({ 'MinimumOrderAmount' => 150.0 })
+      expect(scraper.get_order_minimum).to eq(minimum: 150.0)
+    end
+
+    it 'get_order_minimum returns nil when there is no minimum ($0, like this account)' do
+      allow(api).to receive(:get_order).and_return({ 'MinimumOrderAmount' => 0.0 })
+      expect(scraper.get_order_minimum).to be_nil
+    end
+
+    it 'get_order_minimum degrades to nil on an API error instead of blocking the order' do
+      allow(api).to receive(:get_order).and_raise(Scrapers::PerformanceApi::ApiError, 'boom')
+      expect(scraper.get_order_minimum).to be_nil
+    end
+
+    it 'get_delivery_availability exposes the delivery date and parsed cutoff' do
+      allow(api).to receive(:get_order)
+        .and_return({ 'DeliveryDate' => '2026-09-26T00:00:00', 'CutoffDateTime' => '2026-09-25T22:10:00' })
+      info = scraper.get_delivery_availability
+      expect(info[:available]).to be(true)
+      expect(info[:delivery_date]).to eq('2026-09-26T00:00:00')
+      expect(info[:cutoff_time]).to eq(Time.zone.parse('2026-09-25T22:10:00'))
+    end
+
+    it 'get_delivery_availability tolerates a missing/garbled cutoff' do
+      allow(api).to receive(:get_order).and_return({ 'CutoffDateTime' => 'not-a-date' })
+      expect(scraper.get_delivery_availability[:cutoff_time]).to be_nil
+    end
+  end
+
   describe '#checkout' do
     let(:order) do
       { 'TotalLines' => 2, 'TotalOrderPrice' => 120.0, 'MinimumOrderAmount' => 100.0, 'DeliveryDate' => '2026-09-09T00:00:00' }
@@ -151,12 +187,12 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
       expect(result[:confirmation_number]).to start_with('DRY-RUN-')
     end
 
-    it 'refuses a LIVE submit while cart writes are disabled (double guard)' do
+    it 'refuses a live submit outside production when nothing was written (script guard)' do
       allow(api).to receive(:get_order).and_return(order)
       expect(api).not_to receive(:submit_order)
 
       expect { scraper.checkout(dry_run: false) }
-        .to raise_error(Scrapers::BaseScraper::ScrapingError, /PERFORMANCE_CART_WRITES/)
+        .to raise_error(Scrapers::BaseScraper::ScrapingError, /cart writes are off/)
     end
 
     context 'live with cart writes enabled' do
@@ -174,13 +210,32 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
           .to raise_error(Scrapers::BaseScraper::OrderMinimumError)
       end
 
-      it 'submits and returns the confirmation number when valid' do
+      it 'submits and returns the confirmation number when PFG accepts' do
         allow(api).to receive(:get_order).and_return(order)
         expect(api).to receive(:submit_order).with(oeh)
-          .and_return({ 'ResultObject' => { 'OrderNumber' => 'PFG-12345' } })
+          .and_return({ 'IsSuccess' => true, 'ResultObject' => { 'OrderNumber' => 'PFG-12345' } })
 
         result = scraper.checkout(dry_run: false)
         expect(result).to include(dry_run: false, confirmation_number: 'PFG-12345', total: 120.0)
+      end
+
+      # Regression: PFG rejects with HTTP 200 + IsSuccess:false. The first version
+      # fell back to a fabricated "API-<timestamp>" confirmation, so a rejected
+      # order would have been marked submitted while PFG never received it.
+      it 'raises (never reports placed) when PFG rejects the submit' do
+        allow(api).to receive(:get_order).and_return(order)
+        allow(api).to receive(:submit_order)
+          .and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['Order past cutoff'], 'ResultObject' => nil })
+
+        expect { scraper.checkout(dry_run: false) }
+          .to raise_error(Scrapers::BaseScraper::ScrapingError, /rejected the order: Order past cutoff/)
+      end
+
+      it 'uses PFG\'s own draft id, not a fabricated number, when no order number comes back' do
+        allow(api).to receive(:get_order).and_return(order)
+        allow(api).to receive(:submit_order).and_return({ 'IsSuccess' => true, 'ResultObject' => {} })
+
+        expect(scraper.checkout(dry_run: false)[:confirmation_number]).to eq(oeh)
       end
     end
   end
