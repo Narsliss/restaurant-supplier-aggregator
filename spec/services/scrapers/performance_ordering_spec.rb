@@ -35,31 +35,41 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
     end
 
     context 'with cart writes ENABLED (Stage B)' do
-      before { allow(scraper).to receive(:cart_writes_enabled?).and_return(true) }
-
-      it 'refuses to write when there is no real draft (only the sentinel)' do
-        allow(api).to receive(:account_context).and_return(order_entry_header_id: Scrapers::PerformanceApi::NO_ACTIVE_ORDER, customer_id: 'cust')
-        expect(api).not_to receive(:update_order_detail)
-        expect { scraper.add_to_cart(items) }
-          .to raise_error(Scrapers::BaseScraper::ScrapingError, /CreateOrderEntryHeader/)
+      before do
+        allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
+        allow(api).to receive(:product_by_sku) { |sku| { 'ProductKey' => sku, 'ProductNumber' => sku } }
+        allow(api).to receive(:fetch_prices) { |skus| skus.to_h { |s| [s, 10.0] } }
       end
 
-      it 'writes each line via update_order_detail' do
+      it 'fetches the product + price and writes each line via update_order_detail' do
         expect(api).to receive(:update_order_detail)
-          .with(order_entry_header_id: oeh, product_key: '328740', quantity: 2)
-          .and_return({ 'IsSuccess' => true })
+          .with(hash_including(order_entry_header_id: oeh, quantity: 2)).and_return({ 'IsSuccess' => true })
         expect(api).to receive(:update_order_detail)
-          .with(order_entry_header_id: oeh, product_key: '543638', quantity: 1)
-          .and_return({ 'IsSuccess' => true })
+          .with(hash_including(order_entry_header_id: oeh, quantity: 1)).and_return({ 'IsSuccess' => true })
 
         result = scraper.add_to_cart(items)
         expect(result[:added].size).to eq(2)
       end
 
+      it 'threads the auto-created draft id from the first add onto later adds' do
+        allow(api).to receive(:account_context).and_return(order_entry_header_id: Scrapers::PerformanceApi::NO_ACTIVE_ORDER, customer_id: 'cust')
+        # first add against the sentinel returns the real draft id
+        expect(api).to receive(:update_order_detail)
+          .with(hash_including(order_entry_header_id: Scrapers::PerformanceApi::NO_ACTIVE_ORDER))
+          .and_return({ 'IsSuccess' => true, 'ResultObject' => { 'OrderEntryHeaderId' => 'draft-9' } })
+        # second add must target the created draft
+        expect(api).to receive(:update_order_detail)
+          .with(hash_including(order_entry_header_id: 'draft-9'))
+          .and_return({ 'IsSuccess' => true, 'ResultObject' => { 'OrderEntryHeaderId' => 'draft-9' } })
+
+        scraper.add_to_cart(items)
+        expect(scraper.send(:active_order_id!)).to eq('draft-9')
+      end
+
       it 'collects failures without aborting the batch' do
-        allow(api).to receive(:update_order_detail).with(hash_including(product_key: '328740'))
+        allow(api).to receive(:update_order_detail).with(hash_including(quantity: 2))
           .and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['out of stock'] })
-        allow(api).to receive(:update_order_detail).with(hash_including(product_key: '543638'))
+        allow(api).to receive(:update_order_detail).with(hash_including(quantity: 1))
           .and_return({ 'IsSuccess' => true })
 
         result = scraper.add_to_cart(items)
@@ -71,23 +81,29 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
 
   describe '#clear_cart' do
     it 'makes no writes when cart writes are disabled' do
-      expect(api).not_to receive(:order_lines)
       expect(api).not_to receive(:update_order_detail)
       scraper.clear_cart
     end
 
-    it 'zeroes each existing line when enabled' do
+    it 'no-ops safely when no lines can be enumerated (line-read unavailable)' do
       allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
-      allow(api).to receive(:order_lines).and_return([{ product_key: '999', uom_type: 0, detail_id: 'd1' }])
-      expect(api).to receive(:update_order_detail).with(hash_including(product_key: '999', quantity: 0))
+      allow(api).to receive(:order_lines).and_return([])
+      expect(api).not_to receive(:update_order_detail)
+      scraper.clear_cart
+    end
+
+    it 'does nothing when there is no open draft (sentinel)' do
+      allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
+      allow(api).to receive(:account_context).and_return(order_entry_header_id: Scrapers::PerformanceApi::NO_ACTIVE_ORDER, customer_id: 'cust')
+      expect(api).not_to receive(:order_lines)
       scraper.clear_cart
     end
   end
 
-  describe '#verify_cart_matches!' do
+  describe '#verify_cart_matches! (totals-based, fails CLOSED)' do
     context 'Stage A (writes disabled)' do
       it 'skips reconciliation and returns true (nothing was written to mismatch)' do
-        expect(api).not_to receive(:order_lines)
+        expect(api).not_to receive(:get_order)
         expect(scraper.verify_cart_matches!(items)).to be(true)
       end
     end
@@ -95,33 +111,27 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7 Stage A)' do
     context 'Stage B (writes enabled)' do
       before { allow(scraper).to receive(:cart_writes_enabled?).and_return(true) }
 
-      it 'passes when the draft matches exactly' do
-        allow(api).to receive(:order_lines).and_return([
-          { sku: '328740', quantity: 2 }, { sku: '543638', quantity: 1 }
-        ])
+      it 'passes when the draft totals match (line count + total qty)' do
+        allow(api).to receive(:get_order).and_return({ 'TotalLines' => 2, 'TotalQuantity' => 3 })
         expect(scraper.verify_cart_matches!(items)).to be(true)
       end
 
-      it 'fails CLOSED on an orphaned extra line in the draft' do
-        allow(api).to receive(:order_lines).and_return([
-          { sku: '328740', quantity: 2 }, { sku: '543638', quantity: 1 }, { sku: '000999', quantity: 5 }
-        ])
+      it 'fails CLOSED on an orphaned extra line (line count too high)' do
+        allow(api).to receive(:get_order).and_return({ 'TotalLines' => 3, 'TotalQuantity' => 3 })
         expect { scraper.verify_cart_matches!(items) }
-          .to raise_error(Scrapers::BaseScraper::CartMismatchError, /extra_in_cart/)
+          .to raise_error(Scrapers::BaseScraper::CartMismatchError, /line_count/)
       end
 
-      it 'fails CLOSED on a quantity mismatch' do
-        allow(api).to receive(:order_lines).and_return([
-          { sku: '328740', quantity: 99 }, { sku: '543638', quantity: 1 }
-        ])
+      it 'fails CLOSED on a total-quantity mismatch' do
+        allow(api).to receive(:get_order).and_return({ 'TotalLines' => 2, 'TotalQuantity' => 99 })
         expect { scraper.verify_cart_matches!(items) }
-          .to raise_error(Scrapers::BaseScraper::CartMismatchError, /quantity_mismatch/)
+          .to raise_error(Scrapers::BaseScraper::CartMismatchError, /total_quantity/)
       end
 
-      it 'fails CLOSED on a missing item' do
-        allow(api).to receive(:order_lines).and_return([{ sku: '328740', quantity: 2 }])
+      it 'fails CLOSED on a missing item (line count too low)' do
+        allow(api).to receive(:get_order).and_return({ 'TotalLines' => 1, 'TotalQuantity' => 2 })
         expect { scraper.verify_cart_matches!(items) }
-          .to raise_error(Scrapers::BaseScraper::CartMismatchError, /missing_from_cart/)
+          .to raise_error(Scrapers::BaseScraper::CartMismatchError, /line_count/)
       end
     end
   end

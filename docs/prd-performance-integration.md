@@ -131,6 +131,42 @@ Also confirmed: password-auth **auto-relogin works** after session expiry (re-dr
 with stored credentials, status → active). Recurring jobs (staggered import, sync lists,
 refresh sessions) auto-include Performance — no wiring needed.
 
+## Stage B — cart-building VERIFIED LIVE (2026-09-24, no order placed)
+
+Proven end-to-end: our `add_to_cart` builds a real PFG cart, `verify_cart_matches!`
+passes/fails-closed, `checkout(dry_run:)` reports totals without submitting, cleanup
+tears it down. A live run built chicken ×2 + tomato ×1 = **$98.82**, caught an injected
+orphan line (fail-closed), and removed everything ($0). Submit was never called.
+
+Key live findings (these replace earlier inferences):
+- **Add-to-cart auto-creates the draft.** `UpdateOrderEntryDetail` with the
+  no-active-order sentinel returns `IsSuccess:true` and a NEW real
+  `OrderEntryHeaderId` in `ResultObject`. No separate `CreateOrderEntryHeader` call
+  is needed. `add_to_cart` threads that id onto `@active_draft_id` so verify/checkout
+  act on the created draft (account_context is memoized to the pre-create sentinel).
+- **UpdateOrderEntryDetail needs the FULL product payload**, not just ProductKey — a
+  minimal body returns `IsSuccess:true` but silently creates NO line. Required fields:
+  BusinessUnitKey, BusinessUnitERPKey, CustomerId, ProductKey, UnitOfMeasureType,
+  Quantity (ABSOLUTE — a set; 0 removes), Price (raw per-UOM), ProductNumber,
+  ProductDescription, ProductBrand, ProductPackSize, ProductIsCatchWeight,
+  ProductAverageWeight, ShipLaterMaxEstimatedDays, CutoffDateTime,
+  UOMOrderQuantityAlert{Min,Max}. `add_to_cart` sources these from `product_by_sku` +
+  `fetch_prices`.
+- **No per-line READ endpoint exists.** GetOrder and GetOrderCart are header-only
+  (line data lives client-side in the SPA). So `verify_cart_matches!` reconciles on
+  GetOrder TOTALS (TotalLines == distinct SKUs, TotalQuantity == summed qty) — catches
+  orphaned/extra/missing lines and qty errors; the residual it cannot catch is a
+  same-count/same-qty SKU swap (bounded: we only submit what add_to_cart reported).
+  `order_lines` returns [] (OPEN ITEM: find a line-read endpoint) → `clear_cart` can't
+  enumerate orphans, but verify fails closed so nothing bad submits.
+- This account: `MinimumOrderAmount` = $0, valid `OrderCutoffDate` present. The earlier
+  "not set up for deliveries" (on GetCustomerDeliveryDates) does NOT block order-building.
+
+Still gated: `cart_writes_enabled?` (PERFORMANCE_CART_WRITES) OFF by default; the live
+verification set it only within throwaway scripts. Submit (Stage C) still needs a real
+order. Remaining before live: find a line-read endpoint (or accept totals reconciliation),
+and verify SubmitOrderEntryHeader with one real order.
+
 ## Incidental fix
 
 `BaseScraper#detect_maintenance` called `.text` on `browser.body` (Ferrum returns raw

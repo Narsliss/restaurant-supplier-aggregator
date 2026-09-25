@@ -274,13 +274,18 @@ module Scrapers
     #      and checks supplier.checkout_enabled? in prod. submit is additionally
     #      refused unless cart writes are enabled.
     #
-    # The UpdateOrderEntryDetail / SubmitOrderEntryHeader request shapes and the
-    # draft's line-item response shape are inferred (bundle + empty-draft recon)
-    # and remain UNVERIFIED against a populated live cart until Stage B.
+    # SubmitOrderEntryHeader request shape and the draft's line-item response
+    # shape (order_lines) remain UNVERIFIED against a live populated cart until
+    # Stage C / a supervised cart read; add-to-cart IS verified (Stage B).
     def cart_writes_enabled?
       ENV.fetch('PERFORMANCE_CART_WRITES', 'false') == 'true'
     end
 
+    # Add/update cart lines. PFG's UpdateOrderEntryDetail needs the full product
+    # payload, and passing the no-active-order sentinel auto-creates a draft and
+    # returns its real id — which we thread onto @active_draft_id so the later
+    # verify/checkout act on the created draft (account_context is memoized to
+    # the pre-create sentinel).
     def add_to_cart(items, delivery_date: nil)
       api_client.ensure_session!
       oeh = active_order_id!
@@ -293,21 +298,33 @@ module Scrapers
         quantity = item[:quantity].to_i
         next if product_key.blank? || quantity <= 0
 
-        if cart_writes_enabled?
-          require_real_draft!(oeh)
-          begin
-            res = api_client.update_order_detail(order_entry_header_id: oeh, product_key: product_key, quantity: quantity)
-            if res && res['IsSuccess']
-              added << item
-            else
-              failed << item.merge(reason: (res && res['ErrorMessages'])&.join('; '))
-            end
-          rescue Scrapers::PerformanceApi::ApiError => e
-            failed << item.merge(reason: e.message)
-          end
-        else
+        unless cart_writes_enabled?
           logger.info "[Performance][cart-dry-run] would set ProductKey=#{product_key} qty=#{quantity} (no write)"
           added << item
+          next
+        end
+
+        begin
+          product = api_client.product_by_sku(product_key)
+          if product.nil?
+            failed << item.merge(reason: 'product not found in catalog')
+            next
+          end
+          price = api_client.fetch_prices([product_key])[product_key]
+          res = api_client.update_order_detail(order_entry_header_id: oeh, product: product, quantity: quantity, price: price)
+          if res && res['IsSuccess']
+            # Capture the real draft id created on the first add.
+            new_oeh = res.dig('ResultObject', 'OrderEntryHeaderId')
+            if new_oeh.present? && new_oeh != Scrapers::PerformanceApi::NO_ACTIVE_ORDER
+              @active_draft_id = new_oeh
+              oeh = new_oeh
+            end
+            added << item
+          else
+            failed << item.merge(reason: (res && res['ErrorMessages'])&.join('; '))
+          end
+        rescue Scrapers::PerformanceApi::ApiError => e
+          failed << item.merge(reason: e.message)
         end
       end
 
@@ -323,46 +340,69 @@ module Scrapers
         return
       end
 
-      require_real_draft!(oeh)
-      api_client.order_lines(oeh).each do |line|
-        api_client.update_order_detail(
-          order_entry_header_id: oeh, product_key: line[:product_key],
-          quantity: 0, uom_type: line[:uom_type], detail_id: line[:detail_id]
-        )
+      # No open draft → nothing to clear (the sentinel isn't a real order).
+      return if oeh == Scrapers::PerformanceApi::NO_ACTIVE_ORDER
+
+      # PFG exposes no line-list read (see PerformanceApi#order_lines), so we
+      # cannot enumerate and zero orphaned lines proactively. This is safe:
+      # verify_cart_matches! reconciles the draft TOTALS before submit and fails
+      # CLOSED on any orphaned/extra line, so a stale draft can never be
+      # submitted — it just surfaces as an error the operator resolves.
+      lines = api_client.order_lines(oeh)
+      if lines.empty?
+        logger.info '[Performance] clear_cart: no enumerable lines (verify_cart_matches! guards submit)'
+        return
+      end
+
+      lines.each do |line|
+        product = line[:product] || api_client.product_by_sku(line[:sku])
+        next if product.nil?
+
+        api_client.update_order_detail(order_entry_header_id: oeh, product: product, quantity: 0, price: line[:price])
       rescue Scrapers::PerformanceApi::ApiError => e
-        logger.warn "[Performance] clear_cart: failed to zero #{line[:product_key]}: #{e.message}"
+        logger.warn "[Performance] clear_cart: failed to zero #{line[:sku]}: #{e.message}"
       end
       logger.info '[Performance] cart cleared'
     end
 
-    # Fail CLOSED: assert the PFG draft holds exactly the items we intend to
-    # order (by SKU + quantity), so a stale/orphaned line in the server-side
-    # draft can never be submitted (cf. the CW phantom-cart incident). READ-only.
+    # Fail CLOSED before submit: the PFG draft's totals must match the order we
+    # intend to place, so a stale/orphaned line in the server-side draft can
+    # never be submitted (cf. the CW phantom-cart incident). READ-only.
+    #
+    # PFG exposes no line-list read endpoint (GetOrder/GetOrderCart are
+    # header-only; the SPA keeps line state client-side) — see the order_lines
+    # open item — so reconciliation is on TOTALS: the draft's TotalLines and
+    # TotalQuantity must equal the distinct-SKU count and summed quantity we
+    # intend. This catches orphaned/extra lines, missing lines, and quantity
+    # errors. It cannot catch a same-count/same-qty SKU SWAP; that residual is
+    # bounded because add_to_cart itself echoes each line's ProductKey+qty and we
+    # only submit what add_to_cart reported adding.
     def verify_cart_matches!(expected_items)
       api_client.ensure_session!
       oeh = active_order_id!
 
-      # In Stage A (cart writes off) add_to_cart wrote nothing, so the live draft
-      # can't match — skip reconciliation rather than false-alarm. The guard IS
-      # the safety here: nothing was written, nothing can be submitted.
+      # Stage A (cart writes off): add_to_cart wrote nothing, so there is nothing
+      # to reconcile and nothing can be submitted — the write guard is the safety.
       unless cart_writes_enabled?
         logger.info '[Performance][cart-dry-run] skipping cart reconciliation (no items were written)'
         return true
       end
 
-      cart = tally_by_sku(api_client.order_lines(oeh).map { |l| { sku: l[:sku], quantity: l[:quantity] } })
       expected = tally_by_sku(expected_items.map { |i| { sku: i[:sku], quantity: i[:quantity] } })
+      expected_lines = expected.keys.size
+      expected_qty = expected.values.sum
+
+      order = api_client.get_order(oeh) || {}
+      cart_lines = order['TotalLines'].to_i
+      cart_qty = order['TotalQuantity'].to_i
 
       discrepancies = []
-      (cart.keys - expected.keys).sort.each { |sku| discrepancies << { type: 'extra_in_cart', sku: sku, cart_qty: cart[sku] } }
-      (expected.keys - cart.keys).sort.each { |sku| discrepancies << { type: 'missing_from_cart', sku: sku, expected_qty: expected[sku] } }
-      (cart.keys & expected.keys).sort.each do |sku|
-        discrepancies << { type: 'quantity_mismatch', sku: sku, cart_qty: cart[sku], expected_qty: expected[sku] } if cart[sku] != expected[sku]
-      end
+      discrepancies << { type: 'line_count', cart_lines: cart_lines, expected_lines: expected_lines } if cart_lines != expected_lines
+      discrepancies << { type: 'total_quantity', cart_qty: cart_qty, expected_qty: expected_qty } if cart_qty != expected_qty
 
       if discrepancies.any?
         raise Scrapers::BaseScraper::CartMismatchError.new(
-          "Performance draft does not match order (#{discrepancies.size} discrepancy(ies)): #{discrepancies.inspect}",
+          "Performance draft totals do not match order: #{discrepancies.inspect}",
           discrepancies: discrepancies
         )
       end
@@ -454,22 +494,11 @@ module Scrapers
       }
     end
 
+    # The order id to act on: the draft created/used during this scraper's
+    # add_to_cart if any, else the account's active order (or the no-active-order
+    # sentinel, which UpdateOrderEntryDetail auto-promotes to a real draft).
     def active_order_id!
-      oeh = api_client.account_context[:order_entry_header_id]
-      raise ScrapingError, 'No active PFG draft order found' if oeh.blank?
-
-      oeh
-    end
-
-    # A real draft is required to WRITE cart lines. account_context falls back to
-    # the no-active-order sentinel so read paths work with no open draft, but the
-    # sentinel can't hold line items. Creating a draft (CreateOrderEntryHeader)
-    # is a Stage B item — until then, a live cart write with no real draft fails
-    # loudly rather than silently targeting the sentinel.
-    def require_real_draft!(oeh)
-      return oeh unless oeh == Scrapers::PerformanceApi::NO_ACTIVE_ORDER
-
-      raise ScrapingError, 'No open PFG draft order; draft creation (CreateOrderEntryHeader) not implemented yet (Stage B)'
+      @active_draft_id || api_client.account_context[:order_entry_header_id]
     end
 
     # Tally quantities by SKU. Keys normalized to strings; quantities summed so

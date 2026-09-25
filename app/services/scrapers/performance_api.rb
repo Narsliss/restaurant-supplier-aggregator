@@ -291,45 +291,56 @@ module Scrapers
         &.dig('ResultObject')
     end
 
-    # Full draft order incl. header totals and line items (READ).
+    # The draft order HEADER incl. totals (READ). Verified live to return
+    # TotalLines / TotalQuantity / TotalOrderPrice / MinimumOrderAmount /
+    # CutoffDateTime / DeliveryDate — but NOT the line items (the SPA keeps line
+    # state client-side from UpdateOrderEntryDetail responses).
     def get_order(order_entry_header_id)
       call('Order', 'GetOrder', nil, http_method: :get,
                                 query: { 'orderEntryHeaderId' => order_entry_header_id })
         &.dig('ResultObject')
     end
 
-    # Extract the draft's line items as [{ product_key:, sku:, quantity:,
-    # uom_type:, detail_id: }] (READ). PFG only exposes the line array once the
-    # cart has content; the key/shape is inferred from the OrderEntryDetail
-    # field names and must be confirmed against a populated cart (Stage B).
-    def order_lines(order_entry_header_id)
-      order = get_order(order_entry_header_id) || {}
-      raw = order['OrderEntryDetails'] || order['Details'] || order['OrderEntryHeaderDetails'] || []
-      Array(raw).map do |line|
-        {
-          product_key: (line['ProductKey'] || line['ProductNumber']).to_s,
-          sku: (line['ProductNumber'] || line['ProductKey']).to_s,
-          quantity: (line['Quantity'] || line['QuantityOrdered']).to_i,
-          uom_type: line['UnitOfMeasureType'] || 0,
-          detail_id: line['OrderEntryDetailId']
-        }
-      end
+    # OPEN ITEM — no per-line read endpoint has been found. GetOrder and
+    # GetOrderCart are header-only; the SPA never re-fetches the line list. Until
+    # one is identified, this returns []. Consumers must NOT rely on it for
+    # reconciliation — verify_cart_matches! reconciles on GetOrder TOTALS instead.
+    def order_lines(_order_entry_header_id)
+      []
     end
 
-    # WRITE — set a line item's quantity on the draft (add/update). Guarded by
-    # PerformanceScraper#cart_writes_enabled?; never call directly in Stage A.
-    def update_order_detail(order_entry_header_id:, product_key:, quantity:, uom_type: 0, detail_id: nil)
+    # WRITE — set a line item's quantity on the draft (add/update/remove).
+    # Quantity is ABSOLUTE (a set, not an increment); 0 removes the line.
+    # Guarded by PerformanceScraper#cart_writes_enabled?.
+    #
+    # PFG requires the FULL product payload here, not just the ProductKey — a
+    # minimal body returns IsSuccess:true but silently creates no line (verified
+    # live). `product` is the CatalogProduct hash (from product_by_sku); `price`
+    # is the raw per-UOM price (from fetch_prices). Passing NO_ACTIVE_ORDER as
+    # the header auto-creates a draft and returns its real id in
+    # ResultObject.OrderEntryHeaderId.
+    def update_order_detail(order_entry_header_id:, product:, quantity:, price:, uom_type: 0)
       ctx = account_context
+      uom = Array(product['UnitOfMeasureOrderQuantities']).first || {}
       body = {
         'OrderEntryHeaderId' => order_entry_header_id,
-        'CustomerId' => ctx[:customer_id],
-        'OperationCompanyNumber' => ctx[:operation_company_number],
         'BusinessUnitKey' => ctx[:business_unit_key],
-        'DeliveryDate' => ctx[:delivery_date],
-        'ProductKey' => product_key.to_s,
+        'BusinessUnitERPKey' => product['BusinessUnitERPKey'],
+        'CustomerId' => ctx[:customer_id],
+        'ProductKey' => product['ProductKey'].to_s,
         'UnitOfMeasureType' => uom_type,
         'Quantity' => quantity.to_i,
-        'OrderEntryDetailId' => detail_id
+        'Price' => price,
+        'ProductNumber' => product['ProductNumber'].to_s,
+        'ProductDescription' => product['ProductDescription'],
+        'ProductBrand' => product['ProductBrand'],
+        'ProductPackSize' => uom['PackSize'],
+        'ProductIsCatchWeight' => uom['ProductIsCatchWeight'] || false,
+        'ProductAverageWeight' => uom['ProductAverageWeight'] || 0,
+        'ShipLaterMaxEstimatedDays' => product['ShipLaterMaxEstimatedDays'] || 0,
+        'CutoffDateTime' => nil,
+        'UOMOrderQuantityAlertThresholdMin' => uom['UOMOrderQuantityAlertThresholdMin'] || 0,
+        'UOMOrderQuantityAlertThresholdMax' => uom['UOMOrderQuantityAlertThresholdMax'] || 0
       }
       call('OrderEntryDetail', 'UpdateOrderEntryDetail', body)
     end
