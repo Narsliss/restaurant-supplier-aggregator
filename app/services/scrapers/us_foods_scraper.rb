@@ -2823,16 +2823,10 @@ module Scrapers
       email_addr = extract_text('#mfa-selector-option-text-email')
       logger.info "[UsFoods] MFA options — Text: #{text_phone}, Email: #{email_addr}"
 
-      # Prefer email over text for verification
-      if email_btn
-        mfa_method = 'Email'
-        prompt_msg = "US Foods has sent a verification code to #{email_addr}. Please check your email inbox and enter the code below."
-      elsif text_btn
-        mfa_method = 'Text'
-        prompt_msg = "US Foods has sent a verification code via text to #{text_phone}. Please check your messages and enter the code below."
-      else
-        raise ScrapingError, 'No MFA options found on page'
-      end
+      mfa_method, prompt_msg, two_fa_type = choose_mfa_method(
+        email_available: email_btn.present?, email_addr: email_addr,
+        text_available: text_btn.present?, text_phone: text_phone
+      )
 
       # Click the MFA option button
       browser.at_css("button##{mfa_method}").click
@@ -2862,7 +2856,7 @@ module Scrapers
           request_id: tfa_request.id,
           session_token: tfa_request.session_token,
           supplier_name: credential.supplier.name,
-          two_fa_type: 'email',
+          two_fa_type: two_fa_type,
           prompt_message: prompt_msg,
           expires_at: tfa_request.expires_at.iso8601
         }
@@ -2915,6 +2909,25 @@ module Scrapers
       # (id="continue") that must be clicked to complete the flow and redirect back.
       # The button may be a <button>, <input>, or custom element depending on B2C UI.
       click_b2c_continue_button
+    end
+
+    # Pick the MFA delivery method. Email is preferred, but only when the account
+    # actually has one: for phone-only accounts B2C still renders button#Email,
+    # labelled "Add your email address", and choosing it starts an enrollment
+    # journey that never redirects back to usfoods.com (cchandler360, Sep 2026).
+    # A real option always shows a masked address like "c*******4@gmail.com".
+    def choose_mfa_method(email_available:, email_addr:, text_available:, text_phone:)
+      if email_available && email_addr.to_s.include?('@')
+        ['Email',
+         "US Foods has sent a verification code to #{email_addr}. Please check your email inbox and enter the code below.",
+         'email']
+      elsif text_available
+        ['Text',
+         "US Foods has sent a verification code via text to #{text_phone}. Please check your messages and enter the code below.",
+         'sms']
+      else
+        raise ScrapingError, 'No usable MFA option on page (no email on file and no text option)'
+      end
     end
 
     # Wait for the 6 individual code input fields to appear
