@@ -135,13 +135,26 @@ class ImportSupplierListsService
       upsert_item(supplier_list, item_data, existing_items_by_sku, seen_skus)
     end
 
-    # Remove items no longer in the list
+    # Remove items no longer in the list — but only items the guide itself put
+    # here, and never one a matched row is using. The guide is where a matched
+    # list starts, not what it is: an item dropping off the supplier's guide
+    # must not erase the chef's match (destroying the item cascades to its
+    # ProductMatchItems). A kept item becomes catalog-backed — it stays
+    # orderable, and catalog imports keep its price current.
     if seen_skus.any?
-      removed = supplier_list.supplier_list_items.where.not(sku: seen_skus.to_a)
+      gone = supplier_list.supplier_list_items.from_order_guide.where.not(sku: seen_skus.to_a)
+      in_use = ProductMatchItem.select(:supplier_list_item_id)
+
+      removed = gone.where.not(id: in_use)
       removed_count = removed.count
       removed.destroy_all
       if removed_count > 0
         Rails.logger.info "[ImportLists] Removed #{removed_count} items no longer in '#{supplier_list.name}'"
+      end
+
+      kept_count = gone.where(id: in_use).update_all(source: 'catalog_search', updated_at: Time.current)
+      if kept_count > 0
+        Rails.logger.info "[ImportLists] Kept #{kept_count} matched items no longer in '#{supplier_list.name}' (now catalog-backed)"
       end
     end
 
@@ -180,7 +193,9 @@ class ImportSupplierListsService
       quantity: item_data[:quantity] || 1,
       in_stock: item_data[:in_stock] != false,
       position: item_data[:position] || 0,
-      remote_item_id: item_data[:remote_item_id]
+      remote_item_id: item_data[:remote_item_id],
+      # On the guide now, whatever put it on this list originally.
+      source: 'order_guide'
     )
     item.save!
 

@@ -420,4 +420,86 @@ RSpec.describe ImportSupplierListsService do
       expect(item.reload.price_unit).to be_blank
     end
   end
+
+  # Regression (Sep 25 2026, Noche list 12): a forced guide refresh deleted
+  # every item the supplier no longer returned — including items chefs had
+  # matched and confirmed, and every item catalog search had added. Deleting
+  # the list item cascades to its ProductMatchItems, so confirmed rows were
+  # left empty ("No match" everywhere) and no catalog-search addition ever
+  # survived a sync. The guide is only a starting point for the matched list.
+  describe '#upsert_list — items that drop off the guide' do
+    let(:user) { create(:user, :with_organization) }
+    let(:org) { user.current_organization }
+    let(:supplier) { create(:supplier) }
+    let(:location) { create(:location, organization: org, user: user) }
+    let(:credential) { create(:supplier_credential, supplier: supplier, user: user, organization_id: org.id, location_id: location.id) }
+    let(:service) { described_class.new(credential) }
+    let(:aggregated_list) { create(:aggregated_list, organization: org, location_id: location.id) }
+
+    def guide(skus)
+      { remote_id: 'guide-1', name: 'Order Guide',
+        items: skus.map.with_index { |sku, i| { sku: sku, name: "Item #{sku}", price: 10.0 + i, pack_size: '1 CS', position: i } } }
+    end
+
+    def list
+      SupplierList.find_by!(supplier: supplier, organization: org, remote_list_id: 'guide-1')
+    end
+
+    def match_item(sku, status: 'confirmed')
+      pm = create(:product_match, aggregated_list: aggregated_list, match_status: status)
+      create(:product_match_item, product_match: pm, supplier: supplier,
+                                  supplier_list_item: list.supplier_list_items.find_by!(sku: sku))
+      pm
+    end
+
+    before { service.send(:upsert_list, guide(%w[A B C])) }
+
+    it 'still removes a dropped item nobody matched' do
+      service.send(:upsert_list, guide(%w[A B]))
+
+      expect(list.supplier_list_items.pluck(:sku)).to match_array(%w[A B])
+    end
+
+    it 'keeps a dropped item a chef matched, so the confirmed row is not emptied' do
+      row = match_item('C')
+
+      service.send(:upsert_list, guide(%w[A B]))
+
+      expect(row.reload.product_match_items.map { |i| i.supplier_list_item.sku }).to eq(['C'])
+      expect(list.supplier_list_items.find_by!(sku: 'C')).to be_catalog_search
+    end
+
+    it 'keeps a matched item even when the row is not confirmed' do
+      row = match_item('C', status: 'auto_matched')
+
+      service.send(:upsert_list, guide(%w[A B]))
+
+      expect(row.reload.product_match_items.size).to eq(1)
+    end
+
+    it 'never removes an item catalog search added to the list' do
+      sli = list.supplier_list_items.create!(sku: 'CAT-1', name: 'Catalog item', price: 5, source: 'catalog_search')
+
+      service.send(:upsert_list, guide(%w[A B C]))
+
+      expect(SupplierListItem.exists?(sli.id)).to be(true)
+    end
+
+    it 'treats an item as on the guide again once the supplier lists it again' do
+      match_item('C')
+      service.send(:upsert_list, guide(%w[A B]))
+
+      service.send(:upsert_list, guide(%w[A B C]))
+
+      expect(list.supplier_list_items.find_by!(sku: 'C').source).to eq('order_guide')
+    end
+
+    it 'removes nothing when the supplier returns an empty guide' do
+      match_item('C')
+
+      service.send(:upsert_list, guide([]))
+
+      expect(list.supplier_list_items.count).to eq(3)
+    end
+  end
 end
