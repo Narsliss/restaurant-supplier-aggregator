@@ -164,6 +164,47 @@ RSpec.describe Scrapers::UsFoodsScraper do
     end
   end
 
+  describe '#choose_mfa_method' do
+    def choose(**opts)
+      scraper.send(:choose_mfa_method, **opts)
+    end
+
+    it 'uses email when the account has a real address on file' do
+      method, prompt, type = choose(email_available: true, email_addr: 'c*******4@gmail.com',
+                                    text_available: true, text_phone: '***-***-1126')
+
+      expect(method).to eq('Email')
+      expect(type).to eq('email')
+      expect(prompt).to include('c*******4@gmail.com')
+    end
+
+    # Regression — phone-only accounts still get a button#Email, labelled
+    # "Add your email address". Choosing it starts B2C's email-enrollment
+    # journey, which never redirects back to usfoods.com, so validation failed
+    # every time and the chef was told a code went to "Add your email address".
+    it 'falls back to text when the email option is the add-an-email prompt' do
+      method, prompt, type = choose(email_available: true, email_addr: 'Add your email address',
+                                    text_available: true, text_phone: '***-***-1017')
+
+      expect(method).to eq('Text')
+      expect(type).to eq('sms')
+      expect(prompt).to include('***-***-1017')
+      expect(prompt).not_to include('Add your email address')
+    end
+
+    it 'falls back to text when the email label is missing' do
+      method, = choose(email_available: true, email_addr: nil, text_available: true, text_phone: '***-***-1017')
+
+      expect(method).to eq('Text')
+    end
+
+    it 'raises when neither option is usable' do
+      expect do
+        choose(email_available: true, email_addr: 'Add your email address', text_available: false, text_phone: nil)
+      end.to raise_error(Scrapers::BaseScraper::ScrapingError, /No usable MFA option/)
+    end
+  end
+
   describe '#back_on_app?' do
     # Regression — US Foods moved Azure B2C behind a custom domain
     # (identity.usfoods.com). The old check was
