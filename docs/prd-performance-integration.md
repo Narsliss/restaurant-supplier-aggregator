@@ -195,6 +195,34 @@ retry (no double-submit). Known reporting effect: savings peers come from the Pr
 spine regardless of which suppliers a chef uses, so once PFG's catalog is in prod it
 becomes a peer in every org's savings (historicals recompute at today's prices).
 
+## Production catalog + blueprint (2026-09-25, after deploy of 7b75644)
+
+Carmin connected Performance in prod (org 7: credential 127 at location 9 = list 8's
+location; credential 128 at location 16). The connect imports (standard terms) took ~65
+min each in prod vs ~2 min on dev — prod's much larger Product table makes
+`find_or_create_product` slower per new product.
+
+Full crawl: harvested-term rounds enqueued as ordinary
+`ImportSupplierProductsJob.perform_later(6, [terms])` on the worker (`limits_concurrency`
+serializes imports per supplier, so no races). Driven by stateless per-round commands
+(terms already searched are recovered from the jobs' own arguments) after a long-lived
+driver over `railway ssh` died with its session — nothing it had enqueued was affected.
+Round 1 +240, round 2 +23 → converged at **3,601 products**.
+
+`rake baseline:attach SUPPLIER=performance` (dry run, then APPLY=1): **851 attached** (73
+into existing blueprint groups, 778 new cross-supplier links), 92 stale (counterpart SKU
+not in prod), 127 one-per-supplier, 2 deferred (order-list reference). Prod blueprint
+2,403 → 3,254 links. Verified: 0 non-PFG snapshot rows, original 2,403 links intact, 0
+Products with 2+ PFG, list 8 untouched. PFG products sharing a Product with another
+supplier: 159 → 921. Rollback: `rake baseline:rollback RUN_TAG=claude_baseline_performance_v1 APPLY=1`.
+
+**OPEN — where PFG shows on the matched list:** list 8 had 14 PFG rows (12 alfios guide
+items + 2 from catalog search). "Search catalog" (CatalogSearchService) only fills
+UNMATCHED rows by default — 71 of list 8's 1,039 — so PFG won't appear in rows already
+matched across other suppliers unless those rows are re-searched individually or catalog
+search is widened to all rows (product decision: it writes catalog items into more of a
+chef's list, chef-initiated).
+
 ## Full catalog + blueprint (Claude baseline) sweep — DEV (2026-09-25)
 
 **Full catalog on dev.** Search requires text (empty/`*` queries rejected), so a

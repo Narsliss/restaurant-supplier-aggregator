@@ -562,6 +562,9 @@ class AggregatedListsController < ApplicationController
     @suppliers = sort_suppliers_for_user(
       @aggregated_list.suppliers.select { |s| available_supplier_ids.include?(s.id) || s.email_supplier? }
     )
+    # The pre-selected cell must be one this user can place with — the market-wide
+    # cheapest can be a supplier they have no login for.
+    @orderable_supplier_ids = @suppliers.map(&:id) & Orders::AggregatedListOrderService.orderable_supplier_ids(current_user)
 
     # Matches on ANY of the user's order lists — search results surface these
     # first in their own section (chef punch item), regardless of which list

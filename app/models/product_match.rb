@@ -335,16 +335,13 @@ class ProductMatch < ApplicationRecord
     @per_unit_comparable = comparable_group.size >= 2
   end
 
-  def cheapest_supplier
-    @cheapest_supplier ||= begin
-      if per_unit_comparable?
-        comparable_group.min_by { |p| p[:comparison_metric] || p[:per_unit_price] }
-      else
-        prices = prices_by_supplier.select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
-        # Compare case-equivalents — a raw per-lb price would always "win"
-        prices.min_by { |p| p[:estimated_price] || p[:price] } if prices.any?
-      end
-    end
+  # `among:` limits the answer to suppliers a particular chef can order from. A
+  # row can carry suppliers they have no connection to (another user's guide,
+  # mapped to the same location); defaulting or routing an order there can only
+  # fail. Without `among:` this is the market-wide cheapest, unchanged.
+  def cheapest_supplier(among: nil)
+    return cheapest_among(Set.new(among)) if among
+    @cheapest_supplier ||= cheapest_among(nil)
   end
 
   def most_expensive_supplier
@@ -396,6 +393,18 @@ class ProductMatch < ApplicationRecord
   end
 
   private
+
+  # `allowed` is a Set of supplier ids, or nil for every supplier.
+  def cheapest_among(allowed)
+    pick = ->(entries) { allowed ? entries.select { |p| allowed.include?(p[:supplier]&.id) } : entries }
+    if per_unit_comparable?
+      group = pick.call(comparable_group)
+      return group.min_by { |p| p[:comparison_metric] || p[:per_unit_price] } if group.any?
+    end
+    prices = pick.call(prices_by_supplier).select { |p| p[:price].present? && p[:price] > 0 && p[:in_stock] }
+    # Compare case-equivalents — a raw per-lb price would always "win"
+    prices.min_by { |p| p[:estimated_price] || p[:price] } if prices.any?
+  end
 
   # Uses detect on the preloaded collection instead of find_by (which always hits DB)
   def primary_item

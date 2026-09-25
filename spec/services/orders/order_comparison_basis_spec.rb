@@ -26,6 +26,7 @@ RSpec.describe Orders::AggregatedListOrderService, "comparison basis" do
                                                                  pack_size: pack_size, current_price: price,
                                                                  in_stock: true))
       create(:product_match_item, product_match: match, supplier_list_item: sli, supplier: supplier)
+      create(:supplier_credential, user: user, supplier: supplier)
     end
     [list, match]
   end

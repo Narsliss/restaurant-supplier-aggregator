@@ -1,5 +1,5 @@
 <%# Wired from mockups/mobile/order-builder-a.html product card design %>
-<% cheapest = match.cheapest_supplier %>
+<% cheapest = match.cheapest_supplier(among: @orderable_supplier_ids) %>
 <%# No shared unit means no honest cheapest, so the best-price styling is
     withheld even though a supplier stays pre-selected. %>
 <% comparable = match.per_unit_comparable? %>

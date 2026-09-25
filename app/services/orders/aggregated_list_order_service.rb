@@ -2,6 +2,14 @@ module Orders
   class AggregatedListOrderService
     attr_reader :user, :aggregated_list, :selections, :location, :delivery_date, :order_list
 
+    # Suppliers this user can actually place an order with: OrderPlacementService
+    # looks up the ORDERING user's own active credential, and email suppliers need
+    # none. A matched list can hold suppliers outside this set (another user's
+    # guide mapped to the same location), so defaults must stay inside it.
+    def self.orderable_supplier_ids(user)
+      (user.supplier_credentials.active.pluck(:supplier_id) + Supplier.email_suppliers.pluck(:id)).uniq
+    end
+
     def initialize(user:, aggregated_list:, quantities:, supplier_overrides: {}, uom_overrides: {}, location: nil, delivery_date: nil, order_list: nil)
       @user = user
       @aggregated_list = aggregated_list
@@ -124,9 +132,13 @@ module Orders
             prices.find { |p| p[:supplier].id == line[:supplier_id] && p[:price].present? }
           end
           # Use the same per-unit-aware logic as ProductMatch#cheapest_supplier
-          # so the order routing matches what the UI highlights as "cheapest".
-          chosen ||= pm.cheapest_supplier
-          next unless chosen
+          # so the order routing matches what the UI highlights as "cheapest",
+          # limited to suppliers this user can order from.
+          chosen ||= pm.cheapest_supplier(among: orderable_supplier_ids)
+          unless chosen
+            Rails.logger.warn "[Order] match #{pm.id}: no orderable supplier for user #{user.id} — line skipped"
+            next
+          end
 
           supplier_list_item = chosen[:item]
           supplier_product = supplier_list_item.supplier_product
@@ -200,6 +212,10 @@ module Orders
         lines = lines.select { |l| l[:qty] > 0 }
         out[match_id] = lines if lines.any?
       end
+    end
+
+    def orderable_supplier_ids
+      @orderable_supplier_ids ||= self.class.orderable_supplier_ids(user)
     end
 
     def to_plain_hash(value)

@@ -24,6 +24,7 @@ RSpec.describe Orders::AggregatedListOrderService do
                                         supplier_product: create(:supplier_product, supplier: supplier,
                                                                                     current_price: price, in_stock: true))
       create(:product_match_item, product_match: match, supplier_list_item: sli, supplier: supplier)
+      create(:supplier_credential, user: user, supplier: supplier)
     end
     list
   end
@@ -73,6 +74,7 @@ RSpec.describe Orders::AggregatedListOrderService do
                                           price: price, pack_size: pack, price_unit: unit,
                                           supplier_product: sp)
         create(:product_match_item, product_match: match, supplier_list_item: sli, supplier: supplier)
+        create(:supplier_credential, user: user, supplier: supplier)
       end
       list
     end
@@ -182,6 +184,56 @@ RSpec.describe Orders::AggregatedListOrderService do
     end
 
     it "falls back to the cheapest supplier with no override" do
+      orders, _ = run(quantities: { match.id.to_s => "3" })
+
+      expect(orders.sole.supplier_id).to eq(cheap_supplier.id)
+    end
+  end
+
+  # ORDERING SAFETY — a matched list can carry suppliers this user has no login
+  # for (another chef's guide mapped to the same location). OrderPlacementService
+  # places with the ORDERING user's own credential, so a line routed there could
+  # only ever fail. The no-override fallback must stay inside what they can order.
+  describe "routing without a connection" do
+    it "falls back to the cheapest supplier the user can order from, not the market cheapest" do
+      user.supplier_credentials.find_by!(supplier: cheap_supplier).destroy!
+
+      orders, _ = run(quantities: { match.id.to_s => "3" })
+
+      expect(orders.sole.supplier_id).to eq(pricey_supplier.id)
+    end
+
+    it "does not count a credential that is not active" do
+      user.supplier_credentials.find_by!(supplier: cheap_supplier).update!(status: "hold")
+
+      orders, _ = run(quantities: { match.id.to_s => "3" })
+
+      expect(orders.sole.supplier_id).to eq(pricey_supplier.id)
+    end
+
+    it "does not count another user's credential" do
+      user.supplier_credentials.find_by!(supplier: cheap_supplier).destroy!
+      create(:supplier_credential, user: create(:user, current_organization: organization), supplier: cheap_supplier)
+
+      orders, _ = run(quantities: { match.id.to_s => "3" })
+
+      expect(orders.sole.supplier_id).to eq(pricey_supplier.id)
+    end
+
+    it "creates no order at all when the user can order from none of the row's suppliers" do
+      user.supplier_credentials.destroy_all
+
+      orders, batch_id = run(quantities: { match.id.to_s => "3" })
+
+      expect(orders).to be_empty
+      expect(batch_id).to be_nil
+      expect(Order.where(user: user)).to be_empty
+    end
+
+    it "treats an email supplier as orderable without any credential" do
+      user.supplier_credentials.destroy_all
+      cheap_supplier.update_columns(auth_type: "email", contact_email: "orders@example.com")
+
       orders, _ = run(quantities: { match.id.to_s => "3" })
 
       expect(orders.sole.supplier_id).to eq(cheap_supplier.id)

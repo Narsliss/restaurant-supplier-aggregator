@@ -1,4 +1,4 @@
-<% cheapest = match.cheapest_supplier %>
+<% cheapest = match.cheapest_supplier(among: @orderable_supplier_ids) %>
 <% comparable = match.per_unit_comparable? %>
 <% cheapest_price = cheapest&.dig(:price) || 0 %>
 <% cheapest_supplier_id = cheapest&.dig(:supplier)&.id %>
