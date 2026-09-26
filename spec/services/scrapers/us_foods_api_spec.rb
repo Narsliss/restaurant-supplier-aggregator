@@ -69,4 +69,26 @@ RSpec.describe Scrapers::UsFoodsApi do
       end
     end
   end
+
+  describe '#fetch_prices' do
+    # Additive only: the price fields ordering relies on are unchanged; the
+    # error USF sends alongside its "0" is now carried too.
+    it 'keeps the price fields as they were and adds the error USF sent' do
+      allow(api).to receive(:post_json).and_return(
+        'messageDetail' => { 'priceEffectiveDate' => '2026-09-25', 'productList' => [
+          { 'productNumber' => '6292155', 'unitPrice' => '0', 'eachPrice' => '0', 'priceUom' => '',
+            'errorNumber' => '1104', 'errorMessage' => 'PRODUCT ERROR - DISCONTINUED PRODUCT' },
+          { 'productNumber' => '4876785', 'unitPrice' => '39.1', 'splitPrice' => '2.12', 'priceUom' => 'CS',
+            'errorNumber' => '0', 'errorMessage' => '' }
+        ] }
+      )
+
+      prices = api.fetch_prices([6292155, 4876785])
+
+      expect(prices[6292155]).to include(case_price: 0.0, error_number: 1104,
+                                         error_message: 'PRODUCT ERROR - DISCONTINUED PRODUCT')
+      expect(prices[4876785]).to include(case_price: 39.1, split_price: 2.12, price_uom: 'CS',
+                                         error_number: 0, error_message: nil)
+    end
+  end
 end

@@ -201,7 +201,9 @@
               <%# No price %>
               <div class="border border-gray-200 bg-gray-50 min-w-0" style="padding:10px; border-radius:8px;">
                 <div class="truncate <%= supplier.brand_color_class %>" style="font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;"><%= supplier.short_name %></div>
-                <div class="text-gray-500" style="font-size:11px;">No price</div>
+                <%# The supplier says it's gone (see UsFoodsScraper.price_error) — say so,
+                    rather than leave the chef wondering why there's no price. %>
+                <div class="text-gray-500" style="font-size:11px;"><%= sp&.discontinued? ? "Discontinued" : "No price" %></div>
               </div>
             <% end %>
           <% else %>

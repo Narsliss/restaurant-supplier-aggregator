@@ -355,9 +355,34 @@ class ImportSupplierProductsService
     now = Time.current
     rows = []
 
+    discontinued_ids = []
+
     updates.each do |item|
       existing = @existing_by_sku[item[:supplier_sku]]
       next unless existing
+
+      # The supplier answered with an error instead of a price (US Foods sends
+      # "0" with it). Clear the price rather than keep a stale one or store $0;
+      # when the supplier says the product is gone, mark it discontinued.
+      if item[:unavailable]
+        gone = item[:discontinued] == true
+        rows << {
+          id: existing.id,
+          supplier_id: existing.supplier_id,
+          supplier_sku: existing.supplier_sku,
+          supplier_name: existing.supplier_name,
+          last_scraped_at: now,
+          current_price: nil,
+          previous_price: existing.current_price.to_f.positive? ? existing.current_price : existing.previous_price,
+          price_updated_at: existing.current_price.nil? ? existing.price_updated_at : now,
+          price_unit: existing.price_unit,
+          consecutive_misses: 0,
+          discontinued: gone || existing.discontinued,
+          discontinued_at: gone ? (existing.discontinued_at || now) : existing.discontinued_at
+        }
+        discontinued_ids << existing.id if gone
+        next
+      end
 
       new_price = item[:current_price]
       price_changed = new_price.present? && new_price != existing.current_price
@@ -397,6 +422,15 @@ class ImportSupplierProductsService
     )
 
     sync_prices_to_list_items(rows)
+
+    # A discontinued product has no price anywhere — including chefs' list
+    # items that carried the supplier's "0" (which read as an orderable $0.00).
+    # Only for discontinued: "unavailable to our import account" may still be
+    # buyable on a chef's own account, whose list sync prices it.
+    return if discontinued_ids.empty?
+
+    SupplierListItem.where(supplier_product_id: discontinued_ids)
+                    .update_all(price: nil, piece_price: nil, updated_at: now)
   end
 
   # Propagate updated catalog prices to linked SupplierListItems so matched

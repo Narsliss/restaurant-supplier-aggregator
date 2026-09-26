@@ -255,7 +255,7 @@ module Scrapers
           {
             supplier_sku: pn.to_s,
             supplier_name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - '),
-            current_price: price&.dig(:case_price),
+            current_price: (price&.dig(:case_price) unless self.class.price_error(price)),
             pack_size: summary['salesPackSize'],
             in_stock: nil, # Don't set stock from catalog — only order guide is authoritative
             category: summary['classDescription']&.titleize,
@@ -328,6 +328,20 @@ module Scrapers
     # Called by ImportSupplierProductsService#refresh_known_products.
     REFRESH_BATCH_SIZE = 50
 
+    # USF pricing error numbers that mean the product is gone for everyone.
+    # (1106 "proprietary" means reserved for other customers — unavailable to
+    # this account, not discontinued.) Verified against live responses Sep 25 2026.
+    DISCONTINUED_PRICE_ERRORS = [1102, 1104].freeze
+
+    # nil when the price is real; :discontinued or :unavailable when USF sent an
+    # error with its "0" — which must never be stored as a $0 price.
+    def self.price_error(price)
+      code = price&.dig(:error_number).to_i
+      return nil if code.zero?
+
+      DISCONTINUED_PRICE_ERRORS.include?(code) ? :discontinued : :unavailable
+    end
+
     def refresh_known_skus(skus, batch_size: REFRESH_BATCH_SIZE)
       api_client.ensure_session!
 
@@ -362,10 +376,10 @@ module Scrapers
 
     private
 
-    # SKU returned by the API counts as "seen" even at $0 — matches Sysco
-    # refresh semantics. $0 means "in catalog, no contract price" rather
-    # than discontinued. Only SKUs absent from the response are reported
-    # as missed (and feed into consecutive_misses tracking upstream).
+    # A SKU returned by the API counts as "seen" — only SKUs absent from the
+    # response are reported as missed (consecutive_misses upstream). When USF
+    # answers with an error instead of a price, the update carries no price
+    # and says why (see price_error): its "0" is never a real $0 price.
     def refresh_batch(batch)
       numbers = batch.map(&:to_i)
       prices = api_client.fetch_prices(numbers)
@@ -378,6 +392,13 @@ module Scrapers
 
         if price.nil?
           missed << sku.to_s
+          next
+        end
+
+        if (error = self.class.price_error(price))
+          # Still "seen" (USF answered for it), but there is no price.
+          updates << { supplier_sku: sku.to_s, current_price: nil, price_unit: nil,
+                       unavailable: true, discontinued: error == :discontinued }
           next
         end
 
@@ -411,13 +432,13 @@ module Scrapers
       {
         sku: product_number.to_s,
         name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - '),
-        price: price&.dig(:case_price),
+        price: (price&.dig(:case_price) unless self.class.price_error(price)),
         pack_size: summary['salesPackSize'],
         quantity: 1,
         in_stock: product.present?,
         position: position,
         price_unit: price&.dig(:price_uom),
-        piece_price: price&.dig(:split_price),
+        piece_price: (price&.dig(:split_price) unless self.class.price_error(price)),
         piece_pack_size: summary['eachUom'],
         remote_item_id: product_number.to_s
       }

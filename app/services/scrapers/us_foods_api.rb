@@ -318,7 +318,13 @@ module Scrapers
             split_price: item['splitPrice']&.to_f,
             price_uom: item['priceUom'],
             catch_weight: item['catchWeightFlag'],
-            effective_date: response&.dig('messageDetail', 'priceEffectiveDate')
+            effective_date: response&.dig('messageDetail', 'priceEffectiveDate'),
+            # A non-zero errorNumber means unitPrice is not a price: USF sends
+            # "0" with 1102 DOES NOT EXIST, 1104 DISCONTINUED PRODUCT,
+            # 1106 PRODUCT IS PROPRIETARY (another customer's item). Additive
+            # only — the price fields above are exactly what they always were.
+            error_number: item['errorNumber'].to_i,
+            error_message: item['errorMessage'].presence
           }
         end
       end

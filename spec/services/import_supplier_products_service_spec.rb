@@ -233,4 +233,55 @@ RSpec.describe ImportSupplierProductsService do
       expect(sp.reload.discontinued).to be(false)
     end
   end
+
+  # Sep 25 2026: US Foods answers some SKUs with an error and a "0" price
+  # (1104 discontinued, 1102 gone, 1106 reserved for other customers). The
+  # refresh stored that 0 as the price, so discontinued items showed as
+  # orderable at $0.00 on chefs' lists.
+  describe '#apply_refresh_updates — supplier said there is no price' do
+    let(:supplier) { create(:supplier) }
+    let(:credential) { create(:supplier_credential, supplier: supplier) }
+    let(:service) { described_class.new(credential) }
+    let(:supplier_list) do
+      SupplierList.create!(supplier: supplier, supplier_credential: credential,
+                           organization_id: credential.organization_id, name: 'Guide')
+    end
+    let!(:sp) do
+      SupplierProduct.create!(supplier: supplier, supplier_sku: '6292155', supplier_name: 'TOMATO, HEIRLOOM',
+                              current_price: 39.05, pack_size: '10 LB')
+    end
+    let!(:sli) do
+      supplier_list.supplier_list_items.create!(name: 'TOMATO, HEIRLOOM', sku: '6292155', price: 0,
+                                                pack_size: '10 LB', supplier_product_id: sp.id)
+    end
+
+    def apply(update)
+      service.instance_variable_set(:@existing_by_sku, { sp.supplier_sku => sp })
+      service.send(:apply_refresh_updates, [update])
+    end
+
+    it 'marks a discontinued product discontinued and clears its price everywhere' do
+      apply(supplier_sku: '6292155', current_price: nil, price_unit: nil, unavailable: true, discontinued: true)
+
+      expect(sp.reload).to have_attributes(discontinued: true, current_price: nil, previous_price: 39.05)
+      expect(sp.discontinued_at).to be_present
+      expect(sli.reload.price).to be_nil
+    end
+
+    it 'clears only the catalog price for an item reserved for other customers' do
+      sli.update!(price: 12.0)
+
+      apply(supplier_sku: '6292155', current_price: nil, price_unit: nil, unavailable: true, discontinued: false)
+
+      expect(sp.reload).to have_attributes(discontinued: false, current_price: nil)
+      # The chef's own account may still price it — their list sync decides.
+      expect(sli.reload.price).to eq(12.0)
+    end
+
+    it 'applies an ordinary price exactly as before' do
+      apply(supplier_sku: '6292155', current_price: 41.0, price_unit: 'CS')
+
+      expect(sp.reload).to have_attributes(current_price: 41.0, previous_price: 39.05, discontinued: false)
+    end
+  end
 end

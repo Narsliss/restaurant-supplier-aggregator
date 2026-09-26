@@ -144,7 +144,11 @@
               <% if item.nil? || (item.price || item.supplier_product&.current_price).blank? %>
                 <div class="rounded-lg border border-dashed border-gray-200 py-1.5 text-center select-none flex flex-col justify-center">
                   <div class="text-[9px] font-bold text-gray-300 truncate px-0.5"><%= supplier.short_name %></div>
-                  <div class="text-[12px] font-bold text-gray-300">N/A</div>
+                  <% if item&.supplier_product&.discontinued? %>
+                    <div class="text-[10px] font-bold text-gray-400">Discontinued</div>
+                  <% else %>
+                    <div class="text-[12px] font-bold text-gray-300">N/A</div>
+                  <% end %>
                 </div>
               <% else %>
                 <%

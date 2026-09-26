@@ -95,15 +95,42 @@ RSpec.describe Scrapers::UsFoodsScraper do
       expect(result).to eq(updated: 2, missed: 0, batches: 1)
     end
 
-    it 'counts $0 prices as updates (not misses) so no-contract items stay seen' do
+    # Sep 25 2026: USF's "0" came with an error every time we checked it —
+    # 1104 DISCONTINUED PRODUCT, 1102 DOES NOT EXIST, 1106 PRODUCT IS
+    # PROPRIETARY. Stored as $0 it read as an orderable $0.00 item.
+    it 'reports a discontinued product as seen but priceless, never as a $0 price' do
       allow(fake_api).to receive(:fetch_prices).with([300]).and_return(
-        300 => { case_price: 0.0, split_price: nil, price_uom: '', catch_weight: false }
+        300 => { case_price: 0.0, split_price: 0.0, price_uom: '', catch_weight: false,
+                 error_number: 1104, error_message: 'PRODUCT ERROR - DISCONTINUED PRODUCT' }
       )
 
-      result = scraper.refresh_known_skus(['300'])
+      yields = []
+      result = scraper.refresh_known_skus(['300']) { |r| yields << r }
 
-      expect(result[:updated]).to eq(1)
-      expect(result[:missed]).to eq(0)
+      expect(yields.first[:updates]).to eq([{ supplier_sku: '300', current_price: nil, price_unit: nil,
+                                             unavailable: true, discontinued: true }])
+      expect(result).to include(updated: 1, missed: 0)
+    end
+
+    it 'reports a product reserved for other customers as priceless but not discontinued' do
+      allow(fake_api).to receive(:fetch_prices).with([301]).and_return(
+        301 => { case_price: 0.0, split_price: 0.0, price_uom: '', catch_weight: false,
+                 error_number: 1106, error_message: 'PRODUCT ERROR - PRODUCT IS PROPRIETARY' }
+      )
+
+      scraper.refresh_known_skus(['301']) do |batch|
+        expect(batch[:updates].first).to include(current_price: nil, unavailable: true, discontinued: false)
+      end
+    end
+
+    it 'still passes through a price that came with no error' do
+      allow(fake_api).to receive(:fetch_prices).with([302]).and_return(
+        302 => { case_price: 0.0, split_price: nil, price_uom: 'CS', catch_weight: false, error_number: 0 }
+      )
+
+      scraper.refresh_known_skus(['302']) do |batch|
+        expect(batch[:updates].first).to eq(supplier_sku: '302', current_price: 0.0, price_unit: 'CS')
+      end
     end
 
     it 'defaults price_unit to "CS" when the API returns a blank priceUom' do
@@ -235,6 +262,43 @@ RSpec.describe Scrapers::UsFoodsScraper do
     it 'treats a blank URL as not-yet-redirected' do
       expect(scraper.send(:back_on_app?, '')).to be false
       expect(scraper.send(:back_on_app?, nil)).to be false
+    end
+  end
+
+  describe '.price_error' do
+    it 'reads discontinued and does-not-exist as discontinued' do
+      expect(described_class.price_error(error_number: 1104)).to eq(:discontinued)
+      expect(described_class.price_error(error_number: 1102)).to eq(:discontinued)
+    end
+
+    it 'reads any other error as unavailable to this account' do
+      expect(described_class.price_error(error_number: 1106)).to eq(:unavailable)
+    end
+
+    it 'reads no error (or no price record) as a real price' do
+      expect(described_class.price_error(error_number: 0, case_price: 12.5)).to be_nil
+      expect(described_class.price_error(nil)).to be_nil
+    end
+  end
+
+  describe '#format_list_item (order-guide sync)' do
+    let(:product) { { 'summary' => { 'brand' => 'PACKER', 'productDescTxtl' => 'TOMATO, HEIRLOOM', 'salesPackSize' => '10 LB' } } }
+
+    it 'stores no price when USF answers with an error' do
+      price = { case_price: 0.0, split_price: 0.0, price_uom: '', error_number: 1104 }
+
+      row = scraper.send(:format_list_item, 6292155, product, price, 0)
+
+      expect(row[:price]).to be_nil
+      expect(row[:piece_price]).to be_nil
+    end
+
+    it 'keeps a real price exactly as before' do
+      price = { case_price: 39.05, split_price: 4.1, price_uom: 'CS', error_number: 0 }
+
+      row = scraper.send(:format_list_item, 6292155, product, price, 0)
+
+      expect(row).to include(price: 39.05, piece_price: 4.1, price_unit: 'CS')
     end
   end
 end
