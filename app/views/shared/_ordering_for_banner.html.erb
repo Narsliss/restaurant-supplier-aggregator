@@ -1,0 +1,37 @@
+<%#
+  Which restaurant these orders are for — unmissable, because chefs are often
+  in a hurry and an owner can order for several restaurants.
+
+  locals:
+    location         — the Location the orders are (or will be) recorded against;
+                       nil means none is selected
+    viewing_location — optional: the location of the list being viewed; when it
+                       differs from `location`, say so in red
+    compact          — true on phone layouts
+%>
+<% viewing_location = local_assigns[:viewing_location] %>
+<% compact = local_assigns.fetch(:compact, false) %>
+<% mismatch = location && viewing_location && viewing_location.id != location.id %>
+<% state = location.nil? ? "missing" : (mismatch ? "mismatch" : "ok") %>
+<% address = location && [location.address, location.city].map(&:presence).compact.join(", ") %>
+
+<div role="status"
+     data-ordering-for-state="<%= state %>"
+     data-ordering-for="<%= location&.id %>"
+     class="<%= state == "ok" ? "bg-brand-orange-dark" : "bg-red-600" %> text-white rounded-xl shadow-lg ring-4 ring-white/40 <%= compact ? "mx-2 mb-3 px-3 py-2" : "mb-6 px-5 py-3" %>">
+  <% if location.nil? %>
+    <div class="<%= compact ? "text-[10px]" : "text-xs" %> font-bold uppercase tracking-widest text-white/80">Ordering for</div>
+    <div class="<%= compact ? "text-lg" : "text-2xl" %> font-extrabold uppercase tracking-wide leading-tight">No location selected</div>
+    <div class="<%= compact ? "text-[11px]" : "text-sm" %> text-white/80">Choose the restaurant you are ordering for before placing this order.</div>
+  <% else %>
+    <div class="<%= compact ? "text-[10px]" : "text-xs" %> font-bold uppercase tracking-widest text-white/80">You are ordering for</div>
+    <div class="<%= compact ? "text-lg" : "text-2xl" %> font-extrabold uppercase tracking-wide leading-tight"><%= location.name %></div>
+    <% if mismatch %>
+      <div class="<%= compact ? "text-[11px]" : "text-sm" %> font-bold">
+        Heads up: this is <%= viewing_location.name %>'s list, but these orders will be placed for <%= location.name %>.
+      </div>
+    <% elsif address.present? %>
+      <div class="<%= compact ? "text-[11px]" : "text-sm" %> text-white/70"><%= address %></div>
+    <% end %>
+  <% end %>
+</div>

@@ -29,6 +29,10 @@
 
     <%# --- Sticky search header --- %>
     <header class="sticky top-0 z-30 bg-brand-cream/95 backdrop-blur border-b border-gray-200/60 px-3 pt-3 pb-2">
+      <%# Stays on screen while scrolling (sticky header). Orders are recorded
+          against current_location (OrdersController#create_from_aggregated_list). %>
+      <%= ordering_for_banner(location: current_location, compact: true,
+                              viewing_location: Location.find_by(id: @aggregated_list.location_id)) %>
       <div class="flex items-center gap-2 mb-2">
         <h1 class="font-heading text-xl font-semibold text-brand-navy tracking-wide flex-1">Order</h1>
         <span class="text-[11px] text-gray-400 font-medium truncate max-w-[45%]"><%= @aggregated_list.name %></span>

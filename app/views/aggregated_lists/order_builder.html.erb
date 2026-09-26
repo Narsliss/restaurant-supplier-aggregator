@@ -12,6 +12,11 @@
     <%= link_to "&larr; New Order".html_safe, select_list_orders_path, class: "inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-full border border-brand-orange/30 text-brand-orange bg-brand-orange/5 hover:bg-brand-orange/10 transition-colors" %>
   </div>
 
+  <%# Orders from this builder are recorded against current_location
+      (OrdersController#create_from_aggregated_list). %>
+  <%= ordering_for_banner(location: current_location,
+                          viewing_location: Location.find_by(id: @aggregated_list.location_id)) %>
+
   <div class="mb-6">
     <h1 class="text-2xl font-heading font-bold text-gray-900">Build Order</h1>
     <p class="mt-1 text-sm text-gray-500">

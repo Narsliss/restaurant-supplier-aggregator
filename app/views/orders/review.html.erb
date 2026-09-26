@@ -26,6 +26,8 @@
     <% end %>
   </div>
 
+  <%= ordering_for_banner(location: @orders.first&.location) %>
+
   <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start mb-6">
     <div>
       <h1 class="text-2xl font-heading font-bold text-gray-900">Review Orders</h1>
