@@ -1,4 +1,10 @@
 class Organization < ApplicationRecord
+  # An organization's matched lists go first so their rows release the supplier
+  # list items (which can't be deleted while a row uses them). Not recorded.
+  before_destroy(prepend: true) do
+    MatchChange.as('organization_deleted') { aggregated_lists.destroy_all }
+  end
+
   # Associations
   has_many :memberships, dependent: :destroy
   has_many :users, through: :memberships

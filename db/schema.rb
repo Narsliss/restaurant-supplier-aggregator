@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_08_31_180000) do
+ActiveRecord::Schema[7.1].define(version: 2026_09_25_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -318,6 +318,31 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_31_180000) do
     t.index ["organization_id", "name"], name: "index_locations_on_org_and_name", unique: true
     t.index ["organization_id"], name: "index_locations_on_organization_id"
     t.index ["user_id"], name: "index_locations_on_user_id"
+  end
+
+  create_table "match_health_checks", force: :cascade do |t|
+    t.jsonb "empty_row_ids", default: [], null: false
+    t.jsonb "stranded_order_list_item_ids", default: [], null: false
+    t.datetime "created_at", null: false
+  end
+
+  create_table "match_item_removals", force: :cascade do |t|
+    t.bigint "organization_id"
+    t.bigint "aggregated_list_id"
+    t.bigint "product_match_id"
+    t.string "row_name"
+    t.string "row_status"
+    t.bigint "supplier_id"
+    t.bigint "supplier_list_id"
+    t.bigint "supplier_list_item_id"
+    t.bigint "supplier_product_id"
+    t.string "sku"
+    t.string "item_name"
+    t.string "cause", null: false
+    t.bigint "user_id"
+    t.datetime "created_at", null: false
+    t.index ["aggregated_list_id", "created_at"], name: "index_match_item_removals_on_aggregated_list_id_and_created_at"
+    t.index ["product_match_id"], name: "index_match_item_removals_on_product_match_id"
   end
 
   create_table "membership_locations", force: :cascade do |t|
@@ -1172,7 +1197,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_08_31_180000) do
   add_foreign_key "organization_invitations", "organizations"
   add_foreign_key "organization_invitations", "users", column: "invited_by_id"
   add_foreign_key "product_match_items", "product_matches", on_delete: :cascade
-  add_foreign_key "product_match_items", "supplier_list_items", on_delete: :cascade
+  add_foreign_key "product_match_items", "supplier_list_items", on_delete: :restrict
   add_foreign_key "product_match_items", "suppliers"
   add_foreign_key "product_matches", "aggregated_lists", on_delete: :cascade
   add_foreign_key "product_matches", "users", column: "off_list_added_by_id"

@@ -61,7 +61,7 @@ class AiProductMatcherService
     # delete and preserves the old matches instead of leaving an empty list.
     ActiveRecord::Base.transaction do
       # Clear existing matches (re-running matching)
-      aggregated_list.product_matches.destroy_all
+      MatchChange.as('rematch_all') { aggregated_list.product_matches.destroy_all }
 
       # Remove catalog-search-created items from previous runs so they don't
       # snowball on re-match. Catalog search will re-create them afterwards.

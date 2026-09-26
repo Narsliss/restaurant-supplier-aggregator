@@ -1,0 +1,36 @@
+<h2><%= @first_check ? "Matched-list health — first check" : "Matched lists lost products since the last check" %></h2>
+
+<p>
+  <strong><%= @total_empty %></strong> visible matched rows have no products in them, and
+  <strong><%= @total_stranded %></strong> order-list entries point at such rows.
+  <% unless @first_check %>Below is only what is new since the last daily check.<% end %>
+</p>
+
+<% if @rows.any? %>
+  <h3>Empty rows</h3>
+  <table cellpadding="4" style="border-collapse: collapse;">
+    <tr>
+      <th align="left">Organization</th><th align="left">List</th><th align="left">Row</th>
+      <th align="left">Status</th><th align="left">Last removal</th>
+    </tr>
+    <% @rows.each do |row| %>
+      <% removal = @last_removals[row.id] %>
+      <tr>
+        <td><%= row.aggregated_list&.organization&.name %></td>
+        <td><%= row.aggregated_list&.name %> (#<%= row.aggregated_list_id %>)</td>
+        <td><%= row.canonical_name %> (#<%= row.id %>)</td>
+        <td><%= row.match_status %></td>
+        <td><%= removal ? "#{removal.cause}: #{removal.item_name} at #{removal.created_at.strftime('%b %-d %H:%M')}" : "no record" %></td>
+      </tr>
+    <% end %>
+  </table>
+<% end %>
+
+<% if @stranded.any? %>
+  <h3>Order-list entries pointing at empty rows</h3>
+  <ul>
+    <% @stranded.each do |oli| %>
+      <li><%= oli.order_list&.name %> (#<%= oli.order_list_id %>): <%= oli.product_match&.canonical_name %> (row #<%= oli.product_match_id %>)</li>
+    <% end %>
+  </ul>
+<% end %>

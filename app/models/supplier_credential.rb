@@ -11,6 +11,11 @@ class SupplierCredential < ApplicationRecord
   belongs_to :location, optional: true
   has_many :scraping_logs, dependent: :destroy
   has_many :supplier_2fa_requests, dependent: :destroy
+  # Removing a supplier connection is a chef's deliberate decision to drop that
+  # supplier: its items come out of matched rows first (recorded), because the
+  # database refuses to delete list items a matched row still uses. Declared
+  # before the lists' dependent destroy so it runs first.
+  before_destroy :remove_supplier_from_matched_lists, prepend: true
   has_many :supplier_lists, dependent: :destroy
 
   # Validations
@@ -177,6 +182,12 @@ class SupplierCredential < ApplicationRecord
   end
 
   private
+
+  def remove_supplier_from_matched_lists
+    items = SupplierListItem.where(supplier_list_id: supplier_lists.select(:id))
+    MatchedListSupplierRemoval.new(ProductMatchItem.where(supplier_list_item_id: items.select(:id)),
+                                   cause: 'supplier_connection_removed').call
+  end
 
   def encryption_key
     Rails.application.credentials.encryption_key ||

@@ -4,6 +4,8 @@ class ApplicationController < ActionController::Base
 
   before_action :set_mobile_variant
   before_action :authenticate_user!
+  # Removal records name who made the change (see MatchItemRemoval).
+  before_action { MatchChange.user = current_user if user_signed_in? }
   before_action :redirect_salesperson_to_crm
   before_action :ensure_onboarding_complete, unless: :skip_onboarding_check?
   before_action :require_subscription, unless: :skip_subscription_check?

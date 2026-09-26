@@ -2,6 +2,7 @@ class ProductMatchItemsController < ApplicationController
   before_action :require_location_context!
   before_action :set_aggregated_list_from_match
   before_action :require_list_write_access!
+  around_action { |_controller, action| MatchChange.as('chef_edit') { action.call } }
 
   def create
     supplier_id = params[:product_match_item][:supplier_id]

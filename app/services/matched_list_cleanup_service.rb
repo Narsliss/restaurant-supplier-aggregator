@@ -109,7 +109,7 @@ class MatchedListCleanupService
         end
         next unless covered
 
-        merge_into!(pm, keeper)
+        MatchChange.as('auto_merge') { merge_into!(pm, keeper) }
         merged += 1
       end
     end
@@ -126,7 +126,7 @@ class MatchedListCleanupService
     raise ArgumentError, 'line is not flagged as a duplicate' unless target
     raise ArgumentError, 'cross-list merge' unless target.aggregated_list_id == aggregated_list.id
 
-    merge_into!(duplicate, target)
+    MatchChange.as('cleanup_merge') { merge_into!(duplicate, target) }
   end
 
   # Shared merge mechanics: move missing-supplier items, drop redundant

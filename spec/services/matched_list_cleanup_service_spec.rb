@@ -92,6 +92,8 @@ RSpec.describe MatchedListCleanupService do
       expect(supplier_ids).to match_array([usf.id, sysco.id])
       # The dropped PMI's SupplierListItem survives — only the grouping went away
       expect(SupplierListItem.exists?(sku: 'U1B')).to be(true)
+      # ...and the dropped copy is on record as a cleanup merge
+      expect(MatchItemRemoval.where(product_match_id: dup.id).pluck(:cause)).to include('cleanup_merge')
     end
 
     it 'repoints chef order-list rows and current-order carts to the keeper (ordering safety)' do

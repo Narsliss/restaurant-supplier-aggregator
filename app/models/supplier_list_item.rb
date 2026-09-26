@@ -4,7 +4,11 @@ class SupplierListItem < ApplicationRecord
   # Associations
   belongs_to :supplier_list
   belongs_to :supplier_product, optional: true
-  has_many :product_match_items, dependent: :destroy
+  # A list item a chef's matched row uses can't be deleted — by a sync, an
+  # import, a failed login, anything. The foreign key refuses it too. Taking a
+  # supplier out of matched rows is its own explicit step:
+  # MatchedListSupplierRemoval (see SupplierCredential / Supplier).
+  has_many :product_match_items, dependent: :restrict_with_exception
   has_many :product_matches, through: :product_match_items
 
   # Validations

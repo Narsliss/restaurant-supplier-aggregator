@@ -37,6 +37,14 @@ production:
     schedule: "0 8 * * *"
     description: "Sync supplier lists/order guides once daily at 4 AM EST (8 AM UTC)"
 
+  # Daily matched-list health check, after the list sync: emails the super admin
+  # if rows lost all their products or order-list entries point at empty rows.
+  match_health_check:
+    class: MatchHealthCheckJob
+    queue: low
+    schedule: "0 11 * * *"
+    description: "Check matched lists for newly empty rows at 7 AM EST (11 AM UTC)"
+
   # Nightly demo environment reset (no-op unless DEMO_MODE=true)
   demo_nightly_reset:
     class: DemoResetJob

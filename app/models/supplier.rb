@@ -1,4 +1,11 @@
 class Supplier < ApplicationRecord
+  # Deleting a supplier takes it out of every matched row first (recorded) —
+  # its list items can't be deleted while rows use them. prepend: runs before
+  # the dependent destroys below.
+  before_destroy(prepend: true) do
+    MatchedListSupplierRemoval.new(ProductMatchItem.where(supplier_id: id), cause: 'supplier_deleted').call
+  end
+
   # Associations
   has_many :supplier_credentials, dependent: :destroy
   has_many :users, through: :supplier_credentials
