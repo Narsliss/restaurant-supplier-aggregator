@@ -19,6 +19,7 @@ class SyncNewProductsJob < ApplicationJob
     if new_items.empty?
       aggregated_list.mark_matched!
       Rails.logger.info "[SyncNewProductsJob] List #{aggregated_list_id}: no new items to sync"
+      fill_from_product_map(aggregated_list)
       return
     end
 
@@ -39,10 +40,25 @@ class SyncNewProductsJob < ApplicationJob
                         "#{result[:errored]} item(s) errored — first 5: #{result[:errors].first(5).inspect}"
     end
 
+    # Then the other direction: every row gets each connected supplier's
+    # product from the shared product map (the blueprint), not just the ones
+    # on that supplier's order guide. Before catalog search, so the map wins.
+    fill_from_product_map(aggregated_list)
+
     # Chain catalog search for unmatched items (same as other match jobs)
     if aggregated_list.reload.matched? && aggregated_list.unmatched_count > 0
       aggregated_list.update(catalog_search_status: 'searching')
       CatalogSearchJob.perform_later(aggregated_list.id)
     end
+  end
+
+  private
+
+  # Additive and guarded (see ProductMapFillService); a failure here never
+  # undoes or blocks the guide matching above.
+  def fill_from_product_map(aggregated_list)
+    ProductMapFillService.new(aggregated_list).call
+  rescue StandardError => e
+    Rails.logger.error "[SyncNewProductsJob] Product map fill failed for list #{aggregated_list.id}: #{e.class} #{e.message}"
   end
 end
