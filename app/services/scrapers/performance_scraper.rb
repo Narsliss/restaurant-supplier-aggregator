@@ -328,7 +328,21 @@ module Scrapers
         end
       end
 
+      set_delivery_date!(oeh, delivery_date) if delivery_date.present? && added.any?
+
       { added: added, failed: failed }
+    end
+
+    # The draft must carry the chef's delivery date — PFG otherwise keeps its own
+    # default. Fails loudly (nothing is submitted); verify_cart_matches! also
+    # re-reads the date before submit.
+    def set_delivery_date!(oeh, delivery_date)
+      @intended_delivery_date = delivery_date.to_date
+      res = api_client.update_delivery_date(oeh, @intended_delivery_date)
+      return if res && res['IsSuccess']
+
+      raise ScrapingError, "Performance would not set delivery date #{@intended_delivery_date}: " \
+                           "#{Array(res && res['ErrorMessages']).join('; ').presence || 'no response'}"
     end
 
     def clear_cart
@@ -343,26 +357,19 @@ module Scrapers
       # No open draft → nothing to clear (the sentinel isn't a real order).
       return if oeh == Scrapers::PerformanceApi::NO_ACTIVE_ORDER
 
-      # PFG exposes no line-list read (see PerformanceApi#order_lines), so we
-      # cannot enumerate and zero orphaned lines proactively. This is safe:
-      # verify_cart_matches! reconciles the draft TOTALS before submit and fails
-      # CLOSED on any orphaned/extra line, so a stale draft can never be
-      # submitted — it just surfaces as an error the operator resolves.
-      lines = api_client.order_lines(oeh)
-      if lines.empty?
-        logger.info '[Performance] clear_cart: no enumerable lines (verify_cart_matches! guards submit)'
-        return
+      # PFG has no per-line read, so lines can't be zeroed one by one. Delete the
+      # whole unsubmitted draft instead — the site's own way to discard one — and
+      # let add_to_cart create a fresh draft. (Same as every supplier: placing an
+      # order empties that account's cart first.) If PFG refuses, the stale draft
+      # stays and verify_cart_matches! fails the order closed before any submit.
+      res = api_client.delete_order_entry_header(oeh)
+      if res && res['IsSuccess']
+        @active_draft_id = nil
+        api_client.forget_active_order!
+        logger.info "[Performance] cart cleared (deleted draft #{oeh})"
+      else
+        logger.warn "[Performance] clear_cart: could not delete draft #{oeh}: #{res && res['ErrorMessages']}"
       end
-
-      lines.each do |line|
-        product = line[:product] || api_client.product_by_sku(line[:sku])
-        next if product.nil?
-
-        api_client.update_order_detail(order_entry_header_id: oeh, product: product, quantity: 0, price: line[:price])
-      rescue Scrapers::PerformanceApi::ApiError => e
-        logger.warn "[Performance] clear_cart: failed to zero #{line[:sku]}: #{e.message}"
-      end
-      logger.info '[Performance] cart cleared'
     end
 
     # Fail CLOSED before submit: the PFG draft's totals must match the order we
@@ -399,6 +406,12 @@ module Scrapers
       discrepancies = []
       discrepancies << { type: 'line_count', cart_lines: cart_lines, expected_lines: expected_lines } if cart_lines != expected_lines
       discrepancies << { type: 'total_quantity', cart_qty: cart_qty, expected_qty: expected_qty } if cart_qty != expected_qty
+      if @intended_delivery_date
+        cart_date = (Date.parse(order['DeliveryDate'].to_s) rescue nil)
+        if cart_date != @intended_delivery_date
+          discrepancies << { type: 'delivery_date', cart_date: cart_date&.iso8601, expected_date: @intended_delivery_date.iso8601 }
+        end
+      end
 
       if discrepancies.any?
         raise Scrapers::BaseScraper::CartMismatchError.new(
@@ -444,9 +457,12 @@ module Scrapers
 
       logger.warn '[Performance] PLACING LIVE ORDER'
       result = api_client.submit_order(oeh)
-      # PFG reports rejections as HTTP 200 + IsSuccess:false. That must never
-      # read as a placed order — the chef would believe it went out when it didn't.
-      unless result.is_a?(Hash) && result['IsSuccess']
+      # PFG reports rejections as HTTP 200 + IsSuccess:false — and, per the site's
+      # own code, an order is only placed when ResultObject.AcceptOrder is true
+      # (IsSuccess without it shows "Your order could not be submitted"). Anything
+      # else must never read as a placed order.
+      accepted = result.is_a?(Hash) && result['IsSuccess'] && result.dig('ResultObject', 'AcceptOrder') == true
+      unless accepted
         errors = result.is_a?(Hash) ? Array(result['ErrorMessages']).join('; ') : 'no response'
         logger.error "[Performance] submit REJECTED: #{result.inspect.truncate(1500)}"
         raise ScrapingError, "Performance rejected the order: #{errors.presence || 'IsSuccess false'}"

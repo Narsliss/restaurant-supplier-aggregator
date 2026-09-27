@@ -71,6 +71,22 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
         expect(scraper.send(:active_order_id!)).to eq('draft-9')
       end
 
+      # Order #334 was built for Sep 28 (PFG's default) instead of the chef's Oct 2.
+      it 'sets the chef\'s delivery date on the draft' do
+        allow(api).to receive(:update_order_detail).and_return({ 'IsSuccess' => true })
+        expect(api).to receive(:update_delivery_date).with(oeh, Date.new(2026, 10, 2)).and_return({ 'IsSuccess' => true })
+
+        scraper.add_to_cart(items, delivery_date: Date.new(2026, 10, 2))
+      end
+
+      it 'fails loudly when PFG will not take the delivery date' do
+        allow(api).to receive(:update_order_detail).and_return({ 'IsSuccess' => true })
+        allow(api).to receive(:update_delivery_date).and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['No delivery that day'] })
+
+        expect { scraper.add_to_cart(items, delivery_date: Date.new(2026, 10, 4)) }
+          .to raise_error(Scrapers::BaseScraper::ScrapingError, /No delivery that day/)
+      end
+
       it 'collects failures without aborting the batch' do
         allow(api).to receive(:update_order_detail).with(hash_including(quantity: 2))
           .and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['out of stock'] })
@@ -90,17 +106,24 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
       scraper.clear_cart
     end
 
-    it 'no-ops safely when no lines can be enumerated (line-read unavailable)' do
+    it 'deletes the open draft so the next add starts a fresh one (PFG has no line list to zero)' do
       allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
-      allow(api).to receive(:order_lines).and_return([])
-      expect(api).not_to receive(:update_order_detail)
+      expect(api).to receive(:delete_order_entry_header).with(oeh).and_return({ 'IsSuccess' => true })
+      expect(api).to receive(:forget_active_order!)
+      scraper.clear_cart
+    end
+
+    it 'leaves the draft (verify fails the order closed) when PFG refuses the delete' do
+      allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
+      allow(api).to receive(:delete_order_entry_header).and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['nope'] })
+      expect(api).not_to receive(:forget_active_order!)
       scraper.clear_cart
     end
 
     it 'does nothing when there is no open draft (sentinel)' do
       allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
       allow(api).to receive(:account_context).and_return(order_entry_header_id: Scrapers::PerformanceApi::NO_ACTIVE_ORDER, customer_id: 'cust')
-      expect(api).not_to receive(:order_lines)
+      expect(api).not_to receive(:delete_order_entry_header)
       scraper.clear_cart
     end
   end
@@ -131,6 +154,19 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
         allow(api).to receive(:get_order).and_return({ 'TotalLines' => 2, 'TotalQuantity' => 99 })
         expect { scraper.verify_cart_matches!(items) }
           .to raise_error(Scrapers::BaseScraper::CartMismatchError, /total_quantity/)
+      end
+
+      it 'fails CLOSED when the draft\'s delivery date is not the one the chef picked' do
+        allow(api).to receive(:update_order_detail).and_return({ 'IsSuccess' => true })
+        allow(api).to receive(:product_by_sku) { |sku| { 'ProductKey' => sku, 'ProductNumber' => sku } }
+        allow(api).to receive(:fetch_prices) { |skus| skus.to_h { |s| [s, 10.0] } }
+        allow(api).to receive(:update_delivery_date).and_return({ 'IsSuccess' => true })
+        scraper.add_to_cart(items, delivery_date: Date.new(2026, 10, 2))
+        allow(api).to receive(:get_order)
+          .and_return({ 'TotalLines' => 2, 'TotalQuantity' => 3, 'DeliveryDate' => '2026-09-28T00:00:00' })
+
+        expect { scraper.verify_cart_matches!(items) }
+          .to raise_error(Scrapers::BaseScraper::CartMismatchError, /delivery_date/)
       end
 
       it 'fails CLOSED on a missing item (line count too low)' do
@@ -213,7 +249,7 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
       it 'submits and returns the confirmation number when PFG accepts' do
         allow(api).to receive(:get_order).and_return(order)
         expect(api).to receive(:submit_order).with(oeh)
-          .and_return({ 'IsSuccess' => true, 'ResultObject' => { 'OrderNumber' => 'PFG-12345' } })
+          .and_return({ 'IsSuccess' => true, 'ResultObject' => { 'AcceptOrder' => true, 'OrderNumber' => 'PFG-12345' } })
 
         result = scraper.checkout(dry_run: false)
         expect(result).to include(dry_run: false, confirmation_number: 'PFG-12345', total: 120.0)
@@ -233,9 +269,19 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
 
       it 'uses PFG\'s own draft id, not a fabricated number, when no order number comes back' do
         allow(api).to receive(:get_order).and_return(order)
-        allow(api).to receive(:submit_order).and_return({ 'IsSuccess' => true, 'ResultObject' => {} })
+        allow(api).to receive(:submit_order).and_return({ 'IsSuccess' => true, 'ResultObject' => { 'AcceptOrder' => true } })
 
         expect(scraper.checkout(dry_run: false)[:confirmation_number]).to eq(oeh)
+      end
+
+      # The site only treats an order as placed when AcceptOrder is true.
+      it 'raises (never reports placed) when PFG answers IsSuccess without accepting the order' do
+        allow(api).to receive(:get_order).and_return(order)
+        allow(api).to receive(:submit_order)
+          .and_return({ 'IsSuccess' => true, 'ErrorMessages' => ['Credit hold'], 'ResultObject' => { 'AcceptOrder' => false } })
+
+        expect { scraper.checkout(dry_run: false) }
+          .to raise_error(Scrapers::BaseScraper::ScrapingError, /Credit hold/)
       end
     end
   end

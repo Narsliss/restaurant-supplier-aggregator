@@ -345,11 +345,45 @@ module Scrapers
       call('OrderEntryDetail', 'UpdateOrderEntryDetail', body)
     end
 
-    # WRITE — submit the draft order (point of no return). Guarded; never
-    # reachable in Stage A. Live shape unverified until a real order is placed.
+    # WRITE — submit the draft order (point of no return).
+    #
+    # Shape taken from CustomerFirst's own site code (main bundle, Sep 27 2026):
+    # submitOrderEntryHeader posts { OrderEntryHeaderId, TimeZone } in
+    # "queryParams" mode — POST with an EMPTY {} body and the fields as URL
+    # query parameters. Sending them in the JSON body (as the first version did,
+    # with CustomerId) is answered "Order not found." — order #334's failure.
+    # Success is IsSuccess AND ResultObject.AcceptOrder (checked by the scraper).
     def submit_order(order_entry_header_id)
-      call('OrderEntryHeader', 'SubmitOrderEntryHeader',
-           { 'OrderEntryHeaderId' => order_entry_header_id, 'CustomerId' => account_context[:customer_id] })
+      call('OrderEntryHeader', 'SubmitOrderEntryHeader', {},
+           query: { 'OrderEntryHeaderId' => order_entry_header_id, 'TimeZone' => time_zone })
+    end
+
+    # WRITE — set the draft's delivery date (the site's updateDeliveryDate: JSON
+    # body { OrderEntryHeaderId, DeliveryDate }). Without it the draft keeps
+    # PFG's own default date: order #334 was built for Sep 28, not the Oct 2 the
+    # chef picked. Date sent in PFG's own format ("2026-10-02T00:00:00").
+    def update_delivery_date(order_entry_header_id, date)
+      call('OrderEntryHeader', 'UpdateOrderEntryHeaderDeliveryDate',
+           { 'OrderEntryHeaderId' => order_entry_header_id, 'DeliveryDate' => "#{date.to_date.iso8601}T00:00:00" })
+    end
+
+    # WRITE — delete an unsubmitted draft (the site's deleteOrderEntryHeader,
+    # "queryParams" mode). PFG has no per-line read, so emptying a cart line by
+    # line is impossible; deleting the draft is how the site discards one.
+    def delete_order_entry_header(order_entry_header_id)
+      call('OrderEntryHeader', 'DeleteOrderEntryHeader', {}, query: { 'OrderEntryHeaderId' => order_entry_header_id })
+    end
+
+    # After deleting the open draft, reads and the next add use the
+    # no-active-order sentinel again (the next add creates a fresh draft).
+    def forget_active_order!
+      account_context[:order_entry_header_id] = NO_ACTIVE_ORDER
+    end
+
+    # IANA name the site sends (Intl...resolvedOptions().timeZone). Restaurants
+    # are in the app's zone (Eastern).
+    def time_zone
+      Time.zone.tzinfo.identifier
     end
 
     # Generic RPC call: call('Order', 'GetOrderCart', body). The middleware is

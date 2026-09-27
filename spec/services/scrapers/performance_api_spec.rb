@@ -263,13 +263,45 @@ RSpec.describe Scrapers::PerformanceApi do
       end
     end
 
+    # Shapes from CustomerFirst's own site code (Sep 27 2026). Order #334 was
+    # rejected "Order not found." because the fields went in the JSON body.
     describe '#submit_order' do
-      it 'posts the draft id and customer to SubmitOrderEntryHeader' do
-        expect(api).to receive(:call).with('OrderEntryHeader', 'SubmitOrderEntryHeader',
-                                           { 'OrderEntryHeaderId' => 'oeh-1', 'CustomerId' => 'cust-guid' })
+      it 'sends the draft id and time zone as URL query parameters with an empty body' do
+        expect(api).to receive(:call).with('OrderEntryHeader', 'SubmitOrderEntryHeader', {},
+                                           query: { 'OrderEntryHeaderId' => 'oeh-1', 'TimeZone' => 'America/New_York' })
           .and_return({ 'IsSuccess' => true })
 
         api.submit_order('oeh-1')
+      end
+
+      it 'puts them on the wire exactly like the site: POST ?OrderEntryHeaderId=…&TimeZone=…, body {}' do
+        api.instance_variable_set(:@access_token, 'tok')
+        stub = stub_request(:post, "#{described_class::API_BASE}/api/OrderEntryHeader/V1/SubmitOrderEntryHeader")
+               .with(query: { 'OrderEntryHeaderId' => 'oeh-1', 'TimeZone' => 'America/New_York' }, body: '{}')
+               .to_return(status: 200, body: { IsSuccess: true, ResultObject: { AcceptOrder: true } }.to_json)
+
+        expect(api.submit_order('oeh-1')).to include('IsSuccess' => true)
+        expect(stub).to have_been_requested
+      end
+    end
+
+    describe '#update_delivery_date' do
+      it 'posts the draft id and the date in PFG\'s own format as a JSON body' do
+        expect(api).to receive(:call).with('OrderEntryHeader', 'UpdateOrderEntryHeaderDeliveryDate',
+                                           { 'OrderEntryHeaderId' => 'oeh-1', 'DeliveryDate' => '2026-10-02T00:00:00' })
+          .and_return({ 'IsSuccess' => true })
+
+        api.update_delivery_date('oeh-1', Date.new(2026, 10, 2))
+      end
+    end
+
+    describe '#delete_order_entry_header' do
+      it 'deletes the draft with the id as a URL query parameter' do
+        expect(api).to receive(:call).with('OrderEntryHeader', 'DeleteOrderEntryHeader', {},
+                                           query: { 'OrderEntryHeaderId' => 'oeh-1' })
+          .and_return({ 'IsSuccess' => true })
+
+        api.delete_order_entry_header('oeh-1')
       end
     end
   end
