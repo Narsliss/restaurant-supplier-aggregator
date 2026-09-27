@@ -271,25 +271,10 @@ module Scrapers
       { updated: total_updated, missed: total_missed, batches: batch_count }
     end
 
-    def refresh_batch(batch, tokens)
-      product_params = batch.map do |sku|
-        {
-          productId: sku.to_s,
-          sellerId: tokens[:seller_id],
-          siteId: tokens[:site_id],
-          quantity: { case: 0, each: 0 },
-          splitCode: 'CASE'
-        }
-      end
-
-      data = graphql_request('Prices', prices_query, {
-        isIncludePriceInfoV2: true,
-        products: { params: product_params },
-        priceOptions: {}
-      })
-
-      response_products = data.dig('data', 'getProducts') || []
-      response_by_id = response_products.index_by { |p| p['productId'].to_s }
+    def refresh_batch(batch, _tokens = nil)
+      priced = price_with_sellers(batch)
+      response_by_id = priced[:prices]
+      unlisted = priced[:unlisted].to_set
 
       updates = []
       missed = []
@@ -298,8 +283,11 @@ module Scrapers
         sku_str = sku.to_s
         pp = response_by_id[sku_str]
 
-        # SKU not in API response at all → genuine miss (likely removed upstream)
-        if pp.nil?
+        # SKU not in API response at all → genuine miss (likely removed upstream).
+        # Unlisted (no price under the account's seller, and catalog search
+        # can't find it) is a miss too: counting it "seen" kept a delisted
+        # item's last price live forever (Boardwalk 6070898, Sep 2026).
+        if pp.nil? || unlisted.include?(sku_str)
           missed << sku_str
           next
         end
@@ -511,53 +499,33 @@ module Scrapers
     # Returns: [{ supplier_sku:, current_price:, in_stock:, supplier_name: }, ...]
     def scrape_prices(product_skus)
       ensure_api_session!
-      tokens = load_api_tokens
       product_skus = normalize_price_queries(product_skus).map { |q| q[:sku] }
 
       logger.info "[Sysco] Fetching live prices for #{product_skus.size} SKUs via API"
 
-      # Build product params for the Prices query
-      product_params = product_skus.map do |sku|
-        {
-          productId: sku.to_s,
-          sellerId: tokens[:seller_id],
-          siteId: tokens[:site_id],
-          quantity: { case: 0, each: 0 },
-          splitCode: 'CASE'
-        }
-      end
-
-      # Batch in groups of 50 (API may have limits)
+      # Each SKU is priced under its own seller (third-party items return no
+      # price under the account's seller — see price_with_sellers).
       results = []
-      product_params.each_slice(50) do |batch|
-        data = graphql_request('Prices', prices_query, {
-          isIncludePriceInfoV2: true,
-          products: { params: batch },
-          priceOptions: {}
-        })
+      price_with_sellers(product_skus)[:prices].each_value do |pp|
+        product_id = pp['productId'].to_s
+        case_price_info = pp.dig('priceInfoV2', 'case') || {}
+        each_price_info = pp.dig('priceInfoV2', 'each') || {}
 
-        price_products = data.dig('data', 'getProducts') || []
-        price_products.each do |pp|
-          product_id = pp['productId'].to_s
-          case_price_info = pp.dig('priceInfoV2', 'case') || {}
-          each_price_info = pp.dig('priceInfoV2', 'each') || {}
+        current_price = case_price_info['netPrice'] || case_price_info['price'] ||
+                        each_price_info['netPrice'] || each_price_info['price']
 
-          current_price = case_price_info['netPrice'] || case_price_info['price'] ||
-                          each_price_info['netPrice'] || each_price_info['price']
+        next unless current_price
 
-          next unless current_price
-
-          results << {
-            supplier_sku: product_id,
-            current_price: current_price.to_f,
-            # Price verification needs to know whether this figure is a case
-            # total or a per-pound rate; without the hint OrderItem falls back
-            # to the stored unit and a catch-weight quote reads as a case price.
-            price_unit: price_unit_for(pp, case_price_info, each_price_info),
-            in_stock: true, # If the API returns a price, it's available
-            supplier_name: pp.dig('productInfo', 'name') || product_id
-          }
-        end
+        results << {
+          supplier_sku: product_id,
+          current_price: current_price.to_f,
+          # Price verification needs to know whether this figure is a case
+          # total or a per-pound rate; without the hint OrderItem falls back
+          # to the stored unit and a catch-weight quote reads as a case price.
+          price_unit: price_unit_for(pp, case_price_info, each_price_info),
+          in_stock: true, # If the API returns a price, it's available
+          supplier_name: pp.dig('productInfo', 'name') || product_id
+        }
       end
 
       logger.info "[Sysco] Got live prices for #{results.size}/#{product_skus.size} SKUs"
@@ -572,6 +540,23 @@ module Scrapers
       tokens = load_api_tokens
 
       logger.info "[Sysco] Adding #{items.size} items to cart via API"
+
+      # Step 0: Name each item's own seller (third-party items are rejected
+      # under the account's seller — order #337), and pull out items Sysco no
+      # longer lists: one of them fails the WHOLE update. They come back in
+      # `failed`, which OrderPlacementService auto-removes with a note.
+      resolved = price_with_sellers(items.map { |item| item[:sku] })
+      sellers = resolved[:sellers]
+      unlisted = resolved[:unlisted].to_set
+      failed_items = items.select { |item| unlisted.include?(item[:sku].to_s) }.map do |item|
+        logger.warn "[Sysco] SKU #{item[:sku]} is no longer sold on Sysco — leaving it off the order"
+        { sku: item[:sku], name: item[:name], error: 'No longer sold on Sysco' }
+      end
+      items = items.reject { |item| unlisted.include?(item[:sku].to_s) }
+      if items.empty?
+        raise ScrapingError, 'None of these items are sold on Sysco any more. ' \
+                             "SKUs: #{failed_items.map { |f| f[:sku] }.join(', ')}"
+      end
 
       # Step 1: Create a draft order
       order_name = Time.current.strftime('%b %d %Y %I:%M %p')
@@ -605,12 +590,11 @@ module Scrapers
           price: item[:expected_price].to_f,
           commissionBasis: 0,
           siteId: tokens[:site_id],
-          sellerId: tokens[:seller_id]
+          sellerId: sellers[item[:sku].to_s] || tokens[:seller_id]
         }
       end
 
       added_items = []
-      failed_items = []
 
       begin
         updated = graphql_update_order(
@@ -644,8 +628,8 @@ module Scrapers
             qty: li['qty'],
             soldAs: 'cs', # input enum is lowercase, response is "CASE"
             productId: li['productId'].to_s,
-            siteId: tokens[:site_id],
-            sellerId: tokens[:seller_id]
+            siteId: li['siteId'].presence || tokens[:site_id],
+            sellerId: li['sellerId'].presence || sellers[li['productId'].to_s] || tokens[:seller_id]
           }
         end
       rescue StandardError => e
@@ -688,6 +672,7 @@ module Scrapers
       skus = Array(skus).map(&:to_s)
       logger.info "[Sysco] Removing #{skus.size} item(s) from order #{order_id}: #{skus.join(', ')}"
 
+      line_sellers = (@last_sysco_line_items || []).to_h { |li| [li[:productId].to_s, li[:sellerId]] }
       line_items = skus.map do |sku|
         {
           qty: 0,
@@ -698,7 +683,7 @@ module Scrapers
           totalPrice: 0,
           commissionBasis: 0,
           siteId: tokens[:site_id],
-          sellerId: tokens[:seller_id]
+          sellerId: line_sellers[sku].presence || tokens[:seller_id]
         }
       end
 
@@ -2679,6 +2664,139 @@ module Scrapers
       {}
     end
 
+    # ----------------------------------------------------------------
+    # Per-item seller
+    # ----------------------------------------------------------------
+    #
+    # Sysco's site lists items from other sellers beside its own: the Dole
+    # pineapple is seller "2011", the Melting Forest yuzu "3473", while the
+    # account (and Sysco's own stock) is "USBL". Asked under the wrong seller,
+    # the Prices API returns the product with NO price and updateOrderV2
+    # fails the whole cart ("PPS-007 ... product details could not be
+    # retrieved" — order #337). Everything that prices or orders a SKU must
+    # name that SKU's own seller.
+    #
+    # The seller comes from catalog search results and is stored on
+    # SupplierProduct#supplier_seller_id. A SKU with none stored that gets no
+    # price under the account's seller is looked up by catalog search once;
+    # the seller found (even "USBL") is saved so it is never searched again.
+
+    # Most SKUs one scraper instance will look up by search (the first nightly
+    # refresh meets thousands of rows imported before sellers were stored).
+    SELLER_DISCOVERY_LIMIT = 5000
+
+    # Prices SKUs under each one's own seller.
+    #   seller_hints: sku => seller already known to the caller (list items)
+    # Returns { prices: sku => getProducts entry (priced or not),
+    #           sellers: sku => seller to use on price/cart calls,
+    #           unlisted: SKUs Sysco no longer lists — no price under the
+    #                     account's seller AND catalog search can't find them }
+    def price_with_sellers(skus, seller_hints: {})
+      skus = skus.map(&:to_s).uniq
+      account_seller = load_api_tokens[:seller_id]
+      known = stored_sellers(skus).merge(seller_hints.transform_keys(&:to_s).compact_blank)
+      sellers = skus.index_with { |sku| known[sku].presence || account_seller }
+
+      prices = fetch_price_products(skus, sellers)
+
+      unknown = skus.reject { |sku| known[sku].present? || priced?(prices[sku]) }
+      found = discover_sellers(unknown)
+      unlisted = found.select { |_sku, seller| seller.nil? }.keys
+
+      moved = found.select { |sku, seller| seller.present? && seller != sellers[sku] }
+      if moved.any?
+        moved.each { |sku, seller| sellers[sku] = seller }
+        prices.merge!(fetch_price_products(moved.keys, sellers))
+        logger.info "[Sysco] Priced #{moved.size} SKU(s) under their own seller: " \
+                    "#{moved.first(10).map { |sku, seller| "#{sku}→#{seller}" }.join(', ')}"
+      end
+      logger.warn "[Sysco] #{unlisted.size} SKU(s) no longer listed by Sysco: #{unlisted.first(20).join(', ')}" if unlisted.any?
+
+      { prices: prices, sellers: sellers, unlisted: unlisted }
+    end
+
+    def priced?(price_product)
+      return false unless price_product
+
+      case_info = price_product.dig('priceInfoV2', 'case') || {}
+      each_info = price_product.dig('priceInfoV2', 'each') || {}
+      (case_info['netPrice'] || case_info['price'] || each_info['netPrice'] || each_info['price']).present?
+    end
+
+    def stored_sellers(skus)
+      return {} if skus.empty?
+
+      SupplierProduct.where(supplier_id: credential.supplier_id, supplier_sku: skus)
+                     .where.not(supplier_seller_id: [nil, ''])
+                     .pluck(:supplier_sku, :supplier_seller_id).to_h
+    end
+
+    # getProducts for each SKU under sellers[sku]. Returns sku => entry.
+    def fetch_price_products(skus, sellers)
+      site_id = load_api_tokens[:site_id]
+      skus.each_slice(50).each_with_object({}) do |batch, map|
+        params = batch.map do |sku|
+          { productId: sku, sellerId: sellers[sku], siteId: site_id,
+            quantity: { case: 0, each: 0 }, splitCode: 'CASE' }
+        end
+        data = graphql_request('Prices', prices_query, {
+          isIncludePriceInfoV2: true,
+          products: { params: params },
+          priceOptions: {}
+        })
+        (data.dig('data', 'getProducts') || []).each { |pp| map[pp['productId'].to_s] = pp }
+      end
+    end
+
+    # Looks each SKU up by catalog search to learn its seller, and saves it.
+    # Returns sku => seller, or sku => nil when search can't find the SKU.
+    # SKUs past the per-run limit, or whose search errored, are left out —
+    # neither priced nor called unlisted.
+    SELLER_LOOKUP_BATCH_SIZE = 20
+
+    def discover_sellers(skus)
+      @seller_discoveries ||= 0
+      budget = [SELLER_DISCOVERY_LIMIT - @seller_discoveries, 0].max
+      skus = skus.first(budget)
+      @seller_discoveries += skus.size
+      found = {}
+
+      # Search matches item numbers, and several space-separated SKUs come
+      # back together (see fetch_pack_sizes) — one call per batch. A SKU a
+      # batch doesn't return is re-checked alone before it's called unlisted,
+      # so fuzzy matches crowding a batch can't mark a live item gone.
+      skus.each_slice(SELLER_LOOKUP_BATCH_SIZE) do |batch|
+        sellers_by_sku = search_sellers(batch.join(' '), num: batch.size + 10)
+        next if sellers_by_sku.nil? # search errored — leave the batch unresolved
+
+        batch.each do |sku|
+          if sellers_by_sku.key?(sku)
+            found[sku] = sellers_by_sku[sku]
+          else
+            alone = search_sellers(sku, num: 10)
+            found[sku] = alone[sku] if alone # nil → searched alone and not found
+          end
+        end
+      end
+
+      found.compact.group_by { |_sku, seller| seller }.each do |seller, pairs|
+        SupplierProduct.where(supplier_id: credential.supplier_id, supplier_sku: pairs.map(&:first))
+                       .update_all(supplier_seller_id: seller)
+      end
+      found
+    end
+
+    # Catalog search → { sku => seller } for every result it returns (a
+    # result without a sellerId is the account's own stock). nil when the
+    # search itself failed, so callers can tell "not found" from "didn't ask".
+    def search_sellers(query, num:)
+      results = graphql_search_products(query, start: 0, num: num)&.dig('results') || []
+      results.to_h { |r| [r['productId'].to_s, r['sellerId'].presence || load_api_tokens[:seller_id]] }
+    rescue StandardError => e
+      logger.warn "[Sysco] Seller lookup for #{query.to_s.first(60)} failed: #{e.message}"
+      nil
+    end
+
     # Which unit the price figure we just read is quoted in.
     #
     # Sysco bills catch-weight items (meat, whole cheeses, anything sold by
@@ -2792,6 +2910,7 @@ module Scrapers
 
       {
         supplier_sku: product_id,
+        seller_id: result['sellerId'].presence,
         supplier_name: supplier_name,
         current_price: current_price&.to_f,
         pack_size: pack_size,
@@ -2840,26 +2959,12 @@ module Scrapers
       end
 
       # Get prices for list items
+      # Each item is priced under its own seller — third-party items on a
+      # chef's guide get no price under the account's (see price_with_sellers).
       if all_items.any?
-        product_params = all_items.map do |item|
-          {
-            productId: item[:sku],
-            sellerId: tokens[:seller_id],
-            siteId: tokens[:site_id],
-            quantity: { case: 0, each: 0 },
-            splitCode: 'CASE'
-          }
-        end
-
         begin
-          price_data = graphql_request('Prices', prices_query, {
-            isIncludePriceInfoV2: true,
-            products: { params: product_params },
-            priceOptions: {}
-          })
-
-          price_products = price_data.dig('data', 'getProducts') || []
-          price_map = price_products.each_with_object({}) { |price_product, map| map[price_product['productId'].to_s] = price_product }
+          hints = all_items.to_h { |item| [item[:sku], item[:seller_id]] }
+          price_map = price_with_sellers(all_items.map { |item| item[:sku] }, seller_hints: hints)[:prices]
 
           all_items.each do |item|
             pp = price_map[item[:sku]]
@@ -2899,6 +3004,7 @@ module Scrapers
 
       {
         sku: product_id,
+        seller_id: product['sellerId'].presence,
         name: name,
         price: nil, # Will be filled by pricing call
         pack_size: pack_size,
@@ -3013,8 +3119,10 @@ module Scrapers
           qty: li[:qty] || li['qty'],
           soldAs: 'cs',
           productId: (li[:productId] || li['productId']).to_s,
-          siteId: tokens[:site_id],
-          sellerId: tokens[:seller_id]
+          # Each line keeps the seller it was added under (third-party items
+          # are not USBL); fall back to the account's for older caches.
+          siteId: li[:siteId].presence || tokens[:site_id],
+          sellerId: li[:sellerId].presence || tokens[:seller_id]
         }
       end
 
@@ -3145,6 +3253,8 @@ module Scrapers
             lineItems {
               id
               productId
+              sellerId
+              siteId
               qty
               soldAs
               netUnitPrice

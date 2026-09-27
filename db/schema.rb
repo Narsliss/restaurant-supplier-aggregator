@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_09_27_200000) do
+ActiveRecord::Schema[7.1].define(version: 2026_09_27_220000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1002,6 +1002,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_27_200000) do
     t.datetime "image_checked_at"
     t.string "match_source"
     t.string "match_confidence"
+    t.string "supplier_seller_id"
     t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
     t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["image_status"], name: "index_supplier_products_on_image_status"

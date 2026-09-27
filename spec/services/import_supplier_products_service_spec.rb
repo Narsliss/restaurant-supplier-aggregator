@@ -470,4 +470,44 @@ RSpec.describe ImportSupplierProductsService do
       expect(sp.reload).to have_attributes(current_price: 61.0, price_unit: nil)
     end
   end
+
+  # Sysco third-party items must be priced and ordered under their own seller
+  # (order #337); the catalog search is where that seller is learned.
+  describe '#import_batch — the seller an item is sold by' do
+    let(:sysco) { Supplier.find_by(code: 'sysco') || create(:supplier, code: 'sysco', name: 'Sysco') }
+    let(:credential) { create(:supplier_credential, supplier: sysco) }
+    let(:service) { described_class.new(credential) }
+    let(:pineapple) do
+      { supplier_sku: '6081093', supplier_name: 'DOLE Fancy Sliced Pineapple', seller_id: '2011',
+        current_price: 33.22, pack_size: '12x8 OZ', in_stock: true }
+    end
+
+    def import(items)
+      service.send(:prepare_import_indexes!)
+      service.send(:import_batch, items)
+    end
+
+    it 'stores the seller on a new product' do
+      import([pineapple])
+
+      expect(SupplierProduct.find_by(supplier: sysco, supplier_sku: '6081093').supplier_seller_id).to eq('2011')
+    end
+
+    it 'fills in the seller on an existing product' do
+      sp = SupplierProduct.create!(supplier: sysco, supplier_sku: '6081093', supplier_name: 'DOLE Fancy Sliced Pineapple')
+
+      import([pineapple])
+
+      expect(sp.reload.supplier_seller_id).to eq('2011')
+    end
+
+    it 'keeps a known seller when a scrape carries none' do
+      sp = SupplierProduct.create!(supplier: sysco, supplier_sku: '6081093', supplier_name: 'DOLE Fancy Sliced Pineapple',
+                                   supplier_seller_id: '2011')
+
+      import([pineapple.except(:seller_id)])
+
+      expect(sp.reload.supplier_seller_id).to eq('2011')
+    end
+  end
 end

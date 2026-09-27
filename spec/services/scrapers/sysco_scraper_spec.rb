@@ -126,6 +126,10 @@ RSpec.describe Scrapers::SyscoScraper do
       allow(scraper).to receive(:graphql_update_order).and_return(
         'sequenceId' => 2, 'lineItems' => [{ 'productId' => '4279592', 'qty' => 5 }]
       )
+      allow(scraper).to receive(:graphql_delete_order)
+      allow(scraper).to receive(:price_with_sellers) do |skus, **|
+        { prices: {}, sellers: skus.to_h { |s| [s.to_s, 'USBL'] }, unlisted: [] }
+      end
     end
 
     it 'sends price and commissionBasis but leaves pricing type and totals to Sysco' do
@@ -143,6 +147,202 @@ RSpec.describe Scrapers::SyscoScraper do
       expect(scraper).to have_received(:graphql_update_order) do |line_items:, **|
         expect(line_items.first[:price]).to eq(0.0)
       end
+    end
+
+    # Regression (order #337): a third-party item sent under the account's
+    # seller made Sysco reject the whole cart (PPS-007).
+    it "sends each line under the item's own seller and keeps it for submit" do
+      allow(scraper).to receive(:price_with_sellers).and_return(
+        prices: {}, sellers: { '4279592' => 'USBL', '6081093' => '2011' }, unlisted: []
+      )
+      allow(scraper).to receive(:graphql_update_order).and_return(
+        'sequenceId' => 2,
+        'lineItems' => [{ 'productId' => '4279592', 'qty' => 5, 'sellerId' => 'USBL', 'siteId' => '019' },
+                        { 'productId' => '6081093', 'qty' => 3, 'sellerId' => '2011', 'siteId' => '019' }]
+      )
+
+      scraper.add_to_cart([{ sku: '4279592', name: 'Sugar', quantity: 5, expected_price: 40.59 },
+                           { sku: '6081093', name: 'Pineapple', quantity: 3, expected_price: 33.22 }])
+
+      expect(scraper).to have_received(:graphql_update_order) do |line_items:, **|
+        expect(line_items.map { |l| [l[:productId], l[:sellerId]] }).to eq([%w[4279592 USBL], %w[6081093 2011]])
+      end
+      expect(scraper.instance_variable_get(:@last_sysco_line_items).map { |l| l[:sellerId] }).to eq(%w[USBL 2011])
+    end
+
+    it 'leaves items Sysco no longer lists off the draft and reports them as failed' do
+      allow(scraper).to receive(:price_with_sellers).and_return(
+        prices: {}, sellers: { '4279592' => 'USBL', '6070898' => 'USBL' }, unlisted: ['6070898']
+      )
+
+      result = scraper.add_to_cart([{ sku: '4279592', name: 'Sugar', quantity: 5, expected_price: 40.59 },
+                                    { sku: '6070898', name: 'Deli paper', quantity: 5, expected_price: 43.12 }])
+
+      expect(scraper).to have_received(:graphql_update_order) do |line_items:, **|
+        expect(line_items.map { |l| l[:productId] }).to eq(['4279592'])
+      end
+      expect(result[:failed]).to eq([{ sku: '6070898', name: 'Deli paper', error: 'No longer sold on Sysco' }])
+    end
+
+    it 'creates no draft when every item is no longer listed' do
+      allow(scraper).to receive(:price_with_sellers).and_return(
+        prices: {}, sellers: { '6070898' => 'USBL' }, unlisted: ['6070898']
+      )
+
+      expect { scraper.add_to_cart([{ sku: '6070898', name: 'Deli paper', quantity: 5, expected_price: 43.12 }]) }
+        .to raise_error(Scrapers::BaseScraper::ScrapingError, /no.*sold on Sysco any more/i)
+      expect(scraper).not_to have_received(:graphql_create_order)
+    end
+  end
+
+  describe '#graphql_submit_order line sellers' do
+    before do
+      allow(scraper).to receive(:logger).and_return(Logger.new(nil))
+      allow(scraper).to receive(:load_api_tokens).and_return(site_id: '019', seller_id: 'USBL', shop_account_id: 'usbl-019-1')
+      scraper.instance_variable_set(:@last_sysco_line_items, [
+                                      { qty: 5, soldAs: 'cs', productId: '4279592', siteId: '019', sellerId: 'USBL' },
+                                      { qty: 3, soldAs: 'cs', productId: '6081093', siteId: '019', sellerId: '2011' }
+                                    ])
+    end
+
+    it "submits each line under the seller it was added with" do
+      sent = nil
+      allow(scraper).to receive(:graphql_request) do |_op, _query, vars|
+        sent = vars
+        { 'data' => { 'submitOrderV2' => { '__typename' => 'OrderSubmitResponseV2' } } }
+      end
+
+      scraper.send(:graphql_submit_order, order_id: 'o1', sequence_id: 2)
+
+      lines = sent[:order][:lineItems]
+      expect(lines.map { |l| [l[:productId], l[:sellerId]] }).to eq([%w[4279592 USBL], %w[6081093 2011]])
+    end
+  end
+
+  describe '#price_with_sellers' do
+    let(:supplier) { create(:supplier, code: 'sysco-spec') }
+    let(:credential) { instance_double(SupplierCredential, supplier_id: supplier.id) }
+    let(:priced) { ->(sku, price) { { 'productId' => sku, 'priceInfoV2' => { 'case' => { 'netPrice' => price } } } } }
+    let(:unpriced) { ->(sku) { { 'productId' => sku, 'priceInfoV2' => { 'case' => nil } } } }
+
+    before do
+      scraper.instance_variable_set(:@credential, credential)
+      allow(scraper).to receive(:logger).and_return(Logger.new(nil))
+      allow(scraper).to receive(:load_api_tokens).and_return(site_id: '019', seller_id: 'USBL')
+    end
+
+    # Stubs the Prices API: answers each SKU per the seller it was asked under.
+    def stub_prices(table)
+      allow(scraper).to receive(:graphql_request).with('Prices', anything, anything) do |_op, _q, vars|
+        products = vars[:products][:params].map do |p|
+          price = table.dig(p[:productId], p[:sellerId])
+          price ? priced.call(p[:productId], price) : unpriced.call(p[:productId])
+        end
+        { 'data' => { 'getProducts' => products } }
+      end
+    end
+
+    it 'prices a third-party item under its stored seller without searching' do
+      create(:supplier_product, supplier: supplier, supplier_sku: '6061070', supplier_seller_id: '3473')
+      stub_prices('6061070' => { '3473' => 28.8 })
+      allow(scraper).to receive(:graphql_search_products)
+
+      result = scraper.send(:price_with_sellers, ['6061070'])
+
+      expect(result[:prices]['6061070'].dig('priceInfoV2', 'case', 'netPrice')).to eq(28.8)
+      expect(result[:sellers]).to eq('6061070' => '3473')
+      expect(scraper).not_to have_received(:graphql_search_products)
+    end
+
+    it 'finds, saves and prices under the seller of an item with none stored' do
+      sp = create(:supplier_product, supplier: supplier, supplier_sku: '6081093', current_price: 33.22)
+      stub_prices('6081093' => { '2011' => 33.22 })
+      allow(scraper).to receive(:graphql_search_products)
+        .and_return('results' => [{ 'productId' => '6081093', 'sellerId' => '2011' }])
+
+      result = scraper.send(:price_with_sellers, ['6081093'])
+
+      expect(result[:prices]['6081093'].dig('priceInfoV2', 'case', 'netPrice')).to eq(33.22)
+      expect(result[:sellers]['6081093']).to eq('2011')
+      expect(result[:unlisted]).to be_empty
+      expect(sp.reload.supplier_seller_id).to eq('2011')
+    end
+
+    it 'calls an item unlisted only when search cannot find it either' do
+      create(:supplier_product, supplier: supplier, supplier_sku: '6070898')
+      stub_prices({})
+      allow(scraper).to receive(:graphql_search_products).and_return('results' => [])
+
+      expect(scraper.send(:price_with_sellers, ['6070898'])[:unlisted]).to eq(['6070898'])
+    end
+
+    it 'does not search for an item already priced under the account seller' do
+      stub_prices('4279592' => { 'USBL' => 40.59 })
+      allow(scraper).to receive(:graphql_search_products)
+
+      result = scraper.send(:price_with_sellers, ['4279592'])
+
+      expect(result[:unlisted]).to be_empty
+      expect(scraper).not_to have_received(:graphql_search_products)
+    end
+
+    it 'saves a found "USBL" seller so an unpriced Sysco item is not searched again' do
+      sp = create(:supplier_product, supplier: supplier, supplier_sku: '1111111')
+      stub_prices({})
+      allow(scraper).to receive(:graphql_search_products)
+        .and_return('results' => [{ 'productId' => '1111111', 'sellerId' => 'USBL' }])
+
+      result = scraper.send(:price_with_sellers, ['1111111'])
+
+      expect(result[:unlisted]).to be_empty
+      expect(sp.reload.supplier_seller_id).to eq('USBL')
+    end
+
+    it 'looks SKUs up in one batched search and re-checks a batch miss alone before calling it unlisted' do
+      stub_prices({})
+      allow(scraper).to receive(:graphql_search_products) do |query, **|
+        case query
+        when '6081093 6061070' then { 'results' => [{ 'productId' => '6081093', 'sellerId' => '2011' }] }
+        when '6061070' then { 'results' => [{ 'productId' => '6061070', 'sellerId' => '3473' }] }
+        end
+      end
+
+      result = scraper.send(:price_with_sellers, %w[6081093 6061070])
+
+      expect(result[:sellers]).to eq('6081093' => '2011', '6061070' => '3473')
+      expect(result[:unlisted]).to be_empty
+    end
+
+    it 'calls nothing unlisted when the search itself fails' do
+      stub_prices({})
+      allow(scraper).to receive(:graphql_search_products).and_raise(StandardError, 'timeout')
+
+      expect(scraper.send(:price_with_sellers, ['6070898'])[:unlisted]).to be_empty
+    end
+
+    it 'neither prices nor calls unlisted the SKUs past the per-run search limit' do
+      stub_const("#{described_class}::SELLER_DISCOVERY_LIMIT", 1)
+      stub_prices({})
+      allow(scraper).to receive(:graphql_search_products).and_return('results' => [])
+
+      expect(scraper.send(:price_with_sellers, %w[1 2])[:unlisted]).to eq(['1'])
+    end
+  end
+
+  describe '#refresh_batch' do
+    before { allow(scraper).to receive(:logger).and_return(Logger.new(nil)) }
+
+    it 'counts an unlisted SKU as missed, not seen' do
+      allow(scraper).to receive(:price_with_sellers).and_return(
+        prices: { '6070898' => { 'productId' => '6070898', 'priceInfoV2' => { 'case' => nil } },
+                  '6081093' => { 'productId' => '6081093', 'priceInfoV2' => { 'case' => { 'netPrice' => 33.22 } } } },
+        sellers: {}, unlisted: ['6070898']
+      )
+
+      updates, missed = scraper.send(:refresh_batch, %w[6070898 6081093])
+
+      expect(missed).to eq(['6070898'])
+      expect(updates.map { |u| [u[:supplier_sku], u[:current_price]] }).to eq([['6081093', 33.22]])
     end
   end
 

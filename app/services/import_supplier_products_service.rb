@@ -375,7 +375,8 @@ class ImportSupplierProductsService
       discontinued: existing.discontinued,
       discontinued_at: existing.discontinued_at,
       image_source_url: item[:image_url].present? ? item[:image_url] : existing.image_source_url,
-      image_checked_at: existing.image_checked_at
+      image_checked_at: existing.image_checked_at,
+      supplier_seller_id: item[:seller_id].presence || existing.supplier_seller_id
     }
 
     # Image status: (re)mark pending when the source URL is new or changed, so the
@@ -434,7 +435,7 @@ class ImportSupplierProductsService
         supplier_url in_stock price_updated_at last_scraped_at price_unit
         piece_price piece_pack_size consecutive_misses
         discontinued discontinued_at
-        image_source_url image_status image_checked_at
+        image_source_url image_status image_checked_at supplier_seller_id
       ]
     )
   end
@@ -637,7 +638,8 @@ class ImportSupplierProductsService
       price_updated_at: item[:current_price].present? ? Time.current : nil,
       last_scraped_at: Time.current,
       image_source_url: item[:image_url],
-      image_status: (item[:image_url].present? ? "pending" : "none")
+      image_status: (item[:image_url].present? ? "pending" : "none"),
+      supplier_seller_id: item[:seller_id].presence
     )
 
     product = find_or_create_product(item, product_index)
