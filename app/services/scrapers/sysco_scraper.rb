@@ -10,6 +10,14 @@ module Scrapers
     CATALOG_URL = 'https://shop.sysco.com/app/catalog'.freeze
     LISTS_URL = 'https://shop.sysco.com/app/lists'.freeze
     ORDER_MINIMUM = 0.00 # No confirmed minimum — Sysco minimums vary by account
+
+    # Sysco's seller groups: LOCAL_SALES is Sysco's own stock. MARKETPLACE
+    # (Dot Foods, Melting Forest… shipped by the merchant) and SPECIALTY
+    # ("Special Delivery", e.g. Edward Don) can't be modified or cancelled once
+    # submitted, ship separately and can't be returned — EnPlace is for
+    # general bulk ordering, so only LOCAL_SALES is imported, listed or
+    # ordered (Carmin, Sep 27 2026; docs/sysco-marketplace-removal.md).
+    LOCAL_SALES_GROUP = 'LOCAL_SALES'.freeze
     PRODUCTS_PER_PAGE = 24
     MAX_PAGES_PER_TERM = 5
     GRAPHQL_URL = 'https://gateway-api.shop.sysco.com/graphql'.freeze
@@ -275,6 +283,7 @@ module Scrapers
       priced = price_with_sellers(batch)
       response_by_id = priced[:prices]
       unlisted = priced[:unlisted].to_set
+      third_party = priced[:third_party].to_set
 
       updates = []
       missed = []
@@ -282,6 +291,13 @@ module Scrapers
       batch.each do |sku|
         sku_str = sku.to_s
         pp = response_by_id[sku_str]
+
+        # Marketplace / Specialty: off EnPlace — discontinue (the import's
+        # "supplier says it's gone" path clears its price and list prices).
+        if third_party.include?(sku_str)
+          updates << { supplier_sku: sku_str, current_price: nil, unavailable: true, discontinued: true }
+          next
+        end
 
         # SKU not in API response at all → genuine miss (likely removed upstream).
         # Unlisted (no price under the account's seller, and catalog search
@@ -355,7 +371,7 @@ module Scrapers
         break if products.size >= max
 
         # Search products via GraphQL API
-        search_data = graphql_search_products(term, start: start, num: num)
+        search_data = graphql_search_products(term, start: start, num: num, local_only: true)
         break unless search_data
 
         total_results = search_data.dig('metaInfo', 'totalResults') || 0
@@ -548,13 +564,23 @@ module Scrapers
       resolved = price_with_sellers(items.map { |item| item[:sku] })
       sellers = resolved[:sellers]
       unlisted = resolved[:unlisted].to_set
-      failed_items = items.select { |item| unlisted.include?(item[:sku].to_s) }.map do |item|
-        logger.warn "[Sysco] SKU #{item[:sku]} is no longer sold on Sysco — leaving it off the order"
-        { sku: item[:sku], name: item[:name], error: 'No longer sold on Sysco' }
+      # Marketplace / Specialty items can't be cancelled once submitted and
+      # ship separately — never send them (LOCAL_SALES_GROUP).
+      third_party = resolved[:third_party].to_set
+      failed_items = items.filter_map do |item|
+        sku = item[:sku].to_s
+        if unlisted.include?(sku)
+          logger.warn "[Sysco] SKU #{sku} is no longer sold on Sysco — leaving it off the order"
+          { sku: item[:sku], name: item[:name], error: 'No longer sold on Sysco' }
+        elsif third_party.include?(sku)
+          logger.warn "[Sysco] SKU #{sku} is a Marketplace/Specialty item (seller #{sellers[sku]}) — leaving it off the order"
+          { sku: item[:sku], name: item[:name], error: 'Sysco Marketplace item — not ordered through EnPlace' }
+        end
       end
-      items = items.reject { |item| unlisted.include?(item[:sku].to_s) }
+      skipped = failed_items.to_set { |f| f[:sku].to_s }
+      items = items.reject { |item| skipped.include?(item[:sku].to_s) }
       if items.empty?
-        raise ScrapingError, 'None of these items are sold on Sysco any more. ' \
+        raise ScrapingError, 'None of these items can be ordered from Sysco through EnPlace. ' \
                              "SKUs: #{failed_items.map { |f| f[:sku] }.join(', ')}"
       end
 
@@ -2614,12 +2640,15 @@ module Scrapers
       end
     end
 
-    def graphql_search_products(term, start: 0, num: PRODUCTS_PER_PAGE)
+    # local_only: ask Sysco for its own stock only (seller group LOCAL_SALES) —
+    # the same facet Sysco's site uses. Catalog import sets it; seller lookups
+    # don't, since they must find third-party SKUs to classify them.
+    def graphql_search_products(term, start: 0, num: PRODUCTS_PER_PAGE, local_only: false)
       data = graphql_request('SearchProducts', search_products_query, {
         isUseGraphStockStatusEnabled: true,
         isGuest: false,
         params: {
-          facets: [],
+          facets: local_only ? [{ id: 'SELLER_GROUP', value: LOCAL_SALES_GROUP }] : [],
           isShowRestrictedItems: false,
           start: start,
           num: num,
@@ -2687,10 +2716,15 @@ module Scrapers
     #           sellers: sku => seller to use on price/cart calls,
     #           unlisted: SKUs Sysco no longer lists — no price under the
     #                     account's seller AND catalog search can't find them }
+    #           third_party: SKUs sold by a Marketplace / Specialty seller —
+    #                        callers keep these off EnPlace (LOCAL_SALES_GROUP) }
     def price_with_sellers(skus, seller_hints: {})
       skus = skus.map(&:to_s).uniq
       account_seller = load_api_tokens[:seller_id]
-      known = stored_sellers(skus).merge(seller_hints.transform_keys(&:to_s).compact_blank)
+      stored = stored_seller_info(skus)
+      known = stored.transform_values { |info| info[:seller] }.compact_blank
+                    .merge(seller_hints.transform_keys(&:to_s).compact_blank)
+      groups = stored.transform_values { |info| info[:group] }.compact_blank
       sellers = skus.index_with { |sku| known[sku].presence || account_seller }
 
       prices = fetch_price_products(skus, sellers)
@@ -2708,7 +2742,20 @@ module Scrapers
       end
       logger.warn "[Sysco] #{unlisted.size} SKU(s) no longer listed by Sysco: #{unlisted.first(20).join(', ')}" if unlisted.any?
 
-      { prices: prices, sellers: sellers, unlisted: unlisted }
+      groups.merge!(@discovered_groups.slice(*skus)) if @discovered_groups
+      third_party = skus.select do |sku|
+        third_party_seller?(found.key?(sku) ? found[sku] : known[sku], groups[sku], account_seller)
+      end
+
+      { prices: prices, sellers: sellers, unlisted: unlisted, third_party: third_party }
+    end
+
+    # Not Sysco's own stock. The seller group decides when known; otherwise any
+    # seller other than the account's own (USBL) is a third party.
+    def third_party_seller?(seller, group, account_seller = load_api_tokens[:seller_id])
+      return group != LOCAL_SALES_GROUP if group.present?
+
+      seller.present? && seller != account_seller
     end
 
     def priced?(price_product)
@@ -2719,12 +2766,14 @@ module Scrapers
       (case_info['netPrice'] || case_info['price'] || each_info['netPrice'] || each_info['price']).present?
     end
 
-    def stored_sellers(skus)
+    # sku => { seller:, group: } for SKUs with a seller stored.
+    def stored_seller_info(skus)
       return {} if skus.empty?
 
       SupplierProduct.where(supplier_id: credential.supplier_id, supplier_sku: skus)
                      .where.not(supplier_seller_id: [nil, ''])
-                     .pluck(:supplier_sku, :supplier_seller_id).to_h
+                     .pluck(:supplier_sku, :supplier_seller_id, :supplier_seller_group)
+                     .to_h { |sku, seller, group| [sku, { seller: seller, group: group }] }
     end
 
     # getProducts for each SKU under sellers[sku]. Returns sku => entry.
@@ -2750,10 +2799,14 @@ module Scrapers
     # neither priced nor called unlisted.
     SELLER_LOOKUP_BATCH_SIZE = 20
 
-    def discover_sellers(skus)
+    # limit: nil lifts the per-run cap (the one-time Marketplace cleanup
+    # classifies the whole catalog).
+    def discover_sellers(skus, limit: SELLER_DISCOVERY_LIMIT)
       @seller_discoveries ||= 0
-      budget = [SELLER_DISCOVERY_LIMIT - @seller_discoveries, 0].max
-      skus = skus.first(budget)
+      if limit
+        budget = [limit - @seller_discoveries, 0].max
+        skus = skus.first(budget)
+      end
       @seller_discoveries += skus.size
       found = {}
 
@@ -2761,33 +2814,45 @@ module Scrapers
       # back together (see fetch_pack_sizes) — one call per batch. A SKU a
       # batch doesn't return is re-checked alone before it's called unlisted,
       # so fuzzy matches crowding a batch can't mark a live item gone.
+      @discovered_groups ||= {}
+      info = {}
       skus.each_slice(SELLER_LOOKUP_BATCH_SIZE) do |batch|
-        sellers_by_sku = search_sellers(batch.join(' '), num: batch.size + 10)
-        next if sellers_by_sku.nil? # search errored — leave the batch unresolved
+        by_sku = search_sellers(batch.join(' '), num: batch.size + 10)
+        next if by_sku.nil? # search errored — leave the batch unresolved
 
         batch.each do |sku|
-          if sellers_by_sku.key?(sku)
-            found[sku] = sellers_by_sku[sku]
-          else
+          hit = by_sku[sku]
+          unless hit
             alone = search_sellers(sku, num: 10)
-            found[sku] = alone[sku] if alone # nil → searched alone and not found
+            next unless alone # search errored
+
+            hit = alone[sku] # nil → searched alone and not found
           end
+          found[sku] = hit&.dig(:seller)
+          info[sku] = hit if hit
         end
       end
 
-      found.compact.group_by { |_sku, seller| seller }.each do |seller, pairs|
+      info.group_by { |_sku, hit| [hit[:seller], hit[:group]] }.each do |(seller, group), pairs|
+        attrs = { supplier_seller_id: seller }
+        attrs[:supplier_seller_group] = group if group
         SupplierProduct.where(supplier_id: credential.supplier_id, supplier_sku: pairs.map(&:first))
-                       .update_all(supplier_seller_id: seller)
+                       .update_all(attrs)
+        pairs.each { |sku, _| @discovered_groups[sku] = group }
       end
       found
     end
 
-    # Catalog search → { sku => seller } for every result it returns (a
-    # result without a sellerId is the account's own stock). nil when the
-    # search itself failed, so callers can tell "not found" from "didn't ask".
+    # Catalog search → { sku => { seller:, group: } } for every result it
+    # returns (a result without a sellerId is the account's own stock). nil
+    # when the search itself failed, so callers can tell "not found" from
+    # "didn't ask".
     def search_sellers(query, num:)
       results = graphql_search_products(query, start: 0, num: num)&.dig('results') || []
-      results.to_h { |r| [r['productId'].to_s, r['sellerId'].presence || load_api_tokens[:seller_id]] }
+      results.to_h do |r|
+        [r['productId'].to_s, { seller: r['sellerId'].presence || load_api_tokens[:seller_id],
+                                group: r.dig('seller', 'group').presence }]
+      end
     rescue StandardError => e
       logger.warn "[Sysco] Seller lookup for #{query.to_s.first(60)} failed: #{e.message}"
       nil
@@ -2870,6 +2935,11 @@ module Scrapers
       product_id = result['productId'].to_s
       return nil if product_id.blank?
 
+      # Marketplace / Specialty items stay off EnPlace (see LOCAL_SALES_GROUP);
+      # the search facet already excludes them — this is the backstop.
+      seller_group = result.dig('seller', 'group').presence
+      return nil if seller_group && seller_group != LOCAL_SALES_GROUP
+
       info = result['productInfo'] || {}
       brand_name = info.dig('brand', 'name') || ''
       product_name = info['name'] || info['description'] || ''
@@ -2907,6 +2977,7 @@ module Scrapers
       {
         supplier_sku: product_id,
         seller_id: result['sellerId'].presence,
+        seller_group: seller_group,
         supplier_name: supplier_name,
         current_price: current_price&.to_f,
         pack_size: pack_size,
@@ -2955,12 +3026,27 @@ module Scrapers
       end
 
       # Get prices for list items
+      # Marketplace / Specialty items named by their seller on the guide itself
+      # come off first, so a pricing failure below can't let them through.
+      account_seller = tokens[:seller_id]
+      all_items.reject! { |item| third_party_seller?(item[:seller_id], nil, account_seller) }
+
       # Each item is priced under its own seller — third-party items on a
       # chef's guide get no price under the account's (see price_with_sellers).
       if all_items.any?
         begin
           hints = all_items.to_h { |item| [item[:sku], item[:seller_id]] }
-          price_map = price_with_sellers(all_items.map { |item| item[:sku] }, seller_hints: hints)[:prices]
+          priced = price_with_sellers(all_items.map { |item| item[:sku] }, seller_hints: hints)
+          price_map = priced[:prices]
+
+          # A chef's Sysco guide can hold Marketplace / Specialty items; they
+          # stay off EnPlace's mirror of it (LOCAL_SALES_GROUP). Leaving them
+          # out of the sync is what keeps a removed item from coming back.
+          third_party = priced[:third_party].to_set
+          if third_party.any?
+            logger.info "[Sysco] Leaving #{third_party.size} Marketplace/Specialty item(s) off list: #{third_party.first(10).join(', ')}"
+            all_items.reject! { |item| third_party.include?(item[:sku]) }
+          end
 
           all_items.each do |item|
             pp = price_map[item[:sku]]
@@ -3441,6 +3527,7 @@ module Scrapers
             results {
               sellerId
               siteId
+              seller { id name group }
               productId
               availableStockInfo {
                 inventory {

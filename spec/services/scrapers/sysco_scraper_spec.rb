@@ -128,7 +128,7 @@ RSpec.describe Scrapers::SyscoScraper do
       )
       allow(scraper).to receive(:graphql_delete_order)
       allow(scraper).to receive(:price_with_sellers) do |skus, **|
-        { prices: {}, sellers: skus.to_h { |s| [s.to_s, 'USBL'] }, unlisted: [] }
+        { prices: {}, sellers: skus.to_h { |s| [s.to_s, 'USBL'] }, unlisted: [], third_party: [] }
       end
     end
 
@@ -153,7 +153,7 @@ RSpec.describe Scrapers::SyscoScraper do
     # seller made Sysco reject the whole cart (PPS-007).
     it "sends each line under the item's own seller and keeps it for submit" do
       allow(scraper).to receive(:price_with_sellers).and_return(
-        prices: {}, sellers: { '4279592' => 'USBL', '6081093' => '2011' }, unlisted: []
+        prices: {}, sellers: { '4279592' => 'USBL', '6081093' => '2011' }, unlisted: [], third_party: []
       )
       allow(scraper).to receive(:graphql_update_order).and_return(
         'sequenceId' => 2,
@@ -172,7 +172,7 @@ RSpec.describe Scrapers::SyscoScraper do
 
     it 'leaves items Sysco no longer lists off the draft and reports them as failed' do
       allow(scraper).to receive(:price_with_sellers).and_return(
-        prices: {}, sellers: { '4279592' => 'USBL', '6070898' => 'USBL' }, unlisted: ['6070898']
+        prices: {}, sellers: { '4279592' => 'USBL', '6070898' => 'USBL' }, unlisted: ['6070898'], third_party: []
       )
 
       result = scraper.add_to_cart([{ sku: '4279592', name: 'Sugar', quantity: 5, expected_price: 40.59 },
@@ -186,11 +186,11 @@ RSpec.describe Scrapers::SyscoScraper do
 
     it 'creates no draft when every item is no longer listed' do
       allow(scraper).to receive(:price_with_sellers).and_return(
-        prices: {}, sellers: { '6070898' => 'USBL' }, unlisted: ['6070898']
+        prices: {}, sellers: { '6070898' => 'USBL' }, unlisted: ['6070898'], third_party: []
       )
 
       expect { scraper.add_to_cart([{ sku: '6070898', name: 'Deli paper', quantity: 5, expected_price: 43.12 }]) }
-        .to raise_error(Scrapers::BaseScraper::ScrapingError, /no.*sold on Sysco any more/i)
+        .to raise_error(Scrapers::BaseScraper::ScrapingError, /can be ordered from Sysco through EnPlace/i)
       expect(scraper).not_to have_received(:graphql_create_order)
     end
   end
@@ -378,6 +378,99 @@ RSpec.describe Scrapers::SyscoScraper do
     end
   end
 
+  # Carmin (Sep 27 2026): only Sysco's own stock (LOCAL_SALES) on EnPlace —
+  # Marketplace / Specialty orders can't be cancelled once submitted.
+  describe 'keeping Marketplace and Specialty items off EnPlace' do
+    before do
+      allow(scraper).to receive(:logger).and_return(Logger.new(nil))
+      allow(scraper).to receive(:load_api_tokens).and_return(site_id: '019', seller_id: 'USBL')
+    end
+
+    def result(sku, seller, group)
+      { 'productId' => sku, 'sellerId' => seller, 'seller' => { 'id' => seller, 'group' => group },
+        'productInfo' => { 'name' => 'Item', 'packSize' => {} } }
+    end
+
+    it 'imports only LOCAL_SALES search results and records the group' do
+      expect(scraper.send(:parse_search_result, result('6081093', '2011', 'MARKETPLACE'), {})).to be_nil
+      expect(scraper.send(:parse_search_result, result('5899810', 'SOTF', 'SPECIALTY'), {})).to be_nil
+      expect(scraper.send(:parse_search_result, result('4279592', 'USBL', 'LOCAL_SALES'), {}))
+        .to include(supplier_sku: '4279592', seller_id: 'USBL', seller_group: 'LOCAL_SALES')
+    end
+
+    it 'asks Sysco search for its own stock only when importing the catalog' do
+      sent = nil
+      allow(scraper).to receive(:graphql_request) { |_op, _q, vars| sent = vars; { 'data' => { 'searchProducts' => {} } } }
+
+      scraper.send(:graphql_search_products, 'pineapple', local_only: true)
+      expect(sent[:params][:facets]).to eq([{ id: 'SELLER_GROUP', value: 'LOCAL_SALES' }])
+
+      scraper.send(:graphql_search_products, 'pineapple')
+      expect(sent[:params][:facets]).to eq([])
+    end
+
+    it 'calls a seller third party by its group, or by a non-account seller when no group is known' do
+      expect(scraper.send(:third_party_seller?, '2011', 'MARKETPLACE')).to be(true)
+      expect(scraper.send(:third_party_seller?, 'SOTF', 'SPECIALTY')).to be(true)
+      expect(scraper.send(:third_party_seller?, 'USBL', 'LOCAL_SALES')).to be(false)
+      expect(scraper.send(:third_party_seller?, '2011', nil)).to be(true)
+      expect(scraper.send(:third_party_seller?, 'USBL', nil)).to be(false)
+      expect(scraper.send(:third_party_seller?, nil, nil)).to be(false)
+    end
+
+    it 'refuses a Marketplace item at the cart and sends only Sysco stock' do
+      allow(scraper).to receive(:ensure_api_session!)
+      allow(scraper).to receive(:price_with_sellers).and_return(
+        prices: {}, sellers: { '4279592' => 'USBL', '6081093' => '2011' }, unlisted: [], third_party: ['6081093']
+      )
+      allow(scraper).to receive(:graphql_create_order).and_return('id' => 'o1', 'sequenceId' => 1)
+      allow(scraper).to receive(:graphql_update_order).and_return('sequenceId' => 2, 'lineItems' => [{ 'productId' => '4279592', 'qty' => 5 }])
+
+      result = scraper.add_to_cart([{ sku: '4279592', name: 'Sugar', quantity: 5, expected_price: 40.59 },
+                                    { sku: '6081093', name: 'Pineapple', quantity: 3, expected_price: 33.22 }])
+
+      expect(scraper).to have_received(:graphql_update_order) do |line_items:, **|
+        expect(line_items.map { |l| l[:productId] }).to eq(['4279592'])
+      end
+      expect(result[:failed]).to eq([{ sku: '6081093', name: 'Pineapple', error: 'Sysco Marketplace item — not ordered through EnPlace' }])
+    end
+
+    it 'discontinues a Marketplace item the nightly refresh meets' do
+      allow(scraper).to receive(:price_with_sellers).and_return(
+        prices: { '6081093' => { 'productId' => '6081093', 'priceInfoV2' => { 'case' => { 'netPrice' => 33.22 } } } },
+        sellers: {}, unlisted: [], third_party: ['6081093']
+      )
+
+      updates, missed = scraper.send(:refresh_batch, ['6081093'])
+
+      expect(missed).to be_empty
+      expect(updates).to eq([{ supplier_sku: '6081093', current_price: nil, unavailable: true, discontinued: true }])
+    end
+
+    it 'flags SKUs whose stored group is Marketplace' do
+      supplier = create(:supplier, code: 'sysco-mkt-spec')
+      scraper.instance_variable_set(:@credential, instance_double(SupplierCredential, supplier_id: supplier.id))
+      create(:supplier_product, supplier: supplier, supplier_sku: '6081093', supplier_seller_id: '2011', supplier_seller_group: 'MARKETPLACE')
+      allow(scraper).to receive(:graphql_request).and_return('data' => { 'getProducts' => [] })
+
+      expect(scraper.send(:price_with_sellers, ['6081093'])[:third_party]).to eq(['6081093'])
+    end
+
+    it "leaves a guide's Marketplace items out of the sync, even when pricing fails" do
+      allow(scraper).to receive(:graphql_request).with('GetListItemsV2', anything, anything).and_return(
+        'data' => { 'getListItemsV2' => { 'items' => [
+          { 'lineNumber' => 1, 'product' => { 'productId' => '4279592', 'sellerId' => 'USBL', 'productInfo' => { 'name' => 'Sugar', 'packSize' => {} } } },
+          { 'lineNumber' => 2, 'product' => { 'productId' => '6081093', 'sellerId' => '2011', 'productInfo' => { 'name' => 'Pineapple', 'packSize' => {} } } }
+        ], 'meta' => { 'totalPages' => 1 } } }
+      )
+      allow(scraper).to receive(:price_with_sellers).and_raise(StandardError, 'pricing down')
+
+      items = scraper.send(:graphql_get_list_items, list_id: 'L1', list_type: 'MY_LIST', seller_id: 'USBL', site_id: '019')
+
+      expect(items.map { |i| i[:sku] }).to eq(['4279592'])
+    end
+  end
+
   describe '#refresh_batch' do
     before { allow(scraper).to receive(:logger).and_return(Logger.new(nil)) }
 
@@ -385,7 +478,7 @@ RSpec.describe Scrapers::SyscoScraper do
       allow(scraper).to receive(:price_with_sellers).and_return(
         prices: { '6070898' => { 'productId' => '6070898', 'priceInfoV2' => { 'case' => nil } },
                   '6081093' => { 'productId' => '6081093', 'priceInfoV2' => { 'case' => { 'netPrice' => 33.22 } } } },
-        sellers: {}, unlisted: ['6070898']
+        sellers: {}, unlisted: ['6070898'], third_party: []
       )
 
       updates, missed = scraper.send(:refresh_batch, %w[6070898 6081093])

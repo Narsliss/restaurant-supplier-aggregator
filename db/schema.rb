@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_09_27_220000) do
+ActiveRecord::Schema[7.1].define(version: 2026_09_27_230000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1003,6 +1003,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_27_220000) do
     t.string "match_source"
     t.string "match_confidence"
     t.string "supplier_seller_id"
+    t.string "supplier_seller_group"
     t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
     t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["image_status"], name: "index_supplier_products_on_image_status"
@@ -1012,6 +1013,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_27_220000) do
     t.index ["supplier_id", "supplier_sku"], name: "index_supplier_products_on_supplier_id_and_supplier_sku", unique: true
     t.index ["supplier_id"], name: "index_supplier_products_on_supplier_id"
     t.index ["supplier_name"], name: "index_supplier_products_on_supplier_name"
+    t.index ["supplier_seller_group"], name: "index_supplier_products_on_supplier_seller_group"
   end
 
   create_table "supplier_requirements", force: :cascade do |t|

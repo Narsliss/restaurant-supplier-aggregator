@@ -501,6 +501,13 @@ RSpec.describe ImportSupplierProductsService do
       expect(sp.reload.supplier_seller_id).to eq('2011')
     end
 
+    it 'stores the seller group Sysco reports' do
+      import([pineapple.merge(supplier_sku: '4279592', supplier_name: 'Domino Sugar', seller_id: 'USBL', seller_group: 'LOCAL_SALES')])
+
+      expect(SupplierProduct.find_by(supplier: sysco, supplier_sku: '4279592'))
+        .to have_attributes(supplier_seller_id: 'USBL', supplier_seller_group: 'LOCAL_SALES')
+    end
+
     it 'keeps a known seller when a scrape carries none' do
       sp = SupplierProduct.create!(supplier: sysco, supplier_sku: '6081093', supplier_name: 'DOLE Fancy Sliced Pineapple',
                                    supplier_seller_id: '2011')

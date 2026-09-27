@@ -3,7 +3,8 @@
 # whole organization being deleted). The cause comes from MatchChange.
 class MatchItemRemoval < ApplicationRecord
   CAUSES = %w[chef_edit cleanup_merge auto_merge rematch_all row_deleted
-              supplier_connection_removed supplier_deleted unspecified].freeze
+              supplier_connection_removed supplier_deleted supplier_item_removed
+              unspecified].freeze
 
   validates :cause, inclusion: { in: CAUSES }
 end
