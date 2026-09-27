@@ -92,4 +92,71 @@ RSpec.describe Scrapers::ChefsWarehouseApi do
       expect(api.send(:parse_search_product, product)[:in_stock]).to be(true)
     end
   end
+
+  describe '#ensure_session! (one CW session per job)' do
+    # Regression — order #331 (Sep 27 2026). CW is load-balanced (ARRAffinity)
+    # and re-issues cookies on every call. ensure_session! used to restore the
+    # SAVED cookies before every cart step, so a single order's clear, add,
+    # verify and checkout could each hit a different CW server and read a
+    # different cart: checkout saw an empty cart after a successful add, and
+    # the retry's clear "verified" empty while the old lines were still there.
+    FakeResponse = Struct.new(:code, :body, :set_cookies, keyword_init: true) do
+      def [](header) = header == 'content-type' ? 'application/json' : nil
+      def get_fields(name) = name == 'Set-Cookie' ? set_cookies : nil
+    end
+
+    let(:sent) { [] }
+    let(:alive) { { value: true } }
+    let(:fake_http) do
+      sent_log = sent
+      state = alive
+      Object.new.tap do |h|
+        h.define_singleton_method(:request) do |req|
+          sent_log << { path: req.path, cookie: req['Cookie'] }
+          if req.path == '/web-api/organization/list' && !state[:value]
+            FakeResponse.new(code: '401', body: '', set_cookies: [])
+          elsif req.path == '/web-api/organization/list'
+            FakeResponse.new(code: '200', body: '[{"id":"614969"}]', set_cookies: ['ARRAffinity=fresh; path=/'])
+          else
+            FakeResponse.new(code: '200', body: '{"summary":{"itemCount":0}}', set_cookies: [])
+          end
+        end
+      end
+    end
+
+    before do
+      credential.update!(session_data: { 'api_cookies' => { 'ARRAffinity' => 'stale', 'auth' => 'a1' } }.to_json)
+      allow(api).to receive(:http).and_return(fake_http)
+    end
+
+    it 'keeps the cookies CW issued for every later step instead of restoring the saved ones' do
+      api.ensure_session! # clear_cart
+      api.get_cart
+      api.ensure_session! # add_to_cart
+      api.ensure_session! # verify_cart_matches!
+      api.ensure_session! # checkout
+      api.get_cart
+
+      # Only the very first request of the job goes out with the saved cookie.
+      expect(sent.first[:cookie]).to include('ARRAffinity=stale')
+      expect(sent.drop(1).map { |r| r[:cookie] }).to all(include('ARRAffinity=fresh'))
+    end
+
+    it 'still checks the session is live before each step' do
+      api.ensure_session!
+      api.ensure_session!
+
+      expect(sent.count { |r| r[:path] == '/web-api/organization/list' }).to eq(2)
+    end
+
+    it 'falls back to the saved session when the in-job session has died' do
+      api.ensure_session!
+      alive[:value] = false
+      allow(api).to receive(:login).and_return(false)
+
+      expect { api.ensure_session! }.to raise_error(Scrapers::BaseScraper::AuthenticationError)
+      # Tried the live cookies, then restored from the DB copy, then login.
+      expect(sent.last[:cookie]).to include('ARRAffinity=stale')
+    end
+  end
 end

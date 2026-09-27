@@ -80,8 +80,7 @@ module Scrapers
       end
 
       # Verify session is still valid by hitting an authenticated endpoint
-      response = post_json('/web-api/organization/list', {})
-      if response.is_a?(Array) && response.any?
+      if session_alive?
         logger.info '[CW-API] Session restored successfully'
         true
       else
@@ -96,7 +95,17 @@ module Scrapers
     end
 
     # Ensure we have a valid session (restore or login).
+    #
+    # Keep a live in-job session instead of re-restoring. CW runs behind Azure
+    # load balancing (ARRAffinity) and hands back fresh cookies on every call.
+    # Re-restoring put the saved — stale — cookies back before each cart step,
+    # so one order's clear/add/verify/checkout could land on different CW
+    # servers and read different carts: order #331 (Sep 27 2026) saw an empty
+    # cart right after a successful add, then a "cleared" cart that still held
+    # the whole previous attempt, which the reconciliation gate caught at 2x.
     def ensure_session!
+      return if @cookies.present? && session_alive?
+
       # Reload credential from DB — another job may have refreshed
       # the session while we were queued.
       credential.reload
@@ -454,6 +463,16 @@ module Scrapers
     end
 
     private
+
+    # True when the current cookies still authenticate. Uses whatever cookies
+    # this client holds now — it never swaps in the saved ones.
+    def session_alive?
+      response = post_json('/web-api/organization/list', {})
+      response.is_a?(Array) && response.any?
+    rescue StandardError => e
+      logger.warn "[CW-API] Session check failed: #{e.message}"
+      false
+    end
 
     # ── HTTP helpers ──────────────────────────────────────────────
 
