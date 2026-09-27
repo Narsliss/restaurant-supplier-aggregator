@@ -263,4 +263,45 @@ RSpec.describe 'Orders', type: :request do
       expect(order.reload.status).to eq('submitted')
     end
   end
+
+  # Regression — order #331 (Sep 27 2026). The supplier-cart safety gate sets
+  # pending_review and tells the chef to "review and try again", but the order
+  # page only offered Submit for pending and Retry for failed, and the Cart
+  # excludes pending_review. The chef had no way forward on mobile or desktop.
+  describe 'an order halted for review (pending_review)' do
+    let(:mobile_ua) { { 'HTTP_USER_AGENT' => 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)' } }
+    let!(:order) do
+      create(:order, user: user, supplier: supplier, organization: org, location: location,
+             status: 'pending_review',
+             error_message: 'Supplier cart did not match your order, so we did not submit it.').tap do |o|
+        create(:order_item, order: o, supplier_product: supplier_product)
+      end
+    end
+
+    it 'offers Retry on the mobile order page' do
+      get order_path(order), headers: mobile_ua
+      expect(response.body).to include('Retry Order')
+    end
+
+    it 'offers Retry and shows why it stopped on the desktop order page' do
+      get order_path(order)
+      expect(response.body).to include(retry_order_order_path(order))
+      expect(response.body).to include('Supplier cart did not match your order')
+    end
+
+    it 'goes back to pending on Retry, so it can be edited and submitted again' do
+      post retry_order_order_path(order)
+
+      order.reload
+      expect(order.status).to eq('pending')
+      expect(order.error_message).to be_nil
+      expect(order.order_items.count).to eq(1)
+    end
+
+    it 'still refuses Retry for an order that is being placed' do
+      order.update!(status: 'processing')
+      post retry_order_order_path(order)
+      expect(order.reload.status).to eq('processing')
+    end
+  end
 end

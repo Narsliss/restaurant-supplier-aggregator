@@ -213,10 +213,10 @@ class OrdersController < ApplicationController
     }
   end
 
-  # Reset a failed order so the user can edit items and resubmit.
+  # Reset a failed or pending_review order so the user can edit items and resubmit.
   # Removes any items marked unavailable during the failed attempt.
   def retry_order
-    unless @order.failed?
+    unless @order.retryable?
       redirect_to @order
       return
     end

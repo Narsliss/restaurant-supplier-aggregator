@@ -70,6 +70,31 @@ This was not the cause of #331's failures. At 11:10 the leftover cart still held
 - **Any other change** (extra line, quantity, piece/case): the cart is emptied and `CartMismatchError` sends the order to review.
 - **A fully empty cart** keeps the existing "Cart is empty" error, so a glitchy read can't mark every line unavailable.
 
+## Follow-up: a halted order was a dead end for the chef (Sep 27 2026)
+
+After #331 was halted, Leslie reported that the order was "no longer there to submit" on mobile.
+
+When the July safety gate (`CartMismatchError`) halts an order, it sets `pending_review` with "Please review and try again". But nothing in the app let the chef act on that status:
+
+- **Order page, mobile and desktop:** shows **Submit** only for `pending` and **Retry** only for `failed`, so a `pending_review` order got neither.
+- **Cart page** (`OrdersController#cart` and `#review`): lists only `pending`, `verifying`, `price_changed` and `draft`, so the order dropped off the Cart.
+- **Desktop order page:** showed the error message only for `failed` orders.
+
+This was the gate's first real firing in production, so the gap had never been hit.
+
+**Fix.** `Order#retryable?` covers `failed` and `pending_review`. It drives the Retry button (mobile and desktop), the `retry_order` guard, and the desktop error message. Retry sets the order back to `pending`, where the chef can edit and submit it. Resubmitting runs the full cart clear and gate again, so no protection is weakened.
+
+**Manual prod change to order #331** (Sep 27 2026, approved by Carmin in chat). Before this fix was deployed, #331 was moved out of the dead end by hand, doing what Retry would do:
+
+- Removed the Oregano line (order_item 1793, QG9804), because CW refused it at 11:40.
+- Set the status `pending_review` → `pending` and cleared the error.
+- Recalculated the totals.
+
+**Result:** 14 lines, $1,275.55, which matches CW's cart after the refresh. The order is back in Leslie's Cart for them to review and submit. It was **not** submitted on their behalf.
+
+**Still open:**
+- **Items the supplier refused stay on the order after Retry.** `retry_order` removes items with status `"unavailable"`, which is not a valid `OrderItem` status. The refused-item path sets `"failed"`. Auto-removing `"failed"` items is *not* safe as-is, because `add_to_cart` also raises `ItemUnavailableError` (marking every item failed) on transient "API rejected" errors. For now the chef must set the named item's quantity to 0. Whether Retry should drop refused items needs a product decision, plus a way to tell a refusal apart from an API error.
+
 **Not done:**
 - Warning the chef *before* they submit. The review-page price check could run the same refresh. That is a bigger change and needs a decision.
 - Acting on `validate_cart`'s response, which is still only logged.
