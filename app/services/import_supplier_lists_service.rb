@@ -70,6 +70,11 @@ class ImportSupplierListsService
     # Mark any lists NOT in the scraped data as stale (they may have been deleted on the supplier site)
     mark_removed_lists(scraped_lists.map { |l| l[:remote_id] })
 
+    # A newly created guide list was attached to its restaurant's matched list
+    # the moment it was saved (SupplierList#auto_add_to_matched_list) — while
+    # its items were still downloading. Match it now that they're all here.
+    match_new_lists!
+
     # Onboarding headstart: first successful import for a new location seeds
     # an order list from the chef's recent supplier activity. Guarded inside
     # the service (idempotent, never touches locations with curated lists),
@@ -117,6 +122,18 @@ class ImportSupplierListsService
 
   def target_location_id
     @restaurant_location_id || credential.location_id
+  end
+
+  # Race found live Sep 27 2026 (Performance reconnect at alfios): matching was
+  # started when the list was CREATED, before its items finished importing, so
+  # it saw a partial guide (4 matched vs 31 the time before) and 118 guide
+  # items were stranded unmatched. Start it here, after every item is in.
+  def match_new_lists!
+    return if @new_list_ids.blank?
+
+    AggregatedListMapping.where(supplier_list_id: @new_list_ids).distinct.pluck(:aggregated_list_id).each do |list_id|
+      SyncNewProductsJob.perform_later(list_id)
+    end
   end
 
   # Which credential a list records as its syncer. Home restaurant: this
@@ -176,7 +193,9 @@ class ImportSupplierListsService
       remote_list_url: list_data[:url],
       sync_status: 'syncing'
     )
+    new_list = supplier_list.new_record?
     supplier_list.save!
+    (@new_list_ids ||= []) << supplier_list.id if new_list
     supplier_list.mark_syncing!
 
     # Upsert items — pre-load all existing items by SKU to avoid N find_or_initialize_by queries

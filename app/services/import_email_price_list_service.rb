@@ -36,6 +36,7 @@ class ImportEmailPriceListService
       location: location,
       sync_status: 'syncing'
     )
+    new_list = supplier_list.new_record?
     supplier_list.save!
 
     # Upsert items
@@ -58,6 +59,14 @@ class ImportEmailPriceListService
 
     Rails.logger.info "[ImportEmailPriceList] Imported #{results[:items_imported]} new, " \
                       "#{results[:items_updated]} updated for #{supplier.name}"
+
+    # A new list was attached to its matched list when saved, before its items
+    # existed (SupplierList#auto_add_to_matched_list no longer starts matching
+    # for that reason). Match it now that the items are in.
+    if new_list
+      AggregatedListMapping.where(supplier_list_id: supplier_list.id).distinct.pluck(:aggregated_list_id)
+                           .each { |list_id| SyncNewProductsJob.perform_later(list_id) }
+    end
 
     results
   rescue StandardError => e

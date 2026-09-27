@@ -121,9 +121,9 @@ class SupplierList < ApplicationRecord
     unless matched_list.supplier_list_ids.include?(id)
       matched_list.aggregated_list_mappings.create!(supplier_list_id: id)
       Rails.logger.info "[AutoAdd] Added supplier list #{id} (#{name}) to matched list #{matched_list.id} (#{matched_list.name})"
-
-      # Kick off incremental matching so new items appear in product matches
-      SyncNewProductsJob.perform_later(matched_list.id)
+      # Matching is NOT started here: the list is saved before its items are
+      # imported, so it would match a partial guide. ImportSupplierListsService
+      # starts it once the import has finished (match_new_lists!).
     end
   end
 end
