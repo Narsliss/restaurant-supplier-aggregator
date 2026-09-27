@@ -1,0 +1,7 @@
+<%# Live case count for one supplier in the order builder's bar: "6 cases", or
+    "6 / 20 cases" against a case minimum (orange until met). Counts the same
+    way the review page does (Order#item_count: every unit ordered). Updated by
+    order_builder_controller#_updateCaseCounts. Locals: supplier, case_minimum. %>
+<span class="text-[10px] whitespace-nowrap text-gray-500 mt-0.5"
+      data-supplier-case-label="<%= supplier.id %>"
+      data-case-minimum="<%= case_minimum.to_i %>">0<%= " / #{case_minimum.to_i}" if case_minimum.to_i.positive? %> cases</span>

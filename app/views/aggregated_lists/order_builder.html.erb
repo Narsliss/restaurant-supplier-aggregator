@@ -102,9 +102,10 @@
                       / $<%= min_info[:minimum].to_i %>
                     </span>
                   </div>
-                <% else %>
+                <% elsif !min_info[:case_minimum] %>
                   <span class="text-[10px] text-gray-400 mt-1">No minimum</span>
                 <% end %>
+                <%= render "aggregated_lists/supplier_case_count", supplier: supplier, case_minimum: min_info[:case_minimum] %>
                 <div class="hidden text-[10px] mt-0.5 truncate" data-supplier-delivery-status="<%= supplier.id %>"></div>
               </div>
             <% end %>
@@ -114,6 +115,8 @@
           <div class="bg-white shadow rounded-lg px-2 py-1.5 flex items-center gap-1">
             <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
           </div>
+          <button type="button" data-clear-cart title="Remove every item from this order"
+                  class="px-3 py-1.5 rounded-md text-sm font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 transition-colors whitespace-nowrap">Clear cart</button>
           <%= link_to "Cancel", select_list_orders_path, class: "px-3 py-1.5 rounded-md text-sm font-medium text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition-colors" %>
           <button type="submit"
                   disabled
@@ -157,9 +160,10 @@
                   / $<%= min_info[:minimum].to_i %>
                 </span>
               </div>
-            <% else %>
+            <% elsif !min_info[:case_minimum] %>
               <span class="text-[10px] text-gray-400 mt-0.5">No minimum</span>
             <% end %>
+            <%= render "aggregated_lists/supplier_case_count", supplier: supplier, case_minimum: min_info[:case_minimum] %>
             <div class="hidden text-[10px] mt-0.5 truncate" data-supplier-delivery-status="<%= supplier.id %>"></div>
           </div>
         <% end %>
@@ -168,6 +172,8 @@
           <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
         </div>
         <div class="ml-auto shrink-0 bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-3">
+          <button type="button" data-clear-cart title="Remove every item from this order"
+                  class="px-3 py-1.5 rounded-md text-sm font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 transition-colors whitespace-nowrap">Clear cart</button>
           <%= link_to "Cancel", select_list_orders_path, class: "px-3 py-1.5 rounded-md text-sm font-medium text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition-colors" %>
           <button type="submit"
                   disabled

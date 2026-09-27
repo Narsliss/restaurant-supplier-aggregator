@@ -13,10 +13,12 @@
   supplier_count = @suppliers.size
   categories = @match_category.values.compact.uniq.sort
   minimums_json = @supplier_minimums.transform_values { |m| m[:minimum] }.to_json
+  case_minimums_json = @supplier_minimums.transform_values { |m| m[:case_minimum] }.to_json
 %>
 
 <div data-controller="mobile-order-builder"
      data-mobile-order-builder-minimums-value="<%= minimums_json %>"
+     data-mobile-order-builder-case-minimums-value="<%= case_minimums_json %>"
      data-mobile-order-builder-list-id-value="<%= @aggregated_list.id %>"
      class="-mx-4 -mt-2 min-h-screen bg-brand-cream pb-56">
 

@@ -589,19 +589,20 @@ class AggregatedListsController < ApplicationController
       end
     end
 
-    # --- Per-supplier minimums for command bar progress indicators (single query) ---
+    # --- Per-supplier minimums for the command bar ---
+    # The restaurant being ordered for decides: its own requirement, else the
+    # supplier-wide default — the same rule the review page enforces
+    # (Supplier#order_minimum / #case_minimum). Previously any restaurant's
+    # dollar minimum could show, and case minimums never showed at all.
     supplier_ids = @suppliers.map(&:id)
-    minimums_by_supplier = SupplierRequirement
-      .where(supplier_id: supplier_ids, requirement_type: 'order_minimum', active: true)
-      .index_by(&:supplier_id)
-
     @supplier_minimums = {}
     @suppliers.each do |supplier|
-      req = minimums_by_supplier[supplier.id]
+      req = SupplierRequirement.effective_for(supplier: supplier, type: 'order_minimum', location: current_location)
       @supplier_minimums[supplier.id] = {
         name: supplier.name,
         minimum: req&.numeric_value&.to_f,
-        is_blocking: req&.is_blocking || false
+        is_blocking: req&.is_blocking || false,
+        case_minimum: supplier.case_minimum(current_location)
       }
     end
 
@@ -651,7 +652,9 @@ class AggregatedListsController < ApplicationController
     # their Order (chef bug report 2026-07-29, flat leaf parsley).
     current_order = CurrentOrder.find_by(user: current_user, aggregated_list: @aggregated_list)
     if current_order && !current_order.empty?
-      @delivery_date = current_order.delivery_date
+      # A saved date that has passed would only block Create Orders; ask again.
+      @delivery_date = current_order.delivery_date if current_order.delivery_date.present? &&
+                                                      current_order.delivery_date.to_date >= Date.tomorrow
       current_order.sanitized_state.each do |match_id, lines|
         # A product can be split across suppliers, so the row's box shows the
         # total while each supplier cell renders its own share.

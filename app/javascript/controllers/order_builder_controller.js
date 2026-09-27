@@ -47,6 +47,11 @@ export default class extends Controller {
     this._fixedBar.innerHTML = `<div style="max-width:72rem;margin:0 auto;">${cmdBar.innerHTML}</div>`
     document.body.appendChild(this._fixedBar)
 
+    // The bar is a clone outside the controller's element, so data-action never
+    // fires on it — wire Clear cart by hand (original bar too, for symmetry).
+    ;[...this._fixedBar.querySelectorAll("[data-clear-cart]"), ...cmdBar.querySelectorAll("[data-clear-cart]")]
+      .forEach(btn => btn.addEventListener("click", (e) => this.clearCart(e)))
+
     // Wire up the cloned submit buttons to submit the real form
     this._fixedBar.querySelectorAll("button[type='submit']").forEach(btn => {
       btn.addEventListener("click", (e) => {
@@ -391,6 +396,7 @@ export default class extends Controller {
     let total = 0
     let lineTotal = 0
     const perSupplier = {}
+    const perSupplierQty = {}
     // The page renders every row TWICE — the desktop card and the small-screen
     // card — so each supplier owns two cells. Both get redrawn; only one may
     // count toward the totals.
@@ -421,6 +427,7 @@ export default class extends Controller {
         total += qty
         lineTotal += qty * price
         perSupplier[supplierId] = qty * price
+        perSupplierQty[supplierId] = qty
       }
     })
 
@@ -433,7 +440,7 @@ export default class extends Controller {
     const text = lineTotal > 0 ? `$${lineTotal.toFixed(2)}` : "\u2014"
     this._matchLineTotals?.[matchId]?.forEach(el => el.textContent = text)
 
-    const result = { sig, total, lineTotal, perSupplier }
+    const result = { sig, total, lineTotal, perSupplier, perSupplierQty }
     this._rowCache[matchId] = result
     return result
   }
@@ -458,6 +465,7 @@ export default class extends Controller {
     let itemCount = 0
     const supplierIds = new Set()
     const supplierTotals = {}
+    const supplierQty = {}
     const seenMatches = new Set()
 
     // Walk each match ONCE (desktop + in-page mobile render the same row twice)
@@ -475,6 +483,9 @@ export default class extends Controller {
       Object.entries(row.perSupplier).forEach(([supplierId, amount]) => {
         supplierIds.add(supplierId)
         supplierTotals[supplierId] = (supplierTotals[supplierId] || 0) + amount
+      })
+      Object.entries(row.perSupplierQty || {}).forEach(([supplierId, qty]) => {
+        supplierQty[supplierId] = (supplierQty[supplierId] || 0) + qty
       })
     })
 
@@ -497,6 +508,7 @@ export default class extends Controller {
 
     // Update per-supplier breakdown (mini-cards + progress bars)
     this._updateSupplierBreakdown(supplierTotals)
+    this._updateCaseCounts(supplierQty)
 
     // Check delivery date
     const hasDate = this._hasValidDeliveryDate()
@@ -868,6 +880,41 @@ export default class extends Controller {
     if (!matchId) return
     delete this._rowCache[matchId]
     this._renderMatch(matchId)
+  }
+
+  // How many cases are going to each supplier, against its case minimum when it
+  // has one ("6 / 20 cases" orange until met). Same count as the review page.
+  _updateCaseCounts(supplierQty) {
+    const labels = [
+      ...this.element.querySelectorAll("[data-supplier-case-label]"),
+      ...(this._fixedBar ? this._fixedBar.querySelectorAll("[data-supplier-case-label]") : [])
+    ]
+    labels.forEach(el => {
+      const count = supplierQty[el.dataset.supplierCaseLabel] || 0
+      const min = parseInt(el.dataset.caseMinimum) || 0
+      const unit = (min || count) === 1 ? "case" : "cases"
+      el.textContent = min > 0 ? `${count} / ${min} ${unit}` : `${count} ${unit}`
+      el.classList.remove("text-gray-500", "text-brand-orange", "text-brand-green", "font-medium")
+      if (min > 0 && count > 0) {
+        el.classList.add(count >= min ? "text-brand-green" : "text-brand-orange", "font-medium")
+      } else {
+        el.classList.add("text-gray-500")
+      }
+    })
+  }
+
+  // Empty the whole working order in one go (the saved cart can carry lines
+  // from an earlier session). Orders already created aren't touched.
+  clearCart(event) {
+    event?.preventDefault()
+    const count = Object.keys(this._sel || {}).length
+    if (count === 0) return
+    const noun = count === 1 ? "item" : "items"
+    if (!window.confirm(`Clear all ${count} ${noun} from this order? Orders you've already created aren't affected.`)) return
+
+    this._sel = {}
+    this._rowCache = {}
+    this.updateTotals()
   }
 
   // === Per-supplier breakdown (progress bars + subtotals) ===

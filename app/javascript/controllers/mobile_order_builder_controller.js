@@ -18,7 +18,7 @@ export default class extends Controller {
                     "listSectionHeader", "otherSectionHeader",
                     "catalogHeader", "catalogResults", "catalogCount",
                     "ribbon", "ribbonPills", "ribbonTotal", "dateLabel", "deliveryDate", "submitButton"]
-  static values = { minimums: Object, listId: Number }
+  static values = { minimums: Object, caseMinimums: Object, listId: Number }
 
   connect() {
     // A product can be sourced from several suppliers at once — 5 salads from
@@ -593,11 +593,13 @@ export default class extends Controller {
 
   refreshRibbon() {
     const totals = {}
+    const cases = {}
     const names = {}
     this.allLines().forEach(s => {
       const cell = this.cellsFor(s.matchId).find(c => c.dataset.supplierId === s.supplierId)
       if (!cell) return
       totals[s.supplierId] = (totals[s.supplierId] || 0) + this.effectivePrice(cell, s.uom) * s.qty
+      cases[s.supplierId] = (cases[s.supplierId] || 0) + s.qty
       names[s.supplierId] = cell.dataset.short
     })
 
@@ -608,14 +610,19 @@ export default class extends Controller {
     this.ribbonPillsTarget.innerHTML = supplierIds.map(id => {
       const total = totals[id]
       const min = this.minimumsValue[id]
-      const met = min == null || total >= min
+      // Case count against the case minimum (same count as the review page).
+      const caseMin = (this.caseMinimumsValue || {})[id]
+      const caseCount = cases[id] || 0
+      const caseMet = !caseMin || caseCount >= caseMin
+      const caseText = caseMin ? `${caseCount} / ${caseMin} cases` : `${caseCount} ${caseCount === 1 ? "case" : "cases"}`
+      const met = (min == null || total >= min) && caseMet
       if (met) {
         return `<div class="shrink-0 rounded-lg px-2.5 py-1.5 border bg-green-500/15 border-green-400/60">
           <div class="flex items-center gap-1.5">
             <span class="text-[11px] font-bold text-white">${names[id]}</span>
             <span class="text-[12px] font-extrabold text-green-300">${this.currency(total)}</span>
           </div>
-          <div class="text-[9px] text-green-300/80">✓ min met</div>
+          <div class="text-[9px] text-green-300/80">✓ min met · ${caseText}</div>
         </div>`
       }
       // Unmet minimum: the pill is tappable and opens the suggestion sheet
@@ -625,7 +632,7 @@ export default class extends Controller {
           <span class="text-[11px] font-bold text-white">${names[id]}</span>
           <span class="text-[12px] font-extrabold text-red-300">${this.currency(total)}</span>
         </div>
-        <div class="text-[9px] text-red-300">${this.currency(min - total)} to ${this.currency(min)} min · <span class="underline font-bold">add items</span></div>
+        <div class="text-[9px] text-red-300">${min != null && total < min ? `${this.currency(min - total)} to ${this.currency(min)} min · ` : ""}${caseText} · <span class="underline font-bold">add items</span></div>
       </button>`
     }).join("")
 
