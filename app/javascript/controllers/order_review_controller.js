@@ -1588,7 +1588,20 @@ export default class extends Controller {
     const selected = new Date(dateInput.value + "T00:00:00")
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    return selected > today
+    if (!(selected > today)) return false
+    return this._supplierDeliversOn(orderId, dateInput.value)
+  }
+
+  // Suppliers that publish their own delivery days (Performance, Sysco): the
+  // chosen date must be one of them, and a supplier that says it won't deliver
+  // to this account ("not set up for deliveries") can't be submitted at all.
+  // Suppliers without published days are never blocked here.
+  _supplierDeliversOn(orderId, dateVal) {
+    const info = (this.deliveryInfoValue || {})[orderId]
+    if (!info || info.type !== "api") return true
+    if (info.error) return false
+    if (!info.dates || info.dates.length === 0) return true
+    return info.dates.includes(dateVal)
   }
 
   _initDeliveryHints() {

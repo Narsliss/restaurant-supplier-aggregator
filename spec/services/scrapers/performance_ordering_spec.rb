@@ -267,6 +267,15 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
           .to raise_error(Scrapers::BaseScraper::ScrapingError, /rejected the order: Order past cutoff/)
       end
 
+      # First real order (#335): the submit reply has no OrderNumber, but the
+      # submitted order does (1296579) — that's the number the rep uses.
+      it 'reads the order number back from the submitted order' do
+        allow(api).to receive(:get_order).and_return(order, order.merge('OrderNumber' => '1296579'))
+        allow(api).to receive(:submit_order).and_return({ 'IsSuccess' => true, 'ResultObject' => { 'AcceptOrder' => true } })
+
+        expect(scraper.checkout(dry_run: false)[:confirmation_number]).to eq('1296579')
+      end
+
       it 'uses PFG\'s own draft id, not a fabricated number, when no order number comes back' do
         allow(api).to receive(:get_order).and_return(order)
         allow(api).to receive(:submit_order).and_return({ 'IsSuccess' => true, 'ResultObject' => { 'AcceptOrder' => true } })

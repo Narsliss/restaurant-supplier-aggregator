@@ -679,8 +679,13 @@ export default class extends Controller {
       if (!dateVal) {
         // No date selected yet — show available days summary
         if (apiInfo && apiInfo.dates && apiInfo.dates.length > 0) {
+          // Say WHICH days, not just the next one: "Delivers Tue/Fri · next Tue Sep 29".
           const nextDate = apiInfo.dates[0]
-          badge.textContent = `Next: ${this._formatShortDate(nextDate)}`
+          const weekdays = [...new Set(apiInfo.dates.map(d => new Date(d + "T00:00:00").getDay()))].sort()
+          const days = weekdays.length <= 4 ? weekdays.map(d => dayNames[d].substring(0, 3)).join("/") : null
+          badge.textContent = days
+            ? `Delivers ${days} \u00B7 next ${this._formatShortDate(nextDate)}`
+            : `Next: ${this._formatShortDate(nextDate)}`
           badge.className = badge.className.replace(/text-\S+/g, "")
           badge.classList.add("text-gray-500")
         } else if (schedList) {

@@ -479,7 +479,12 @@ module Scrapers
       # number, else the draft's OrderEntryHeaderId — PFG's own id for this order,
       # never a fabricated one.
       ro = result['ResultObject'].is_a?(Hash) ? result['ResultObject'] : {}
-      confirmation = ro['OrderNumber'].presence || ro['ConfirmationNumber'].presence || oeh
+      # The submit reply carries no order number (first real order #335, Sep 27
+      # 2026: { AcceptOrder, RejectedMessage, RedirectUrl }); the submitted
+      # order has one (1296579). Read it back so order history shows the number
+      # Performance and the rep use. Best effort — the order is already placed.
+      confirmation = ro['OrderNumber'].presence || ro['ConfirmationNumber'].presence ||
+                     submitted_order_number(oeh) || oeh
       logger.warn "[Performance] LIVE order submitted: #{confirmation}"
 
       {
@@ -489,6 +494,13 @@ module Scrapers
         dry_run: false,
         checkout_summary: result
       }
+    end
+
+    def submitted_order_number(oeh)
+      api_client.get_order(oeh)&.dig('OrderNumber').presence&.to_s
+    rescue StandardError => e
+      logger.warn "[Performance] could not read back order number for #{oeh}: #{e.message}"
+      nil
     end
 
     protected

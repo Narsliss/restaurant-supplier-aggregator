@@ -20,3 +20,11 @@ A read-only probe of the endpoint the CustomerFirst site uses for its own date p
 
 ## Follow-up: fetch delivery days on connect (Sep 27 2026)
 Carmin: "why doesn't it happen automatically?" The builder refreshed missing or stale dates in the background, but the page doing the refresh showed the old (empty) value, so a newly connected supplier's days appeared only on the **second** builder visit. `ValidateCredentialsJob` now queues `FetchSyscoDeliveryDatesJob` (forced) as soon as a Sysco or Performance login validates. Spec: `spec/jobs/validate_credentials_job_delivery_dates_spec.rb`.
+
+## Follow-up: block submitting on a non-delivery day (Sep 27 2026)
+Carmin, on the review page with Thu Oct 1 picked for Performance (Tue/Fri only): "shouldn't the submit order button be greyed out with a bad date picked?" It only showed an amber hint while Submit stayed live. That was safe (PFG refuses the date at the cart step) but clumsy, and it left the cart behind.
+- **Review page** (`order_review_controller#_supplierDeliversOn`): Submit and Submit All grey out while the date isn't one of the supplier's own delivery days, or while the supplier says the account isn't set up for deliveries. They re-enable when a valid date is picked. Suppliers without published days are never blocked.
+- **Server** (`OrdersController#submit_batch` via `undeliverable_date_message`): the same rule refuses the submit before any job or supplier call, e.g. "Performance Foodservice doesn't deliver on Thu Oct 1 — next delivery Fri Oct 2." Spec: `spec/requests/order_submit_delivery_date_spec.rb` (4).
+- **Builder:** the Performance chip now says which days, "Delivers Tue/Fri · next Tue Sep 29", instead of only the next date.
+
+Same day, order #335 became the first real Performance order placed by EnPlace (Fri Oct 2, AcceptOrder true). It proved the submit, delivery-date and cart-delete fixes live.

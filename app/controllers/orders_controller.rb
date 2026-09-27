@@ -631,6 +631,16 @@ class OrdersController < ApplicationController
       return
     end
 
+    # Suppliers that publish their own delivery days (Performance, Sysco): refuse
+    # a date the supplier won't deliver on — or any date, when it says the
+    # account isn't set up for deliveries — before anything touches its cart.
+    undeliverable = orders.filter_map { |o| undeliverable_date_message(o) }
+    if undeliverable.any?
+      redirect_to review_orders_path(batch_id: batch_id, aggregated_list_id: params[:aggregated_list_id]),
+        alert: undeliverable.join(" ")
+      return
+    end
+
     # Server-side credential check — filter out orders the user can't place
     # Email suppliers don't need credentials (ordered via email/export)
     user_supplier_ids = scoped_credentials.where.not(status: %w[expired failed]).pluck(:supplier_id)
@@ -670,6 +680,24 @@ class OrdersController < ApplicationController
     else
       redirect_to batch_progress_orders_path(batch_id: batch_id)
     end
+  end
+
+  # nil when the order's date is fine; otherwise a message naming the supplier.
+  # Only for suppliers whose own delivery days EnPlace has (the ordering
+  # login's stored dates or its "not set up for deliveries" reason).
+  def undeliverable_date_message(order)
+    return nil unless order.supplier&.api_delivery_dates? && order.delivery_date.present?
+
+    cred = Suppliers::OrderCredential.scope(order, statuses: %w[active]).take
+    return nil unless cred
+    return "#{order.supplier.name}: #{cred.delivery_dates_error}" if cred.delivery_dates_error.present?
+
+    dates = Array(cred.available_delivery_dates)
+    return nil if dates.empty? || dates.include?(order.delivery_date.to_date.iso8601)
+
+    next_date = dates.find { |d| d > order.delivery_date.to_date.iso8601 }
+    "#{order.supplier.name} doesn't deliver on #{order.delivery_date.strftime('%a %b %-d')}" \
+      "#{next_date ? " — next delivery #{Date.parse(next_date).strftime('%a %b %-d')}" : ''}."
   end
 
   # JSON endpoint for polling verification status from the review page

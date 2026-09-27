@@ -32,3 +32,6 @@ The submit itself can only be proven by a real order; its shape is copied from t
 
 ## Noted, not changed
 `PreOrderValidationService#validate_order_minimum!` logs `undefined method [] for nil` when a scraper's `get_order_minimum` returns nil (PFG with no minimum). It is rescued and harmless, but noisy.
+
+## Follow-up: store Performance's order number (Sep 27 2026)
+The first real order (#335) proved the fix: AcceptOrder true, and Performance's record matches (4 lines, 20 cases, $365.40, Fri Oct 2, AJM D'ORO RESTAURANT). But the submit reply has no `OrderNumber`, so EnPlace stored the internal OrderEntryHeaderId (`9d2d55fa…`). `GetOrder` on the submitted order does return `OrderNumber: "1296579"`. `checkout` now reads it back (best effort) and stores it as the confirmation number. The internal id is kept only as a last resort.
