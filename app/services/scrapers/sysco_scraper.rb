@@ -552,19 +552,23 @@ module Scrapers
                                 end
 
       # Step 2: Add items in a single UpdateOrder call.
-      # Send ONLY the identifying fields — no pricingType, no price, no
-      # totalPrice, no commissionBasis. Sysco's updateOrderV2 computes
-      # the authoritative values server-side based on the account's
-      # current pricing tier (list, contract, deal, promo, etc.) and
-      # returns them on the response. Hardcoding pricingType: "N" here
-      # was silently overridden by the server for contract items but
-      # also prevented submit from validating properly. Matches the
-      # shape Sysco's own web frontend sends for contract-priced items.
+      # No pricingType or totalPrice — Sysco computes the authoritative
+      # values server-side from the account's pricing tier and returns
+      # them on the response (hardcoding pricingType: "N" broke submit for
+      # contract items, Apr 2026).
+      #
+      # `price` and `commissionBasis` ARE required: since ~Sep 2026 Sysco
+      # rejects a line without either ("order.lineItems[0].price is
+      # required") — that failed order #336. Probed live Sep 27: Sysco
+      # ignores the price we send and stores its own (sent 0 → stored
+      # 40.59), so our last-known price is informational only.
       line_items = items.map do |item|
         {
           qty: item[:quantity].to_i,
           soldAs: 'cs',
           productId: item[:sku].to_s,
+          price: item[:expected_price].to_f,
+          commissionBasis: 0,
           siteId: tokens[:site_id],
           sellerId: tokens[:seller_id]
         }
@@ -2915,7 +2919,14 @@ module Scrapers
       })
 
       updated = data.dig('data', 'updateOrderV2')
-      raise ScrapingError, 'updateOrderV2 returned nil' unless updated
+      unless updated
+        # Sysco answers a rejected update with HTTP 200 + an `errors` array and
+        # null data. Surface its reason — "returned nil" alone left order #336
+        # undiagnosable.
+        errors = Array(data['errors']).map { |e| e['message'] }.compact.join('; ').presence || 'unknown error'
+        logger.error "[Sysco] updateOrderV2 rejected: #{data['errors'].to_json[0..1500]}"
+        raise ScrapingError, "updateOrderV2 failed: #{errors}"
+      end
       updated
     end
 

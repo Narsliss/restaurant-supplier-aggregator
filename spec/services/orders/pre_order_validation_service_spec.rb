@@ -79,6 +79,16 @@ RSpec.describe Orders::PreOrderValidationService, type: :service do
       result = build_service.validate!
       expect(result[:errors].any? { |e| e[:type] == :delivery }).to be true
     end
+
+    # Sysco (like BaseScraper) returns nil for both checks; that used to hit
+    # `nil[:minimum]` and log a misleading "check failed" warning every order.
+    it 'skips both checks quietly when the scraper does not implement them' do
+      allow(fake_scraper).to receive_messages(get_order_minimum: nil, get_delivery_availability: nil)
+      allow(Rails.logger).to receive(:warn).and_call_original
+      result = build_service.validate!
+      expect(result[:errors]).to be_empty
+      expect(Rails.logger).not_to have_received(:warn).with(/check failed/)
+    end
   end
 end
 

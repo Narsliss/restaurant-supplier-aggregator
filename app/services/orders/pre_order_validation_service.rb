@@ -207,6 +207,7 @@ module Orders
 
       begin
         minimum_info = @scraper.get_order_minimum
+        return unless minimum_info # scraper has no pre-order minimum check
 
         if minimum_info[:minimum] && order_total < minimum_info[:minimum]
           difference = minimum_info[:minimum] - order_total
@@ -228,6 +229,7 @@ module Orders
 
       begin
         delivery_info = @scraper.get_delivery_availability(delivery_date)
+        return unless delivery_info # scraper has no pre-order delivery check
 
         unless delivery_info[:available]
           add_error(:delivery,
