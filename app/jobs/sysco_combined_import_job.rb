@@ -64,6 +64,14 @@ class SyscoCombinedImportJob < ApplicationJob
       Rails.logger.error "[SyscoCombinedImport] Refresh known SKUs failed: #{e.class}: #{e.message}"
     end
 
+    # Re-attach units to packs stored without one — the refresh above keeps
+    # those products priced but can't see their pack.
+    begin
+      @pack_heal_result = products_service.heal_unitless_pack_sizes(scraper: scraper)
+    rescue StandardError => e
+      Rails.logger.error "[SyscoCombinedImport] Pack size heal failed: #{e.class}: #{e.message}"
+    end
+
     # List import — direct GraphQL HTTP calls, no browser
     begin
       Rails.logger.info '[SyscoCombinedImport] Starting list import via API...'
@@ -99,6 +107,7 @@ class SyscoCombinedImportJob < ApplicationJob
       metadata: {
         catalog: @products_result&.slice(:imported, :updated, :skipped),
         refresh: @refresh_result,
+        pack_heal: @pack_heal_result,
         lists: @lists_result
       }
     )

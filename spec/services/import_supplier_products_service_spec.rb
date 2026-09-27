@@ -238,6 +238,96 @@ RSpec.describe ImportSupplierProductsService do
   # (1104 discontinued, 1102 gone, 1106 reserved for other customers). The
   # refresh stored that 0 as the price, so discontinued items showed as
   # orderable at $0.00 on chefs' lists.
+  # Regression: KINGAR FLOUR CAKE BLEND (Sysco 6030537) was stored as "6x2"
+  # before build_pack_size re-attached uom, and the nightly refresh never
+  # returns packSize — so it sat out every per-unit comparison.
+  describe '#heal_unitless_pack_sizes' do
+    let(:supplier) { create(:supplier) }
+    let(:credential) { create(:supplier_credential, supplier: supplier) }
+    let(:service) { described_class.new(credential) }
+    let(:supplier_list) do
+      SupplierList.create!(supplier: supplier, supplier_credential: credential,
+                           organization_id: credential.organization_id, name: 'Guide')
+    end
+    let!(:sp) do
+      SupplierProduct.create!(supplier: supplier, supplier_sku: '6030537', current_price: 66.97,
+                              supplier_name: 'KINGAR FLOUR CAKE BLEND UNBLEACHED', pack_size: '6x2')
+    end
+    let!(:sli) do
+      supplier_list.supplier_list_items.create!(name: 'KINGAR FLOUR CAKE BLEND UNBLEACHED', sku: '6030537',
+                                                price: 66.97, pack_size: '6x2', supplier_product_id: sp.id)
+    end
+
+    def scraper_returning(packs)
+      requested = []
+      scraper = Object.new
+      scraper.define_singleton_method(:fetch_pack_sizes) do |skus, &block|
+        requested.concat(skus)
+        block.call(packs.slice(*skus))
+      end
+      [scraper, requested]
+    end
+
+    it 're-attaches the unit to the product and its list item so both parse' do
+      scraper, = scraper_returning('6030537' => '6x2 LB')
+
+      result = service.heal_unitless_pack_sizes(scraper: scraper)
+
+      expect(result).to include(checked: 1, healed: 1, list_items_healed: 1, skipped_price_move: 0)
+      expect(sp.reload.pack_size).to eq('6x2 LB')
+      expect(sli.reload.pack_size).to eq('6x2 LB')
+      expect(sli.per_unit_price).to be_within(0.001).of(0.3488)
+    end
+
+    it 'only looks up packs that have no unit' do
+      SupplierProduct.create!(supplier: supplier, supplier_sku: '6030552', supplier_name: 'FLOUR WW', pack_size: '6x5 LB')
+      SupplierProduct.create!(supplier: supplier, supplier_sku: '6030553', supplier_name: 'MEAT', pack_size: '2x5#AVG')
+      scraper, requested = scraper_returning({})
+
+      service.heal_unitless_pack_sizes(scraper: scraper)
+
+      expect(requested).to eq(['6030537'])
+    end
+
+    it 'leaves the pack alone when the supplier changed the numbers, not just added a unit' do
+      scraper, = scraper_returning('6030537' => '6x2.5 LB')
+
+      service.heal_unitless_pack_sizes(scraper: scraper)
+
+      expect(sp.reload.pack_size).to eq('6x2')
+      expect(sli.reload.pack_size).to eq('6x2')
+    end
+
+    # The order builder carries estimated_total_price into the cart. A
+    # per-pound price meeting a newly-weighted pack would reprice the line
+    # (66.97/lb x 12 lb), so the repair must stand down.
+    it 'skips the row when the new pack would change what the order builder charges' do
+      sli.update_columns(price_unit: 'LB')
+      scraper, = scraper_returning('6030537' => '6x2 LB')
+
+      result = service.heal_unitless_pack_sizes(scraper: scraper)
+
+      expect(result).to include(healed: 0, skipped_price_move: 1)
+      expect(sp.reload.pack_size).to eq('6x2')
+      expect(sli.reload.pack_size).to eq('6x2')
+    end
+
+    it 'does not touch a list item linked to this product under a different SKU' do
+      sli.update_columns(sku: '9999999')
+      scraper, = scraper_returning('6030537' => '6x2 LB')
+
+      service.heal_unitless_pack_sizes(scraper: scraper)
+
+      expect(sp.reload.pack_size).to eq('6x2 LB')
+      expect(sli.reload.pack_size).to eq('6x2')
+    end
+
+    it 'does nothing for a scraper that cannot look packs up' do
+      expect(service.heal_unitless_pack_sizes(scraper: Object.new)).to include(checked: 0, healed: 0)
+      expect(sp.reload.pack_size).to eq('6x2')
+    end
+  end
+
   describe '#apply_refresh_updates — supplier said there is no price' do
     let(:supplier) { create(:supplier) }
     let(:credential) { create(:supplier_credential, supplier: supplier) }

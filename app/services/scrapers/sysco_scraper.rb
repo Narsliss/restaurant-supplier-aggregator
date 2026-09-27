@@ -323,6 +323,41 @@ module Scrapers
       [updates, missed]
     end
 
+    PACK_LOOKUP_BATCH_SIZE = 20
+
+    # Look up current pack sizes for known SKUs, yielding { sku => pack_size }
+    # per batch.
+    #
+    # refresh_known_skus keeps the long tail of the catalog priced, but the
+    # Prices query it uses returns no packSize, so a pack stored before
+    # build_pack_size learned to re-attach `uom` stays unit-less ("6x2") for
+    # as long as the term search never happens to return that SKU. Catalog
+    # search matches item numbers, and several space-separated SKUs in one
+    # query come back together, so this fetches packs for a batch per call.
+    # SKUs the search doesn't return (not orderable on this account) are
+    # simply absent from the yielded hash.
+    def fetch_pack_sizes(skus, batch_size: PACK_LOOKUP_BATCH_SIZE)
+      ensure_api_session!
+
+      skus.map(&:to_s).each_slice(batch_size) do |batch|
+        found = {}
+        begin
+          # Headroom over batch.size in case fuzzy matches rank above an exact SKU.
+          data = graphql_search_products(batch.join(' '), start: 0, num: batch.size + 10)
+          (data && data['results'] || []).each do |result|
+            sku = result['productId'].to_s
+            next unless batch.include?(sku)
+
+            pack = build_pack_size(result.dig('productInfo', 'packSize') || {})
+            found[sku] = pack if pack.present?
+          end
+        rescue StandardError => e
+          logger.warn "[Sysco] Pack size lookup failed for #{batch.size} SKUs: #{e.class}: #{e.message}"
+        end
+        yield found
+      end
+    end
+
     def search_supplier_catalog(term, max: 100)
       products = []
       start = 0
@@ -2697,6 +2732,10 @@ module Scrapers
       # says "12 OZ", `uom` is a duplicate and the existing de-dup below
       # would have to strip it again.
       uom = pack_info['uom'].to_s.strip
+      # Sysco's uom codes carry gallons as "GAL" and grams as "G" (a 140 G jar
+      # of truffle honey). UnitParser reads a bare "G" as gallons — the
+      # convention elsewhere in food service — so spell grams out as "GR".
+      uom = 'GR' if uom.casecmp?('G')
       size = "#{size} #{uom}" if size.present? && uom.present? && !size.match?(/[A-Za-z]/)
 
       raw = if pack.present? && size.present? && pack.match?(/\A\d+\z/) && size.match?(/\A\d/)

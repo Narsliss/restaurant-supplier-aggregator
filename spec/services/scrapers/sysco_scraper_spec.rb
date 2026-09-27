@@ -29,6 +29,17 @@ RSpec.describe Scrapers::SyscoScraper do
         expect(build_with_uom('12', '12 OZ', 'OZ')).to eq('12x12 OZ')
       end
 
+      # Sysco sends grams as uom "G" (and gallons as "GAL"); a bare "G" reads
+      # as gallons to UnitParser, which made a 64x140 G case of truffle honey
+      # 1.1 million fl oz and its per-unit price effectively zero.
+      it 'spells Sysco grams out so they are not read as gallons' do
+        packed = build_with_uom('64', '140', 'G')
+        expect(packed).to eq('64x140 GR')
+        expect(UnitParser.parse(packed)).to include(normalized_unit: 'oz')
+        expect(UnitParser.per_unit_price(499.2, packed)).to be_within(0.01).of(1.58)
+        expect(build_with_uom('4', '1', 'GAL')).to eq('4x1 GAL')
+      end
+
       it 'changes nothing when the API omits uom' do
         expect(build_with_uom('12', '11.5', nil)).to eq('12x11.5')
       end
@@ -189,6 +200,62 @@ RSpec.describe Scrapers::SyscoScraper do
       expect { scraper.send(:perform_login_steps) }
         .to raise_error(Scrapers::BaseScraper::AuthenticationError, /not authenticated/)
       expect(scraper).to have_received(:navigate_to).with(described_class::SHOP_LOGIN_URL)
+    end
+  end
+
+  # Regression: KINGAR FLOUR CAKE BLEND (6030537) was stored as "6x2" before
+  # build_pack_size re-attached uom, and the nightly price refresh never
+  # returns packSize, so it sat out every per-unit comparison for months.
+  # Sysco's live payload for it is { pack: "6", size: "2", uom: "LB" }.
+  describe '#fetch_pack_sizes' do
+    def result(sku, pack, size, uom)
+      { 'productId' => sku, 'productInfo' => { 'packSize' => { 'pack' => pack, 'size' => size, 'uom' => uom } } }
+    end
+
+    before do
+      allow(scraper).to receive(:ensure_api_session!)
+      allow(scraper).to receive(:logger).and_return(Logger.new(File::NULL))
+    end
+
+    it 'looks SKUs up by item number in one search and builds unit-bearing packs' do
+      allow(scraper).to receive(:graphql_search_products)
+        .with('6030537 6030552', start: 0, num: 12)
+        .and_return('results' => [result('6030537', '6', '2', 'LB'), result('6030552', '6', '5', 'LB')])
+
+      yielded = []
+      scraper.fetch_pack_sizes(%w[6030537 6030552]) { |found| yielded << found }
+
+      expect(yielded).to eq([{ '6030537' => '6x2 LB', '6030552' => '6x5 LB' }])
+      expect(UnitParser.per_unit_price(66.97, yielded.first['6030537'])).to be_within(0.001).of(0.3488)
+    end
+
+    it 'ignores fuzzy matches that are not one of the requested SKUs' do
+      allow(scraper).to receive(:graphql_search_products)
+        .and_return('results' => [result('1401390', '1', '1', 'EA'), result('6030537', '6', '2', 'LB')])
+
+      yielded = []
+      scraper.fetch_pack_sizes(%w[6030537 6030999]) { |found| yielded << found }
+
+      expect(yielded).to eq([{ '6030537' => '6x2 LB' }])
+    end
+
+    it 'yields an empty batch rather than raising when a lookup fails' do
+      allow(scraper).to receive(:graphql_search_products).and_raise(StandardError, 'boom')
+
+      yielded = []
+      scraper.fetch_pack_sizes(%w[6030537]) { |found| yielded << found }
+
+      expect(yielded).to eq([{}])
+    end
+
+    it 'batches the requested SKUs' do
+      allow(scraper).to receive(:graphql_search_products).and_return('results' => [])
+
+      calls = 0
+      scraper.fetch_pack_sizes((1..45).map(&:to_s), batch_size: 20) { calls += 1 }
+
+      expect(calls).to eq(3)
+      expect(scraper).to have_received(:graphql_search_products).exactly(3).times
     end
   end
 

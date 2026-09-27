@@ -173,6 +173,61 @@ class ImportSupplierProductsService
     { updated: total_updated, missed: total_missed }
   end
 
+  # A pack string with numbers but no unit ("6x2", "12x11.5"). UnitParser
+  # can't read these, so the product earns no per-unit price and sits out
+  # every cross-supplier comparison.
+  # The "x" is Sysco's case-count multiplier, not a unit.
+  UNITLESS_PACK_SQL = "supplier_products.pack_size ~ '^[0-9]+(\\.[0-9]+)?x[0-9]+(\\.[0-9]+)?$'"
+
+  # Re-attach the unit to packs stored without one.
+  #
+  # Sysco packs imported before build_pack_size re-attached `uom` were stored
+  # unit-less, and only the catalog term search rewrites a pack — the nightly
+  # refresh_known_products path doesn't return packSize at all. Products the
+  # term search never reaches (about a third of the Sysco catalog in Sep 2026)
+  # stayed incomparable indefinitely.
+  #
+  # Deliberately narrow:
+  # - a pack is replaced only when the fresh string is the stored one plus a
+  #   unit ("6x2" → "6x2 LB"); anything else is left to the catalog import.
+  # - linked list items carrying the same stale string get the same repair,
+  #   as their prices do in sync_prices_to_list_items.
+  # - a row is skipped outright if the new pack would move the product's
+  #   estimated_case_price or any linked item's estimated_total_price. The
+  #   order builder carries estimated_total_price into the cart, so a
+  #   per-pound price meeting a newly-weighted pack must never reprice a line
+  #   as a side effect of a display repair.
+  def heal_unitless_pack_sizes(scraper:)
+    empty = { checked: 0, healed: 0, list_items_healed: 0, skipped_price_move: 0 }
+    return empty unless scraper.respond_to?(:fetch_pack_sizes)
+
+    stale = SupplierProduct.where(supplier: supplier, discontinued: false)
+                           .where(UNITLESS_PACK_SQL)
+                           .where.not(supplier_sku: [nil, ""])
+                           .pluck(:supplier_sku, :id)
+                           .to_h
+    return empty if stale.empty?
+
+    counts = empty.merge(checked: stale.size)
+    Rails.logger.info "[ImportProducts] Looking up units for #{stale.size} #{supplier.name} packs stored without one"
+    credential.update_columns(import_status_text: "Checking #{stale.size} pack sizes...")
+
+    scraper.fetch_pack_sizes(stale.keys) do |found|
+      products = SupplierProduct.where(id: found.keys.filter_map { |sku| stale[sku] })
+                                .includes(:supplier_list_items).index_by(&:supplier_sku)
+      found.each do |sku, fresh|
+        sp = products[sku]
+        next unless sp
+
+        heal_pack_size(sp, fresh, counts)
+      end
+    end
+
+    Rails.logger.info "[ImportProducts] #{supplier.name}: re-attached units to #{counts[:healed]} of #{counts[:checked]} packs " \
+                      "(#{counts[:list_items_healed]} list items, #{counts[:skipped_price_move]} skipped: price would move)"
+    counts
+  end
+
   # Import a batch of scraped items into the DB immediately.
   # Called by the scraper via the block passed to scrape_catalog.
   #
@@ -251,6 +306,35 @@ class ImportSupplierProductsService
   end
 
   private
+
+  # One row of heal_unitless_pack_sizes. See the guards documented there.
+  def heal_pack_size(sp, fresh, counts)
+    old = sp.pack_size.to_s
+    return unless fresh.start_with?("#{old} ") && fresh.delete_prefix("#{old} ").match?(/\A[A-Za-z]+\z/)
+
+    items = sp.supplier_list_items.select do |sli|
+      sli.pack_size == old && (sli.sku.blank? || sli.sku.to_s.strip == sp.supplier_sku.to_s.strip)
+    end
+
+    if [sp, *items].any? { |record| estimated_total_for(record, old) != estimated_total_for(record, fresh) }
+      counts[:skipped_price_move] += 1
+      Rails.logger.warn "[ImportProducts] Left pack #{old.inspect} on SKU #{sp.supplier_sku}: " \
+                        "#{fresh.inspect} would change its estimated total"
+      return
+    end
+
+    now = Time.current
+    counts[:healed] += SupplierProduct.where(id: sp.id, pack_size: old).update_all(pack_size: fresh, updated_at: now)
+    counts[:list_items_healed] += SupplierListItem.where(id: items.map(&:id), pack_size: old)
+                                                  .update_all(pack_size: fresh, updated_at: now)
+  end
+
+  # The price the order builder would use with the given pack, computed on a
+  # fresh unsaved copy so no memoized parse of the stored pack leaks in.
+  def estimated_total_for(record, pack)
+    copy = record.class.new(record.attributes.merge("pack_size" => pack))
+    copy.is_a?(SupplierListItem) ? copy.estimated_total_price : copy.estimated_case_price
+  end
 
   # Catalog imports run with whichever active credential StaggeredSupplierImportJob
   # picks, which may have a different location/delivery context than individual
