@@ -36,3 +36,10 @@ decks/
 /mockups/mobile-first/
 /mockups/onboarding/
 /script/
+
+# Built CSS: tailwindcss-rails builds app/assets/builds/tailwind.css during
+# assets:precompile (Dockerfile) and test prepare — never commit it.
+# inter-font.css is hand-written and stays tracked.
+/app/assets/builds/*
+!/app/assets/builds/.keep
+!/app/assets/builds/inter-font.css
