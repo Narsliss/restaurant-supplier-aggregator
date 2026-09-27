@@ -173,4 +173,55 @@ RSpec.describe IncrementalProductMatcherService do
       expect(aggregated_list.reload.match_status).to eq('matched')
     end
   end
+  # Speed-up (Sep 27 2026): the job re-matched every guide item whose product
+  # was already on the list — 1,011 on alfios, ~5 of its ~10 minutes.
+  describe 'products already on the list' do
+    let(:product) { create(:supplier_product, supplier: supplier, supplier_name: 'Olive Oil EV') }
+
+    def link_row(sli)
+      pm = aggregated_list.product_matches.create!(canonical_name: sli.name, match_status: 'confirmed', position: 1)
+      pm.product_match_items.create!(supplier_list_item: sli, supplier_id: supplier.id, is_primary: true)
+      pm
+    end
+
+    it 'skips a guide item whose product this supplier already has on the list, without any matching work' do
+      on_list = supplier_list.supplier_list_items.create!(name: 'Olive Oil EV', sku: 'OIL', price: 9, supplier_product: product)
+      link_row(on_list)
+      other_list = SupplierList.create!(supplier: supplier, supplier_credential: credential, organization_id: organization.id,
+                                        location: location, name: 'Favorites')
+      again = other_list.supplier_list_items.create!(name: 'EV OLIVE OIL TIN', sku: 'OIL', price: 9, supplier_product: product)
+
+      service = described_class.new(aggregated_list, items: [again])
+      expect(service).not_to receive(:find_best_match_against_existing)
+      result = service.call
+
+      expect(result).to include(redundant: 1, new_matched: 0, new_unmatched: 0)
+      expect(aggregated_list.product_matches.count).to eq(1)
+    end
+
+    it 'skips a second copy of a product placed earlier in the same run' do
+      a = make_sli(name: 'Saffron Threads', sku: 'SAF')
+      a.update!(supplier_product: product)
+      other_list = SupplierList.create!(supplier: supplier, supplier_credential: credential, organization_id: organization.id,
+                                        location: location, name: 'Recent')
+      b = other_list.supplier_list_items.create!(name: 'Saffron Threads', sku: 'SAF', price: 9, supplier_product: product)
+
+      result = described_class.new(aggregated_list, items: [a, b]).call
+
+      expect(result).to include(new_unmatched: 1, redundant: 1)
+      expect(aggregated_list.product_matches.count).to eq(1)
+    end
+
+    it 'still matches a genuinely new product into its row' do
+      row = link_row(make_sli(name: 'Tomato Plum Roma', sku: 'T1'))
+      other = create(:supplier, name: 'Other Supplier')
+      other_list = SupplierList.create!(supplier: other, organization_id: organization.id, location: location, name: 'OG')
+      item = other_list.supplier_list_items.create!(name: 'Tomato Plum Roma', sku: 'X9', price: 5)
+
+      result = described_class.new(aggregated_list, items: [item]).call
+
+      expect(result).to include(new_matched: 1)
+      expect(row.product_match_items.reload.map(&:supplier_id)).to include(other.id)
+    end
+  end
 end

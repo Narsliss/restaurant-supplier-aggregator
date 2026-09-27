@@ -369,12 +369,17 @@ class ProductNormalizer
     # "Glenview Farms Sour Cream, Cultured All Natural Tub Ref").
     # Uses the higher of Jaccard and a capped containment score.
     def best_similarity(name1, name2)
-      n1 = new(name1)
-      n2 = new(name2)
+      best_similarity_of_sets(token_set(name1), token_set(name2))
+    end
 
-      set1 = n1.canonical_name.downcase.split.to_set
-      set2 = n2.canonical_name.downcase.split.to_set
+    # The lowercase word set best_similarity compares — computed once per name
+    # by callers that compare one name against many (IncrementalProductMatcher).
+    def token_set(name)
+      new(name).canonical_name.downcase.split.to_set
+    end
 
+    # best_similarity on precomputed token sets (same score, no re-normalizing).
+    def best_similarity_of_sets(set1, set2)
       return 0.0 if set1.empty? || set2.empty?
 
       intersection = set1 & set2

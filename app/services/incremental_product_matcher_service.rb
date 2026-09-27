@@ -55,6 +55,7 @@ class IncrementalProductMatcherService
     # Track which existing matches already have items from the new supplier(s)
     # to avoid creating duplicate ProductMatchItems
     existing_supplier_ids_by_match = build_existing_supplier_map(existing_matches)
+    @on_list = products_on_list(existing_matches)
 
     # Start positions after the last existing match
     next_position = (aggregated_list.product_matches.maximum(:position) || 0) + 1
@@ -88,6 +89,17 @@ class IncrementalProductMatcherService
   def process_new_item(new_item, existing_matches, existing_supplier_ids_by_match, next_position)
     supplier_id = new_item.supplier_list.supplier_id
 
+    # This supplier's product is already on the list (reached via the product
+    # map, another of its lists, or earlier in this run): it's a duplicate
+    # whatever row it would match, so skip it before any matching work. Such
+    # guide items never get a link of their own, so every run used to re-match
+    # all of them — 1,011 on alfios, ~5 of the job's ~10 minutes (Sep 27 2026).
+    if new_item.supplier_product_id && @on_list&.include?([supplier_id, new_item.supplier_product_id])
+      results[:redundant] += 1
+      results[:total_new] += 1
+      return next_position
+    end
+
     match, confidence = find_best_match_against_existing(new_item, existing_matches)
     slot_taken = match && existing_supplier_ids_by_match[match.id]&.include?(supplier_id)
 
@@ -115,6 +127,7 @@ class IncrementalProductMatcherService
 
       existing_supplier_ids_by_match[match.id] ||= Set.new
       existing_supplier_ids_by_match[match.id] << supplier_id
+      @on_list << [supplier_id, new_item.supplier_product_id] if @on_list && new_item.supplier_product_id
 
       # Upgrade unmatched → auto_matched now that it has cross-supplier data.
       # NEVER touch confirmed/manual/rejected statuses.
@@ -140,6 +153,7 @@ class IncrementalProductMatcherService
         is_primary: true
       )
       existing_supplier_ids_by_match[new_match.id] = Set.new([supplier_id])
+      @on_list << [supplier_id, new_item.supplier_product_id] if @on_list && new_item.supplier_product_id
       next_position += 1
 
       existing_matches << new_match
@@ -161,6 +175,27 @@ class IncrementalProductMatcherService
     Rails.logger.error "[IncrementalMatcher] item=#{new_item.id} " \
                        "(#{new_item.name.to_s.truncate(80)}) failed: #{e.class}: #{e.message}"
     next_position
+  end
+
+  # Names are cleaned once per run, not once per comparison: cleaning is the
+  # expensive part (~0.9 ms), and every new item used to re-clean every row's
+  # name (~1,100 rows) in each pass.
+  def normalized(name)
+    (@normalized ||= {})[name] ||= ProductNormalizer.normalize(name)
+  end
+
+  def tokens(name)
+    (@tokens ||= {})[name] ||= ProductNormalizer.token_set(name)
+  end
+
+  # [supplier_id, supplier_product_id] pairs already linked on the list.
+  def products_on_list(existing_matches)
+    existing_matches.each_with_object(Set.new) do |pm, set|
+      pm.product_match_items.each do |pmi|
+        sp_id = pmi.supplier_list_item&.supplier_product_id
+        set << [pmi.supplier_id, sp_id] if sp_id
+      end
+    end
   end
 
   # Load all existing ProductMatches with their items preloaded for efficient matching
@@ -222,10 +257,10 @@ class IncrementalProductMatcherService
     end
 
     # Pass 2: Exact normalized name match
-    new_normalized = ProductNormalizer.normalize(new_name)
+    new_normalized = normalized(new_name)
     if new_normalized.present?
       match = existing_matches.find do |pm|
-        ProductNormalizer.normalize(pm.canonical_name || '') == new_normalized
+        normalized(pm.canonical_name || '') == new_normalized
       end
       return [match, 0.9] if match
     end
@@ -234,9 +269,10 @@ class IncrementalProductMatcherService
     best_match = nil
     best_score = 0
 
+    new_tokens = tokens(new_name)
     existing_matches.each do |pm|
       canonical = pm.canonical_name || pm.product_match_items.first&.name || ''
-      score = ProductNormalizer.best_similarity(new_name, canonical)
+      score = ProductNormalizer.best_similarity_of_sets(new_tokens, tokens(canonical))
       if score > best_score
         best_score = score
         best_match = pm
@@ -256,8 +292,9 @@ class IncrementalProductMatcherService
     return nil if existing_matches.empty?
 
     # Pre-sort by similarity so most likely matches are sent to AI
+    new_tokens = tokens(new_item.name)
     sorted_matches = existing_matches.sort_by do |pm|
-      -ProductNormalizer.best_similarity(new_item.name, pm.canonical_name || '')
+      -ProductNormalizer.best_similarity_of_sets(new_tokens, tokens(pm.canonical_name || ''))
     end
 
     candidate_list = sorted_matches.first(15).map.with_index do |pm, i|
