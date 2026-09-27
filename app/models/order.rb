@@ -204,6 +204,14 @@ class Order < ApplicationRecord
     pending? || processing? || verifying? || price_changed? || status == "pending_review" || draft?
   end
 
+  # A placement that stopped short can be sent back to pending, edited and
+  # resubmitted. pending_review is what the supplier-cart safety gate sets
+  # (CartMismatchError); without it here such an order had no Submit, no
+  # Retry and no Cart entry — a dead end (order #331, Sep 27 2026).
+  def retryable?
+    failed? || status == "pending_review"
+  end
+
   def can_delete?
     status.in?(%w[pending verifying price_changed failed cancelled dry_run_complete draft])
   end

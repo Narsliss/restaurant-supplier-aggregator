@@ -164,6 +164,76 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
     end
   end
 
+  # Regression — Sep 27 2026 (order #331). CW's refresh-prices call, made by
+  # checkout right before submit, silently dropped Oregano (QG9804). The
+  # reconciliation gate had already passed, so the order would have been
+  # submitted without it while our order page still listed it.
+  describe '#checkout re-checks the cart after the price refresh' do
+    let(:expected) do
+      [{ sku: 'QG34100', name: 'Sour Cream', quantity: 1 },
+       { sku: 'QG9804', name: 'Oregano', quantity: 1 }]
+    end
+    let(:full_cart) do
+      cart_with(line(code: 'JDE_QG34100-800001', qty: 1, id: 1),
+                line(code: 'JDE_QG9804-800001', qty: 1, id: 2))
+    end
+
+    def priced(cart, count:)
+      cart.merge('summary' => { 'itemCount' => count, 'totals' => { 'totalDecimal' => 1288.72 } })
+    end
+
+    before do
+      allow(api).to receive(:refresh_cart_prices)
+      allow(api).to receive(:validate_cart).and_return({})
+      allow(api).to receive(:submit_cart).and_return({ 'orderNumber' => 'TCW1' })
+      allow(api).to receive(:delete_cart)
+      allow(api).to receive(:remove_cart_item)
+    end
+
+    it 'names the dropped item, empties the cart and never submits' do
+      after_refresh = priced(cart_with(line(code: 'JDE_QG34100-800001', qty: 1, id: 1)), count: 1)
+      allow(api).to receive(:get_cart).and_return(full_cart, after_refresh, empty_cart)
+
+      scraper.verify_cart_matches!(expected)
+
+      expect { scraper.checkout(dry_run: false) }.to raise_error(Scrapers::BaseScraper::ItemUnavailableError) { |e|
+        expect(e.items).to eq([{ sku: 'QG9804', name: 'Oregano',
+                                 message: "Chef's Warehouse removed this item from the cart at checkout" }])
+      }
+      expect(api).to have_received(:delete_cart)
+      expect(api).not_to have_received(:submit_cart)
+    end
+
+    it 'fails closed as a mismatch when the refresh changes a quantity' do
+      after_refresh = priced(cart_with(line(code: 'JDE_QG34100-800001', qty: 2, id: 1),
+                                       line(code: 'JDE_QG9804-800001', qty: 1, id: 2)), count: 3)
+      allow(api).to receive(:get_cart).and_return(full_cart, after_refresh, empty_cart)
+
+      scraper.verify_cart_matches!(expected)
+
+      expect { scraper.checkout(dry_run: false) }.to raise_error(Scrapers::BaseScraper::CartMismatchError, /price refresh/)
+      expect(api).not_to have_received(:submit_cart)
+    end
+
+    it 'submits when the cart still matches after the refresh' do
+      allow(api).to receive(:get_cart).and_return(full_cart, priced(full_cart, count: 2))
+
+      scraper.verify_cart_matches!(expected)
+
+      expect(scraper.checkout(dry_run: false)[:confirmation_number]).to eq('TCW1')
+      expect(api).to have_received(:submit_cart).with(dry_run: false)
+    end
+
+    it 'runs the same check on a dry run' do
+      after_refresh = priced(cart_with(line(code: 'JDE_QG34100-800001', qty: 1, id: 1)), count: 1)
+      allow(api).to receive(:get_cart).and_return(full_cart, after_refresh, empty_cart)
+
+      scraper.verify_cart_matches!(expected)
+
+      expect { scraper.checkout(dry_run: true) }.to raise_error(Scrapers::BaseScraper::ItemUnavailableError)
+    end
+  end
+
   # Deep catalog crawl must paginate a category past the old 100-item cap.
   describe '#scrape_catalog_deep' do
     before do

@@ -459,31 +459,9 @@ module Scrapers
     # OrderPlacementService#build_cart_items).
     def verify_cart_matches!(expected_items)
       api_client.ensure_session!
-      cart = tally_by_sku(extract_cart_lines(api_client.get_cart))
-      expected = tally_by_sku(expected_items.map { |i| { sku: normalize_sku(i[:sku]), uom: i[:uom], quantity: i[:quantity] } })
-
-      discrepancies = []
-      (cart.keys - expected.keys).sort.each do |sku|
-        discrepancies << { type: 'extra_in_cart', sku: sku, cart_qty: cart[sku][:qty] }
-      end
-      (expected.keys - cart.keys).sort.each do |sku|
-        discrepancies << { type: 'missing_from_cart', sku: sku, expected_qty: expected[sku][:qty] }
-      end
-      (cart.keys & expected.keys).sort.each do |sku|
-        if cart[sku][:qty] != expected[sku][:qty]
-          discrepancies << { type: 'quantity_mismatch', sku: sku, cart_qty: cart[sku][:qty], expected_qty: expected[sku][:qty] }
-        end
-
-        # Piece-vs-case: only flag when BOTH sides confidently resolve to piece
-        # or case and disagree. Unknown/other UOMs (e.g. LB variable-weight) are
-        # left alone so normal orders never false-positive. This is what guards a
-        # PC order from being charged the case price (and vice-versa).
-        cu = cart[sku][:pc_case]
-        eu = expected[sku][:pc_case]
-        if cu && eu && cu != eu
-          discrepancies << { type: 'uom_mismatch', sku: sku, cart_uom: cu, expected_uom: eu }
-        end
-      end
+      # Remembered so checkout can re-check after CW's price refresh.
+      @expected_cart_items = expected_items
+      discrepancies = cart_discrepancies(api_client.get_cart, expected_items)
 
       if discrepancies.any?
         raise Scrapers::BaseScraper::CartMismatchError.new(
@@ -493,6 +471,42 @@ module Scrapers
       end
 
       true
+    end
+
+    # CW's refresh-prices call, made just before submit, silently DROPS lines it
+    # won't fill (Sep 27 2026: Oregano QG9804 vanished for a Monday delivery; the
+    # order would have shipped without it while our order page still listed it).
+    # So re-check the exact cart we are about to submit. Lines CW dropped become
+    # ItemUnavailableError, naming them to the chef; any other change fails
+    # closed as a mismatch. Either way the cart is emptied and nothing submits.
+    def reconcile_after_price_refresh!(cart)
+      return unless @expected_cart_items
+
+      discrepancies = cart_discrepancies(cart, @expected_cart_items)
+      return if discrepancies.empty?
+
+      logger.error "[ChefsWarehouse] Cart changed at price refresh — NOT submitting: #{discrepancies.inspect}"
+      begin
+        clear_cart
+      rescue StandardError => e
+        logger.warn "[ChefsWarehouse] clear_cart after refresh mismatch failed: #{e.message}"
+      end
+
+      if discrepancies.all? { |d| d[:type] == 'missing_from_cart' }
+        names = @expected_cart_items.index_by { |i| normalize_sku(i[:sku]) }
+        raise ItemUnavailableError.new(
+          "Chef's Warehouse removed #{discrepancies.size} item(s) at checkout",
+          items: discrepancies.map do |d|
+            { sku: names[d[:sku]]&.dig(:sku) || d[:sku], name: names[d[:sku]]&.dig(:name) || d[:sku],
+              message: "Chef's Warehouse removed this item from the cart at checkout" }
+          end
+        )
+      end
+
+      raise Scrapers::BaseScraper::CartMismatchError.new(
+        "CW cart changed at price refresh (#{discrepancies.size} discrepancy(ies)): #{discrepancies.inspect}",
+        discrepancies: discrepancies
+      )
     end
 
     def checkout(dry_run: false)
@@ -512,6 +526,9 @@ module Scrapers
       subtotal = cart.dig('summary', 'totals', 'totalDecimal') || 0.0
 
       raise ScrapingError, 'Cart is empty' if item_count == 0
+
+      # Before the dry-run return too, so dev and prod take the same path.
+      reconcile_after_price_refresh!(cart)
 
       if subtotal < ORDER_MINIMUM
         raise OrderMinimumError.new(
@@ -608,6 +625,37 @@ module Scrapers
         cart.each { |v| extract_cart_lines(v, acc) }
       end
       acc
+    end
+
+    # Compare a CW cart payload with the order's items by normalized SKU:
+    # extra lines, missing lines, quantity and piece-vs-case differences.
+    def cart_discrepancies(cart_payload, expected_items)
+      cart = tally_by_sku(extract_cart_lines(cart_payload))
+      expected = tally_by_sku(expected_items.map { |i| { sku: normalize_sku(i[:sku]), uom: i[:uom], quantity: i[:quantity] } })
+
+      discrepancies = []
+      (cart.keys - expected.keys).sort.each do |sku|
+        discrepancies << { type: 'extra_in_cart', sku: sku, cart_qty: cart[sku][:qty] }
+      end
+      (expected.keys - cart.keys).sort.each do |sku|
+        discrepancies << { type: 'missing_from_cart', sku: sku, expected_qty: expected[sku][:qty] }
+      end
+      (cart.keys & expected.keys).sort.each do |sku|
+        if cart[sku][:qty] != expected[sku][:qty]
+          discrepancies << { type: 'quantity_mismatch', sku: sku, cart_qty: cart[sku][:qty], expected_qty: expected[sku][:qty] }
+        end
+
+        # Piece-vs-case: only flag when BOTH sides confidently resolve to piece
+        # or case and disagree. Unknown/other UOMs (e.g. LB variable-weight) are
+        # left alone so normal orders never false-positive. This is what guards a
+        # PC order from being charged the case price (and vice-versa).
+        cu = cart[sku][:pc_case]
+        eu = expected[sku][:pc_case]
+        if cu && eu && cu != eu
+          discrepancies << { type: 'uom_mismatch', sku: sku, cart_uom: cu, expected_uom: eu }
+        end
+      end
+      discrepancies
     end
 
     # Ids of every product line currently in the CW cart.

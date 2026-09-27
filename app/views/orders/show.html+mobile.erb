@@ -141,7 +141,7 @@
           Cancel Order
         <% end %>
       <% else %>
-        <% if @order.failed? %>
+        <% if @order.retryable? %>
           <%= button_to retry_order_order_path(@order), method: :post,
               class: "w-full bg-brand-orange text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-sm" do %>
             Retry Order

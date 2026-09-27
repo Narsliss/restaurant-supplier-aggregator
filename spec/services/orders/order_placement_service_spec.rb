@@ -207,6 +207,31 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
       expect(bare_scraper).not_to respond_to(:verify_cart_matches!)
       expect(described_class.new(order).place_order(skip_pre_validation: true)).to include(success: true)
     end
+
+    # Regression — order #331 (Sep 27 2026): CW dropped Oregano at checkout's
+    # price refresh. The chef must be told which item, not get a silently
+    # short order.
+    it 'tells the chef which item the supplier dropped at checkout and places nothing' do
+      supplier_product.update!(supplier_name: 'Oregano', in_stock: true)
+      dropped = Scrapers::BaseScraper::ItemUnavailableError.new(
+        "Chef's Warehouse removed 1 item(s) at checkout",
+        items: [{ sku: supplier_product.supplier_sku, name: 'Oregano',
+                  message: "Chef's Warehouse removed this item from the cart at checkout" }]
+      )
+      allow(fake_scraper).to receive(:checkout).and_raise(dropped)
+
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result).to include(success: false, error_type: 'items_unavailable')
+      order.reload
+      expect(order.status).to eq('failed')
+      expect(order.error_message).to include('Oregano')
+      expect(order.confirmation_number).to be_nil
+      expect(order.order_items.first.notes).to include('removed this item from the cart at checkout')
+      # Why CW dropped it is unknown (likely the delivery date), so the
+      # catalog is not marked out of stock on this signal.
+      expect(supplier_product.reload.in_stock).to be(true)
+    end
   end
 
   describe 'scraper exceptions' do
