@@ -312,3 +312,24 @@ Carmin hotfixed production on `main` while this branch was in progress: `5665ebb
 - **Managers are read-only** (`operator?` is owners + chefs): they cannot place orders or add supplier logins, so none of the linking, switching or fix UI can act for them. In practice the new behaviour is owner-only.
 - **Query:** users with logins for the same supplier at 2+ restaurants. Only **Alfio (user 10, org 7)**: US Foods #75/#132, CW #72/#135, PPO #73 (expired)/#136. No chef in any organization. All 47 credentials have a location. So "orders follow the order's restaurant" changes behaviour for Alfio alone; everyone else runs the old lookup.
 - **Activation switch considered and skipped** (Carmin: Alfio is the only multi-restaurant owner, and he isn't ordering). Instead: deploy at a quiet time, trigger the linker for Alfio immediately, and watch one sync. Rollback: clear his restaurant links, which restores single-restaurant behaviour. Add a switch before onboarding a second multi-restaurant owner.
+
+## Deployed and first live run (Sep 27 2026)
+
+- **Deploy:** main fast-forwarded to `0d5fac9` (the branch plus main's CW hotfix; 1,505 examples green) and pushed. Web and worker ran the new code about 200 s later, and `/up` returned 200.
+- **Linking for Alfio** (run on the worker, Carmin's go): identical to the preview.
+  - US Foods: #75 alfios and Noche; #132 D'oro.
+  - CW: #72 alfios and Noche; #135 D'oro.
+  - WCW: #78 alfios, with Noche left for the one-click fix.
+  - PPO: #136 D'oro and Noche.
+  - PPO #73 was skipped (expired).
+- **First switched syncs** (the linker queued one per login; 16:30–16:32 UTC). All completed with `errors: []`, no `MismatchError` and no switch-back errors:
+  - #75: alfios 8 lists + Noche 16 lists.
+  - #72: alfios 3 + Noche 3 (including CW's own "noche" guide).
+  - #78: 1. #132: 5. #135: 3. #136: 2 (D'oro + Noche).
+  - Chef protection held: 13 matched items that left guides were kept as catalog-backed.
+- **"List no longer found" lines are labels only.** `mark_removed_lists` sets `sync_status: failed`, and nothing reads it except the supplier-lists page label; no items change. Chefs' own syncs already do this across a whole organization (it is scoped by location only for restaurant syncs), and the label clears on the owner's next sync. One such line is expected: US Foods shopping lists are per user, so Alfio's login doesn't see Nate's "noche" list.
+- **Still to do:**
+  - Alfio links WCW Noche (one click on his Suppliers page).
+  - Alfio reconnects PPO #73.
+  - Watch his first real multi-restaurant order.
+  - Add an activation switch before a second multi-restaurant owner.
