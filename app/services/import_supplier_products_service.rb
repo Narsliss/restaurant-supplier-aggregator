@@ -13,6 +13,15 @@ class ImportSupplierProductsService
   # from penalizing the full catalog.
   MINIMUM_SEEN_PERCENTAGE = 60
 
+  # Suppliers whose catalog scrape states the unit its price is quoted in, and
+  # whose word we store. Sysco's does (price_unit_for: 'LB' for a catch-weight
+  # rate per pound, 'CS'/'EA' otherwise), but the catalog path used to drop it:
+  # only the ID refresh saved the unit, and that refresh skips every SKU the
+  # term search already found. A 12 lb provolone loaf quoted at $5.53/lb stayed
+  # 'CS', read as a $5.53 case, and won BEST at $0.03/oz against ~$60 peers.
+  # Other scrapers also emit price_unit here, but storing theirs is unaudited.
+  CATALOG_PRICE_UNIT_SUPPLIER_CODES = %w[sysco].freeze
+
   def initialize(credential)
     @credential = credential
     @supplier = credential.supplier
@@ -275,6 +284,7 @@ class ImportSupplierProductsService
       supplier_url: item[:supplier_url].present? ? item[:supplier_url] : existing.supplier_url,
       in_stock: resolve_stock_status(item[:in_stock], existing.in_stock),
       price_updated_at: existing.price_updated_at,
+      price_unit: catalog_price_unit(item, existing.price_unit),
       piece_price: item[:piece_price].present? ? item[:piece_price] : existing.piece_price,
       piece_pack_size: item[:piece_pack_size].present? ? item[:piece_pack_size] : existing.piece_pack_size,
       consecutive_misses: existing.consecutive_misses,
@@ -337,12 +347,25 @@ class ImportSupplierProductsService
       unique_by: %i[supplier_id supplier_sku],
       update_only: %i[
         supplier_name current_price previous_price pack_size
-        supplier_url in_stock price_updated_at last_scraped_at
+        supplier_url in_stock price_updated_at last_scraped_at price_unit
         piece_price piece_pack_size consecutive_misses
         discontinued discontinued_at
         image_source_url image_status image_checked_at
       ]
     )
+  end
+
+  # The unit to store beside a catalog price. Only ever moves a product TO the
+  # per-pound label, and only when this scrape brought the price it describes.
+  # Deliberately not 'CS'/'EA': ~18.8k Sysco products have no stored unit and
+  # rely on pack inference ("#AVG" reads per-pound); stamping 'CS' on them
+  # would skip that inference and change comparisons no audit has covered.
+  def catalog_price_unit(item, current_unit)
+    return current_unit unless CATALOG_PRICE_UNIT_SUPPLIER_CODES.include?(supplier.code)
+    return current_unit if item[:current_price].blank?
+    return current_unit unless item[:price_unit].to_s.casecmp?('LB')
+
+    'LB'
   end
 
   # Apply price/timestamp refreshes for SKUs returned by direct ID lookup.
@@ -521,6 +544,7 @@ class ImportSupplierProductsService
       supplier_sku: item[:supplier_sku],
       supplier_name: item[:supplier_name],
       current_price: item[:current_price],
+      price_unit: catalog_price_unit(item, nil),
       pack_size: item[:pack_size],
       piece_price: item[:piece_price],
       piece_pack_size: item[:piece_pack_size],

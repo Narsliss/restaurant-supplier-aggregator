@@ -284,4 +284,100 @@ RSpec.describe ImportSupplierProductsService do
       expect(sp.reload).to have_attributes(current_price: 41.0, previous_price: 39.05, discontinued: false)
     end
   end
+
+  # Sep 27 2026: Sysco's Prices API answers the 12 lb provolone loaf (8413064)
+  # with case.netPrice 5.534 and productInfo.isCatchWeight true — a rate per
+  # pound, which the scraper labels 'LB'. The catalog import threw the label
+  # away (only the ID refresh saved it, and the refresh skips SKUs the term
+  # search found), so the product kept 'CS' and Alfio's matched list showed a
+  # $5.53 case at $0.03/oz marked BEST against ~$60 peers.
+  describe '#import_batch — the unit a catalog price is quoted in' do
+    let(:sysco) { Supplier.find_by(code: 'sysco') || create(:supplier, code: 'sysco', name: 'Sysco') }
+    let(:credential) { create(:supplier_credential, supplier: sysco) }
+    let(:service) { described_class.new(credential) }
+
+    # Shape of Scrapers::SyscoScraper#parse_catalog_product's output for the
+    # live payload above.
+    let(:provolone) do
+      { supplier_sku: '8413064', supplier_name: 'PACKER CHEESE LOAF PROVOLONE',
+        current_price: 5.534, price_unit: 'LB', pack_size: '1x12 LB', in_stock: true }
+    end
+
+    def import(items)
+      service.send(:prepare_import_indexes!)
+      service.send(:import_batch, items)
+    end
+
+    context 'when the product already exists labelled as a case' do
+      let!(:sp) do
+        SupplierProduct.create!(supplier: sysco, supplier_sku: '8413064', supplier_name: 'PACKER CHEESE LOAF PROVOLONE',
+                                current_price: 5.53, price_unit: 'CS', pack_size: '1x12 LB')
+      end
+
+      it 'stores the per-pound label the scrape carried' do
+        import([provolone])
+
+        expect(sp.reload.price_unit).to eq('LB')
+      end
+
+      it 'compares the loaf per pound on a catalog-search list row' do
+        list = SupplierList.create!(supplier: sysco, supplier_credential: credential,
+                                    organization_id: credential.organization_id, name: 'Matched')
+        row = list.supplier_list_items.create!(name: 'PACKER CHEESE LOAF PROVOLONE', sku: '8413064', price: 5.53,
+                                               pack_size: '1x12 LB', source: 'catalog_search',
+                                               supplier_product_id: sp.id)
+
+        import([provolone])
+
+        # $5.53/lb = $0.35/oz — not $5.53 spread over 192 oz ($0.03/oz).
+        expect(row.reload.per_unit_price).to be_within(0.001).of(5.53 / 16)
+      end
+
+      it 'keeps the label when the scrape brought no price to go with it' do
+        import([provolone.merge(current_price: nil, price_unit: 'CS')])
+
+        expect(sp.reload.price_unit).to eq('CS')
+      end
+    end
+
+    # Blast radius: ~18.8k Sysco products have no stored unit and lean on pack
+    # inference. The catalog path must not start stamping 'CS'/'EA' on them.
+    it 'never writes a case or each label — only per-pound' do
+      sp = SupplierProduct.create!(supplier: sysco, supplier_sku: '1111111', supplier_name: 'BEEF GRND 81/19',
+                                   current_price: 42.0, pack_size: '4x10#AVG')
+      lb = SupplierProduct.create!(supplier: sysco, supplier_sku: '2222222', supplier_name: 'PORK BUTT',
+                                   current_price: 2.26, price_unit: 'LB', pack_size: '8x7-10# LB')
+
+      import([
+               { supplier_sku: '1111111', supplier_name: 'BEEF GRND 81/19', current_price: 43.0,
+                 price_unit: 'CS', pack_size: '4x10#AVG', in_stock: true },
+               { supplier_sku: '2222222', supplier_name: 'PORK BUTT', current_price: 2.30,
+                 price_unit: 'CS', pack_size: '8x7-10# LB', in_stock: true },
+               { supplier_sku: '3333333', supplier_name: 'NEW CASE ITEM', current_price: 20.0,
+                 price_unit: 'CS', pack_size: '6x2 LB', in_stock: true }
+             ])
+
+      expect(sp.reload).to have_attributes(current_price: 43.0, price_unit: nil)
+      expect(lb.reload.price_unit).to eq('LB')
+      expect(SupplierProduct.find_by(supplier: sysco, supplier_sku: '3333333').price_unit).to be_nil
+    end
+
+    it 'labels a new catch-weight product per pound' do
+      import([provolone])
+
+      expect(SupplierProduct.find_by(supplier: sysco, supplier_sku: '8413064').price_unit).to eq('LB')
+    end
+
+    it 'leaves other suppliers\' stored units alone' do
+      other = create(:supplier)
+      other_service = described_class.new(create(:supplier_credential, supplier: other))
+      sp = SupplierProduct.create!(supplier: other, supplier_sku: 'X1', supplier_name: 'Cheese',
+                                   current_price: 60.0, pack_size: '4x5 LB')
+
+      other_service.send(:prepare_import_indexes!)
+      other_service.send(:import_batch, [provolone.merge(supplier_sku: 'X1', supplier_name: 'Cheese', current_price: 61.0)])
+
+      expect(sp.reload).to have_attributes(current_price: 61.0, price_unit: nil)
+    end
+  end
 end
