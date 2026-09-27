@@ -38,6 +38,13 @@ module Orders
       order.update!(status: 'processing')
 
       begin
+        # Owners whose one login orders for several restaurants: point the
+        # supplier login at THIS order's restaurant and confirm it before any
+        # cart is touched (a mismatch raises and fails the order untouched).
+        # No-op for every connection without restaurant matches.
+        @restaurant_switch = Suppliers::RestaurantSwitcher.new(credential, scraper)
+        @restaurant_switch.enter(order.location_id)
+
         # Step 4: Clear any existing cart items, then add our items
         scraper.clear_cart if scraper.respond_to?(:clear_cart)
         cart_items = build_cart_items
@@ -134,7 +141,7 @@ module Orders
       rescue Scrapers::BaseScraper::PriceChangedError => e
         handle_price_changed_error(e, accept_price_changes)
       rescue Scrapers::BaseScraper::AccountHoldError => e
-        handle_account_hold_error(e)
+        handle_account_hold_error(e, credential)
       rescue Scrapers::BaseScraper::CaptchaDetectedError => e
         handle_captcha_error(e)
       rescue Scrapers::BaseScraper::DeliveryUnavailableError => e
@@ -147,6 +154,8 @@ module Orders
         # Close persistent order browser if scraper uses one (PPO, US Foods, WCW).
         # Idempotent — safe even if checkout already closed it.
         scraper&.close_order_browser! if scraper&.respond_to?(:close_order_browser!)
+        # Multi-restaurant logins: back to the connection's home restaurant.
+        @restaurant_switch&.leave
       end
     end
 
@@ -210,7 +219,8 @@ module Orders
         order_list: order_list,
         supplier: order.supplier,
         user: order.user,
-        delivery_date: order.delivery_date
+        delivery_date: order.delivery_date,
+        location_id: order.location_id
       )
 
       result = validator.validate!
@@ -310,10 +320,9 @@ module Orders
     end
 
     def get_active_credential
-      credential = order.user.supplier_credentials.find_by(
-        supplier: order.supplier,
-        status: 'active'
-      )
+      # Same query as always, except an owner with matched restaurants only
+      # gets a connection that serves this order's restaurant.
+      credential = Suppliers::OrderCredential.scope(order, statuses: %w[active]).take
 
       unless credential
         order.update!(status: 'failed', error_message: "No active credentials for #{order.supplier.name}")
@@ -441,9 +450,10 @@ module Orders
       }
     end
 
-    def handle_account_hold_error(error)
-      # Update credential status
-      credential = order.user.supplier_credentials.find_by(supplier: order.supplier)
+    # +credential+: the login that placed this order. With a login per
+    # restaurant (Performance), that's the one to flag — never "any" login for
+    # the supplier, which could put another restaurant's login on hold.
+    def handle_account_hold_error(error, credential)
       credential&.mark_on_hold!(error.message)
 
       order.update!(

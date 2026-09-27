@@ -1,17 +1,29 @@
 class SupplierCredentialsController < ApplicationController
   before_action :set_credential,
                 only: %i[show edit update destroy validate refresh_session import_products import_lists submit_2fa_code
-                         status update_display_position]
+                         status update_display_position restaurants update_restaurants clear_restaurants
+                         link_restaurant]
   before_action :set_suppliers, only: %i[new create edit update]
   before_action :require_operator!, only: %i[new create edit update destroy]
   before_action :require_location_context!
+  before_action :require_restaurant_matching!, only: %i[restaurants update_restaurants clear_restaurants link_restaurant]
 
   def index
-    @credentials = scoped_credentials
+    @credentials = supplier_page_credentials
                                .joins(:supplier)
-                               .includes(:supplier)
+                               .includes(:supplier, restaurants: :location)
                                .order('supplier_credentials.display_position ASC, suppliers.name ASC')
     @read_only = current_role == 'manager'
+
+    # Owners with several restaurants see one page for all of them. Suppliers
+    # without a restaurant picker (Performance; Sysco until investigated) have
+    # a login per restaurant, shown together on one card per supplier.
+    @owner_view = location_choice?
+    if @owner_view
+      @owner_locations = accessible_locations.order(:name).to_a
+      per_restaurant, @credentials = @credentials.to_a.partition { |c| !c.switchable_supplier? }
+      @login_per_restaurant_groups = per_restaurant.group_by(&:supplier).sort_by { |s, _| s.name }
+    end
 
     # Pre-compute supplier product stats to avoid N+1 queries in the view.
     # Two queries total instead of 2 per credential.
@@ -64,14 +76,19 @@ class SupplierCredentialsController < ApplicationController
   def new
     # Honors ?supplier_id=X for direct-link convenience (e.g. from the
     # supplier credentials index "Add" button).
-    @credential = current_user.supplier_credentials.new(supplier_id: params[:supplier_id])
+    @credential = current_user.supplier_credentials.new(supplier_id: params[:supplier_id], location_id: params[:location_id])
   end
 
   def create
-    @credential = current_user.supplier_credentials.new(credential_params)
+    @credential = current_user.supplier_credentials.new(credential_params.except(:location_id))
     @credential.organization = current_user.current_organization
-    # Owners can pick a location from the form; chefs use their current location
-    @credential.location ||= current_location
+    # Owners with several restaurants pick one on the form; everyone else
+    # connects for the restaurant they're on. Never a location they can't access.
+    @credential.location = requested_location
+    unless @credential.location
+      @credential.errors.add(:location_id, 'must be one of your restaurants')
+      render :new, status: :unprocessable_entity and return
+    end
 
     # Validate supplier exists and is active
     if @credential.supplier_id.present?
@@ -84,6 +101,12 @@ class SupplierCredentialsController < ApplicationController
                                "\"#{supplier.name}\" is currently inactive and not accepting new connections")
         render :new, status: :unprocessable_entity and return
       end
+    end
+
+    if already_connected_picker_supplier?(@credential.supplier_id)
+      @credential.errors.add(:base, "#{Supplier.find(@credential.supplier_id).name} is already connected. One login covers " \
+                                    'all your restaurants — they are linked automatically.')
+      render :new, status: :unprocessable_entity and return
     end
 
     # Check for duplicate credentials at this location
@@ -132,8 +155,9 @@ class SupplierCredentialsController < ApplicationController
       render :edit, status: :unprocessable_entity and return
     end
 
-    # Strip blank password so it doesn't overwrite existing
-    filtered_params = credential_params.dup
+    # Strip blank password so it doesn't overwrite existing. A connection's
+    # restaurant is fixed once created — editing never moves it.
+    filtered_params = credential_params.except(:location_id)
     filtered_params.delete(:password) if filtered_params[:password].blank?
 
     # Track whether actual login credentials changed (vs just requirements)
@@ -457,10 +481,70 @@ class SupplierCredentialsController < ApplicationController
     end
   end
 
+  # GET — the supplier's restaurants on this login, each with a location picker.
+  def restaurants
+    @restaurant_list = Suppliers::RestaurantMatching.new(@credential).restaurants
+    @matches = @credential.restaurants.index_by(&:supplier_account_id)
+    @locations = accessible_locations.order(:name)
+  rescue StandardError => e
+    Rails.logger.warn "[SupplierCredentials] Could not list restaurants for credential #{@credential.id}: #{e.class} #{e.message}"
+    redirect_to supplier_credentials_path, alert: "Couldn't reach #{@credential.supplier.name} to list its restaurants. Try again shortly."
+  end
+
+  # PATCH — save the matches (replaces any existing ones).
+  def update_restaurants
+    matching = Suppliers::RestaurantMatching.new(@credential)
+    result = matching.save(params.fetch(:restaurants, {}).permit!.to_h, matching.restaurants)
+    if result.ok
+      ImportSupplierListsJob.perform_later(@credential.id, force: true)
+      redirect_to supplier_credentials_path,
+                  notice: "#{@credential.supplier.name} restaurants matched. Syncing each restaurant's order guides now."
+    else
+      redirect_to restaurants_supplier_credential_path(@credential), alert: result.error
+    end
+  rescue StandardError => e
+    Rails.logger.warn "[SupplierCredentials] Could not save restaurants for credential #{@credential.id}: #{e.class} #{e.message}"
+    redirect_to supplier_credentials_path, alert: "Couldn't reach #{@credential.supplier.name}. Nothing was changed."
+  end
+
+  # PATCH — the one-click fix: link one supplier restaurant the automatic
+  # linker couldn't place to one of the owner's restaurants.
+  def link_restaurant
+    account_id = params[:supplier_account_id].to_s
+    restaurant = Array(@credential.supplier_restaurants).find { |r| r['id'].to_s == account_id }
+    location = accessible_locations.find_by(id: params[:location_id])
+    unless restaurant && location
+      redirect_back fallback_location: supplier_credentials_path, alert: 'Choose one of your restaurants.'
+      return
+    end
+
+    @credential.restaurants.create!(location: location, supplier_account_id: account_id,
+                                    account_name: restaurant['name'], account_meta: restaurant['meta'] || {})
+    ImportSupplierListsJob.perform_later(@credential.id, force: true)
+    redirect_back fallback_location: supplier_credentials_path,
+                  notice: "#{@credential.supplier.name} now orders for #{location.name}."
+  rescue ActiveRecord::RecordInvalid => e
+    redirect_back fallback_location: supplier_credentials_path, alert: e.record.errors.full_messages.to_sentence
+  end
+
+  # DELETE — back to a single-restaurant connection.
+  def clear_restaurants
+    Suppliers::RestaurantMatching.new(@credential).clear!
+    redirect_to supplier_credentials_path,
+                notice: "#{@credential.supplier.name} will only be used for #{@credential.location&.name} again."
+  end
+
   private
 
+  # Owners and managers only, on suppliers whose restaurant picker EnPlace can drive.
+  def require_restaurant_matching!
+    return if manager_or_owner? && @credential && Suppliers::RestaurantMatching.eligible?(@credential)
+
+    redirect_to supplier_credentials_path
+  end
+
   def set_credential
-    @credential = scoped_credentials.find_by(id: params[:id])
+    @credential = supplier_page_credentials.find_by(id: params[:id])
 
     return if @credential
 
@@ -480,6 +564,48 @@ class SupplierCredentialsController < ApplicationController
     @available_suppliers = Supplier.active.web_suppliers.where.not(id: existing_supplier_ids).order(:name)
     @all_suppliers = Supplier.active.web_suppliers.order(:name)
     @locations = current_user.current_organization&.locations || []
+
+    # Owners with several restaurants choose which one a new connection is for.
+    # A supplier stays offered while any of their restaurants lacks it; the
+    # form greys out restaurants that already have that supplier.
+    return unless location_choice?
+
+    @location_choices = accessible_locations.order(:name).to_a
+    @taken_locations = current_user.supplier_credentials.where(location_id: @location_choices.map(&:id))
+                                   .group_by(&:supplier_id).transform_values { |cs| cs.map(&:location_id) }
+    full = @taken_locations.select { |_, ids| (@location_choices.map(&:id) - ids).empty? }.keys
+    pickers = Supplier.where(code: SupplierCredential::SWITCHABLE_SUPPLIER_CODES, id: @taken_locations.keys).pluck(:id)
+    @available_suppliers = Supplier.active.web_suppliers.where.not(id: full + pickers).order(:name)
+  end
+
+  def location_choice?
+    owner? && accessible_locations.count > 1
+  end
+
+  # The connections the Suppliers page shows and acts on. An owner with several
+  # restaurants: all of their own connections in the organization, whichever
+  # restaurant is selected at the top. Everyone else: unchanged.
+  def supplier_page_credentials
+    return scoped_credentials unless location_choice?
+
+    current_user.supplier_credentials.where(organization: current_user.current_organization)
+  end
+
+  # Picker suppliers (US Foods, CW, WCW, PPO): one login covers every
+  # restaurant, so an owner connects each once. A second connection would share
+  # one supplier account with the first and fight over its selected restaurant.
+  def already_connected_picker_supplier?(supplier_id)
+    return false unless location_choice?
+    return false unless SupplierCredential::SWITCHABLE_SUPPLIER_CODES.include?(Supplier.find_by(id: supplier_id)&.code)
+
+    current_user.supplier_credentials.where(organization: current_user.current_organization, supplier_id: supplier_id).exists?
+  end
+
+  def requested_location
+    requested = params.dig(:supplier_credential, :location_id).presence
+    return current_location unless requested && location_choice?
+
+    accessible_locations.find_by(id: requested)
   end
 
   def credential_params

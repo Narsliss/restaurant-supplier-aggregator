@@ -36,6 +36,11 @@ class ValidateCredentialsJob < ApplicationJob
       # "Importing order guides..." while the background jobs run.
       credential.update_columns(importing: true, import_status_text: 'Importing order guides...')
 
+      # Owner/manager logins on picker suppliers (US Foods, CW, WCW, PPO) in
+      # organizations with 2+ restaurants: remember the login's restaurants and
+      # link them automatically when certain. Best effort; chefs skipped.
+      Suppliers::RestaurantMatching.record_count(credential)
+
       # Kick off initial imports so the user sees products and lists immediately
       # instead of waiting for the next cron cycle (up to 15 min for products,
       # 24 hours for lists).

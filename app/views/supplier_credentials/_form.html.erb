@@ -1,7 +1,7 @@
 <%# Build a map of supplier IDs to their auth_type and code %>
 <% suppliers_auth_map = @all_suppliers.each_with_object({}) { |s, h| h[s.id] = { auth_type: s.auth_type, code: s.code } } %>
 
-<%= form_with(model: credential, class: "space-y-5", data: { controller: "credential-form", credential_form_suppliers_value: suppliers_auth_map.to_json }) do |form| %>
+<%= form_with(model: credential, class: "space-y-5", data: { controller: "credential-form", credential_form_suppliers_value: suppliers_auth_map.to_json, credential_form_taken_locations_value: (@taken_locations || {}).to_json }) do |form| %>
   <% if credential.errors.any? %>
     <div class="bg-red-50 border border-red-200 rounded-lg p-4">
       <h3 class="text-red-800 font-medium text-sm">Please fix the following errors:</h3>
@@ -26,10 +26,26 @@
   <%# All fields below are hidden until a supplier is selected (shown for edit) %>
   <div data-credential-form-target="fieldsContainer" class="<%= 'hidden' unless credential.persisted? || credential.supplier_id.present? %> space-y-5">
 
-    <% if owner? && current_location %>
+    <% if credential.persisted? %>
+      <% if owner? && credential.location %>
+        <div>
+          <p class="block text-sm font-medium text-gray-700 mb-1">Restaurant</p>
+          <p class="text-sm text-gray-900 py-2"><%= credential.location.name %></p>
+        </div>
+      <% end %>
+    <% elsif @location_choices.present? %>
       <div>
-        <%= form.label :location_id, "Restaurant", class: "block text-sm font-medium text-gray-700 mb-1" %>
-        <%= form.hidden_field :location_id, value: current_location.id %>
+        <%= form.label :location_id, "Which restaurant is this login for?", class: "block text-sm font-medium text-gray-700 mb-1" %>
+        <%= form.select :location_id,
+            @location_choices.map { |l| [l.name, l.id] },
+            { selected: credential.location_id || current_location&.id },
+            class: "block w-full rounded-lg border-gray-300 bg-white text-sm shadow-sm focus:border-brand-green focus:ring-brand-green py-2.5 px-3",
+            data: { credential_form_target: "locationSelect" } %>
+        <p class="mt-1 text-xs text-gray-500">Each restaurant can have one connection per supplier. Restaurants that already have this supplier can't be picked.</p>
+      </div>
+    <% elsif owner? && current_location %>
+      <div>
+        <p class="block text-sm font-medium text-gray-700 mb-1">Restaurant</p>
         <p class="text-sm text-gray-900 py-2"><%= current_location.name %></p>
       </div>
     <% end %>

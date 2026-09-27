@@ -6,8 +6,16 @@ module Orders
     # looks up the ORDERING user's own active credential, and email suppliers need
     # none. A matched list can hold suppliers outside this set (another user's
     # guide mapped to the same location), so defaults must stay inside it.
-    def self.orderable_supplier_ids(user)
-      (user.supplier_credentials.active.pluck(:supplier_id) + Supplier.email_suppliers.pluck(:id)).uniq
+    #
+    # With a location, for a user whose logins span several restaurants: only
+    # connections that serve THAT restaurant (attached to it, or matched to it
+    # — SupplierCredential.serving_location). A line for D'oro must never fall
+    # back onto the alfios login and ship to alfios. Everyone else — every
+    # single-restaurant chef — keeps the plain list, exactly as before.
+    def self.orderable_supplier_ids(user, location: nil)
+      creds = user.supplier_credentials.active
+      creds = creds.serving_location(location) if location && SupplierCredential.spans_restaurants?(creds)
+      (creds.pluck(:supplier_id) + Supplier.email_suppliers.pluck(:id)).uniq
     end
 
     def initialize(user:, aggregated_list:, quantities:, supplier_overrides: {}, uom_overrides: {}, location: nil, delivery_date: nil, order_list: nil)
@@ -215,7 +223,7 @@ module Orders
     end
 
     def orderable_supplier_ids
-      @orderable_supplier_ids ||= self.class.orderable_supplier_ids(user)
+      @orderable_supplier_ids ||= self.class.orderable_supplier_ids(user, location: location)
     end
 
     def to_plain_hash(value)

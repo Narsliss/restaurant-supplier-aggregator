@@ -4,12 +4,16 @@ module Orders
   # Performs thorough validation of order items before placement
   # Checks: stock availability, current prices, order minimums, delivery availability
   class PreOrderValidationService
-    attr_reader :order_list, :supplier, :user, :validation_errors, :price_changes, :delivery_date
+    attr_reader :order_list, :supplier, :user, :validation_errors, :price_changes, :delivery_date, :location_id
 
-    def initialize(order_list:, supplier:, user:, delivery_date: nil)
+    # +location_id:+ the restaurant the order is for. A user with logins for
+    # this supplier at several restaurants (Performance) is checked with THAT
+    # restaurant's login; everyone else, the same lookup as always.
+    def initialize(order_list:, supplier:, user:, delivery_date: nil, location_id: nil)
       @order_list = order_list
       @supplier = supplier
       @user = user
+      @location_id = location_id
       @delivery_date = delivery_date || Date.tomorrow
       @validation_errors = []
       @price_changes = []
@@ -60,7 +64,11 @@ module Orders
     private
 
     def validate_credentials!
-      @credential = user.credential_for(supplier)
+      @credential = if location_id
+                      Suppliers::OrderCredential.for(user: user, supplier: supplier, location_id: location_id, statuses: nil).take
+                    else
+                      user.credential_for(supplier)
+                    end
 
       unless @credential
         add_error(:credentials, "No credentials found for #{supplier.name}")

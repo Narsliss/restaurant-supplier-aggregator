@@ -26,9 +26,7 @@ class VerifyItemPriceJob < ApplicationJob
     # Find credential (same logic as PriceVerificationService)
     statuses = ["active"]
     statuses << "failed" if supplier.password_auth?
-    credential = order.user.supplier_credentials
-      .where(supplier: supplier)
-      .where(status: statuses)
+    credential = Suppliers::OrderCredential.scope(order, statuses: statuses)
       .order(Arel.sql("CASE status WHEN 'active' THEN 0 ELSE 1 END"))
       .first
 
@@ -38,7 +36,9 @@ class VerifyItemPriceJob < ApplicationJob
     end
 
     scraper = supplier.scraper_klass.new(credential)
-    results = scraper.scrape_prices([{ sku: sku, uom: item.uom }])
+    results = Suppliers::RestaurantSwitcher.new(credential, scraper).with_restaurant(order.location_id) do
+      scraper.scrape_prices([{ sku: sku, uom: item.uom }])
+    end
     result = results&.first
 
     if result && result[:current_price]

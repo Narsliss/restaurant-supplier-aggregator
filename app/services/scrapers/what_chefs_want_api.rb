@@ -169,6 +169,54 @@ module Scrapers
     end
 
     # ----------------------------------------------------------------
+    # Restaurant picker (multi-restaurant logins)
+    # ----------------------------------------------------------------
+    # On Cut+Dry each restaurant is a company; the session remembers which one
+    # is selected. Proven Sep 26 2026 — docs/owner-multi-location-findings.md.
+
+    # Current company plus user.additionalCompanies (NOT user.companies, which
+    # only returns the current one).
+    def list_restaurants
+      user = (graphql_request('restaurants', restaurants_query, {}) || {}).dig('data', 'user') || {}
+      ([user['company']] + Array(user['additionalCompanies'])).compact.uniq { |c| c['id'] }.filter_map do |c|
+        next if c['id'].blank?
+
+        # A company's delivery address lives on its location (proven Sep 27:
+        # Location { address city zip }).
+        loc = Array(c['locations']).first || {}
+        { id: c['id'].to_s, name: c['name'], street: loc['address'], city: loc['city'], zip: loc['zip'],
+          meta: { 'location_ids' => Array(c['locations']).map { |l| l['id'].to_s } } }
+      end
+    end
+
+    # The site's own switch link (GET /login/switchCompany/<id>, 307 to /).
+    # Vendor, location and order-guide ids belong to the company, so they are
+    # re-read afterwards — and saved to the credential: callers must switch back.
+    def switch_company!(company_id)
+      ensure_session!
+      uri = URI("#{BASE_URL}/login/switchCompany/#{CGI.escape(company_id.to_s)}")
+      http = ensure_http(uri)
+      req = Net::HTTP::Get.new(uri.path)
+      req['Cookie'] = cookie_header
+      req['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36'
+      req['Referer'] = "#{BASE_URL}/"
+      resp = http.request(req)
+      extract_cookies(resp)
+      unless resp.code.to_i.between?(200, 399)
+        raise Scrapers::BaseScraper::ScrapingError, "WCW company switch failed (HTTP #{resp.code})"
+      end
+
+      @vendor_id = @location_id = @form_id = @verified_vendor_id = nil
+      return true if discover_context
+
+      raise Scrapers::BaseScraper::ScrapingError, 'WCW could not read the switched company'
+    end
+
+    def current_company_id
+      (fetch_user || {}).dig('data', 'user', 'company', 'id')&.to_s
+    end
+
+    # ----------------------------------------------------------------
     # Catalog Operations
     # ----------------------------------------------------------------
 
@@ -527,6 +575,19 @@ module Scrapers
             __typename
           }
           isLoggedIn
+        }
+      GQL
+    end
+
+    def restaurants_query
+      <<~GQL
+        query restaurants {
+          user {
+            id
+            company { id name locations { id address city zip __typename } __typename }
+            additionalCompanies { id name locations { id address city zip __typename } __typename }
+            __typename
+          }
         }
       GQL
     end

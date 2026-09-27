@@ -1,0 +1,46 @@
+<div class="max-w-lg mx-auto py-8 px-4">
+  <div class="mb-6">
+    <%= link_to "&larr; Suppliers".html_safe, supplier_credentials_path, class: "text-sm text-brand-orange" %>
+    <h1 class="mt-3 text-2xl font-bold text-gray-900"><%= @credential.supplier.name %> restaurants</h1>
+    <p class="text-sm text-gray-500 mt-1">
+      This <%= @credential.supplier.name %> login can order for <%= pluralize(@restaurant_list.size, "restaurant") %>.
+      Match each one to your restaurant in EnPlace Pro. When you order for a restaurant, EnPlace switches
+      <%= @credential.supplier.name %> to it and confirms it before anything is placed.
+    </p>
+  </div>
+
+  <div class="bg-white shadow rounded-lg p-6">
+    <%= form_with url: restaurants_supplier_credential_path(@credential), method: :patch, local: true do %>
+      <div class="space-y-4">
+        <% @restaurant_list.each do |restaurant| %>
+          <% current = @matches[restaurant[:id].to_s]&.location_id %>
+          <div data-restaurant-row="<%= restaurant[:id] %>">
+            <label class="block text-sm font-semibold text-gray-900" for="restaurant_<%= restaurant[:id] %>">
+              <%= restaurant[:name] %> <span class="font-normal text-gray-500">(<%= restaurant[:id] %>)</span>
+            </label>
+            <%= select_tag "restaurants[#{restaurant[:id]}]",
+                           options_for_select([["Not used in EnPlace Pro", ""]] + @locations.map { |l| [l.name, l.id] }, current),
+                           id: "restaurant_#{restaurant[:id]}",
+                           class: "mt-1 block w-full rounded-md border-gray-300 text-sm" %>
+          </div>
+        <% end %>
+      </div>
+
+      <p class="mt-4 text-xs text-gray-500">
+        One of these must be <strong><%= @credential.location&.name %></strong>, the restaurant this connection belongs to.
+      </p>
+
+      <div class="mt-6 flex items-center justify-between">
+        <%= submit_tag "Save matches", class: "px-4 py-2 rounded-md bg-brand-orange text-white text-sm font-semibold" %>
+      </div>
+    <% end %>
+
+    <% if @matches.any? %>
+      <div class="mt-6 pt-4 border-t border-gray-200">
+        <%= button_to "Stop using this login for other restaurants", restaurants_supplier_credential_path(@credential),
+                      method: :delete, class: "text-sm text-red-600",
+                      data: { turbo_confirm: "#{@credential.supplier.name} will only be used for #{@credential.location&.name}. Continue?" } %>
+      </div>
+    <% end %>
+  </div>
+</div>

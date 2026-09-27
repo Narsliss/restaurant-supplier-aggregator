@@ -45,6 +45,14 @@ production:
     schedule: "0 11 * * *"
     description: "Check matched lists for newly empty rows at 7 AM EST (11 AM UTC)"
 
+  # Daily re-check of owners' multi-restaurant supplier logins: links a
+  # restaurant the supplier set up after it was added in EnPlace. Silent.
+  auto_link_supplier_restaurants:
+    class: AutoLinkSupplierRestaurantsJob
+    queue: low
+    schedule: "30 10 * * *"
+    description: "Link new supplier restaurants to owners' EnPlace restaurants at 6:30 AM EST (10:30 AM UTC)"
+
   # Nightly demo environment reset (no-op unless DEMO_MODE=true)
   demo_nightly_reset:
     class: DemoResetJob

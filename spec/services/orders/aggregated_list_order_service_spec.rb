@@ -24,7 +24,7 @@ RSpec.describe Orders::AggregatedListOrderService do
                                         supplier_product: create(:supplier_product, supplier: supplier,
                                                                                     current_price: price, in_stock: true))
       create(:product_match_item, product_match: match, supplier_list_item: sli, supplier: supplier)
-      create(:supplier_credential, user: user, supplier: supplier)
+      create(:supplier_credential, user: user, supplier: supplier, location: location)
     end
     list
   end
@@ -74,7 +74,7 @@ RSpec.describe Orders::AggregatedListOrderService do
                                           price: price, pack_size: pack, price_unit: unit,
                                           supplier_product: sp)
         create(:product_match_item, product_match: match, supplier_list_item: sli, supplier: supplier)
-        create(:supplier_credential, user: user, supplier: supplier)
+        create(:supplier_credential, user: user, supplier: supplier, location: location)
       end
       list
     end
@@ -213,7 +213,7 @@ RSpec.describe Orders::AggregatedListOrderService do
 
     it "does not count another user's credential" do
       user.supplier_credentials.find_by!(supplier: cheap_supplier).destroy!
-      create(:supplier_credential, user: create(:user, current_organization: organization), supplier: cheap_supplier)
+      create(:supplier_credential, user: create(:user, current_organization: organization), supplier: cheap_supplier, location: location)
 
       orders, _ = run(quantities: { match.id.to_s => "3" })
 
@@ -228,6 +228,15 @@ RSpec.describe Orders::AggregatedListOrderService do
       expect(orders).to be_empty
       expect(batch_id).to be_nil
       expect(Order.where(user: user)).to be_empty
+    end
+
+    it "never falls back onto the user's login for a different restaurant" do
+      elsewhere = create(:location, organization: organization)
+      user.supplier_credentials.find_by!(supplier: cheap_supplier).update!(location: elsewhere)
+
+      orders, _ = run(quantities: { match.id.to_s => "3" })
+
+      expect(orders.sole.supplier_id).to eq(pricey_supplier.id)
     end
 
     it "treats an email supplier as orderable without any credential" do

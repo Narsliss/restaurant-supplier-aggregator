@@ -24,6 +24,7 @@ class Location < ApplicationRecord
 
   # Callbacks
   after_create_commit :create_default_matched_list
+  after_create_commit :link_owner_supplier_restaurants
 
   # Methods
   def full_address
@@ -35,6 +36,14 @@ class Location < ApplicationRecord
   end
 
   private
+
+  # A new restaurant may already be on an owner's multi-restaurant supplier
+  # logins (US Foods, CW, WCW, PPO): link it automatically when certain.
+  def link_owner_supplier_restaurants
+    return unless organization && organization.locations.count > 1
+
+    AutoLinkSupplierRestaurantsJob.perform_later(nil, organization_id: organization_id)
+  end
 
   # Each location automatically gets its own "matched" AggregatedList so chefs
   # assigned to a single restaurant land on a real (if empty) list instead of

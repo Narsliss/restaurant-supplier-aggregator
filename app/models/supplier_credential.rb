@@ -18,6 +18,37 @@ class SupplierCredential < ApplicationRecord
   before_destroy :remove_supplier_from_matched_lists, prepend: true
   has_many :supplier_lists, dependent: :destroy
 
+  # Restaurants this one login can switch between, each matched to an EnPlace
+  # location (owners/managers only — see SupplierCredentialRestaurant). No
+  # matches means a single-restaurant connection that behaves exactly as before.
+  has_many :restaurants, class_name: 'SupplierCredentialRestaurant', dependent: :destroy
+
+  # Suppliers whose restaurant picker EnPlace can drive (proven Sep 26 2026,
+  # docs/owner-multi-location-findings.md; PPO Sep 27 2026).
+  SWITCHABLE_SUPPLIER_CODES = %w[usfoods chefswarehouse whatchefswant premiereproduceone].freeze
+
+  # In memory only, never saved. Suppliers whose restaurant is chosen per call
+  # rather than stored at the supplier (PPO) read this so an API client rebuilt
+  # mid-order stays on the restaurant being served. Set by RestaurantSwitcher.
+  attr_accessor :pinned_supplier_account_id
+
+  # Connections that can place orders for `location`: attached to it, or
+  # matched to it through a restaurant match.
+  scope :serving_location, lambda { |location|
+    where(location_id: location).or(
+      where(id: SupplierCredentialRestaurant.where(location_id: location).select(:supplier_credential_id))
+    )
+  }
+
+  # Do these connections (one user's, for one supplier or all) cover more than
+  # one restaurant — logins attached to different locations, or a login with
+  # restaurant matches? Only then must work be tied to a location's own login;
+  # a single-restaurant user (every one-location chef) keeps the plain lookup.
+  def self.spans_restaurants?(creds)
+    creds.distinct.count(:location_id) > 1 ||
+      SupplierCredentialRestaurant.where(supplier_credential_id: creds.select(:id)).exists?
+  end
+
   # Validations
   validates :username, presence: true
   validates :password, presence: true, unless: :supplier_no_password?
@@ -179,6 +210,24 @@ class SupplierCredential < ApplicationRecord
     trusted_device_token.present? &&
       trusted_device_expires_at.present? &&
       trusted_device_expires_at > Time.current
+  end
+
+  def switchable_supplier?
+    SWITCHABLE_SUPPLIER_CODES.include?(supplier&.code)
+  end
+
+  def multi_restaurant?
+    restaurants.exists?
+  end
+
+  def restaurant_for(location)
+    location_id = location.is_a?(Location) ? location.id : location
+    restaurants.find_by(location_id: location_id)
+  end
+
+  # The restaurant this connection returns to after serving another location.
+  def home_restaurant
+    restaurant_for(location_id)
   end
 
   private

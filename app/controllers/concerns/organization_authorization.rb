@@ -118,11 +118,13 @@ module OrganizationAuthorization
     if owner?
       # Owners see only their own credentials, filtered by location when one is selected
       base = current_user.supplier_credentials.where(organization: org)
-      current_location ? base.where(location: current_location) : base
+      # serving_location: attached to this restaurant, or matched to it through
+      # a multi-restaurant login's restaurant match (owners/managers only).
+      current_location ? base.serving_location(current_location) : base
     elsif current_role == 'manager'
       # Managers see credentials at their current location (read-only enforced in controller)
       if current_location
-        org.supplier_credentials.where(location: current_location)
+        org.supplier_credentials.serving_location(current_location)
       else
         org.supplier_credentials.where(location_id: accessible_locations.select(:id))
       end

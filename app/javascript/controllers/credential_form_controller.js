@@ -8,9 +8,9 @@ export default class extends Controller {
   static targets = [
     "supplierSelect", "fieldsContainer", "passwordField", "passwordInput",
     "twoFaNotice", "welcomeUrlNotice",
-    "usernameLabel", "usernameInput"
+    "usernameLabel", "usernameInput", "locationSelect"
   ]
-  static values = { suppliers: Object }
+  static values = { suppliers: Object, takenLocations: Object }
 
   connect() {
     this.updateFormState()
@@ -29,6 +29,7 @@ export default class extends Controller {
     }
 
     this.showFieldsContainer()
+    this.updateLocationChoices(supplierId)
 
     const supplier = this.suppliersValue[supplierId] || {}
     const authType = typeof supplier === "string" ? supplier : supplier.auth_type
@@ -47,6 +48,23 @@ export default class extends Controller {
         this.hideWelcomeUrlNotice()
         this.setUsernameMode("email")
         break
+    }
+  }
+
+  // Grey out restaurants that already have this supplier; move off a taken one.
+  updateLocationChoices(supplierId) {
+    if (!this.hasLocationSelectTarget) return
+
+    const taken = (this.takenLocationsValue[supplierId] || []).map(String)
+    const select = this.locationSelectTarget
+    Array.from(select.options).forEach((option) => {
+      const isTaken = taken.includes(option.value)
+      option.disabled = isTaken
+      option.textContent = option.textContent.replace(/ — already connected$/, "") + (isTaken ? " — already connected" : "")
+    })
+    if (select.selectedOptions[0]?.disabled) {
+      const free = Array.from(select.options).find((option) => !option.disabled)
+      if (free) select.value = free.value
     }
   }
 

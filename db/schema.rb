@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_09_25_200000) do
+ActiveRecord::Schema[7.1].define(version: 2026_09_27_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -832,6 +832,20 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_25_200000) do
     t.index ["user_id"], name: "index_supplier_2fa_requests_on_user_id"
   end
 
+  create_table "supplier_credential_restaurants", force: :cascade do |t|
+    t.bigint "supplier_credential_id", null: false
+    t.bigint "location_id", null: false
+    t.string "supplier_account_id", null: false
+    t.string "account_name"
+    t.jsonb "account_meta", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["location_id"], name: "index_supplier_credential_restaurants_on_location_id"
+    t.index ["supplier_credential_id", "location_id"], name: "idx_cred_restaurants_cred_location", unique: true
+    t.index ["supplier_credential_id", "supplier_account_id"], name: "idx_cred_restaurants_cred_account", unique: true
+    t.index ["supplier_credential_id"], name: "idx_on_supplier_credential_id_d21025cd3d"
+  end
+
   create_table "supplier_credentials", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.bigint "supplier_id", null: false
@@ -864,6 +878,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_25_200000) do
     t.integer "display_position", default: 0
     t.jsonb "available_delivery_dates", default: []
     t.datetime "delivery_dates_fetched_at"
+    t.integer "supplier_restaurant_count"
+    t.jsonb "supplier_restaurants", default: [], null: false
+    t.datetime "supplier_restaurants_checked_at"
     t.index ["location_id"], name: "index_supplier_credentials_on_location_id"
     t.index ["organization_id", "location_id"], name: "idx_supplier_creds_org_location"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"
@@ -1213,6 +1230,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_25_200000) do
   add_foreign_key "subscriptions", "users"
   add_foreign_key "supplier_2fa_requests", "supplier_credentials", on_delete: :cascade
   add_foreign_key "supplier_2fa_requests", "users", on_delete: :cascade
+  add_foreign_key "supplier_credential_restaurants", "locations", on_delete: :cascade
+  add_foreign_key "supplier_credential_restaurants", "supplier_credentials", on_delete: :cascade
   add_foreign_key "supplier_credentials", "locations"
   add_foreign_key "supplier_credentials", "organizations"
   add_foreign_key "supplier_credentials", "suppliers", on_delete: :cascade

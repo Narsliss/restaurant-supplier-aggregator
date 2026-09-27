@@ -14,6 +14,31 @@ module OrdersHelper
 
     accessible_locations.limit(2).count > 1
   end
+
+  # "US Foods isn't set up for Noche yet" — shown in the order builder only
+  # when something needs fixing (success is silent). Owners/managers only.
+  def supplier_setup_notice(location:, compact: false)
+    logins = unplaced_supplier_logins(location)
+    return if logins.empty?
+
+    render "shared/supplier_setup_notice", logins: logins, location: location, compact: compact
+  end
+
+  # The user's multi-restaurant picker logins that list a restaurant the
+  # automatic linker couldn't place, and don't order for +location+ yet (nor
+  # does another login of theirs for that supplier).
+  def unplaced_supplier_logins(location)
+    return [] unless location && can_order_for_several_locations?
+
+    mine = current_user.supplier_credentials.where(organization_id: location.organization_id)
+    serving = mine.serving_location(location).pluck(:supplier_id)
+    mine.includes(:supplier, :restaurants).select do |cred|
+      next false if serving.include?(cred.supplier_id)
+
+      standing = Suppliers::RestaurantLinks.new(cred, accessible_locations.to_a)
+      standing.applicable? && standing.snapshot.size > 1 && standing.unplaced.any?
+    end
+  end
   # Human label + tone for a supplier exception type (see UsFoodsExceptionParser).
   EXCEPTION_TYPE_LABELS = {
     "out_of_stock" => "Out of stock",

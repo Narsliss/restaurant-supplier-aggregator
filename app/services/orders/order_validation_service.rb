@@ -219,7 +219,7 @@ module Orders
     end
 
     def validate_account_status
-      credential = order.user.supplier_credentials.find_by(supplier: order.supplier)
+      credential = Suppliers::OrderCredential.scope(order, statuses: nil).take
 
       unless credential&.active?
         add_error(

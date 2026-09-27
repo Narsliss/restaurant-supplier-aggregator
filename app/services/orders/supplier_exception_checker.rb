@@ -17,13 +17,16 @@ module Orders
       return nil unless supplier&.code == 'usfoods'
       return nil if @order.confirmation_number.blank?
 
-      credential = @order.user.supplier_credentials.find_by(supplier: supplier, status: 'active')
+      credential = Suppliers::OrderCredential.scope(@order, statuses: %w[active]).take
       return nil unless credential
 
       scraper = supplier.scraper_klass.new(credential)
       scraper.soft_refresh if scraper.respond_to?(:soft_refresh)
 
-      remote = scraper.fetch_submitted_order(@order.confirmation_number)
+      # US Foods only shows an order to the restaurant it was placed for.
+      remote = Suppliers::RestaurantSwitcher.new(credential, scraper).with_restaurant(@order.location_id) do
+        scraper.fetch_submitted_order(@order.confirmation_number)
+      end
       return nil if remote.nil?
 
       exceptions = UsFoodsExceptionParser.parse(remote)

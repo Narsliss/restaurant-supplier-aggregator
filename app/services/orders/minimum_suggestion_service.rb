@@ -47,10 +47,13 @@ module Orders
     private
 
     def recently_ordered
-      recent_order_ids = @user.orders
+      recent_orders = @user.orders
         .where(supplier: @supplier, status: %w[submitted confirmed])
         .where("submitted_at >= ?", 90.days.ago)
-        .pluck(:id)
+      # Only this restaurant's orders (an owner ordering for several); orders
+      # with no recorded restaurant still count, as before.
+      recent_orders = recent_orders.where(location_id: [@order.location_id, nil]) if @order.location_id
+      recent_order_ids = recent_orders.pluck(:id)
 
       return [] if recent_order_ids.empty?
 
@@ -77,7 +80,10 @@ module Orders
     end
 
     def from_order_guides(already_ids)
-      credential = @user.supplier_credentials.find_by(supplier: @supplier, status: "active")
+      # The guide of the login for THIS order's restaurant (Performance: a login
+      # per restaurant); the same lookup as always for a one-login user.
+      credential = Suppliers::OrderCredential.for(user: @user, supplier: @supplier,
+                                                  location_id: @order.location_id).take
       return [] unless credential
 
       remaining = MAX_SUGGESTIONS - already_ids.size

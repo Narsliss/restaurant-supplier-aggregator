@@ -357,6 +357,39 @@ module Scrapers
       })
     end
 
+    # ── Restaurants (one login, several restaurants) ─────────────
+
+    # Every restaurant on this login: [{ id:, name:, meta: }]. The id is Pepper's
+    # restaurant UUID — what every catalog/cart/order call is scoped by.
+    def list_restaurants
+      chats = graphql('RestaurantList', RESTAURANTS_QUERY, {})&.dig('employee_chats') || []
+      chats.map do |c|
+        # "2724 Erie Ave, Cincinnati, OH 45208, USA" / "Montgomery, OH 45242, USA"
+        addr = Suppliers::RestaurantAddress.parse(c['restaurant_address'])
+        { id: c['restaurant_uuid'],
+          name: [c['restaurant_name'], addr[:city].presence].compact.join(' — '),
+          street: addr[:street], city: addr[:city], zip: addr[:zip],
+          meta: { 'account_id' => c['restaurant_account_id'], 'chat_uuid' => c['chat_uuid'] } }
+      end
+    end
+
+    # Pepper keeps no "current restaurant" server-side: the site passes the
+    # restaurant on every call. Switching = pinning which restaurant this
+    # client's calls carry, re-read from the login's own restaurant list so an
+    # unknown or removed restaurant raises instead of being sent.
+    def select_restaurant!(restaurant_uuid)
+      ensure_session!
+      credential.pinned_supplier_account_id = restaurant_uuid.to_s
+      result = graphql('DiscoverContext', DISCOVER_CONTEXT_QUERY, {})
+      raise BaseScraper::ScrapingError, 'PPO restaurant list unavailable' unless result&.dig('employee_chats')&.any?
+
+      extract_context(result)
+    end
+
+    def current_restaurant_uuid
+      @restaurant_uuid
+    end
+
     def close
       @graphql_http&.finish rescue nil
       @graphql_http = nil
@@ -423,16 +456,32 @@ module Scrapers
       end
     end
 
+    # One login can hold several restaurants (one employee chat each). Home is
+    # the restaurant saved with the session (else the first chat); a restaurant
+    # pinned by RestaurantSwitcher wins over home until it is switched back.
     def extract_context(result)
       chats = result['employee_chats'] || []
-      if chats.any?
-        chat = chats.first
-        @restaurant_uuid = chat['restaurant_uuid']
-        @chat_uuid = chat['chat_uuid']
-        @supplier_uuid = chat['supplier_uuid']
-        @business_org_uuid = chat['business_organization_uuid']
-        logger.info "[PPO-API] Context: restaurant=#{@restaurant_uuid&.slice(0, 8)}, supplier=#{@supplier_uuid&.slice(0, 8)}, org=#{@business_org_uuid&.slice(0, 8)}"
+      return if chats.empty?
+
+      home = chats.find { |c| c['restaurant_uuid'] == (@home_restaurant_uuid || @restaurant_uuid) } || chats.first
+      @home_restaurant_uuid = home['restaurant_uuid']
+      @home_chat_uuid = home['chat_uuid']
+
+      pinned = credential.pinned_supplier_account_id
+      chat = pinned ? chats.find { |c| c['restaurant_uuid'] == pinned } : home
+      unless chat
+        # Pinned restaurant not on this login: send no restaurant at all rather
+        # than fall back to home. RestaurantSwitcher's confirm then refuses.
+        @restaurant_uuid = @chat_uuid = nil
+        logger.warn "[PPO-API] Login has no restaurant #{pinned.slice(0, 8)} — restaurant cleared"
+        return
       end
+
+      @restaurant_uuid = chat['restaurant_uuid']
+      @chat_uuid = chat['chat_uuid']
+      @supplier_uuid = chat['supplier_uuid']
+      @business_org_uuid = chat['business_organization_uuid']
+      logger.info "[PPO-API] Context: restaurant=#{@restaurant_uuid&.slice(0, 8)}, supplier=#{@supplier_uuid&.slice(0, 8)}, org=#{@business_org_uuid&.slice(0, 8)}"
     end
 
     def save_session_tokens
@@ -447,8 +496,9 @@ module Scrapers
         'id_token' => @id_token,
         'refresh_token' => @refresh_token,
         'cognito_client_id' => @cognito_client_id,
-        'restaurant_uuid' => @restaurant_uuid,
-        'chat_uuid' => @chat_uuid,
+        # Always the home restaurant — never one pinned for a single job.
+        'restaurant_uuid' => @home_restaurant_uuid || @restaurant_uuid,
+        'chat_uuid' => @home_chat_uuid || @chat_uuid,
         'supplier_uuid' => @supplier_uuid,
         'business_org_uuid' => @business_org_uuid
       }
@@ -461,6 +511,8 @@ module Scrapers
 
     # Discovery query — no hardcoded UUIDs, discovers all context from the token
     DISCOVER_CONTEXT_QUERY = 'query DiscoverContext { employee_chats { chat_uuid restaurant_uuid supplier_uuid business_organization_uuid __typename } }'
+
+    RESTAURANTS_QUERY = 'query RestaurantList { employee_chats { chat_uuid restaurant_uuid restaurant_name restaurant_account_id restaurant_address __typename } }'
 
     CATALOG_QUERY = 'query Catalog_VariantPackGroupItems($itemLimit: Int!, $restaurantUUID: uuid!, $supplierUUID: uuid!) { getSupplierVariantPackGroupItems(restaurant_id: $restaurantUUID, supplier_id: $supplierUUID, variant_pack_group_item_limit: $itemLimit) { variant_pack { external_item_id uuid item { category description display_name photo_url_list uuid __typename } metadata pack { unit unit_count uuid __typename } __typename } variant_pack_group { uuid type __typename } variant_pack_group_display_name variant_pack_group_item_count __typename } }'
 

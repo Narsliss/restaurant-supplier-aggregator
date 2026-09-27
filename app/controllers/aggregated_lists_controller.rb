@@ -564,7 +564,8 @@ class AggregatedListsController < ApplicationController
     )
     # The pre-selected cell must be one this user can place with — the market-wide
     # cheapest can be a supplier they have no login for.
-    @orderable_supplier_ids = @suppliers.map(&:id) & Orders::AggregatedListOrderService.orderable_supplier_ids(current_user)
+    @orderable_supplier_ids = @suppliers.map(&:id) &
+                              Orders::AggregatedListOrderService.orderable_supplier_ids(current_user, location: current_location)
 
     # Matches on ANY of the user's order lists — search results surface these
     # first in their own section (chef punch item), regardless of which list

@@ -447,6 +447,32 @@ module Scrapers
       post_json('/web-api/organization/list', {})
     end
 
+    # ── Restaurant picker (multi-restaurant logins) ───────────────
+    # CW calls each restaurant an organization; the session remembers which one
+    # is selected. Proven Sep 26 2026 — docs/owner-multi-location-findings.md.
+
+    def list_restaurants
+      Array(list_organizations).filter_map do |o|
+        next unless o.is_a?(Hash) && o['id'].present?
+
+        { id: o['id'].to_s, name: o['name'], meta: {} }
+      end
+    end
+
+    # The site's own switch (setActiveOrganization in its bundle).
+    def set_organization!(organization_id)
+      post_json("/web-api/organization/set?value=#{CGI.escape(organization_id.to_s)}", {})
+    end
+
+    # Ship-to of the selected organization. Compare this, not the address —
+    # shippingAddress1 comes back blank right after a switch.
+    def current_ship_to
+      user = current_user
+      return nil unless user.is_a?(Hash)
+
+      (user.dig('currentOrganization', 'shipTo').presence || user['currentOrganizationId'])&.to_s
+    end
+
     # ── Current User ──────────────────────────────────────────────
 
     def current_user

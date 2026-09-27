@@ -29,14 +29,20 @@ class ImportSupplierListsService
 
   attr_reader :credential, :results
 
-  def initialize(credential)
+  # +location_id:+ — the EnPlace location these lists belong to. Only set when
+  # syncing one restaurant of a multi-restaurant login (see
+  # #call_each_restaurant); otherwise the credential's own location, as always.
+  def initialize(credential, location_id: nil)
     @credential = credential
+    @restaurant_location_id = location_id
     @results = { lists_synced: 0, items_imported: 0, items_updated: 0, errors: [] }
   end
 
   # Import lists from the supplier. Accepts an optional +scraper:+ parameter to reuse
   # an existing scraper instance (with its browser already open and logged in).
   def call(scraper: nil)
+    return call_each_restaurant(scraper) if credential.multi_restaurant? && @restaurant_location_id.nil?
+
     Rails.logger.info "[ImportLists] Starting list import for #{credential.supplier.name} (credential #{credential.id})"
 
     scraper ||= credential.supplier.scraper_klass.new(credential)
@@ -67,8 +73,9 @@ class ImportSupplierListsService
     # Onboarding headstart: first successful import for a new location seeds
     # an order list from the chef's recent supplier activity. Guarded inside
     # the service (idempotent, never touches locations with curated lists),
-    # so this is a no-op on routine daily syncs.
-    SeedOrderListsService.new(credential).call if results[:lists_synced] > 0
+    # so this is a no-op on routine daily syncs. Home restaurant only — the
+    # seeded list belongs to the credential's own user and location.
+    SeedOrderListsService.new(credential).call if results[:lists_synced] > 0 && home_restaurant?
 
     Rails.logger.info "[ImportLists] Complete: #{results}"
     results
@@ -83,7 +90,53 @@ class ImportSupplierListsService
     results
   end
 
+  # A multi-restaurant login (an owner's one login, restaurants matched to
+  # EnPlace locations): sync each matched restaurant into its own location,
+  # switching the login to it and confirming first. A restaurant that fails to
+  # switch is skipped and reported; the others still sync.
+  def call_each_restaurant(scraper)
+    scraper ||= credential.supplier.scraper_klass.new(credential)
+    switcher = Suppliers::RestaurantSwitcher.new(credential, scraper)
+
+    credential.restaurants.includes(:location).find_each do |restaurant|
+      part = self.class.new(credential, location_id: restaurant.location_id)
+      begin
+        switcher.with_restaurant(restaurant.location_id) { part.call(scraper: scraper) }
+      rescue StandardError => e
+        Rails.logger.error "[ImportLists] Skipped #{restaurant.account_name || restaurant.supplier_account_id} " \
+                           "for credential #{credential.id}: #{e.class}: #{e.message}"
+        part.results[:errors] << "#{restaurant.location&.name}: #{e.message}"
+      end
+      %i[lists_synced items_imported items_updated].each { |k| results[k] += part.results[k] }
+      results[:errors].concat(part.results[:errors])
+    end
+    results
+  end
+
   private
+
+  def target_location_id
+    @restaurant_location_id || credential.location_id
+  end
+
+  # Which credential a list records as its syncer. Home restaurant: this
+  # credential, as always ("track which credential last synced this list").
+  # Another restaurant of a multi-restaurant login: never take over a list a
+  # chef's own connection owns (their minimum suggestions and order lists key
+  # on it), and never claim a second list with the same remote id (unique per
+  # credential — WCW's static "order-guide", CW's "-1" favorites).
+  def syncing_credential_for(supplier_list, remote_id)
+    return credential if home_restaurant?
+    return supplier_list.supplier_credential if supplier_list.persisted? && supplier_list.supplier_credential_id
+
+    clash = SupplierList.where(supplier_credential_id: credential.id, remote_list_id: remote_id)
+                        .where.not(id: supplier_list.id)
+    clash.exists? ? nil : credential
+  end
+
+  def home_restaurant?
+    target_location_id == credential.location_id
+  end
 
   def upsert_list(list_data)
     org = credential.organization || credential.user.current_organization
@@ -97,7 +150,7 @@ class ImportSupplierListsService
     supplier_list = SupplierList.find_or_initialize_by(
       supplier: credential.supplier,
       organization: org,
-      location_id: credential.location_id,
+      location_id: target_location_id,
       remote_list_id: list_data[:remote_id]
     )
 
@@ -117,7 +170,7 @@ class ImportSupplierListsService
 
     supplier_list.assign_attributes(
       remote_list_id: list_data[:remote_id],
-      supplier_credential: credential, # Track which credential last synced this list
+      supplier_credential: syncing_credential_for(supplier_list, list_data[:remote_id]),
       name: list_data[:name],
       list_type: list_data[:list_type] || 'order_guide',
       remote_list_url: list_data[:url],
@@ -396,7 +449,7 @@ class ImportSupplierListsService
     candidates = SupplierList.where(
       supplier: credential.supplier,
       organization: org,
-      location_id: credential.location_id
+      location_id: target_location_id
     ).where.not(remote_list_id: absent_ids)
      .select { |sl| sl.remote_list_id.to_s.match?(ROTATED_GUIDE_PATTERN) }
     return nil if candidates.empty?
@@ -420,9 +473,12 @@ class ImportSupplierListsService
 
     org = credential.organization || credential.user.current_organization
 
-    # Scope to supplier+org (matching the deduplication key in upsert_list)
+    # Scope to supplier+org (matching the deduplication key in upsert_list).
+    # One restaurant of a multi-restaurant login saw only THAT restaurant's
+    # lists, so it may only judge that restaurant's lists.
     stale = SupplierList.where(supplier: credential.supplier, organization: org)
                         .where.not(remote_list_id: scraped_remote_ids)
+    stale = stale.where(location_id: target_location_id) if @restaurant_location_id
     stale.find_each do |list|
       Rails.logger.info "[ImportLists] List '#{list.name}' no longer found on supplier site"
       # Don't destroy - just mark as stale. The list might come back.

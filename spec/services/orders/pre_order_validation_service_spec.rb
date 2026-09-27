@@ -1,12 +1,9 @@
 require 'rails_helper'
 
-# NOTE: All `validate!` tests here are currently SKIPPED — see
-# docs/known_bugs.md (#2). PreOrderValidationService references
-# `OrderListItem#supplier_product`, an association that does not exist.
-# Every validation path raises AssociationNotFoundError, silently swallowed
-# by the rescue in Orders::OrderPlacementService#run_pre_order_validation —
-# pre-order validation is effectively disabled in production today.
-# Unskip these once the supplier_product references are fixed.
+# PreOrderValidationService runs before every real order (PlaceOrderJob →
+# OrderPlacementService#run_pre_order_validation). An older note here said it
+# was dead code because of a missing association; that was fixed
+# (Product#supplier_product_for) and these examples run (checked Sep 27 2026).
 
 RSpec.describe Orders::PreOrderValidationService, type: :service do
   let(:user) { create(:user, :with_organization) }
@@ -88,6 +85,64 @@ end
 # These specs cover the OTHER half of price-change handling: the
 # accept_price_changes kwarg lives in OrderPlacementService#run_pre_order_validation,
 # not in PreOrderValidationService itself. They exercise that branch.
+# Performance: an owner holds a separate login per restaurant. The check for a
+# D'oro order must use D'oro's login — never another restaurant's.
+RSpec.describe Orders::PreOrderValidationService, 'owner with a login per restaurant', type: :service do
+  let(:user) { create(:user, :with_organization) }
+  let(:organization) { user.current_organization }
+  let(:alfios) { create(:location, organization: organization, user: user, name: 'Alfios') }
+  let(:doro) { create(:location, organization: organization, user: user, name: "D'oro") }
+  let(:supplier) { create(:supplier) }
+  let(:product) { create(:product) }
+  let!(:supplier_product) { create(:supplier_product, supplier: supplier, product: product, current_price: 10.00) }
+  let(:order_list) do
+    OrderList.create!(user: user, organization: organization, name: 'Validation list').tap do |list|
+      list.order_list_items.create!(product: product, quantity: 2)
+    end
+  end
+  let(:fake_scraper_class) { double('FakeScraperClass') }
+  let(:fake_scraper) do
+    instance_double('FakeScraper', soft_refresh: true, check_stock: { in_stock: true },
+                                   get_product_info: { price: 10.00, in_stock: true }, get_order_minimum: { minimum: 0 },
+                                   get_delivery_availability: { available: true }, close_browser: nil)
+  end
+  let!(:alfios_login) { create(:supplier_credential, user: user, supplier: supplier, location: alfios, status: 'expired') }
+  let!(:doro_login) { create(:supplier_credential, user: user, supplier: supplier, location: doro, status: 'active') }
+
+  before do
+    allow(supplier).to receive(:scraper_klass).and_return(fake_scraper_class)
+    allow(fake_scraper_class).to receive(:new).and_return(fake_scraper)
+  end
+
+  def check_for(location)
+    described_class.new(order_list: order_list, supplier: supplier, user: user, delivery_date: Date.tomorrow,
+                        location_id: location.id).validate!
+  end
+
+  it "checks a D'oro order with the D'oro login, even when the alfios login is expired" do
+    result = check_for(doro)
+
+    expect(result[:errors]).to be_empty
+    expect(fake_scraper_class).to have_received(:new).with(doro_login)
+    expect(fake_scraper_class).not_to have_received(:new).with(alfios_login)
+  end
+
+  it "flags the alfios order's own expired login rather than borrowing D'oro's" do
+    result = check_for(alfios)
+
+    expect(result[:errors].first).to include(type: :credentials)
+    expect(fake_scraper_class).not_to have_received(:new)
+  end
+
+  it "reports no login for a restaurant that has none" do
+    noche = create(:location, organization: organization, user: user, name: 'Noche')
+
+    result = check_for(noche)
+
+    expect(result[:errors].first[:message]).to include('No credentials found')
+  end
+end
+
 RSpec.describe Orders::OrderPlacementService, '#run_pre_order_validation accept_price_changes', type: :service do
   let(:user) { create(:user, :with_organization) }
   let(:supplier) { create(:supplier) }

@@ -225,6 +225,49 @@ module Scrapers
       get_json('/customer-domain-api/v1/divisions')
     end
 
+    # ── Restaurant picker (multi-restaurant logins) ───────────────
+    # Proven Sep 26 2026 — docs/owner-multi-location-findings.md.
+
+    # The restaurants this login can order for.
+    def list_restaurants
+      Array(get_customers).filter_map do |c|
+        next unless c.is_a?(Hash) && c['customerNumber'].present?
+
+        addr = c['address'].is_a?(Hash) ? c['address'] : c
+        city = c['city'] || addr['city']
+        { id: c['customerNumber'].to_s,
+          name: [c['customerName'], city].compact_blank.join(' — '),
+          street: addr.values_at('address1', 'addressLine1', 'line1', 'streetAddress', 'street', 'address')
+                      .find { |v| v.is_a?(String) && v.present? },
+          city: city,
+          zip: addr.values_at('zip', 'zipCode', 'zip5', 'postalCode').find(&:present?)&.to_s,
+          meta: { 'division_number' => c['divisionNumber'] } }
+      end
+    end
+
+    # US Foods scopes the API token to the customer in authContext, so a token
+    # refresh with another customer switches restaurants. refresh_access_token
+    # saves the new context to the credential: callers must switch back.
+    def switch_customer!(customer_number, division_number)
+      ensure_session!
+      @auth_context = (@auth_context || {}).merge(
+        'customer_number' => customer_number.to_i,
+        'division_number' => division_number.to_i
+      )
+      return true if refresh_access_token
+
+      raise BaseScraper::AuthenticationError, 'US Foods token refresh failed while switching restaurant'
+    end
+
+    # The customer the current token is scoped to (usf-claims.customerNumber).
+    def token_customer_number
+      part = @access_token.to_s.split('.')[1].to_s
+      part += '=' * ((4 - (part.length % 4)) % 4)
+      JSON.parse(Base64.urlsafe_decode64(part)).dig('usf-claims', 'customerNumber')&.to_s
+    rescue StandardError
+      nil
+    end
+
     # ── Order Guides & Lists ──────────────────────────────────────
 
     def list_order_guides

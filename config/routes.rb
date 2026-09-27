@@ -129,6 +129,12 @@ Rails.application.routes.draw do
       post :submit_2fa_code
       get :status
       patch :update_display_position
+      # Multi-restaurant logins: match the supplier's restaurants to locations
+      get :restaurants
+      patch :restaurants, action: :update_restaurants
+      delete :restaurants, action: :clear_restaurants
+      # One-click fix: link one supplier restaurant the automatic linker couldn't place
+      patch :link_restaurant
     end
   end
 

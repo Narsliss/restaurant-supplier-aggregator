@@ -60,7 +60,10 @@ module Orders
         return fail_verification!("No products to verify for this order.")
       end
 
-      verified_prices = fetch_prices(scraper, sku_queries)
+      # Multi-restaurant logins: verify against THIS order's restaurant's prices.
+      verified_prices = Suppliers::RestaurantSwitcher.new(credential, scraper).with_restaurant(order.location_id) do
+        fetch_prices(scraper, sku_queries)
+      end
       @delivery_address = scraper.last_delivery_address
       compare_prices(verified_prices)
 
@@ -111,9 +114,9 @@ module Orders
       statuses = ["active"]
       statuses << "failed" if order.supplier.password_auth?
 
-      order.user.supplier_credentials
-        .where(supplier: order.supplier)
-        .where(status: statuses)
+      # An owner with matched restaurants only gets a connection serving this
+      # order's restaurant (Suppliers::OrderCredential); unchanged otherwise.
+      Suppliers::OrderCredential.scope(order, statuses: statuses)
         .order(Arel.sql("CASE status WHEN 'active' THEN 0 ELSE 1 END"))
         .first
     end

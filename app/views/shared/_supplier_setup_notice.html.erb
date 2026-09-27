@@ -1,0 +1,11 @@
+<%# A picker login lists a restaurant the automatic linker couldn't place, and
+    nothing orders for this restaurant from that supplier yet. Locals: logins,
+    location, compact. See OrdersHelper#supplier_setup_notice. %>
+<% logins.each do |cred| %>
+  <div data-supplier-setup-notice="<%= cred.supplier.code %>"
+       class="<%= compact ? 'mb-2 px-2.5 py-1.5 text-[11px]' : 'mb-4 px-4 py-2.5 text-sm' %> flex items-center justify-between gap-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+    <p><strong><%= cred.supplier.name %></strong> isn't set up for <%= location.name %> yet. Your login lists a restaurant we couldn't place.</p>
+    <%= link_to "Fix it", supplier_credentials_path,
+                class: "shrink-0 #{compact ? 'px-2 py-1' : 'px-3 py-1.5'} rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700" %>
+  </div>
+<% end %>

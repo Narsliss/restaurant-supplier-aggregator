@@ -10,10 +10,11 @@ RSpec.describe SupplierListItem, type: :model do
   # saving of 97% of their own invoice, sliding just under the
   # Order::MAX_SAVINGS_MULTIPLE guard.
   describe 'catch-weight pricing carried in from the catalog' do
-    # seed_suppliers creates Sysco on boot, so claim the existing row.
+    # seed_suppliers creates Sysco on boot, so claim the existing row — but
+    # don't depend on it: a test DB freshly migrated has no seeded suppliers.
     let(:sysco) do
-      Supplier.find_or_create_by!(code: 'sysco') { |s| s.name = 'Sysco' }
-              .tap { |s| s.update!(case_pricing: true) }
+      (Supplier.find_by(code: 'sysco') || create(:supplier, code: 'sysco', name: 'Sysco'))
+        .tap { |s| s.update!(case_pricing: true) }
     end
     let(:credential) { create(:supplier_credential, supplier: sysco) }
     let(:list) do

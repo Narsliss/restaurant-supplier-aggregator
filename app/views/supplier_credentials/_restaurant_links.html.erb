@@ -1,0 +1,41 @@
+<%# Which of the owner's restaurants a multi-restaurant login orders for (linked
+    automatically — Suppliers::RestaurantAutoLinker), a one-click fix for any
+    restaurant on the login that couldn't be placed, and a quiet note for
+    restaurants the supplier doesn't list. Nothing shows for a one-restaurant
+    login. Locals: credential, locations (the owner's restaurants). %>
+<% standing = Suppliers::RestaurantLinks.new(credential, locations) %>
+<% if standing.applicable? %>
+  <% linked_locations = standing.linked_locations %>
+  <% unplaced = standing.unplaced %>
+  <% free = standing.free_locations %>
+  <div class="mt-2" data-restaurant-links>
+    <% if linked_locations.any? %>
+      <p class="text-xs text-gray-500">Orders for</p>
+      <div class="flex flex-wrap gap-1 mt-1">
+        <% linked_locations.each do |loc| %>
+          <span class="inline-flex items-center rounded-full bg-brand-green-50 px-2 py-0.5 text-xs font-medium text-brand-green-dark"><%= loc.name %></span>
+        <% end %>
+      </div>
+    <% end %>
+
+    <% unplaced.each do |r| %>
+      <%= form_with url: link_restaurant_supplier_credential_path(credential), method: :patch,
+                    class: "mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg", data: { unplaced_restaurant: r['id'] } do |f| %>
+        <p class="text-xs text-amber-800">
+          <%= credential.supplier.name %> lists <strong><%= r['name'] %></strong><%= " at #{r['street']}" if r['street'].present? %>
+          and we couldn't tell which restaurant it is.
+        </p>
+        <%= hidden_field_tag :supplier_account_id, r['id'], id: nil %>
+        <div class="flex items-center gap-1.5 mt-1.5">
+          <%= select_tag :location_id, options_from_collection_for_select(free, :id, :name), prompt: "Which restaurant?",
+                         id: nil, class: "flex-1 min-w-0 rounded-md border-amber-300 bg-white text-xs py-1 px-2" %>
+          <%= f.submit "Link", class: "px-2.5 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 cursor-pointer" %>
+        </div>
+      <% end %>
+    <% end %>
+
+    <% if standing.not_listed.any? %>
+      <p class="text-xs text-gray-400 mt-2"><%= credential.supplier.name %> doesn't list <%= standing.not_listed.map(&:name).to_sentence %> on this login.</p>
+    <% end %>
+  </div>
+<% end %>
