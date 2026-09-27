@@ -48,5 +48,29 @@ Specs are in `spec/services/scrapers/chefs_warehouse_api_spec.rb`. They drive th
 
 - **Cookies are still saved only at login.** Writing refreshed cookies back to `session_data` would help each new job start on a live server. It was left out on purpose: the multi-location branch switches CW organizations on the same session, and saving cookies mid-switch needs thought there first.
 - **A failed checkout still leaves its lines in the CW cart.** The next attempt's verified `clear_cart` plus the gate cover this.
-- **Order #331's CW cart still holds 32 units ($2,577.44).** The next placement attempt's `clear_cart` empties it before adding. Nobody should check out that cart on chefswarehouse.com.
+- **Order #331's CW cart held 32 units ($2,577.44).** The prod verification run below emptied it at 15:40 UTC.
 - **Merging into the multi-location branch.** `RestaurantSwitcher` calls `set_organization!` on the same client. Keeping cookies within the job suits it, but re-run its specs after the merge.
+
+## Follow-up: CW drops lines at the price refresh (Sep 27 2026)
+
+**Found by** the prod verification run after the session fix shipped (worker, 15:40 UTC, cred 94, order #331's 15 lines; no checkout or submit). Steps:
+
+- `clear_cart`, then `cart/add` (16 units).
+- `verify_cart_matches!` matched.
+- Then the same calls checkout makes: `ensure_session!` → `refresh_cart_prices` → `get_cart`, five times. All five were consistent, with no empty read. But after the first refresh the cart held **15 units and $1,275.55**. CW had removed **Oregano (QG9804)**, $13.17, the exact difference.
+- The cart was cleared at the end.
+
+**The gap.** The reconciliation gate ran *before* checkout. `checkout` then refreshed prices and submitted whatever was left. It also calls `validate_cart` and only logs the result. So a line CW drops at refresh is silently missing from the submitted order, while our order page still lists it.
+
+This was not the cause of #331's failures. At 11:10 the leftover cart still held the oregano at 2×. It started being dropped by 11:40. Our catalog still shows it in stock. The most likely reason is Monday-delivery availability, but that is unconfirmed.
+
+**Fix.** `ChefsWarehouseScraper#checkout` now re-checks the cart it just read after the refresh, before either the dry-run return or the live submit. It uses the items given to `verify_cart_matches!`, and the comparison is the shared `cart_discrepancies`.
+
+- **Only missing lines:** the cart is emptied and `ItemUnavailableError` names the items. The order is marked `failed` with "N item(s) are unavailable: Oregano" and the line gets a note. The catalog is **not** marked out of stock, because the cause is unknown.
+- **Any other change** (extra line, quantity, piece/case): the cart is emptied and `CartMismatchError` sends the order to review.
+- **A fully empty cart** keeps the existing "Cart is empty" error, so a glitchy read can't mark every line unavailable.
+
+**Not done:**
+- Warning the chef *before* they submit. The review-page price check could run the same refresh. That is a bigger change and needs a decision.
+- Acting on `validate_cart`'s response, which is still only logged.
+- Checking past CW orders for lines that were silently dropped. That needs a prod data read.
