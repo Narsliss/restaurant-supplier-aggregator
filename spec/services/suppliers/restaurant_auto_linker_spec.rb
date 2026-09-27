@@ -167,6 +167,20 @@ RSpec.describe Suppliers::RestaurantAutoLinker do
       expect(links(ppo_login)).to eq([["a7b88739", alfios.id], ["b2171ba1", doro.id]].sort)
     end
 
+    # Alfio's real PPO (Sep 27 2026): the one account connected twice — #73 on
+    # alfios (expired since Aug 18) and #136 on D'oro (active).
+    it "lets the live connection take alfios from an expired duplicate" do
+      create(:supplier_credential, user: owner, supplier: ppo, organization_id: org.id, location_id: alfios.id, status: "expired")
+      live = create(:supplier_credential, user: owner, supplier: ppo, organization_id: org.id, location_id: doro.id, status: "active")
+      michael = create(:user, current_organization: org)
+      create(:supplier_credential, user: michael, supplier: ppo, organization_id: org.id, location_id: doro.id,
+                                   session_data: { "api_tokens" => { "restaurant_uuid" => "b2171ba1" } }.to_json)
+
+      link(live, ppo_restaurants)
+
+      expect(links(live)).to eq([["a7b88739", alfios.id], ["b2171ba1", doro.id]].sort)
+    end
+
     it "leaves D'oro for the one-click fix without a chef login to go on" do
       link(ppo_login, ppo_restaurants)
 

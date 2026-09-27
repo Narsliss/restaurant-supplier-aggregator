@@ -333,3 +333,13 @@ Carmin hotfixed production on `main` while this branch was in progress: `5665ebb
   - Alfio reconnects PPO #73.
   - Watch his first real multi-restaurant order.
   - Add an activation switch before a second multi-restaurant owner.
+
+## Expired duplicate logins (Sep 27 2026, after deploy)
+
+Carmin: "you are saying reconnect ppo on only alfios but that makes no sense to me it is all one account". Correct. Alfio connected the one PPO account twice: #73 (alfios, expired since Aug 18) and #136 (D'oro, active). The linker treated #73 as covering alfios, so the live #136 linked only D'oro and Noche.
+
+- **Fix (Carmin: "make the changes and deploy"):**
+  - `RestaurantLinks` siblings now count only **active** connections, so an expired duplicate covers nothing and #136 can take alfios.
+  - `Suppliers::OrderCredential.for(statuses: nil)` (the account-status and pre-order checks) now orders **active first**. With both an expired duplicate and a live login serving a restaurant, a good order is no longer refused because the check happened to pick the expired one.
+- **#73 is not deleted:** destroying a connection strips its synced items from matched lists (chef work). It just sits unused.
+- **Tests:** "lets the live connection take alfios from an expired duplicate" (linker), plus "checks the account status of the live login" and "runs the pre-order check with the live login". All three were confirmed failing on the previous code. The two ordering tests first passed by row-order luck; they now `touch` the live login last so an unordered query picks the expired one.

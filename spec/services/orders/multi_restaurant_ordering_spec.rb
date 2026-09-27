@@ -153,6 +153,47 @@ RSpec.describe "Ordering for one of several restaurants on one login" do
     end
   end
 
+  # Alfio's PPO: an expired duplicate still attached to alfios (#73) and the
+  # live login (#136) linked to alfios. Checks that accept any status must
+  # look at the live one, or a good alfios order is refused.
+  context "an expired duplicate and a live login both serving the restaurant" do
+    let(:doro) { create(:location, organization: org, user: owner, name: "D'oro") }
+    let!(:live) do
+      create(:supplier_credential, user: owner, supplier: supplier, organization_id: org.id,
+                                   location_id: doro.id, status: "active")
+    end
+
+    before do
+      credential.update!(status: "expired")
+      live.restaurants.create!(location: doro, supplier_account_id: "11806627")
+      live.restaurants.create!(location: alfios, supplier_account_id: "80998842")
+      order.update!(location: alfios)
+      # Row order must not decide it: updated last, the live login is what an
+      # unordered query tends to return LAST.
+      live.touch
+    end
+
+    it "checks the account status of the live login" do
+      expect(Suppliers::OrderCredential.scope(order, statuses: nil).take).to eq(live)
+      expect(Suppliers::OrderCredential.scope(order).to_a).to eq([live])
+    end
+
+    it "runs the pre-order check with the live login" do
+      klass = double("ScraperClass")
+      allow(klass).to receive(:new).and_return(double(soft_refresh: true, close_browser: nil,
+                                                      get_order_minimum: { minimum: nil },
+                                                      get_delivery_availability: { available: true }))
+      allow(supplier).to receive(:scraper_klass).and_return(klass)
+      list = OrderList.create!(user: owner, organization: org, name: "check")
+
+      result = Orders::PreOrderValidationService.new(order_list: list, supplier: supplier, user: owner,
+                                                     location_id: alfios.id).validate!
+
+      expect(result[:errors].map { |e| e[:type] }).not_to include(:credentials)
+      expect(klass).to have_received(:new).with(live)
+    end
+  end
+
   describe Suppliers::OrderCredential do
     it "picks only a connection serving the order's restaurant once matches exist" do
       noche_cred = create(:supplier_credential, user: owner, supplier: supplier, organization_id: org.id,

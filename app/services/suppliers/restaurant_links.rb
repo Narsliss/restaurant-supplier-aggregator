@@ -6,8 +6,10 @@ module Suppliers
   #
   # An owner may already hold the same picker login twice (connected once per
   # restaurant before one-connection-per-supplier existed — Alfio's US Foods at
-  # alfios and at D'oro). A restaurant covered by the owner's OTHER connection
-  # for the same supplier counts as placed: never offered, never linked twice.
+  # alfios and at D'oro). A restaurant covered by the owner's OTHER active
+  # connection for the same supplier counts as placed: never offered, never
+  # linked twice. An expired duplicate covers nothing — Alfio's PPO #73 (alfios,
+  # expired since Aug 18) must not keep alfios off his live PPO login #136.
   class RestaurantLinks
     attr_reader :credential, :locations
 
@@ -66,7 +68,7 @@ module Suppliers
 
     def siblings
       @siblings ||= SupplierCredential.where(user_id: credential.user_id, organization_id: credential.organization_id,
-                                             supplier_id: credential.supplier_id)
+                                             supplier_id: credential.supplier_id, status: 'active')
                                       .where.not(id: credential.id)
                                       .includes(:restaurants).to_a
     end
