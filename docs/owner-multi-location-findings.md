@@ -298,3 +298,11 @@ No browser sign-in was needed. CW is email and password, so EnPlace already hold
 ## Other suppliers (from Alfio's saved sessions, read-only, Sep 25)
 - **What Chefs Want:** his login reported only **one** location (CINCINNATI). This needs checking with him.
 - **PPO:** his connection has been expired since Aug 18. Only Alfio can reconnect it, because the login code goes to him.
+
+## Check against main's CW hotfix (Sep 27 2026, after commit 27682e9)
+
+Carmin hotfixed production on `main` while this branch was in progress: `5665ebb` (one live CW session per job, never re-restoring stale cookies, because of ARRAffinity), `0f2d8e5` (re-check the CW cart after the price refresh) and `da39f45` (retry after the safety gate).
+
+- **Overlap:** only `chefs_warehouse_api.rb`, and git merges it cleanly. The hotfix *helps* switching: the organization switch and every cart step now run on the same live, server-affine session.
+- **Bug found in this branch (not the hotfix):** the CW switch adapter was written as `api.ensure_session! && api.set_organization!(…)`. `ensure_session!` returns `nil` when the session is live (before and after the hotfix), so CW never switched. The confirm step then refused every CW order for a non-home restaurant. That fails safe (no misroute), but CW multi-restaurant would not have worked. Tests missed it because `FakeRestaurantApi#ensure_session!` returns true; the Sep 26 production proof used a script, not this adapter. **Fixed**, with a regression test driving the real `ChefsWarehouseApi` through the switcher, confirmed failing on 27682e9.
+- **Combined check:** this branch, the fix and `origin/main` were merged in a throwaway worktree (no real branch touched), and the full suite ran there: 1,505 examples, 0 failures.

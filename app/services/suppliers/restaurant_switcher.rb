@@ -32,7 +32,11 @@ module Suppliers
       },
       'chefswarehouse' => lambda { |api|
         {
-          switch: ->(r) { api.ensure_session! && api.set_organization!(r.supplier_account_id) },
+          # ensure_session! returns nil when the session is live — never chain on it.
+          switch: lambda { |r|
+            api.ensure_session!
+            api.set_organization!(r.supplier_account_id)
+          },
           current: -> { api.current_ship_to }
         }
       },

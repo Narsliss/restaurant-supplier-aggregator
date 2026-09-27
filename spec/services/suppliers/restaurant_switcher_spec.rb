@@ -98,6 +98,36 @@ RSpec.describe Suppliers::RestaurantSwitcher do
     end
   end
 
+  # The real CW client: ensure_session! returns nil when the session is live, so
+  # the switch must not be chained on it (it was — CW never switched; caught
+  # while checking the branch against main's CW session hotfix, Sep 27 2026).
+  context "a Chef's Warehouse login" do
+    let(:cw) { Supplier.find_by(code: "chefswarehouse") || create(:supplier, name: "Chef's Warehouse", code: "chefswarehouse") }
+    let(:credential) { create(:supplier_credential, user: owner, supplier: cw, organization_id: org.id, location_id: alfios.id) }
+    let(:api) do
+      Scrapers::ChefsWarehouseApi.new(credential).tap do |client|
+        current = "614969"
+        allow(client).to receive(:ensure_session!).and_return(nil)
+        allow(client).to receive(:post_json) { |path, _| current = path[/value=(\d+)/, 1] if path.include?("organization/set") }
+        allow(client).to receive(:current_user) { { "currentOrganization" => { "shipTo" => current } } }
+      end
+    end
+
+    before do
+      credential.restaurants.create!(location: alfios, supplier_account_id: "614969")
+      credential.restaurants.create!(location: noche, supplier_account_id: "9508766")
+    end
+
+    it "switches to Noche's organization, does the work there, then goes back" do
+      seen = nil
+      described_class.new(credential, api).with_restaurant(noche.id) { seen = api.current_ship_to }
+
+      expect(seen).to eq("9508766")
+      expect(api).to have_received(:post_json).with("/web-api/organization/set?value=9508766", {})
+      expect(api.current_ship_to).to eq("614969")
+    end
+  end
+
   # PPO keeps no server-side "current restaurant": the real client is driven
   # here, with only Pepper's restaurant list stubbed.
   context "a Premiere ProduceOne login" do
