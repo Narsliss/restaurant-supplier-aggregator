@@ -295,6 +295,28 @@ RSpec.describe Scrapers::PerformanceApi do
       end
     end
 
+    describe '#customer_delivery_dates' do
+      before { allow(api).to receive(:account_context).and_return(customer_id: 'cust-guid') }
+
+      it 'returns the deliverable dates (D\'oro: Tuesdays and Fridays)' do
+        expect(api).to receive(:call).with('Customer', 'GetCustomerDeliveryDates', nil, http_method: :get,
+                                           query: { 'customerId' => 'cust-guid', 'ignoreCutOff' => false })
+          .and_return({ 'IsSuccess' => true, 'ResultObject' => ['2026-10-02T00:00:00', '2026-09-29T00:00:00'] })
+
+        expect(api.customer_delivery_dates).to eq(dates: %w[2026-09-29 2026-10-02], error: nil)
+      end
+
+      it 'returns PFG\'s own reason when the account is not set up for deliveries (alfios)' do
+        allow(api).to receive(:call).and_return(
+          { 'IsSuccess' => false, 'ResultObject' => [],
+            'ErrorMessages' => ['You are not currently set up for deliveries. Please contact your Sales Representative.'] }
+        )
+
+        expect(api.customer_delivery_dates)
+          .to eq(dates: [], error: 'You are not currently set up for deliveries. Please contact your Sales Representative.')
+      end
+    end
+
     describe '#delete_order_entry_header' do
       it 'deletes the draft with the id as a URL query parameter' do
         expect(api).to receive(:call).with('OrderEntryHeader', 'DeleteOrderEntryHeader', {},

@@ -333,6 +333,13 @@ module Scrapers
       { added: added, failed: failed }
     end
 
+    # Deliverable dates for this account, or PFG's own reason there are none.
+    # Used by FetchSyscoDeliveryDatesJob (the supplier-dates refresher).
+    def delivery_dates_result
+      api_client.ensure_session!
+      api_client.customer_delivery_dates
+    end
+
     # The draft must carry the chef's delivery date — PFG otherwise keeps its own
     # default. Fails loudly (nothing is submitted); verify_cart_matches! also
     # re-reads the date before submit.

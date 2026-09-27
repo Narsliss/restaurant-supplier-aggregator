@@ -666,6 +666,16 @@ export default class extends Controller {
 
       badge.classList.remove("hidden")
 
+      // The supplier itself says it won't deliver to this account (Performance:
+      // "You are not currently set up for deliveries…") — warn whatever the date.
+      if (apiInfo && apiInfo.error) {
+        badge.textContent = "\u26A0 Not set up for deliveries"
+        badge.title = apiInfo.error
+        badge.className = badge.className.replace(/text-\S+/g, "")
+        badge.classList.add("text-red-600", "font-medium")
+        return
+      }
+
       if (!dateVal) {
         // No date selected yet — show available days summary
         if (apiInfo && apiInfo.dates && apiInfo.dates.length > 0) {

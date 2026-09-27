@@ -63,8 +63,9 @@ RSpec.describe Supplier, type: :model do
   end
 
   describe '#api_delivery_dates?' do
-    it 'is true only for sysco' do
+    it 'is true for Sysco and Performance (supplier-provided delivery dates)' do
       expect(build(:supplier, code: 'sysco').api_delivery_dates?).to be true
+      expect(build(:supplier, code: 'performance').api_delivery_dates?).to be true
       expect(build(:supplier, code: 'usfoods').api_delivery_dates?).to be false
     end
   end

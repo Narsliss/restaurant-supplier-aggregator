@@ -72,7 +72,7 @@ class Supplier < ApplicationRecord
   # UI so we only show it for suppliers where it means something.
   def delivery_dates_source
     case code
-    when 'sysco' then :api
+    when 'sysco', 'performance' then :api
     end
   end
 

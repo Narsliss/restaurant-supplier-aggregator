@@ -1,8 +1,11 @@
 <% review_delivery_data = {}.tap do |h|
      @orders.each do |o|
        api = @api_delivery_dates_by_supplier[o.supplier_id]
+       api_error = @api_delivery_errors_by_supplier&.dig(o.supplier_id)
        scheds = @delivery_schedules_by_supplier[o.supplier_id]
-       if api
+       if api_error
+         h[o.id.to_s] = { type: "api", dates: [], error: api_error }
+       elsif api
          h[o.id.to_s] = { type: "api", dates: api }
        elsif scheds&.any?
          h[o.id.to_s] = { type: "schedule", days: scheds.map { |s| { day: s.day_of_week, day_name: s.day_name, cutoff_day_name: s.cutoff_day_name, cutoff_time: s.cutoff_time.strftime("%H:%M") } } }

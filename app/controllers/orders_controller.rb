@@ -532,7 +532,9 @@ class OrdersController < ApplicationController
                                                 .includes(:supplier)
                                                 .to_a
     @api_delivery_dates_by_supplier = {}
+    @api_delivery_errors_by_supplier = {}
     api_capable_credentials.each do |cred|
+      @api_delivery_errors_by_supplier[cred.supplier_id] = cred.delivery_dates_error if cred.delivery_dates_error.present?
       next if cred.available_delivery_dates.blank?
 
       @api_delivery_dates_by_supplier[cred.supplier_id] = cred.available_delivery_dates

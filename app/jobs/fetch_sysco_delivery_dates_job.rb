@@ -30,8 +30,8 @@ class FetchSyscoDeliveryDatesJob < ApplicationJob
     credential = SupplierCredential.find(credential_id)
     supplier = credential.supplier
 
-    unless supplier.code == 'sysco'
-      Rails.logger.warn "[FetchSyscoDeliveryDates] Credential #{credential_id} is not a Sysco credential (#{supplier.code}), skipping"
+    unless supplier.api_delivery_dates?
+      Rails.logger.warn "[FetchSyscoDeliveryDates] Credential #{credential_id} (#{supplier.code}) has no delivery-dates API, skipping"
       return
     end
 
@@ -51,6 +51,19 @@ class FetchSyscoDeliveryDatesJob < ApplicationJob
 
     Rails.logger.info "[FetchSyscoDeliveryDates] Refreshing delivery dates for credential #{credential_id}"
     scraper = supplier.scraper_klass.new(credential)
+
+    # Performance (Sep 27 2026): the supplier answers definitively — dates, or
+    # its own reason there are none ("not currently set up for deliveries").
+    # Both are stored, so the builder can warn before a cart is built.
+    # Transport failures raise and leave the previous values alone.
+    if scraper.respond_to?(:delivery_dates_result)
+      result = scraper.delivery_dates_result
+      credential.update_columns(available_delivery_dates: result[:dates], delivery_dates_error: result[:error],
+                                delivery_dates_fetched_at: Time.current)
+      Rails.logger.info "[FetchSyscoDeliveryDates] Credential #{credential_id}: #{result[:dates].size} dates" \
+                        "#{" — #{result[:error]}" if result[:error]}"
+      return
+    end
 
     # ensure_api_session! is cheap when the JWT is still valid (pure HTTP).
     # Only opens a headless browser if the stored tokens have expired.

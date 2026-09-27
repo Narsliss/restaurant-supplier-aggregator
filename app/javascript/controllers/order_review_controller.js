@@ -1602,6 +1602,13 @@ export default class extends Controller {
     if (!hint) return
 
     const info = (this.deliveryInfoValue || {})[orderId]
+    // The supplier itself says it won't deliver to this account (Performance:
+    // "You are not currently set up for deliveries…") — say so whatever date.
+    if (info?.error) {
+      hint.textContent = `\u26A0 ${info.error}`
+      hint.className = "mt-1 text-xs text-red-600 font-medium"
+      return
+    }
     if (!info) { hint.classList.add("hidden"); return }
 
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]

@@ -367,6 +367,22 @@ module Scrapers
            { 'OrderEntryHeaderId' => order_entry_header_id, 'DeliveryDate' => "#{date.to_date.iso8601}T00:00:00" })
     end
 
+    # READ — the account's deliverable dates, as the site's own date picker gets
+    # them (Customer/GetCustomerDeliveryDates). Returns
+    # { dates: ["2026-09-29", ...], error: nil } — or, for an account PFG won't
+    # deliver to, { dates: [], error: "You are not currently set up for
+    # deliveries. ..." } (alfios, Sep 27 2026). Transport failures raise.
+    def customer_delivery_dates
+      res = call('Customer', 'GetCustomerDeliveryDates', nil, http_method: :get,
+                 query: { 'customerId' => account_context[:customer_id], 'ignoreCutOff' => false })
+      if res && res['IsSuccess']
+        dates = Array(res['ResultObject']).filter_map { |d| (Date.parse(d.to_s) rescue nil)&.iso8601 }.uniq.sort
+        { dates: dates, error: nil }
+      else
+        { dates: [], error: Array(res && res['ErrorMessages']).join(' ').presence || 'Performance returned no delivery dates' }
+      end
+    end
+
     # WRITE — delete an unsubmitted draft (the site's deleteOrderEntryHeader,
     # "queryParams" mode). PFG has no per-line read, so emptying a cart line by
     # line is impossible; deleting the draft is how the site discards one.

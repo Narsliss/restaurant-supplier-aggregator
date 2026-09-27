@@ -2,7 +2,7 @@
      scheds.map { |s| { day: s.day_of_week, day_name: s.day_name, cutoff_day: s.cutoff_day, cutoff_day_name: s.cutoff_day_name, cutoff_time: s.cutoff_time.strftime("%H:%M") } }
    }.to_json %>
 <% api_delivery_dates_json = @api_delivery_dates_by_supplier.transform_values { |info|
-     { dates: info[:dates], fetched_at: info[:fetched_at]&.iso8601 }
+     { dates: info[:dates], error: info[:error], fetched_at: info[:fetched_at]&.iso8601 }
    }.to_json %>
 <div class="max-w-6xl mx-auto pb-6" data-controller="order-builder"
      data-order-builder-supplier-minimums-value="<%= @supplier_minimums.to_json %>"

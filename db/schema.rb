@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_09_27_150000) do
+ActiveRecord::Schema[7.1].define(version: 2026_09_27_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -881,6 +881,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_27_150000) do
     t.integer "supplier_restaurant_count"
     t.jsonb "supplier_restaurants", default: [], null: false
     t.datetime "supplier_restaurants_checked_at"
+    t.string "delivery_dates_error"
     t.index ["location_id"], name: "index_supplier_credentials_on_location_id"
     t.index ["organization_id", "location_id"], name: "idx_supplier_creds_org_location"
     t.index ["organization_id"], name: "index_supplier_credentials_on_organization_id"

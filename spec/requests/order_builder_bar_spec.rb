@@ -72,6 +72,15 @@ RSpec.describe "Order builder bar", type: :request do
     expect(page.css("[data-clear-cart]").map(&:text)).to all(include("Clear cart"))
   end
 
+  it "passes a supplier's own delivery dates, or its reason there are none, to the date badges" do
+    msg = "You are not currently set up for deliveries. Please contact your Sales Representative."
+    credential.update_columns(available_delivery_dates: [], delivery_dates_error: msg, delivery_dates_fetched_at: Time.current)
+
+    json = JSON.parse(page.at_css("[data-controller='order-builder']")["data-order-builder-api-delivery-dates-value"])
+
+    expect(json[supplier.id.to_s]).to include("dates" => [], "error" => msg)
+  end
+
   it "doesn't restore a saved delivery date that has passed" do
     CurrentOrder.create!(user: chef, aggregated_list: aggregated_list, delivery_date: Date.current - 30,
                          state: { aggregated_list.product_matches.first.id.to_s => [{ "supplierId" => supplier.id.to_s, "qty" => 2, "uom" => "CS" }] })

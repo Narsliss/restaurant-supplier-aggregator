@@ -623,10 +623,11 @@ class AggregatedListsController < ApplicationController
                                                 .to_a
     @api_delivery_dates_by_supplier = {}
     api_capable_credentials.each do |cred|
-      next if cred.available_delivery_dates.blank?
+      next if cred.available_delivery_dates.blank? && cred.delivery_dates_error.blank?
 
       @api_delivery_dates_by_supplier[cred.supplier_id] = {
         dates: cred.available_delivery_dates,
+        error: cred.delivery_dates_error,
         fetched_at: cred.delivery_dates_fetched_at
       }
     end
