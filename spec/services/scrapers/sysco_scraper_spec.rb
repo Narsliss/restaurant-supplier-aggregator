@@ -80,6 +80,61 @@ RSpec.describe Scrapers::SyscoScraper do
   # login now lands on the Okta "My Apps" dashboard (secure.sysco.com/app/UserHome),
   # not the shop. The scraper must then hop to the shop login, which SSOs through
   # the established Okta session — no password is asked the second time.
+  # Regression (order #336): Sysco rejects a bad updateOrderV2 with HTTP 200,
+  # null data and an `errors` array. We raised "returned nil" and dropped the
+  # reason, so the failure could not be diagnosed from the logs.
+  describe '#graphql_update_order' do
+    before { allow(scraper).to receive(:logger).and_return(Logger.new(nil)) }
+
+    it "raises with Sysco's own error message when the update is rejected" do
+      allow(scraper).to receive(:graphql_request).and_return(
+        'data' => { 'updateOrderV2' => nil },
+        'errors' => [{ 'message' => 'Product 6070898 is not available for seller USBL' }]
+      )
+
+      expect { scraper.send(:graphql_update_order, order_id: 'o1', sequence_id: 1, line_items: []) }
+        .to raise_error(Scrapers::BaseScraper::ScrapingError, /Product 6070898 is not available for seller USBL/)
+    end
+
+    it 'returns the updated order when Sysco accepts it' do
+      allow(scraper).to receive(:graphql_request).and_return('data' => { 'updateOrderV2' => { 'id' => 'o1' } })
+
+      expect(scraper.send(:graphql_update_order, order_id: 'o1', sequence_id: 1, line_items: [])).to eq('id' => 'o1')
+    end
+  end
+
+  # Regression (order #336): Sysco started requiring price + commissionBasis
+  # on every updateOrderV2 line. Without them nothing could be added to a
+  # Sysco order. pricingType/totalPrice must still be left to Sysco.
+  describe '#add_to_cart line items' do
+    before do
+      allow(scraper).to receive(:logger).and_return(Logger.new(nil))
+      allow(scraper).to receive(:ensure_api_session!)
+      allow(scraper).to receive(:load_api_tokens).and_return(site_id: '019', seller_id: 'USBL')
+      allow(scraper).to receive(:graphql_create_order).and_return('id' => 'o1', 'sequenceId' => 1)
+      allow(scraper).to receive(:graphql_update_order).and_return(
+        'sequenceId' => 2, 'lineItems' => [{ 'productId' => '4279592', 'qty' => 5 }]
+      )
+    end
+
+    it 'sends price and commissionBasis but leaves pricing type and totals to Sysco' do
+      scraper.add_to_cart([{ sku: '4279592', name: 'Sugar', quantity: 5, expected_price: 40.59 }])
+
+      expect(scraper).to have_received(:graphql_update_order) do |line_items:, **|
+        expect(line_items).to eq([{ qty: 5, soldAs: 'cs', productId: '4279592', price: 40.59,
+                                    commissionBasis: 0, siteId: '019', sellerId: 'USBL' }])
+      end
+    end
+
+    it 'still sends a numeric price when we have no last-known price' do
+      scraper.add_to_cart([{ sku: '4279592', name: 'Sugar', quantity: 5, expected_price: nil }])
+
+      expect(scraper).to have_received(:graphql_update_order) do |line_items:, **|
+        expect(line_items.first[:price]).to eq(0.0)
+      end
+    end
+  end
+
   describe '#perform_login_steps (Okta → shop handoff)' do
     let(:browser) { instance_double('Ferrum::Browser') }
 
