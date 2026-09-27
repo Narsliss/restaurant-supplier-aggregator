@@ -46,6 +46,11 @@ class ValidateCredentialsJob < ApplicationJob
       # 24 hours for lists).
       ImportSupplierProductsJob.perform_later(credential.supplier_id, credential.id)
       ImportSupplierListsJob.perform_later(credential.id)
+
+      # Suppliers that publish their own delivery days (Sysco, Performance):
+      # fetch them now, so the builder shows them — or the supplier's "not set
+      # up for deliveries" — from the very first visit, not one page load late.
+      FetchSyscoDeliveryDatesJob.perform_later(credential.id, force: true) if credential.supplier.api_delivery_dates?
     elsif result[:two_fa_required]
       # For non-polling scrapers, 2FA was requested but handled via exception
       Rails.logger.info "[ValidateCredentialsJob] 2FA required for #{credential.supplier.name}"

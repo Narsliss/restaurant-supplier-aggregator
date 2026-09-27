@@ -17,3 +17,6 @@ A read-only probe of the endpoint the CustomerFirst site uses for its own date p
 
 ## Tests
 `spec/jobs/fetch_sysco_delivery_dates_job_spec.rb` (3), `performance_api_spec` (+2), `supplier_spec` (updated), `order_builder_bar_spec` (+1). Full suite: 1,528.
+
+## Follow-up: fetch delivery days on connect (Sep 27 2026)
+Carmin: "why doesn't it happen automatically?" The builder refreshed missing or stale dates in the background, but the page doing the refresh showed the old (empty) value, so a newly connected supplier's days appeared only on the **second** builder visit. `ValidateCredentialsJob` now queues `FetchSyscoDeliveryDatesJob` (forced) as soon as a Sysco or Performance login validates. Spec: `spec/jobs/validate_credentials_job_delivery_dates_spec.rb`.
