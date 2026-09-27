@@ -195,6 +195,55 @@ RSpec.describe Scrapers::SyscoScraper do
     end
   end
 
+  # Regression (order #337 retry): Sysco now returns the draft's deliveryDate
+  # as "10/07/2026". Date.parse read it day-first (Jul 10) and the pre-submit
+  # check refused a valid Oct 7 delivery.
+  describe '#sysco_delivery_date' do
+    before { allow(scraper).to receive(:logger).and_return(Logger.new(nil)) }
+
+    it 'reads a slashed date month-first' do
+      expect(scraper.sysco_delivery_date('10/07/2026')).to eq(Date.new(2026, 10, 7))
+    end
+
+    it 'still reads ISO dates and epoch milliseconds' do
+      expect(scraper.sysco_delivery_date('2026-10-07')).to eq(Date.new(2026, 10, 7))
+      ms = Time.utc(2026, 10, 7, 12).to_i * 1000
+      expect(scraper.sysco_delivery_date(ms)).to eq(Date.new(2026, 10, 7))
+      expect(scraper.sysco_delivery_date(ms.to_s)).to eq(Date.new(2026, 10, 7))
+    end
+
+    it 'returns nil for blank or unreadable values' do
+      expect(scraper.sysco_delivery_date(nil)).to be_nil
+      expect(scraper.sysco_delivery_date('soon')).to be_nil
+    end
+  end
+
+  describe '#checkout delivery-date check' do
+    before do
+      allow(scraper).to receive(:logger).and_return(Logger.new(nil))
+      allow(scraper).to receive(:ensure_api_session!)
+      scraper.instance_variable_set(:@last_sysco_order_id, 'o1')
+      allow(scraper).to receive(:graphql_get_open_orders).and_return(
+        [{ 'id' => 'o1', 'totalPrice' => 544.73, 'totalLineItems' => 4, 'deliveryDate' => '10/07/2026' }]
+      )
+    end
+
+    it 'accepts a US-format draft date that Sysco lists as available' do
+      allow(scraper).to receive(:graphql_available_delivery_days).and_return(%w[2026-09-30 2026-10-07])
+
+      result = scraper.checkout(dry_run: true)
+
+      expect(result).to include(dry_run: true, delivery_date: 'Oct 07, 2026')
+    end
+
+    it 'still refuses a date Sysco does not list' do
+      allow(scraper).to receive(:graphql_available_delivery_days).and_return(%w[2026-09-30 2026-10-14])
+
+      expect { scraper.checkout(dry_run: true) }
+        .to raise_error(Scrapers::BaseScraper::DeliveryUnavailableError, /2026-10-07/)
+    end
+  end
+
   describe '#graphql_submit_order line sellers' do
     before do
       allow(scraper).to receive(:logger).and_return(Logger.new(nil))

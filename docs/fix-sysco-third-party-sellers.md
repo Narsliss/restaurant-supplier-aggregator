@@ -67,3 +67,13 @@ Under `USBL` the refresh got the product back with no price, counted it "seen", 
 - **Unlisted items keep their stored price until discontinued (3 nights).** They can't be ordered, because the cart leaves them off with a note, but the builder still shows them until then.
 - **Seller backlog:** list items get their seller the first time they're priced (refresh, guide sync or order), and the rest of the catalog over the next few nights.
 - **Shared test DB:** the other worktrees' spec runs reload their own `schema.rb`, which drops `supplier_seller_id` from the test DB until they rebase. Re-run `RAILS_ENV=test bin/rails db:migrate` if specs say a migration is pending.
+
+## Follow-up (same day): delivery date read day-first
+
+With the seller fix live, the retry of #337 built a mixed-seller cart. It had all 4 items, 0 failed, $544.73, with pineapple → 2011 and yuzu → 3473. It was then refused **before submit** with "not accepting delivery on 2026-07-10". The chef chose Oct 7.
+
+Sysco now returns the draft's `deliveryDate` as `"10/07/2026"`. It used to be epoch ms (and ISO at times). `checkout` read strings with `Date.parse`, which is day-first, so it got Jul 10, and the pre-submit availability check rejected it.
+
+Fix: `SyscoScraper#sysco_delivery_date` reads slashed dates month-first (`%m/%d/%Y`), keeps ISO and epoch-ms, and returns nil if it can't read the value. Both the display string and the availability check use it. There are specs for all three formats and for a US-format draft date passing and failing the check.
+
+Side effect seen: a failure inside `checkout` leaves the Sysco draft open (here `674c24ad…`). The next placement's `clear_cart` deletes open WEB drafts. Note that it would also delete a draft a chef built by hand on sysco.com. That behaviour predates this fix and isn't changed by it.

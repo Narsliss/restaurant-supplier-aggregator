@@ -754,25 +754,9 @@ module Scrapers
 
       order_total = current_order&.dig('totalPrice')
       item_count = current_order&.dig('totalLineItems')
-      delivery_date_raw = current_order&.dig('deliveryDate') # epoch ms (int) OR ISO string
-
-      # Convert to date string — handle both epoch-ms integer and ISO string
-      delivery_str = if delivery_date_raw.nil? || delivery_date_raw == ''
-                       nil
-                     elsif delivery_date_raw.is_a?(Numeric)
-                       Time.at(delivery_date_raw / 1000).strftime('%b %d, %Y')
-                     elsif delivery_date_raw.is_a?(String) && delivery_date_raw.match?(/\A\d+\z/)
-                       # Numeric string — treat as epoch ms
-                       Time.at(delivery_date_raw.to_i / 1000).strftime('%b %d, %Y')
-                     else
-                       # ISO date string like "2026-04-13"
-                       begin
-                         Date.parse(delivery_date_raw.to_s).strftime('%b %d, %Y')
-                       rescue ArgumentError
-                         logger.warn "[Sysco] Could not parse deliveryDate=#{delivery_date_raw.inspect}"
-                         nil
-                       end
-                     end
+      delivery_date_raw = current_order&.dig('deliveryDate')
+      draft_date = sysco_delivery_date(delivery_date_raw)
+      delivery_str = draft_date&.strftime('%b %d, %Y')
 
       logger.info "[Sysco] Order #{order_id}: #{item_count} items, total=#{order_total}, delivery=#{delivery_str}"
 
@@ -784,15 +768,7 @@ module Scrapers
       # Surface a clearer error before we hit submit.
       available_days = graphql_available_delivery_days(shipping_condition: 0)
       if available_days.any?
-        draft_date_iso = if delivery_date_raw.is_a?(Numeric)
-                           Time.at(delivery_date_raw / 1000).utc.strftime('%Y-%m-%d')
-                         elsif delivery_date_raw.is_a?(String) && !delivery_date_raw.empty?
-                           begin
-                             Date.parse(delivery_date_raw).strftime('%Y-%m-%d')
-                           rescue ArgumentError
-                             nil
-                           end
-                         end
+        draft_date_iso = draft_date&.iso8601
         logger.info "[Sysco] Draft delivery date=#{draft_date_iso.inspect}, available=#{available_days.first(5).inspect}..."
         if draft_date_iso && !available_days.include?(draft_date_iso)
           earliest = available_days.first
@@ -867,6 +843,26 @@ module Scrapers
         total: submitted_total,
         delivery_date: delivery_str
       }
+    end
+
+    # The draft's deliveryDate as a Date. Sysco has sent it three ways: epoch
+    # ms (number or digit string), ISO "2026-10-07", and — as of Sep 2026 —
+    # US "10/07/2026". Date.parse reads "10/07/2026" day-first (Jul 10), which
+    # refused order #337's Oct 7 delivery, so slashed dates are month-first.
+    def sysco_delivery_date(raw)
+      return nil if raw.blank?
+
+      text = raw.to_s.strip
+      if raw.is_a?(Numeric) || text.match?(/\A\d+\z/)
+        Time.at(text.to_i / 1000).utc.to_date
+      elsif text.match?(%r{\A\d{1,2}/\d{1,2}/\d{4}\z})
+        Date.strptime(text, '%m/%d/%Y')
+      else
+        Date.iso8601(text[0, 10])
+      end
+    rescue ArgumentError, Date::Error
+      logger.warn "[Sysco] Could not parse deliveryDate=#{raw.inspect}"
+      nil
     end
 
     # Public wrapper for delivery date fetching (used by SyscoCombinedImportJob)
