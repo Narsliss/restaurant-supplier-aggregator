@@ -12,6 +12,9 @@ module ImpersonationGuard
     return if request.get? || request.head?
     return if devise_controller?
     return if controller_path == 'admin/users' && action_name == 'stop_impersonating'
+    # Picking a restaurant only changes the viewer's own session, not data;
+    # blocking it pinned impersonation to the user's first restaurant.
+    return if controller_path == 'locations' && action_name == 'switch'
 
     redirect_back fallback_location: root_path,
                   alert: "Read-only mode: actions are disabled while viewing as another user."

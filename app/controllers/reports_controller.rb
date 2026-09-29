@@ -174,7 +174,19 @@ class ReportsController < ApplicationController
   end
 
   def base_orders
-    scoped_orders.kpi_eligible.where(created_at: @date_range)
+    report_orders.kpi_eligible.where(created_at: @date_range)
+  end
+
+  # Every restaurant the viewer may see — NOT the navbar's current location.
+  # scoped_orders follows that switcher because ordering happens at one
+  # restaurant; a report compares restaurants (the by-restaurant breakdown)
+  # and narrows with its own location_id filter. Following the switcher made
+  # every other restaurant read $0 (Carmin, Sep 29 2026).
+  def report_orders
+    org = current_user.current_organization
+    return Order.none unless org
+
+    owner? ? org.orders : org.orders.where(location_id: accessible_locations.select(:id))
   end
 
   def filtered_orders
