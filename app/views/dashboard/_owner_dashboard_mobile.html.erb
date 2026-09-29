@@ -39,7 +39,7 @@
 
   <!-- Savings hero -->
   <div class="bg-white/10 backdrop-blur-sm rounded-2xl p-4 relative z-10">
-    <p class="text-green-200 text-[10px] uppercase tracking-wider font-semibold">All-Time Savings</p>
+    <p class="text-green-200 text-[10px] uppercase tracking-wider font-semibold">Saved vs. Priciest, All Time</p>
     <div class="flex items-end gap-2 mt-1">
       <p class="text-3xl font-heading font-bold text-white"><%= number_to_currency(@stats[:total_savings], precision: 0) %></p>
       <% if @stats[:savings_this_month].to_f > 0 %>
@@ -107,7 +107,7 @@
     <% end %>
   </div>
   <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm">
-    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Savings this month</p>
+    <p class="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Saved vs. priciest, this month</p>
     <p class="text-xl font-heading font-bold text-brand-green mt-1"><%= number_to_currency(@stats[:savings_this_month], precision: 0) %></p>
     <% if @stats[:savings_change] %>
       <div class="flex items-center gap-1 mt-1">

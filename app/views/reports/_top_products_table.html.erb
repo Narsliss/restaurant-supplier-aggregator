@@ -3,6 +3,11 @@
     <h2 class="text-lg font-semibold text-gray-900">Top Products</h2>
   </div>
   <% if top_products.any? %>
+    <%# Long supplier names truncate inside the cell: max-w-0 + w-full lets the
+        name column take only the space left, so the numbers are never pushed
+        out of the (overflow-hidden) card. max-w-xs on the <td> itself did
+        nothing — browsers ignore max-width on table cells. %>
+    <div class="overflow-x-auto">
     <table class="min-w-full divide-y divide-gray-200">
       <thead class="bg-gray-50">
         <tr>
@@ -15,14 +20,17 @@
       <tbody class="divide-y divide-gray-200">
         <% top_products.each do |product_name, qty, total, order_count| %>
           <tr>
-            <td class="px-6 py-4 text-sm font-medium text-gray-900 max-w-xs truncate"><%= product_name %></td>
-            <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= qty.round(1) %></td>
-            <td class="px-6 py-4 text-sm text-gray-900 text-right"><%= number_to_currency(total) %></td>
-            <td class="px-6 py-4 text-sm text-gray-500 text-right"><%= order_count %></td>
+            <td class="px-6 py-4 text-sm font-medium text-gray-900 w-full max-w-0" data-top-product-name>
+              <div class="truncate" title="<%= product_name %>"><%= product_name %></div>
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500 text-right whitespace-nowrap"><%= qty.round(1) %></td>
+            <td class="px-6 py-4 text-sm text-gray-900 text-right whitespace-nowrap"><%= number_to_currency(total) %></td>
+            <td class="px-6 py-4 text-sm text-gray-500 text-right whitespace-nowrap"><%= order_count %></td>
           </tr>
         <% end %>
       </tbody>
     </table>
+    </div>
   <% else %>
     <div class="px-6 py-8 text-center text-sm text-gray-400">No product data in this period</div>
   <% end %>

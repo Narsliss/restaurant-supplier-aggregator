@@ -116,7 +116,7 @@
       </div>
       <% if @order.savings_amount.to_f > 0 %>
         <div class="px-4 py-2.5 flex items-center justify-between">
-          <span class="text-xs text-green-600 font-medium">Savings on this order</span>
+          <span class="text-xs text-green-600 font-medium">Saved vs. priciest option</span>
           <span class="text-xs font-bold text-green-600">-<%= number_to_currency(@order.savings_amount) %></span>
         </div>
       <% end %>

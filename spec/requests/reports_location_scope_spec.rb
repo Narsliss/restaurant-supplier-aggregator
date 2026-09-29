@@ -69,6 +69,19 @@ RSpec.describe "Reports across restaurants", type: :request do
     expect(spent_by_restaurant).to eq("Noche" => 500.0)
   end
 
+  # Carmin (Sep 29 2026): savings are measured against the most expensive
+  # comparable supplier (the careless-order view). The label says so, because
+  # a line can "save" more than was spent on it (All Trumps flour: $167 paid,
+  # $412 at the priciest supplier).
+  it "labels savings as measured against the priciest option" do
+    sign_in owner
+
+    get reports_path
+
+    expect(response.body).to include("Saved vs. Priciest")
+    expect(response.body).not_to include(">Total Savings<")
+  end
+
   describe "while impersonating" do
     let(:super_admin) do
       User.where(role: "super_admin").destroy_all

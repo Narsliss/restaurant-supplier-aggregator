@@ -63,7 +63,7 @@
       <p class="mt-1 text-2xl font-bold text-gray-900"><%= number_to_currency(@total_spent) %></p>
     </div>
     <div class="bg-white shadow rounded-lg p-4 border-l-4 border-brand-green">
-      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Savings</p>
+      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Saved vs. Priciest</p>
       <p class="mt-1 text-2xl font-bold text-green-600"><%= number_to_currency(@total_savings) %></p>
       <% if (pct = savings_percentage(@total_savings, @total_spent)) %>
         <p class="text-xs text-green-500 mt-0.5">

@@ -58,7 +58,7 @@
         </tr>
         <% if @order.savings_amount && @order.savings_amount > 0 %>
           <tr>
-            <td style="font-size: 14px; color: #15803d;">Savings vs. highest price</td>
+            <td style="font-size: 14px; color: #15803d;">Saved vs. priciest option</td>
             <td style="font-size: 14px; color: #15803d; text-align: right;"><%= number_to_currency(@order.savings_amount) %></td>
           </tr>
         <% end %>

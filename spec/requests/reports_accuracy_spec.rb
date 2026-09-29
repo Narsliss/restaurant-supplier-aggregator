@@ -58,6 +58,21 @@ RSpec.describe "Reporting accuracy", type: :request do
       expect(response.body).to include("SHRIMP 16/20 PEELED")
       expect(response.body).to include("HERB BASIL FRESH")
     end
+
+    # Carmin (Sep 29 2026): on the supplier report the long names pushed Qty /
+    # Total / Orders out of the half-width card. max-w on a <td> is ignored;
+    # the name must truncate inside the cell.
+    it "truncates long names inside the cell so the number columns stay visible" do
+      submitted_order(items: [
+        { supplier_name: "GOLD MEDAL (GM) - FLOUR HIGH GLUTEN ALL TRUMPS BLEACHED BROMATED ENRICHED MALTED", sku: "GM-1", price: 33.49 }
+      ])
+
+      get location_reports_path(location_id: location.id)
+
+      cell = Nokogiri::HTML(response.body).at_css("td[data-top-product-name]")
+      expect(cell["class"]).to include("max-w-0").and include("w-full")
+      expect(cell.at_css("div.truncate")["title"]).to start_with("GOLD MEDAL (GM) - FLOUR HIGH GLUTEN")
+    end
   end
 
   describe "savings percentage" do
