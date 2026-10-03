@@ -146,6 +146,8 @@ module Orders
         handle_captcha_error(e)
       rescue Scrapers::BaseScraper::DeliveryUnavailableError => e
         handle_delivery_error(e)
+      rescue Scrapers::BaseScraper::OrderUnconfirmedError => e
+        handle_unconfirmed_submit(e)
       rescue Authentication::TwoFactorHandler::TwoFactorRequired => e
         handle_2fa_required(e)
       rescue StandardError => e
@@ -500,6 +502,21 @@ module Orders
         success: false,
         error_type: 'delivery_unavailable',
         error: error.message
+      }
+    end
+
+    # The supplier may have the order. pending_manual is not retryable, so the
+    # chef can't accidentally place it twice — they check the supplier first.
+    def handle_unconfirmed_submit(error)
+      order.update!(status: 'pending_manual', error_message: error.message)
+
+      Rails.logger.error "[OrderPlacement] Order #{order.id} UNCONFIRMED at #{order.supplier.name}: #{error.message}"
+
+      {
+        success: false,
+        error_type: 'unconfirmed',
+        error: error.message,
+        requires_manual_intervention: true
       }
     end
 

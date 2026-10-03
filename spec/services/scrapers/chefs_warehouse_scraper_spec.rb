@@ -185,7 +185,12 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
     before do
       allow(api).to receive(:refresh_cart_prices)
       allow(api).to receive(:validate_cart).and_return({})
-      allow(api).to receive(:submit_cart).and_return({ 'orderNumber' => 'TCW1' })
+      # Shape of CW's real cart/submit success (order #331): the number is
+      # nested under confirmedOrders; the top-level orderNumber is nil.
+      allow(api).to receive(:submit_cart).and_return(
+        { 'success' => true, 'orderNumber' => nil, 'validationMessages' => [],
+          'confirmedOrders' => [{ 'orderNumber' => 'TCW1', 'businessUnitId' => '800001' }] }
+      )
       allow(api).to receive(:delete_cart)
       allow(api).to receive(:remove_cart_item)
     end
@@ -231,6 +236,72 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
       scraper.verify_cart_matches!(expected)
 
       expect { scraper.checkout(dry_run: true) }.to raise_error(Scrapers::BaseScraper::ItemUnavailableError)
+    end
+  end
+
+  # Oct 2026: 20 of 22 live CW orders were recorded under a made-up
+  # "API-<timestamp>" confirmation because we read the top-level orderNumber
+  # (always nil). A rejected submit looked identical to a placed order.
+  describe '#checkout confirmation number' do
+    let(:expected) { [{ sku: 'QG34100', name: 'Sour Cream', quantity: 1 }] }
+    let(:full_cart) do
+      cart_with(line(code: 'JDE_QG34100-800001', qty: 1, id: 1))
+        .merge('summary' => { 'itemCount' => 1, 'totals' => { 'totalDecimal' => 450.0 } })
+    end
+
+    before do
+      allow(api).to receive(:refresh_cart_prices)
+      allow(api).to receive(:validate_cart).and_return({})
+      allow(api).to receive(:get_cart).and_return(full_cart)
+      scraper.verify_cart_matches!(expected)
+    end
+
+    it "uses CW's nested order number" do
+      allow(api).to receive(:submit_cart).and_return(
+        { 'success' => true, 'orderNumber' => nil,
+          'confirmedOrders' => [{ 'orderNumber' => 'TCW9912239489' }] }
+      )
+
+      expect(scraper.checkout(dry_run: false)[:confirmation_number]).to eq('TCW9912239489')
+    end
+
+    it 'joins every order number when CW splits the cart' do
+      allow(api).to receive(:submit_cart).and_return(
+        { 'success' => true, 'confirmedOrders' => [{ 'orderNumber' => 'TCW1' }, { 'orderNumber' => 'TCW2' }] }
+      )
+
+      expect(scraper.checkout(dry_run: false)[:confirmation_number]).to eq('TCW1, TCW2')
+    end
+
+    it 'fails as not placed when CW says success: false' do
+      allow(api).to receive(:submit_cart).and_return(
+        { 'success' => false, 'confirmedOrders' => [], 'validationMessages' => [{ 'message' => 'Cutoff passed' }] }
+      )
+
+      expect { scraper.checkout(dry_run: false) }
+        .to raise_error(Scrapers::BaseScraper::ScrapingError, /rejected the order: Cutoff passed. Nothing was placed/)
+    end
+
+    it 'fails as not placed when submit returns nothing and the items are still in the cart' do
+      allow(api).to receive(:submit_cart).and_return(nil)
+
+      expect { scraper.checkout(dry_run: false) }
+        .to raise_error(Scrapers::BaseScraper::ScrapingError, /still in the cart/)
+    end
+
+    it 'raises OrderUnconfirmedError when submit times out and the cart is empty' do
+      allow(api).to receive(:submit_cart).and_raise(Net::ReadTimeout)
+      allow(api).to receive(:get_cart).and_return(full_cart, empty_cart)
+
+      expect { scraper.checkout(dry_run: false) }
+        .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError, /Check Chef's Warehouse before reordering/)
+    end
+
+    it 'never returns a made-up API-<timestamp> confirmation' do
+      allow(api).to receive(:submit_cart).and_return({ 'success' => true, 'confirmedOrders' => [] })
+      allow(api).to receive(:get_cart).and_return(full_cart, empty_cart)
+
+      expect { scraper.checkout(dry_run: false) }.to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError)
     end
   end
 

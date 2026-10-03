@@ -348,6 +348,12 @@ module Scrapers
       })
     end
 
+    # One order by uuid, any status — DRAFT/IN_REVIEW before submit, then
+    # e.g. DELIVERED with placed_at set (verified live Oct 2026, order #387).
+    def get_order_status(order_uuid)
+      graphql('OrderStatus', ORDER_STATUS_QUERY, { orderUUID: order_uuid })&.dig('orders')
+    end
+
     def get_order_history(scope: 'UPCOMING')
       graphql('OrderHistory_SearchOrders', ORDER_HISTORY_QUERY, {
         filters: [{ operation: 'EQUALS', type: 'SCOPE', value: scope }],
@@ -532,12 +538,14 @@ module Scrapers
 
     VALIDATE_ORDER_QUERY = 'mutation OrderSummary_ValidateOrder($locale: String!, $orderUUID: uuid!, $restaurantUUID: uuid!, $skipSaltApi: Boolean!) { validateOrder(order_id: $orderUUID) { alerts { alert_level alert_message } can_place_order missing_essential_item_ids order_minimum { amount is_hard unit } order { uuid status orders_items { uuid restaurant_display_name order_item_prices { currency_code pack_quantity_at_order unit_price_at_order_micros __typename } variants_pack { external_item_id uuid __typename } __typename } __typename } __typename } }'
 
-    UPDATE_FULFILLMENT_QUERY = 'mutation NewOrder_UpdateFulfillment($orderUUID: uuid!, $set: orders_set_input!, $unplacedOrderStatuses: [order_status_enum!]) { update_orders(where: {uuid: {_eq: $orderUUID}, status: {_in: $unplacedOrderStatuses}}, _set: $set) { returning { fulfillment_type restaurant_desired_delivery_time uuid __typename } __typename } }'
+    UPDATE_FULFILLMENT_QUERY = 'mutation NewOrder_UpdateFulfillment($orderUUID: uuid!, $set: orders_set_input!, $unplacedOrderStatuses: [String!]) { update_orders(where: {uuid: {_eq: $orderUUID}, status: {_in: $unplacedOrderStatuses}}, _set: $set) { returning { fulfillment_type restaurant_desired_delivery_time uuid __typename } __typename } }'
 
     OPEN_ORDERS_QUERY = 'query OpenOrders($restaurantUUID: uuid!, $supplierUUID: uuid!) { orders(where: {supplier_uuid: {_eq: $supplierUUID}, restaurant_uuid: {_eq: $restaurantUUID}, status: {_in: ["DRAFT", "IN_REVIEW"]}}) { uuid status restaurant_desired_delivery_time orders_items { restaurant_display_name variants_pack { uuid external_item_id __typename } __typename } __typename } }'
 
     SUBMIT_ORDER_QUERY = 'mutation NewOrder_SubmitOrder($orderUUID: uuid!, $orderNotes: String, $paymentMethod: String, $poNumber: String, $additionalInputValues: [AdditionalInputValueInput!]!) { submitOrder(order_id: $orderUUID, order_notes: $orderNotes, payment_method: $paymentMethod, po_number: $poNumber, additional_input_values: $additionalInputValues) { order { uuid status placed_at restaurant_desired_delivery_time __typename } split_order_id_list __typename } }'
 
+    ORDER_STATUS_QUERY = 'query OrderStatus($orderUUID: uuid!) { orders(where: {uuid: {_eq: $orderUUID}}) { uuid status placed_at restaurant_desired_delivery_time __typename } }'
+    # NOTE: searchOrders no longer exists on PPO (Oct 2026) — unused, kept for reference.
     ORDER_HISTORY_QUERY ='query OrderHistory_SearchOrders($filters: [OrderFilterInput!]!, $pageSize: Int!, $restaurantUUID: uuid!, $supplierUUID: uuid!) { searchOrders(filters: $filters, page_size: $pageSize, restaurant_id: $restaurantUUID, supplier_id: $supplierUUID) { orders { uuid status placed_at restaurant_desired_delivery_time orders_items { restaurant_display_name order_item_prices { pack_quantity_at_order unit_price_at_order_micros __typename } __typename } __typename } __typename } }'
   end
 end

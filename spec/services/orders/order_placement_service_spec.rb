@@ -255,6 +255,19 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
       expect(order.error_message).to include('unexpected')
     end
 
+    it 'parks an unconfirmed submit as pending_manual so it cannot be retried into a duplicate' do
+      allow(fake_scraper).to receive(:checkout)
+        .and_raise(Scrapers::BaseScraper::OrderUnconfirmedError, 'Check the Premiere Produce app before reordering')
+
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result).to include(success: false, error_type: 'unconfirmed')
+      expect(order.reload.status).to eq('pending_manual')
+      expect(order.error_message).to include('before reordering')
+      expect(order).not_to be_retryable
+      expect(order.confirmation_number).to be_nil
+    end
+
     it 'closes the persistent order browser even on failure (ensure block)' do
       allow(fake_scraper).to receive(:checkout).and_raise(StandardError, 'boom')
 

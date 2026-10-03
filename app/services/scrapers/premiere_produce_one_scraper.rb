@@ -225,8 +225,8 @@ module Scrapers
     def add_to_cart(items, delivery_date: nil)
       api_client.ensure_session!
 
-      delivery_date_str = (delivery_date || Date.today + 1).to_s
-      delivery_date_str = "#{delivery_date_str}T04:00:00.000Z" unless delivery_date_str.include?('T')
+      @requested_delivery_date = (delivery_date || Date.today + 1).to_date
+      delivery_date_str = ppo_delivery_time(@requested_delivery_date)
 
       # Get or create a draft order
       open_orders = api_client.get_open_orders
@@ -278,9 +278,18 @@ module Scrapers
         end
       end
 
-      # Set delivery date
-      if delivery_date && cart_items.any?
-        api_client.update_fulfillment(order_uuid, delivery_date_str)
+      # Set delivery date and read it back. PPO keeps one draft per restaurant
+      # and clear_cart only empties it, so a leftover draft carries whatever
+      # date it was created with — if this update doesn't stick, the order
+      # would go out on that stale date. Fails CLOSED.
+      if cart_items.any?
+        result = api_client.update_fulfillment(order_uuid, delivery_date_str)
+        set_to = result&.dig('update_orders', 'returning')&.first&.dig('restaurant_desired_delivery_time')
+        unless same_delivery_day?(set_to, @requested_delivery_date)
+          raise DeliveryUnavailableError,
+                "Premiere Produce did not accept delivery on #{@requested_delivery_date.strftime('%a %b %-d')}. " \
+                "Nothing was ordered — pick another delivery date and resubmit."
+        end
       end
 
       if failed_items.any? && cart_items.empty?
@@ -363,8 +372,15 @@ module Scrapers
       order_items = order['orders_items'] || []
       raise ScrapingError, 'Cart is empty' if order_items.empty?
 
-      # Calculate total from price info
+      # Last gate before submit: the draft must still be on the chef's date.
       delivery_date = order['restaurant_desired_delivery_time']
+      if @requested_delivery_date && !same_delivery_day?(delivery_date, @requested_delivery_date)
+        raise DeliveryUnavailableError,
+              "Premiere Produce has this order down for a different day than " \
+              "#{@requested_delivery_date.strftime('%a %b %-d')}. Nothing was ordered — resubmit to try again."
+      end
+
+      # Calculate total from price info
       info = api_client.get_product_info_list(delivery_date: delivery_date)
       prices = {}
       (info&.dig('getVariantPackInfoList') || []).each { |p| prices[p['variant_pack_id']] = p }
@@ -389,10 +405,18 @@ module Scrapers
 
       # LIVE ORDER
       logger.warn "[PPO] API PLACING LIVE ORDER — #{order_items.size} items, total=$#{'%.2f' % total}"
-      result = api_client.submit_order(order_uuid)
+      result = begin
+        api_client.submit_order(order_uuid)
+      rescue StandardError => e
+        # A timeout here may still have placed the order — confirm below.
+        logger.error "[PPO] submitOrder raised #{e.class}: #{e.message}"
+        nil
+      end
       submitted = result&.dig('submitOrder', 'order')
+      submitted = confirm_unacknowledged_submit!(order_uuid) unless submitted&.dig('uuid')
 
-      confirmation_number = submitted&.dig('uuid') || "PPO-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      # Only PPO's own order id counts as a confirmation — never a made-up one.
+      confirmation_number = submitted['uuid']
       logger.info "[PPO] Order placed: #{confirmation_number}"
 
       {
@@ -408,6 +432,41 @@ module Scrapers
     def extract_delivery_address
       # PPO doesn't have a separate delivery address concept
       nil
+    end
+
+    # PPO stores delivery as a timestamp at the restaurant's local midnight.
+    # Build it from the Eastern zone so it stays midnight across DST (a fixed
+    # 04:00Z would be 11 PM the day before all winter).
+    def ppo_delivery_time(date)
+      Time.find_zone('America/New_York').local(date.year, date.month, date.day).utc.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    end
+
+    def same_delivery_day?(ppo_time, date)
+      return false if ppo_time.blank? || date.nil?
+
+      Time.zone.parse(ppo_time.to_s)&.in_time_zone('America/New_York')&.to_date == date
+    rescue ArgumentError
+      false
+    end
+
+    # submitOrder came back without an order. Look the draft up by uuid before
+    # deciding anything — read-only, never resubmits.
+    def confirm_unacknowledged_submit!(order_uuid)
+      found = api_client.get_order_status(order_uuid)
+      order = found&.first
+
+      if order && order['placed_at'].present?
+        logger.warn "[PPO] submitOrder gave no answer, but order #{order_uuid} is #{order['status']} (placed #{order['placed_at']}) — treating as placed"
+        return order
+      end
+
+      if order && %w[DRAFT IN_REVIEW].include?(order['status'])
+        raise ScrapingError, 'Premiere Produce rejected the order. Nothing was placed — it is safe to try again.'
+      end
+
+      raise OrderUnconfirmedError,
+            'Premiere Produce did not confirm this order and it may or may not have gone through. ' \
+            'Check the Premiere Produce app before reordering, so it is not placed twice.'
     end
 
     public

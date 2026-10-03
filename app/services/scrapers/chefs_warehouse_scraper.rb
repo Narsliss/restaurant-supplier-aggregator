@@ -559,13 +559,20 @@ module Scrapers
 
       # LIVE ORDER
       logger.warn "[ChefsWarehouse] API PLACING LIVE ORDER"
-      result = api_client.submit_cart(dry_run: false)
-      # Full response body — when CW doesn't return a real confirmation number,
-      # the fallback below masks the cause. Log the raw response so we can tell
-      # "missing field" from "non-2xx parsed as nil" from anything else.
+      result = begin
+        api_client.submit_cart(dry_run: false)
+      rescue StandardError => e
+        # A timeout here may still have placed the order — confirm below.
+        logger.error "[ChefsWarehouse] cart/submit raised #{e.class}: #{e.message}"
+        nil
+      end
       logger.info "[ChefsWarehouse] cart/submit response: #{result.inspect}"
 
-      confirmation_number = result&.dig('confirmationNumber') || result&.dig('orderNumber') || "API-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      # Only CW's own order number counts — never a made-up one. Until Oct 2026
+      # we read the top-level orderNumber (always nil; the real one is under
+      # confirmedOrders) and filled in "API-<timestamp>", so a rejected submit
+      # looked exactly like a placed order.
+      confirmation_number = cw_confirmation_number(result) || confirm_unacknowledged_submit!(result)
       logger.info "[ChefsWarehouse] API order placed: #{confirmation_number}"
 
       {
@@ -625,6 +632,39 @@ module Scrapers
         cart.each { |v| extract_cart_lines(v, acc) }
       end
       acc
+    end
+
+    # cart/submit success looks like (order #331, Sep 27 2026):
+    #   { "success" => true, "confirmedOrders" => [{ "orderNumber" => "TCW9912239489", ... }],
+    #     "orderNumber" => nil, "orderConfirmationUrl" => "/cart/order-confirmation/?epiOrderId=6467137" }
+    def cw_confirmation_number(result)
+      return nil unless result.is_a?(Hash) && result['success'] == true
+
+      numbers = Array(result['confirmedOrders']).filter_map { |o| o.is_a?(Hash) ? o['orderNumber'].presence : nil }
+      numbers << result['orderNumber'] if result['orderNumber'].present?
+      numbers.uniq.join(', ').presence
+    end
+
+    # Submit gave no order number. Decide from CW's cart whether anything was
+    # placed — read-only, never resubmits.
+    def confirm_unacknowledged_submit!(result)
+      if result.is_a?(Hash) && result['success'] == false
+        reasons = Array(result['validationMessages']).map { |m| m.is_a?(Hash) ? (m['message'] || m['text']) : m }.compact.join('; ')
+        raise ScrapingError, "Chef's Warehouse rejected the order#{": #{reasons}" if reasons.present?}. Nothing was placed."
+      end
+
+      cart = begin
+        api_client.get_cart
+      rescue StandardError
+        nil
+      end
+      if cart.is_a?(Hash) && cart.dig('summary', 'itemCount').to_i > 0
+        raise ScrapingError, "Chef's Warehouse did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again."
+      end
+
+      raise OrderUnconfirmedError,
+            "Chef's Warehouse did not confirm this order and it may or may not have gone through. " \
+            "Check Chef's Warehouse before reordering, so it is not placed twice."
     end
 
     # Compare a CW cart payload with the order's items by normalized SKU:

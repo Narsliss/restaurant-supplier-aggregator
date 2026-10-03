@@ -48,6 +48,9 @@ module Scrapers
     class CaptchaDetectedError < StandardError; end
     class AccountHoldError < StandardError; end
     class DeliveryUnavailableError < StandardError; end
+    # The submit may have reached the supplier but we couldn't confirm it.
+    # Never retried automatically — a retry could place a duplicate order.
+    class OrderUnconfirmedError < StandardError; end
     class RateLimitedError < StandardError; end
     class MaintenanceError < StandardError; end
 
