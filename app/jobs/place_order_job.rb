@@ -43,6 +43,7 @@ class PlaceOrderJob < ApplicationJob
       end
     else
       handle_failure(order, result)
+      alert_not_placed(order, result)
     end
   rescue ActiveRecord::RecordNotFound
     raise # let `discard_on` handle missing orders cleanly
@@ -50,11 +51,25 @@ class PlaceOrderJob < ApplicationJob
     Rails.logger.error "[PlaceOrderJob] Order #{order_id} failed: #{e.message}"
 
     order&.update!(status: "failed", error_message: e.message)
+    alert_not_placed(order) if order
 
     raise # Re-raise for retry logic
   end
 
   private
+
+  # Email the chef + owner(s) if she doesn't see the failure in the app
+  # (OrderFailureAlertJob). Swallows everything: this runs inside perform's
+  # broad rescue, and alerting must never change an order's state.
+  def alert_not_placed(order, result = {})
+    order.reload
+    return unless OrderFailureAlertJob::NOT_PLACED_STATUSES.include?(order.status)
+
+    kind = result[:error_type] == 'unconfirmed' ? 'unconfirmed' : 'not_placed'
+    OrderFailureAlertJob.schedule(order, kind: kind)
+  rescue StandardError => e
+    Rails.logger.error "[PlaceOrderJob] Could not schedule not-placed alert for order #{order&.id}: #{e.class}: #{e.message}"
+  end
 
   # Notify org owner(s) when a non-owner team member places an order
   def notify_owner(order)

@@ -13,6 +13,14 @@ production:
     schedule: "0 */2 * * *"
     description: "Refresh supplier sessions every 2 hours"
 
+  # Email the chef + owner(s) about orders stuck in "processing" > 15 min
+  # (looks to the chef like it's going through). Alert only, no state change.
+  stuck_order_alert:
+    class: StuckOrderAlertJob
+    queue: default
+    schedule: "*/5 * * * *"
+    description: "Alert on orders stuck processing for more than 15 minutes"
+
   # Expire old 2FA requests every 15 minutes (2FA happens rarely, no need for 5-min checks)
   expire_2fa_requests:
     class: Expire2faRequestsJob

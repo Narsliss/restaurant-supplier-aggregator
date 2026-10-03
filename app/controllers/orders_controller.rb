@@ -89,6 +89,7 @@ class OrdersController < ApplicationController
   end
 
   def show
+    record_failure_seen(@order)
     @items = @order.order_items.includes(supplier_product: [:supplier, :product])
     @validations = @order.order_validations.order(validated_at: :desc)
 
@@ -182,14 +183,17 @@ class OrdersController < ApplicationController
       return
     end
 
-    # Queue the order placement job
+    # Mark processing BEFORE enqueueing (as submit_batch does): the other way
+    # round, a fast failure could be overwritten back to "processing" with its
+    # reason wiped — the chef would see "Submitting…" forever. A new attempt
+    # also clears the previous attempt's reason.
+    @order.update!(status: "processing", error_message: nil)
+
     PlaceOrderJob.perform_later(
       @order.id,
       accept_price_changes: params[:accept_price_changes] == "true",
       skip_warnings: params[:skip_warnings] == "true"
     )
-
-    @order.update!(status: "processing")
     redirect_to @order
   end
 
@@ -203,6 +207,7 @@ class OrdersController < ApplicationController
 
   # JSON endpoint for show page polling while order is processing
   def placement_status
+    record_failure_seen(@order)
     render json: {
       id: @order.id,
       status: @order.status,
@@ -224,10 +229,11 @@ class OrdersController < ApplicationController
     # Remove items that were marked unavailable during the failed attempt
     @order.order_items.where(status: "unavailable").destroy_all
 
-    # Reset order to pending so items can be edited
+    # Reset order to pending so items can be edited. error_message is KEPT so
+    # the chef still sees what to fix ("Fix & Resubmit") — wiping it is how
+    # order #386's chef lost track of the problem. It clears on resubmit.
     @order.update!(
       status: "pending",
-      error_message: nil,
       confirmation_number: nil
     )
     @order.recalculate_totals!
@@ -903,6 +909,7 @@ class OrdersController < ApplicationController
       return
     end
 
+    record_failure_seen(@orders)
     @any_processing = @orders.any?(&:processing?)
     @batch_total = @orders.sum { |o| o.total_amount || 0 }
     @batch_items = @orders.sum { |o| o.order_items.size }
@@ -912,6 +919,7 @@ class OrdersController < ApplicationController
   def batch_placement_status
     orders = find_batch_orders
       .includes(:supplier, order_items: :supplier_product)
+    record_failure_seen(orders)
 
     render json: {
       orders: orders.map { |o|
@@ -931,6 +939,15 @@ class OrdersController < ApplicationController
   end
 
   private
+
+  # The chef who placed an order has now seen it on screen, so a failure she
+  # can fix in the app doesn't also email her (OrderFailureAlertJob). Only
+  # her own views count — not an admin impersonating her, not the owner.
+  def record_failure_seen(orders)
+    return if impersonating?
+
+    OrderFailureAlertJob.mark_seen(Array(orders).select { |o| o.user_id == current_user&.id })
+  end
 
   # Apply supplier_id and search filters that all index scopes share.
   def apply_common_filters(relation)

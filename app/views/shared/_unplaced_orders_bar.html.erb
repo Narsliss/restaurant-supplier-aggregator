@@ -1,0 +1,34 @@
+<%# Red bar on every screen while any order this chef placed did NOT go
+    through (order #386 — chefs order on phones and must never miss this).
+    Ends when the order is placed, cancelled with "Don't place", or its
+    delivery date passes. %>
+<% orders = orders_needing_attention.to_a %>
+<% if orders.any? %>
+  <div class="rounded-xl bg-red-600 text-white px-3 py-2.5 mb-3 shadow-sm" role="alert" data-unplaced-orders-bar>
+    <p class="text-sm font-bold flex items-center gap-1.5">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      <%= pluralize(orders.size, 'order') %> NOT placed
+    </p>
+    <% orders.first(3).each do |o| %>
+      <% label, dismissable = attention_label(o) %>
+      <div class="mt-2 flex items-center justify-between gap-2">
+        <%= link_to order_path(o), class: "min-w-0 text-xs leading-snug text-white underline underline-offset-2" do %>
+          <span class="font-semibold"><%= o.display_supplier_name %></span><%= " · #{o.delivery_date.strftime('%a %b %-d')}" if o.delivery_date %>:
+          <%= label %>
+        <% end %>
+        <% if dismissable && o.can_cancel? %>
+          <%= button_to cancel_order_path(o), method: :post,
+              class: "flex-shrink-0 text-[11px] font-semibold bg-white/15 border border-white/40 rounded-lg px-2 py-1 whitespace-nowrap",
+              form: { data: { controller: "confirm-tap",
+                              action: "submit->confirm-tap#intercept",
+                              confirm_tap_message_value: "Tap again: don't place" } } do %>
+            Don't place
+          <% end %>
+        <% end %>
+      </div>
+    <% end %>
+    <% if orders.size > 3 %>
+      <%= link_to "See all #{orders.size}", orders_path, class: "mt-2 inline-block text-xs underline" %>
+    <% end %>
+  </div>
+<% end %>

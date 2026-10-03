@@ -14,7 +14,10 @@ export default class extends Controller {
   static values = {
     orderId: Number,
     minimum: Number,
-    caseMinimum: Number
+    caseMinimum: Number,
+    // Mobile order page: re-render after a removal so the failure notice and
+    // minimum come from the server (order #386 fix flow).
+    reloadOnRemove: Boolean
   }
 
   static targets = [
@@ -291,6 +294,8 @@ export default class extends Controller {
       // If all items removed, redirect to order history
       if (data && data.order_removed) {
         window.location.href = "/orders"
+      } else if (data && data.removed && this.reloadOnRemoveValue) {
+        window.location.reload()
       }
     })
     .catch(err => console.error("Error deleting item:", err))

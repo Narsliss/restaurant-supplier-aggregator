@@ -1,4 +1,59 @@
 module OrdersHelper
+  # Why this order didn't go through, labelled for where it stands now.
+  # The reason stays on the order after "Fix & Resubmit" (it used to be wiped,
+  # which is how order #386's chef lost track of what was wrong) and clears
+  # when she resubmits. nil once the order is placed or cancelled.
+  def order_failure_notice(order)
+    return nil if order.error_message.blank?
+
+    title = case order.status
+            when 'failed' then 'Order NOT placed'
+            when 'pending_review' then 'Order NOT placed: needs your review'
+            when 'pending_manual' then 'Check with the supplier before reordering'
+            when 'pending', 'draft' then "Your last attempt wasn't placed. Fix this, then resubmit"
+            end
+    title && { title: title, message: order.error_message }
+  end
+
+  # "Without Honey you're $71.26 under Chef's Warehouse's $400.00 minimum" —
+  # so the chef knows removing the problem item alone won't get it through.
+  def order_shortfall_without_failed(order, minimum)
+    return nil if minimum.blank?
+
+    failed = order.order_items.select { |i| i.status == 'failed' }
+    return nil if failed.empty?
+
+    remaining = order.order_items.sum { |i| i.line_total.to_d } - failed.sum { |i| i.line_total.to_d }
+    return nil if remaining >= minimum
+
+    { names: failed.map(&:supplier_name).to_sentence, short: minimum - remaining, minimum: minimum }
+  end
+
+  # The red "NOT placed" bar on every screen. Skips the order being viewed —
+  # its own page already shows the notice.
+  def orders_needing_attention
+    return Order.none unless user_signed_in?
+
+    scope = Order.needing_chef_attention(current_user).includes(:supplier)
+    scope = scope.where.not(id: @order.id) if controller_name == 'orders' && action_name == 'show' && @order&.persisted?
+    scope
+  rescue StandardError => e
+    Rails.logger.error "[UnplacedOrdersBar] #{e.class}: #{e.message}"
+    Order.none
+  end
+
+  # [label, dismissable?] for one row of the bar
+  def attention_label(order)
+    case order.status
+    when 'pending_manual' then ["Check with #{order.display_supplier_name} before reordering", false]
+    when 'processing' then ["Still not placed. Check with #{order.display_supplier_name}", false]
+    else ['NOT placed. Tap to fix', true]
+    end
+  end
+
+  def order_item_refused?(order, item)
+    item.status == 'failed' && order_failure_notice(order).present?
+  end
   # The bold "YOU ARE ORDERING FOR <restaurant>" banner — only for people who
   # can switch restaurants in EnPlace (owners/managers with more than one).
   # A chef ordering for their one restaurant never needs the reminder, so it

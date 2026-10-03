@@ -57,7 +57,7 @@
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Retry
+              Fix &amp; Resubmit
             <% end %>
           <% end %>
           <%# Mark-received toggle — shown once an order has been sent to the supplier %>
@@ -229,9 +229,17 @@
         </div>
       <% end %>
     </dl>
-    <% if @order.retryable? && @order.error_message.present? %>
-      <div class="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
-        <p class="text-sm text-red-700"><strong>Error:</strong> <%= @order.error_message %></p>
+    <%# Stays until the order is resubmitted — Retry used to wipe it (order #386) %>
+    <% if (notice = order_failure_notice(@order)) %>
+      <div class="mt-4 bg-red-50 border-2 border-red-400 rounded-lg p-4" data-order-failure-notice>
+        <p class="text-base font-bold text-red-800"><%= notice[:title] %></p>
+        <p class="text-sm text-red-700 mt-1"><%= notice[:message] %></p>
+        <% if (short = order_shortfall_without_failed(@order, @minimum)) %>
+          <p class="text-sm text-red-700 mt-1">
+            Without <%= short[:names] %> you're <strong><%= number_to_currency(short[:short]) %> under</strong>
+            the <%= number_to_currency(short[:minimum]) %> minimum. Add items to reach it.
+          </p>
+        <% end %>
       </div>
     <% end %>
     <% if @order.notes.present? || @order.pending? %>

@@ -201,8 +201,28 @@ class Order < ApplicationRecord
   end
 
   def can_cancel?
-    pending? || processing? || verifying? || price_changed? || status == "pending_review" || draft?
+    # failed: "Don't place this order" — the chef's dismiss for a failure she
+    # has decided not to fix (Carmin, Oct 3 2026). Nothing was sent.
+    pending? || processing? || verifying? || price_changed? || status == "pending_review" || draft? || failed?
   end
+
+  # Orders this chef placed that did NOT go through and still matter — the
+  # red bar on every screen (order #386). Ends when the order is placed,
+  # cancelled ("Don't place this order"), or its delivery date has passed.
+  STUCK_PROCESSING_AFTER = 15.minutes
+
+  scope :needing_chef_attention, lambda { |user|
+    where(user: user)
+      .where('orders.delivery_date IS NULL OR orders.delivery_date >= ?', Date.current)
+      .where('orders.updated_at > ?', 14.days.ago)
+      .where(
+        "orders.status IN ('failed', 'pending_review', 'pending_manual') " \
+        "OR (orders.status IN ('pending', 'draft') AND orders.error_message IS NOT NULL AND orders.error_message <> '') " \
+        "OR (orders.status = 'processing' AND orders.updated_at < ?)",
+        STUCK_PROCESSING_AFTER.ago
+      )
+      .order(:delivery_date, :id)
+  }
 
   # A placement that stopped short can be sent back to pending, edited and
   # resubmitted. pending_review is what the supplier-cart safety gate sets

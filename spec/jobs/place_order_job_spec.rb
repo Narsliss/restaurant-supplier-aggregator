@@ -135,4 +135,55 @@ RSpec.describe PlaceOrderJob, type: :job do
       expect(order.reload.status).not_to eq('failed')
     end
   end
+
+  # Order #386 (Oct 2026): a failed order must never go unnoticed.
+  describe 'not-placed alert' do
+    def stub_service(result, status_after:)
+      service = instance_double(Orders::OrderPlacementService)
+      allow(Orders::OrderPlacementService).to receive(:new).and_return(service)
+      allow(service).to receive(:place_order) { order.update!(status: status_after); result }
+    end
+
+    it 'schedules the alert when placement ends without placing the order' do
+      stub_service({ success: false, error_type: 'items_unavailable' }, status_after: 'failed')
+
+      expect(OrderFailureAlertJob).to receive(:schedule).with(kind_of(Order), kind: 'not_placed')
+
+      described_class.new.perform(order.id)
+    end
+
+    it 'marks an unconfirmed submit as such' do
+      stub_service({ success: false, error_type: 'unconfirmed' }, status_after: 'pending_manual')
+
+      expect(OrderFailureAlertJob).to receive(:schedule).with(kind_of(Order), kind: 'unconfirmed')
+
+      described_class.new.perform(order.id)
+    end
+
+    it 'does not alert when the order was placed' do
+      stub_service({ success: true }, status_after: 'submitted')
+
+      expect(OrderFailureAlertJob).not_to receive(:schedule)
+
+      described_class.new.perform(order.id)
+    end
+
+    it 'alerts when the service raises' do
+      service = instance_double(Orders::OrderPlacementService)
+      allow(Orders::OrderPlacementService).to receive(:new).and_return(service)
+      allow(service).to receive(:place_order).and_raise(StandardError, 'boom')
+
+      expect(OrderFailureAlertJob).to receive(:schedule).with(kind_of(Order), kind: 'not_placed')
+
+      expect { described_class.new.perform(order.id) }.to raise_error(StandardError, 'boom')
+    end
+
+    it 'never lets alerting change the order or raise' do
+      stub_service({ success: false, error_type: 'price_changed' }, status_after: 'pending_review')
+      allow(OrderFailureAlertJob).to receive(:schedule).and_raise(StandardError, 'mail down')
+
+      expect { described_class.new.perform(order.id) }.not_to raise_error
+      expect(order.reload.status).to eq('pending_review')
+    end
+  end
 end

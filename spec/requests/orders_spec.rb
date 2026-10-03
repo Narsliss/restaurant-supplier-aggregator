@@ -147,6 +147,42 @@ RSpec.describe 'Orders', type: :request do
       expect(response).to have_http_status(:ok)
     end
 
+    # OrderFailureAlertJob: the chef seeing her failed order in the app means
+    # no email. Only her own views count.
+    context 'recording that a not-placed order was seen' do
+      before { order.update!(status: 'failed', error_message: 'Not placed.') }
+
+      it 'records it when the chef who placed it opens the order' do
+        expect(OrderFailureAlertJob).to receive(:mark_seen).with([order])
+        get order_path(order)
+      end
+
+      it 'records it when her order screen polls the status' do
+        expect(OrderFailureAlertJob).to receive(:mark_seen).with([order])
+        get placement_status_order_path(order)
+      end
+
+      it 'does not count someone else in the organization opening it' do
+        teammate = create(:user)
+        create(:membership, user: teammate, organization: org, role: 'manager')
+        teammate.update!(current_organization: org)
+        sign_in teammate
+
+        allow(OrderFailureAlertJob).to receive(:mark_seen)
+        get order_path(order)
+        expect(OrderFailureAlertJob).not_to have_received(:mark_seen).with([order])
+      end
+
+      it 'does not count an admin viewing as the chef' do
+        admin = create(:user, :super_admin)
+        sign_in admin
+        post "/admin/users/#{user.id}/impersonate"
+
+        expect(OrderFailureAlertJob).not_to receive(:mark_seen)
+        get order_path(order)
+      end
+    end
+
     it 'is not accessible for an order in another organization' do
       other_user = create(:user, :fully_onboarded)
       other_org = other_user.current_organization
@@ -278,9 +314,9 @@ RSpec.describe 'Orders', type: :request do
       end
     end
 
-    it 'offers Retry on the mobile order page' do
+    it 'offers Fix & Resubmit on the mobile order page' do
       get order_path(order), headers: mobile_ua
-      expect(response.body).to include('Retry Order')
+      expect(response.body).to include('Fix &amp; Resubmit')
     end
 
     it 'offers Retry and shows why it stopped on the desktop order page' do
@@ -289,12 +325,14 @@ RSpec.describe 'Orders', type: :request do
       expect(response.body).to include('Supplier cart did not match your order')
     end
 
-    it 'goes back to pending on Retry, so it can be edited and submitted again' do
+    # The reason is KEPT (order #386): wiping it left the chef with no idea
+    # what to fix. It clears when she resubmits.
+    it 'goes back to pending on Fix & Resubmit, keeping the reason on screen' do
       post retry_order_order_path(order)
 
       order.reload
       expect(order.status).to eq('pending')
-      expect(order.error_message).to be_nil
+      expect(order.error_message).to eq('Supplier cart did not match your order, so we did not submit it.')
       expect(order.order_items.count).to eq(1)
     end
 

@@ -1,0 +1,77 @@
+<%
+  headline, lead = case @kind
+                   when 'unconfirmed'
+                     ["We couldn't confirm this order",
+                      "#{@supplier_name} may or may not have received it. Check #{@supplier_name}'s site or call your rep before reordering, so it isn't placed twice."]
+                   when 'stuck'
+                     ["This order hasn't gone through yet",
+                      "It has been processing for more than 15 minutes. Check #{@supplier_name} before reordering, so it isn't placed twice."]
+                   else
+                     ["This order was NOT placed",
+                      "Nothing was sent to #{@supplier_name}. Open the order, fix what's listed below, and resubmit before the supplier's cutoff."]
+                   end
+%>
+<div style="max-width: 600px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1f2937;">
+  <div style="padding: 32px 24px;">
+    <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+      <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 8px; color: #991b1b;"><%= headline %></h1>
+      <p style="font-size: 15px; color: #7f1d1d; margin: 0; line-height: 1.5;"><%= lead %></p>
+    </div>
+
+    <% if @order.error_message.present? %>
+      <p style="font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; margin: 0 0 4px;">What happened</p>
+      <p style="font-size: 15px; color: #111827; margin: 0 0 24px; line-height: 1.5;"><%= @order.error_message %></p>
+    <% end %>
+
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+      <tr>
+        <td style="padding: 6px 0; font-size: 14px; color: #6b7280; width: 120px;">Supplier</td>
+        <td style="padding: 6px 0; font-size: 14px; font-weight: 600; color: #111827;"><%= @supplier_name %></td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; font-size: 14px; color: #6b7280;">Delivery date</td>
+        <td style="padding: 6px 0; font-size: 14px; font-weight: 600; color: #111827;"><%= @order.delivery_date&.strftime("%A, %B %-d") || "Not set" %></td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; font-size: 14px; color: #6b7280;">Restaurant</td>
+        <td style="padding: 6px 0; font-size: 14px; font-weight: 600; color: #111827;"><%= @location&.name || "N/A" %></td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; font-size: 14px; color: #6b7280;">Ordered by</td>
+        <td style="padding: 6px 0; font-size: 14px; font-weight: 600; color: #111827;"><%= @chef&.full_name %></td>
+      </tr>
+    </table>
+
+    <div style="text-align: center; margin-bottom: 24px;">
+      <a href="<%= order_url(@order) %>" style="display: inline-block; background-color: #b91c1c; color: #ffffff; font-weight: 600; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-size: 15px;">
+        Open this order
+      </a>
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+      <thead>
+        <tr style="border-bottom: 2px solid #e5e7eb;">
+          <th style="padding: 8px 0; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; text-align: left;">Items on this order</th>
+          <th style="padding: 8px 0; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; text-align: right; width: 50px;">Qty</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @items.each do |item| %>
+          <tr style="border-bottom: 1px solid #f3f4f6;">
+            <td style="padding: 10px 0; font-size: 14px; color: #111827;">
+              <%= item.product_name || item.supplier_product&.supplier_name || "Unknown" %>
+              <% if item.status == "failed" %>
+                <div style="font-size: 13px; color: #b91c1c; margin-top: 2px;">Problem: <%= item.notes.presence || "the supplier couldn't take this item" %></div>
+              <% end %>
+            </td>
+            <td style="padding: 10px 0; font-size: 14px; color: #4b5563; text-align: right; vertical-align: top;"><%= number_with_precision(item.quantity, precision: 2, strip_insignificant_zeros: true) %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+
+    <p style="font-size: 12px; color: #9ca3af; line-height: 1.5; text-align: center;">
+      Sent to the chef who placed this order and the restaurant owner<%= @kind == 'not_placed' ? ", because the order didn't go through and nobody saw that in EnPlace Pro." : "." %>
+    </p>
+  </div>
+</div>
