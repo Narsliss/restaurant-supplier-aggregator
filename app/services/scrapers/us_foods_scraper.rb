@@ -1241,7 +1241,7 @@ module Scrapers
           logger.info "[UsFoods] Added SKU #{item[:sku]} qty #{item[:quantity]} to order"
         rescue ItemUnavailableError => e
           # Item is genuinely out of stock on US Foods — skip it but report it properly
-          # so handle_skipped_cart_items can mark the supplier_product as OOS.
+          # so the placement service can name it and mark the supplier_product OOS.
           oos_name = e.items&.first&.dig(:name) || "SKU #{item[:sku]}"
           logger.warn "[UsFoods] SKU #{item[:sku]} is out of stock — skipping: #{e.message}"
           failed_items << { sku: item[:sku], name: oos_name, error: e.message, out_of_stock: true }

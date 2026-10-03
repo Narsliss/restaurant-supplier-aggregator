@@ -15,7 +15,6 @@ module Orders
       end
 
       # Step 1: Run pre-submission validations
-      # (validate_item_availability may auto-remove out-of-stock items via destroy_all)
       validate_order!(skip_warnings: skip_warnings)
 
       # Reload association — validation may have removed OOS items from the DB,
@@ -50,9 +49,13 @@ module Orders
         cart_items = build_cart_items
         cart_result = scraper.add_to_cart(cart_items, delivery_date: order.delivery_date)
 
-        # Handle items that couldn't be added (e.g., out of stock on supplier site)
+        # Any item the supplier couldn't take stops the WHOLE order (Carmin,
+        # Oct 3 2026, order #386). We used to delete those lines and place the
+        # rest, so chefs got short orders with only a yellow banner afterwards
+        # (9 CW items across 6 orders). Now nothing is submitted; the chef is
+        # told which item and why, and fixes it in the app.
         if cart_result.is_a?(Hash) && cart_result[:failed]&.any?
-          handle_skipped_cart_items(cart_result[:failed])
+          raise_for_items_not_added!(cart_result[:failed])
         end
 
         # Re-check: if item removal dropped us below the order minimum, fail early
@@ -373,11 +376,16 @@ module Orders
     end
 
     def handle_item_unavailable_error(error)
-      item_names = error.items.map { |i| i[:name] }.compact.join(', ')
+      lines = error.items.map do |i|
+        reason = i[:message].presence || i[:error].presence
+        [i[:name].presence || "SKU #{i[:sku]}", reason].compact.join(' — ')
+      end
+      count = error.items.count
 
       order.update!(
         status: 'failed',
-        error_message: "#{error.items.count} item(s) are unavailable: #{item_names}"
+        error_message: "Not placed. #{order.supplier.name} couldn't take #{count} item#{'s' if count != 1}: " \
+                       "#{lines.join('; ')}. Remove or change #{count == 1 ? 'it' : 'them'} and resubmit."
       )
 
       # Mark specific items as failed and update supplier product stock status
@@ -571,66 +579,28 @@ module Orders
       order.recalculate_totals!
     end
 
-    # When scraper.add_to_cart skips items (e.g., unavailable on supplier site),
-    # remove those order_items so totals are accurate and checkout matches the cart.
-    # Also update supplier_product stock status for future orders.
-    def handle_skipped_cart_items(failed_items)
-      skipped_names = []
-
-      failed_items.each do |fi|
-        order_item = order.order_items.joins(:supplier_product)
-                          .find_by(supplier_products: { supplier_sku: fi[:sku] })
-        next unless order_item
-
-        # Only mark out-of-stock for genuine stock errors, not browser failures
-        sp = order_item.supplier_product
-        error_msg = fi[:error] || ''
-        if sp&.in_stock && stock_related_error?(error_msg)
-          sp.update!(in_stock: false)
-          Rails.logger.info "[OrderPlacement] Marked #{sp.supplier_name} (#{sp.supplier_sku}) as out of stock"
-        end
-
-        skipped_names << (fi[:name] || sp&.supplier_name)
-        order_item.destroy!
+    # add_to_cart reported items it couldn't put in the supplier cart. Stop the
+    # whole order (handled by handle_item_unavailable_error): never delete the
+    # lines and place the rest. Failed entries carry the reason under :error
+    # (most scrapers) or :reason (Performance).
+    def raise_for_items_not_added!(failed_items)
+      items = failed_items.map do |fi|
+        sp = order.order_items.joins(:supplier_product)
+                  .find_by(supplier_products: { supplier_sku: fi[:sku] })&.supplier_product
+        {
+          sku: fi[:sku],
+          name: fi[:name].presence || sp&.supplier_name || "SKU #{fi[:sku]}",
+          message: fi[:error].presence || fi[:reason].presence || fi[:message].presence || 'could not be added to the cart'
+        }
       end
 
-      if skipped_names.any?
-        order.order_items.reload
-        order.recalculate_totals! if order.respond_to?(:recalculate_totals!)
-
-        note = "[Auto-removed] #{skipped_names.size} item(s) unavailable on supplier site: #{skipped_names.join(', ')}"
-        order.update!(notes: [order.notes, note].compact.join("\n\n"))
-
-        # Create a structured validation record so the UI can display
-        # a prominent alert about removed items.
-        # Note: order_items were already destroyed above, so look up
-        # supplier_product directly by SKU for the name.
-        removed_details = failed_items.map do |fi|
-          sp = SupplierProduct.find_by(
-            supplier: order.supplier,
-            supplier_sku: fi[:sku]
-          )
-          {
-            sku: fi[:sku],
-            name: sp&.supplier_name || fi[:name] || "SKU #{fi[:sku]}",
-            reason: fi[:error] || 'Out of stock on supplier site'
-          }
-        end
-
-        OrderValidation.create!(
-          order: order,
-          validation_type: 'items_removed',
-          passed: true, # warning, not blocking
-          message: "#{skipped_names.size} item(s) were removed because they are unavailable on #{order.supplier.name}: #{skipped_names.join(', ')}",
-          details: { removed_items: removed_details },
-          validated_at: Time.current
-        )
-
-        Rails.logger.info "[OrderPlacement] Order #{order.id}: #{note}"
-      end
+      raise Scrapers::BaseScraper::ItemUnavailableError.new(
+        "#{order.supplier.name} could not add #{items.size} item(s) to the cart",
+        items: items
+      )
     end
 
-    # After OOS items are removed (by validation or add_to_cart), re-check
+    # After OOS items are removed by validation, re-check
     # that the remaining total still meets the supplier's order minimum.
     def recheck_order_minimum_after_removals!
       minimum = order.supplier.order_minimum
@@ -656,7 +626,10 @@ module Orders
     # from the supplier site (e.g., "out of stock", "discontinued"). Returns false for
     # browser/rendering errors (e.g., "Element is not focusable", "no native input").
     def stock_related_error?(error_message)
-      return true if error_message.blank? # conservative: no message = assume stock issue
+      # No reason given is NOT evidence of a stock problem: Performance's failed
+      # entries had no :error, so every transient failure marked items out of
+      # stock and future orders silently removed them.
+      return false if error_message.blank?
       error_message.match?(/out of stock|unavailable|discontinued|no longer available|not available|removed from catalog/i)
     end
 

@@ -234,6 +234,71 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
     end
   end
 
+  # Carmin, Oct 3 2026 (order #386): an item the supplier couldn't take stops
+  # the WHOLE order. It used to be deleted and the rest placed — 9 CW items
+  # across 6 orders went missing behind a yellow banner.
+  describe 'items the supplier could not add' do
+    let(:other_product) { create(:supplier_product, supplier: supplier, supplier_name: 'Olive Oil') }
+
+    before do
+      supplier_product.update!(supplier_name: 'Juice Lemon Real', in_stock: true)
+      create(:order_item, order: order, supplier_product: other_product, quantity: 1, unit_price: 50)
+      allow(Rails.env).to receive(:production?).and_return(true)
+      supplier.update!(checkout_enabled: true)
+    end
+
+    it 'places nothing, keeps every line, and tells the chef which item and why' do
+      allow(fake_scraper).to receive(:add_to_cart).and_return(
+        { added: 1, failed: [{ sku: supplier_product.supplier_sku, name: 'Juice Lemon Real', error: 'Not in order guide' }] }
+      )
+      expect(fake_scraper).not_to receive(:checkout)
+
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result).to include(success: false, error_type: 'items_unavailable')
+      order.reload
+      expect(order.status).to eq('failed')
+      expect(order.confirmation_number).to be_nil
+      expect(order.order_items.count).to eq(2)
+      expect(order.error_message).to include('Not placed', 'Juice Lemon Real — Not in order guide', 'resubmit')
+      lemon = order.order_items.find_by(supplier_product: supplier_product)
+      expect(lemon.status).to eq('failed')
+      expect(lemon.notes).to eq('Not in order guide')
+    end
+
+    it "reads Performance's :reason key and does not mark the item out of stock on a non-stock reason" do
+      allow(fake_scraper).to receive(:add_to_cart).and_return(
+        { added: [], failed: [{ sku: supplier_product.supplier_sku, reason: 'HTTP 503' }] }
+      )
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.error_message).to include('Juice Lemon Real — HTTP 503')
+      expect(supplier_product.reload.in_stock).to be(true)
+    end
+
+    it 'does not mark the item out of stock when no reason is given' do
+      allow(fake_scraper).to receive(:add_to_cart).and_return(
+        { added: 1, failed: [{ sku: supplier_product.supplier_sku }] }
+      )
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.status).to eq('failed')
+      expect(supplier_product.reload.in_stock).to be(true)
+    end
+
+    it 'still marks it out of stock when the supplier says so' do
+      allow(fake_scraper).to receive(:add_to_cart).and_return(
+        { added: 1, failed: [{ sku: supplier_product.supplier_sku, error: 'Out of stock' }] }
+      )
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(supplier_product.reload.in_stock).to be(false)
+    end
+  end
+
   describe 'scraper exceptions' do
     it 'handles OrderMinimumError without raising' do
       err = Scrapers::BaseScraper::OrderMinimumError.new('Below minimum', minimum: 200, current_total: 20)

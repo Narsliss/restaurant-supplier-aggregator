@@ -325,12 +325,41 @@ module Scrapers
       added_items = []
       failed_items = []
 
+      # Chefs can order anything CW sells, not just their order guide. Until
+      # Oct 2026 non-guide items were dropped as "Not in order guide" (9 items
+      # across 6 orders, incl. #386). The guide only supplies cart metadata;
+      # without it, the line is JDE_{sku}-{business unit}. 39% of the catalog
+      # is BU 133002 (Baking & Pastry, Supplies), so ask the price endpoint
+      # which unit prices the SKU. Verified live Oct 3: CW accepts both
+      # (QG80027A -800001 $45.40, RWP1178B -133002 $92.34) with default
+      # metadata. If CW still drops a line, verify_cart_matches! / the
+      # price-refresh re-check stop the order and name it.
+      off_guide = items.map { |i| i[:sku] }.reject { |sku| guide_data[sku] }
+      off_guide_units = resolve_business_units(off_guide)
+
       api_items = items.filter_map do |item|
         guide_item = guide_data[item[:sku]]
         unless guide_item
-          logger.warn "[ChefsWarehouse] SKU #{item[:sku]} not found in order guide — skipping"
-          failed_items << { sku: item[:sku], error: 'Not in order guide', name: item[:name] }
-          next
+          unit = off_guide_units&.dig(item[:sku])
+          unless unit
+            failed_items << {
+              sku: item[:sku], name: item[:name],
+              error: off_guide_units.nil? ? "Couldn't look this item up at Chef's Warehouse — try again" : "Chef's Warehouse has no price for this item on your account"
+            }
+            next
+          end
+
+          logger.info "[ChefsWarehouse] SKU #{item[:sku]} not in order guide — adding as #{derive_variant_code(item[:sku], unit)}"
+          next {
+            code: derive_variant_code(item[:sku], unit),
+            metadata: nil,
+            business_unit_id: unit,
+            quantity: item[:quantity] || 1,
+            stocking_type: 'P',
+            vendor_id: nil,
+            uom: item[:uom] || 'CS',
+            sell_by_multiple: 1
+          }
         end
 
         {
@@ -354,7 +383,8 @@ module Scrapers
           # CW has been observed to return success: true while omitting a line.
           logger.info "[ChefsWarehouse] cart/add response: #{result.inspect}"
           if result.is_a?(Hash) && result['success']
-            added_items = items.select { |i| guide_data[i[:sku]] }
+            refused = failed_items.map { |f| f[:sku] }
+            added_items = items.reject { |i| refused.include?(i[:sku]) }
             logger.info "[ChefsWarehouse] API added #{result['totalCount']} items to cart"
           else
             logger.warn "[ChefsWarehouse] API add_to_cart returned non-success: #{result.inspect[0..200]}"
@@ -860,9 +890,34 @@ module Scrapers
       end
     end
 
-    def derive_variant_code(sku)
-      sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
-      "JDE_#{sku}-800001"
+    def derive_variant_code(sku, business_unit = '800001')
+      "JDE_#{sku}-#{business_unit}"
+    end
+
+    # CW's two business units (Oct 2026 catalog walk: 3,370 products in
+    # 800001, 2,179 in 133002).
+    CW_BUSINESS_UNITS = %w[800001 133002].freeze
+
+    # { sku => business unit } for SKUs CW prices (unrestricted) to this
+    # account; SKUs CW won't price are left out. nil when the lookup itself
+    # failed — callers must not treat that as "no price".
+    def resolve_business_units(skus)
+      return {} if skus.empty?
+
+      variants = skus.product(CW_BUSINESS_UNITS).map do |sku, unit|
+        { code: derive_variant_code(sku, unit), uom: 'CS', stocking_type: 'P', vendor_id: nil, business_unit_id: unit }
+      end
+      priced = api_client.fetch_prices(variants)
+                         .select { |p| p[:primary_price].to_f > 0 && !p[:restricted] }
+                         .map { |p| p[:variant_code] }
+
+      skus.each_with_object({}) do |sku, units|
+        unit = CW_BUSINESS_UNITS.find { |u| priced.include?(derive_variant_code(sku, u)) }
+        units[sku] = unit if unit
+      end
+    rescue StandardError => e
+      logger.warn "[ChefsWarehouse] business-unit lookup failed for #{skus.inspect}: #{e.class}: #{e.message}"
+      nil
     end
 
     # Walk the CW category tree via API to find all leaf categories.

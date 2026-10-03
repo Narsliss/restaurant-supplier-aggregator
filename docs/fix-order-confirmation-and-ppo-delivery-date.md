@@ -54,6 +54,68 @@ PPO changed its schema: `NewOrder_UpdateFulfillment` declared `$unplacedOrderSta
 - Re-check the draft's date right before submit (dry runs too).
 - Send Eastern midnight via `America/New_York`. The old fixed `T04:00:00Z` is 11 PM the previous day once DST ends (Nov 1).
 
+## Bug 4: CW dropped every item not in the chef's order guide
+
+This is the root cause of #386's first failure. Since the CW API rewrite (`1623eff`, Mar 23), `add_to_cart` copied each cart line's metadata from the chef's CW **order guide**. Anything else was skipped as "Not in order guide", and `handle_skipped_cart_items` deleted it and placed the rest. The old browser version opened `/products/<sku>/` and could add anything CW sells.
+
+Prod (`OrderValidation items_removed`): **9 items across 6 CW orders** since June. 5 of those orders were placed without the items:
+
+| Order | Items dropped |
+|---|---|
+| #122 | trash liners, peeled garlic |
+| #235 | trash liners |
+| #288 | truffle oil |
+| #305 | capicola, trash liners |
+| #331 | freezer bags, blended oil |
+
+#386 is the sixth.
+
+**Live evidence (Oct 3, approved by Carmin):**
+- **Read-only price check:** 8 of the 9 SKUs price under the derived code `JDE_{sku}-800001` (unrestricted). RWP1178B returned no price, probably another business unit.
+- **Cart test:** on Skyllar's empty cart, `cart/add` with `JDE_QG80027A-800001` and default metadata gave `success: true`, and the cart showed 1 case at $45.40. The cart was then deleted and verified empty.
+
+**Business units:** a read-only catalog walk (Oct 3) found 3,370 products in BU 800001 and **2,179 (39%) in BU 133002**, including Baking & Pastry (1,355) and Supplies (567). The cart code is `JDE_<sku>-<BU>`. RWP1178B prices only under `-133002` ($92.34). Cart test on Skyllar's empty cart: `JDE_RWP1178B-133002` with BU 133002 and vendor nil was accepted, and the cart was deleted after.
+
+**Fix:**
+- **Off-guide items:** `resolve_business_units` prices `-800001` and `-133002` in one `fetch_prices` call and uses the code CW prices (unrestricted). The line gets default metadata (stocking type `P`, vendor nil).
+- **CW won't price it:** the item is reported failed with the reason "Chef's Warehouse has no price for this item on your account", which stops the order (Change 5).
+- **The lookup itself errors:** the reason says "try again" instead.
+- **Guide items:** unchanged.
+- **CW drops a line anyway:** `verify_cart_matches!` or the price-refresh re-check stops the order and names it.
+
+## Change 5: an item the supplier won't take stops the whole order (all suppliers)
+
+**Before:** `OrderPlacementService#handle_skipped_cart_items` deleted every line that `add_to_cart` reported as failed, then **placed the rest**. The chef only saw a yellow banner afterwards. `verify_cart_matches!` ran after the deletion, so it never caught these.
+
+**Decision (Carmin, Oct 3):** stop the whole order.
+
+**Now:** `raise_for_items_not_added!` raises `ItemUnavailableError`, which `handle_item_unavailable_error` handles:
+- the order goes to `status: failed`
+- every line is kept, and the refused ones are marked `failed` with the reason
+- nothing is submitted
+- `error_message` reads: "Not placed. <Supplier> couldn't take N item(s): Name — reason; …. Remove or change it and resubmit."
+
+Two more fixes in the same change:
+- **Reason key:** Performance reports the reason under `:reason`, not `:error`, so its reasons were lost. Both keys are now read.
+- **Stock flag:** `stock_related_error?('')` used to return **true**, so any failure with no reason (every Performance failure, including transient 5xx/auth errors) marked the product out of stock. Future orders then silently removed it at validation. A blank reason is now not a stock signal.
+
+The other-supplier audit (Oct 3) shows why this applies to everyone:
+
+| Supplier | Why an item can fail to be added |
+|---|---|
+| PPO | Lookup only searches the first 5,000 catalog items |
+| Performance | Any per-item `ApiError` drops the item |
+| WCW | One order guide, then a fuzzy search fallback |
+| Sysco | Our own "unlisted" guess |
+
+These lookup limits are still open. They now **stop** the order instead of shortening it.
+
+## Change 6: our stock cache no longer deletes lines (supplier decides)
+
+`OrderValidationService#validate_item_availability` deleted every line whose `supplier_product.in_stock` was false, before the supplier was asked, and placed the rest. If every line was cached OOS, it failed the order. That cache comes from import miss-tracking and the discontinue job, and until Change 5 also from failed add-to-cart calls with a blank reason, so it could be stale or poisoned.
+
+**Decision (Carmin, Oct 3):** let the supplier decide. The method is removed. A supplier refusal at add-to-cart now stops the order with the reason (Change 5).
+
 ## New outcome: unconfirmed → `pending_manual`
 
 `OrderUnconfirmedError` (BaseScraper) maps to `status: pending_manual` with an explanatory `error_message` (`OrderPlacementService#handle_unconfirmed_submit`). `pending_manual` is not `retryable?`, so the chef can't place a duplicate with one tap. They're told to check the supplier first.
@@ -86,7 +148,8 @@ No order was placed and no cart was changed. Dev PPO sessions had all expired (3
 
 - **Chef-facing failure alerts.** A failed or needs-action order sends nothing (`PlaceOrderJob#handle_failure` only logs); owners are emailed only on success. This is the #386 "never-event" ask.
 - **Retry wipes the reason** (`OrdersController#retry_order` clears `error_message`). After #386's second failure, the page showed a green Submit and a stale lemon-juice banner.
-- **Pre-submit order-guide check (CW):** lemon juice's "not in order guide" was only discovered after Submit.
+- `PreOrderValidationService#validate_cached_stock_for_item` still **fails** an order (visibly) on our cached `out_of_stock?`/`discontinued?` flags for scrapers without `check_stock`. It is not silent, but it is the same "cache decides" pattern.
+- **Other-supplier lookup limits:** PPO 5,000 catalog cap, WCW single guide + fuzzy search, Performance search, Sysco "unlisted". US Foods never reports a drop and doesn't re-read its cart.
 - **Audit (Oct 3) found the same unchecked-date pattern elsewhere:**
   - CW `set_delivery_date` result is ignored.
   - US Foods masks a failed date PUT.

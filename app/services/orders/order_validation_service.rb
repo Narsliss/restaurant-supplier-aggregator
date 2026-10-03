@@ -39,8 +39,10 @@ module Orders
       @errors = []
       @warnings = []
 
-      # Item availability first — may remove OOS items, changing the total
-      validate_item_availability
+      # No cached-stock check here: the supplier decides at add-to-cart, and a
+      # refused item stops the whole order with the reason (Carmin, Oct 3 2026).
+      # This used to DELETE lines our cache marked out of stock and place the
+      # rest — a silent short order on a cache that could be stale or poisoned.
       validate_order_minimum
       validate_case_minimum
       validate_item_minimums
@@ -145,36 +147,6 @@ module Orders
           )
         end
       end
-    end
-
-    def validate_item_availability
-      unavailable_items = order.order_items.joins(:supplier_product)
-        .where(supplier_products: { in_stock: false })
-        .includes(:supplier_product)
-
-      return if unavailable_items.empty?
-
-      # If ALL items are unavailable, error — nothing to order
-      if unavailable_items.count == order.order_items.count
-        unavailable_items.each do |item|
-          add_error(
-            type: "item_unavailable",
-            message: "#{item.supplier_product.supplier_name} is currently out of stock.",
-            details: { product_id: item.supplier_product.id, product_name: item.supplier_product.supplier_name }
-          )
-        end
-        return
-      end
-
-      # Some items available — auto-remove the unavailable ones and continue
-      removed_names = unavailable_items.map { |i| i.supplier_product.supplier_name }
-      unavailable_items.destroy_all
-
-      add_warning(
-        type: "items_removed",
-        message: "Removed #{removed_names.size} out-of-stock item#{'s' if removed_names.size > 1}: #{removed_names.join(', ')}",
-        details: { removed_items: removed_names }
-      )
     end
 
     def validate_delivery_schedule
