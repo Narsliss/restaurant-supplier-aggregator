@@ -38,4 +38,25 @@ class OrderMailer < ApplicationMailer
 
     mail(to: recipients, subject: "[EnPlace Pro] #{subject}")
   end
+
+  # The order WAS placed, but the supplier has since changed it — out of
+  # stock, short-filled, substituted (US Foods allocation, order #332). Goes
+  # to the chef who placed it and the org owner(s), with a link to the
+  # supplier's site. See CheckOrderExceptionsJob / UsFoodsExceptionSweepJob.
+  def supplier_changed_order(order)
+    @order = order
+    @chef = order.user
+    @supplier_name = order.display_supplier_name
+    @exceptions = Array(order.supplier_exceptions)
+    return if @exceptions.empty?
+
+    recipients = ([@chef&.email] + Array(order.organization&.owners&.pluck(:email))).compact.uniq
+    return if recipients.empty?
+
+    missing = @exceptions.count { |e| %w[out_of_stock removed].include?(e['type']) }
+    what = missing.positive? ? "#{missing} item#{'s' if missing != 1} not coming" : "#{@exceptions.size} change#{'s' if @exceptions.size != 1}"
+    when_text = order.delivery_date ? " for #{order.delivery_date.strftime('%a %b %-d')}" : ''
+
+    mail(to: recipients, subject: "[EnPlace Pro] #{@supplier_name} changed your order#{when_text}: #{what}")
+  end
 end

@@ -1,0 +1,53 @@
+<div style="max-width: 600px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1f2937;">
+  <div style="padding: 32px 24px;">
+    <div style="background-color: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+      <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 8px; color: #92400e;"><%= @supplier_name %> changed your order</h1>
+      <p style="font-size: 15px; color: #78350f; margin: 0; line-height: 1.5;">
+        The order went through, but <%= @supplier_name %> can't send everything you ordered<%= @order.delivery_date ? " for #{@order.delivery_date.strftime('%A, %B %-d')}" : "" %>.
+        Get these items elsewhere, or open the order on <%= @supplier_name %>'s site to choose a substitute.
+      </p>
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+      <thead>
+        <tr style="border-bottom: 2px solid #e5e7eb;">
+          <th style="padding: 8px 0; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; text-align: left;">Item</th>
+          <th style="padding: 8px 0; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; text-align: right; width: 140px;">What changed</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @exceptions.each do |ex| %>
+          <tr style="border-bottom: 1px solid #f3f4f6;">
+            <td style="padding: 10px 8px 10px 0; font-size: 14px; color: #111827;">
+              <%= ex["name"].presence || (ex["sku"] ? "Item ##{ex["sku"]}" : "Whole order") %>
+              <% if ex["sku"] %><div style="font-size: 12px; color: #9ca3af;">#<%= ex["sku"] %></div><% end %>
+            </td>
+            <td style="padding: 10px 0; font-size: 14px; font-weight: 600; text-align: right; color: <%= %w[out_of_stock removed].include?(ex["type"]) ? '#b91c1c' : '#92400e' %>;">
+              <%= OrdersHelper::EXCEPTION_TYPE_LABELS[ex["type"].to_s] || "Issue" %>
+              <% if ex["type"] == "short_fill" && ex["filled"] && ex["ordered"] %>
+                <div style="font-size: 12px; font-weight: 400;"><%= ex["filled"] %> of <%= ex["ordered"] %> coming</div>
+              <% elsif ex["type"] == "out_of_stock" && ex["ordered"] %>
+                <div style="font-size: 12px; font-weight: 400;">0 of <%= ex["ordered"] %> coming</div>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+
+    <div style="text-align: center; margin-bottom: 12px;">
+      <% if @order.supplier_order_url.present? %>
+        <a href="<%= @order.supplier_order_url %>" style="display: inline-block; background-color: #15803d; color: #ffffff; font-weight: 600; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-size: 15px;">
+          Open in <%= @supplier_name %>
+        </a>
+      <% end %>
+    </div>
+    <p style="text-align: center; margin: 0 0 24px;">
+      <a href="<%= order_url(@order) %>" style="font-size: 14px; color: #15803d;">View the order in EnPlace Pro</a>
+    </p>
+
+    <p style="font-size: 12px; color: #9ca3af; line-height: 1.5; text-align: center;">
+      Sent to the chef who placed this order and the restaurant owner. We check <%= @supplier_name %> orders the evening before and the morning of delivery.
+    </p>
+  </div>
+</div>

@@ -23,13 +23,19 @@ module Orders
       scraper = supplier.scraper_klass.new(credential)
       scraper.soft_refresh if scraper.respond_to?(:soft_refresh)
 
-      # US Foods only shows an order to the restaurant it was placed for.
+      # US Foods only shows an order to the restaurant it was placed for. It
+      # also re-files the order under a new id once processed, so pass what
+      # it takes to recognise it by delivery date + items.
+      our_skus = @order.order_items.joins(:supplier_product).pluck('supplier_products.supplier_sku').map(&:to_s)
       remote = Suppliers::RestaurantSwitcher.new(credential, scraper).with_restaurant(@order.location_id) do
-        scraper.fetch_submitted_order(@order.confirmation_number)
+        scraper.fetch_submitted_order(@order.confirmation_number, delivery_date: @order.delivery_date, skus: our_skus)
       end
       return nil if remote.nil?
 
+      # Only lines that are on our order (a matched order could carry extra
+      # lines a chef added on US Foods' own site).
       exceptions = UsFoodsExceptionParser.parse(remote)
+                                         .select { |e| e[:sku].nil? || our_skus.include?(e[:sku].to_s) }
       enrich_names!(exceptions, supplier)
       @order.update!(supplier_exceptions: exceptions, exceptions_checked_at: Time.current)
 

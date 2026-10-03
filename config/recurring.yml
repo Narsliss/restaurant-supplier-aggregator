@@ -21,6 +21,22 @@ production:
     schedule: "*/5 * * * *"
     description: "Alert on orders stuck processing for more than 15 minutes"
 
+  # Re-check US Foods orders after allocation; email the chef + owner(s) if
+  # US Foods shorted, substituted or dropped items (order #332).
+  usf_exceptions_evening:
+    class: UsFoodsExceptionSweepJob
+    args: ["evening"]
+    queue: default
+    schedule: "0 19 * * * America/New_York"
+    description: "7 PM ET: re-check US Foods orders delivering tomorrow"
+
+  usf_exceptions_morning:
+    class: UsFoodsExceptionSweepJob
+    args: ["morning"]
+    queue: default
+    schedule: "0 5 * * * America/New_York"
+    description: "5 AM ET: re-check US Foods orders delivering today"
+
   # Expire old 2FA requests every 15 minutes (2FA happens rarely, no need for 5-min checks)
   expire_2fa_requests:
     class: Expire2faRequestsJob

@@ -2111,15 +2111,34 @@ module Scrapers
     # Re-fetch a previously-submitted order by its confirmation (tandem number
     # or orderId) so we can inspect post-submission exceptions. READ-ONLY — never
     # mutates the order. Returns the raw order hash, or nil if not found.
-    def fetch_submitted_order(confirmation)
+    # US Foods re-files a submitted order under a NEW orderId once it is
+    # processed (order #332: submitted as 1a33fcdd…, later ff9943c0… / tandem
+    # 648653), so the id we saved at submit stops matching. Fall back to the
+    # order for the same delivery date whose lines overlap ours the most —
+    # never an abandoned draft (DELETED) or the cart (IN_PROGRESS).
+    MIN_SKU_OVERLAP = 0.6
+
+    def fetch_submitted_order(confirmation, delivery_date: nil, skus: [])
       return nil if confirmation.to_s.strip.empty?
 
       api_client.ensure_session!
       orders = api_client.get_recent_orders
-      orders = orders.is_a?(Array) ? orders : [orders].compact
+      orders = (orders.is_a?(Array) ? orders : [orders].compact).select { |o| o.is_a?(Hash) }
       conf = confirmation.to_s
-      orders.select { |o| o.is_a?(Hash) }
-            .find { |o| o['tandemOrderNumber'].to_s == conf || o['orderId'].to_s == conf }
+      by_id = orders.find { |o| o['tandemOrderNumber'].to_s == conf || o['orderId'].to_s == conf }
+      return by_id if by_id || delivery_date.nil? || skus.blank?
+
+      ours = skus.map(&:to_s).uniq
+      candidates = orders.reject { |o| %w[DELETED IN_PROGRESS].include?(o['orderStatus'].to_s) }
+                         .select { |o| usf_delivery_date(o) == delivery_date.to_date }
+      best = candidates.max_by { |o| (usf_order_skus(o) & ours).size }
+      return nil unless best
+
+      overlap = (usf_order_skus(best) & ours).size.to_f / ours.size
+      return nil if overlap < MIN_SKU_OVERLAP
+
+      logger.info "[UsFoods] Order #{conf} re-filed by US Foods as #{best['orderId']} (tandem #{best['tandemOrderNumber']}), matched on date + #{(overlap * 100).round}% of items"
+      best
     end
 
     def checkout(dry_run: false)
@@ -2727,6 +2746,19 @@ module Scrapers
     end
 
     private
+
+    # US Foods returns delivery dates as "2026-09-28T00:00-05:00" (the
+    # restaurant's local midnight) — the date part is the delivery day.
+    def usf_delivery_date(usf_order)
+      raw = usf_order['confirmedDeliveryDate'].presence || usf_order['requestedDeliveryDate'].presence
+      raw && Date.parse(raw.to_s[0, 10])
+    rescue ArgumentError
+      nil
+    end
+
+    def usf_order_skus(usf_order)
+      Array(usf_order['orderItems']).filter_map { |li| li.is_a?(Hash) ? li['productNumber']&.to_s : nil }.uniq
+    end
 
     # True while the browser is still somewhere inside the identity-provider
     # journey — the B2C custom domain, b2clogin.com, or any B2C policy page.
