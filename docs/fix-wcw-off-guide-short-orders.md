@@ -46,8 +46,29 @@ The off-guide id is accepted and then silently ignored, and `itemCount` still co
   - a real WCW id is used, and a missing one raises
 - The live draft above confirmed the real line codes match our catalog SKUs (so guide items pass), and that off-guide items are absent (so they're caught).
 
-## Not done / open
+## Part 2: actually ordering off-guide items (same day)
 
-- **Actually ordering off-guide items at WCW.** No read-only path from a search result to a multi-unit product id was found: introspection is blocked, and `CanonicalProduct` has no `multiUnitProduct` field. WCW likely only orders items on the form (order guide). Adding an item to the guide first is the likely route and needs its own live test. Until then, such orders stop and the chef sees why.
+**How WCW's own site does it.** Captured in the browser pane on Carmin's login: one Blackberries added from Catalog search, then removed. The cart ended back at $0.00 and existing drafts were untouched.
+1. `CreateHiddenShopProductMutation(canonicalProductId: 342231776, formId, locationId, sourcePage: "Catalog", sourceLocation: "Catalog Search", isOperatorAdded: true, isSupplierAdding: false)` returns a **MultiUnitProduct** attached to the restaurant's order form as a *hidden* product (it doesn't show on the visible guide).
+2. `CreateOrUpdateDraftMutation` with that MultiUnitProduct id.
+
+We had been skipping step 1 and sending the canonical id straight to the draft.
+
+**Fix:**
+- **`WhatChefsWantApi#create_hidden_shop_product`:** a minimal version of the same mutation.
+- **`WhatChefsWantScraper#add_off_guide_product`:** off-guide SKU → canonical id (**exact** item-code match only; the old "single fuzzy result" fallback could order a different product) → hidden shop product → its id goes in the draft.
+- **If WCW won't attach it:** the item is reported failed ("What Chefs Want couldn't add it from its catalog"), so the order stops.
+- **`verify_cart_matches!` (part 1)** still confirms every line landed before submit.
+
+**Live test** (Oct 3, Noche's WCW login, approved by Carmin; nothing submitted):
+
+| Step | Result |
+|---|---|
+| Exact search | `10407` → canonical `342231776` |
+| Hidden shop product | → `1137706310` (itemCode `10407`, unit Each) |
+| Draft with chicken (guide `647035869`) + that id | **both** lines present: codes `18271` and `10407` |
+| Cleanup | draft emptied |
+
+## Not done / open
 - `get_all_drafts` is broken: WCW removed `allCompanyDrafts`. It's not used in the ordering path.
 - How many past WCW orders were short is unknown. The full history comparison timed out; #388 is the confirmed case.

@@ -32,8 +32,51 @@ RSpec.describe Scrapers::WhatChefsWantScraper, 'cart check before submit' do
     allow(api).to receive(:delete_draft_items)
     allow(scraper).to receive(:build_order_guide_mup_map).and_return('18271' => 'mup-18271')
     allow(scraper).to receive(:resolve_product_id_via_search) { |sku| "canonical-#{sku}" }
+    allow(api).to receive(:create_hidden_shop_product) { |cid| { 'id' => "hidden-#{cid}" } }
     allow(api).to receive(:create_draft).and_return('data' => { 'CreateOrUpdateDraftMutation' => { 'id' => 'D1', 'itemCount' => 6 } })
     scraper.add_to_cart(order_items, delivery_date: Date.new(2026, 10, 2))
+  end
+
+  # How WCW's own site adds a searched item (captured Oct 3 2026):
+  # CreateHiddenShopProductMutation(canonicalProductId) -> multi-unit product
+  # id, then that id goes into the draft.
+  describe 'ordering items that are not on the order guide' do
+    it 'attaches each off-guide item to the order form and orders the id WCW returns' do
+      expect(api).to have_received(:create_hidden_shop_product).with('canonical-10407')
+      expect(api).to have_received(:create_hidden_shop_product).with('canonical-95839')
+      expect(api).not_to have_received(:create_hidden_shop_product).with('canonical-18271')
+      expect(api).to have_received(:create_draft).with(
+        Date.new(2026, 10, 2).strftime('%Y-%m-%d'),
+        [hash_including(product_id: 'mup-18271', quantity: 1),
+         hash_including(product_id: 'hidden-canonical-10407', quantity: 2),
+         hash_including(product_id: 'hidden-canonical-95839', quantity: 3)]
+      )
+    end
+
+    it 'reports an off-guide item WCW would not attach, instead of ordering without it' do
+      fresh = described_class.new(credential)
+      allow(fresh).to receive(:api_client).and_return(api)
+      allow(fresh).to receive(:build_order_guide_mup_map).and_return('18271' => 'mup-18271')
+      allow(fresh).to receive(:resolve_product_id_via_search) { |sku| "canonical-#{sku}" }
+      allow(api).to receive(:create_hidden_shop_product).and_return(nil)
+
+      result = fresh.add_to_cart(order_items, delivery_date: Date.new(2026, 10, 2))
+
+      expect(result[:failed].map { |f| f[:sku] }).to eq(%w[10407 95839])
+      expect(result[:failed].first[:error]).to eq("What Chefs Want couldn't add it from its catalog")
+    end
+
+    it 'never orders a different product than the SKU (exact item code only)' do
+      fresh = described_class.new(credential)
+      allow(fresh).to receive(:api_client).and_return(api)
+      allow(api).to receive(:search_products).and_return(
+        'data' => { 'catalogProductsSearchRootQuery' => { 'contextualProducts' => [
+          { 'canonicalProduct' => { 'id' => '999', 'itemCode' => '10403' } } # strawberries, not 10407
+        ] } }
+      )
+
+      expect(fresh.send(:resolve_product_id_via_search, '10407')).to be_nil
+    end
   end
 
   it "stops the order and names the off-guide items WCW didn't take (the #388 case)" do

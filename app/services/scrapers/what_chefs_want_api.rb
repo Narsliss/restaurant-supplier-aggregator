@@ -429,6 +429,25 @@ module Scrapers
     # Order Operations
     # ----------------------------------------------------------------
 
+    # Attach a catalog product that isn't on the restaurant's order guide to
+    # its order form, returning the multi-unit product the draft accepts —
+    # exactly what WCW's own site does when a chef adds a searched item
+    # (captured Oct 3 2026: CreateHiddenShopProductMutation with the
+    # canonicalProduct id, then CreateOrUpdateDraftMutation with the returned
+    # id). The product stays hidden: it doesn't appear on the visible guide.
+    def create_hidden_shop_product(canonical_product_id)
+      result = graphql_request('CreateHiddenShopProductMutation', create_hidden_shop_product_mutation, {
+        canonicalProductId: canonical_product_id.to_s,
+        formId: @form_id,
+        locationId: @location_id,
+        sourcePage: 'Catalog',
+        sourceLocation: 'Catalog Search',
+        isOperatorAdded: true,
+        isSupplierAdding: false
+      })
+      result&.dig('data', 'CreateHiddenShopProductMutation')
+    end
+
     def get_order_minimum(delivery_date: nil)
       delivery_date_str = delivery_date.is_a?(String) ? delivery_date : delivery_date&.strftime('%Y-%m-%d')
       delivery_date_str ||= next_delivery_date_str
@@ -980,6 +999,38 @@ module Scrapers
             total { cents money __typename }
             PONumber
             fulfilmentType
+            __typename
+          }
+        }
+      GQL
+    end
+
+    def create_hidden_shop_product_mutation
+      <<~GQL
+        mutation CreateHiddenShopProductMutation(
+          $canonicalProductId: ID, $formId: ID, $locationId: ID,
+          $sourcePage: String, $sourceLocation: String,
+          $isOperatorAdded: Boolean, $isSupplierAdding: Boolean
+        ) {
+          CreateHiddenShopProductMutation(
+            canonicalProductId: $canonicalProductId
+            formId: $formId
+            locationId: $locationId
+            sourcePage: $sourcePage
+            sourceLocation: $sourceLocation
+            isOperatorAdded: $isOperatorAdded
+            isSupplierAdding: $isSupplierAdding
+          ) {
+            id
+            itemCode
+            name
+            products {
+              id
+              itemCode
+              unit
+              canonicalproduct { id itemCode __typename }
+              __typename
+            }
             __typename
           }
         }

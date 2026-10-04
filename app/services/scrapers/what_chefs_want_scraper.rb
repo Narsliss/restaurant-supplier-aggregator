@@ -647,10 +647,14 @@ module Scrapers
         mup_id = mup_map[sku]
 
         unless mup_id
-          # Fallback: search the catalog (returns canonicalProduct ID — may not work for drafts)
-          logger.warn "[WhatChefsWant] SKU #{sku} not in order guide, trying catalog search"
-          mup_id = resolve_product_id_via_search(sku)
+          # Not on the restaurant's WCW order guide. The draft only takes
+          # multi-unit product ids, so do what WCW's own site does for a
+          # searched item: find its canonical product, attach it to the order
+          # form as a hidden shop product, and order the id that returns.
+          # (Before Oct 2026 we sent the canonical id itself; WCW silently
+          # dropped it — order #388's blackberries and pear purée.)
           (@off_guide_skus ||= []) << sku
+          mup_id = add_off_guide_product(sku)
         end
 
         if mup_id
@@ -663,7 +667,8 @@ module Scrapers
           logger.info "[WhatChefsWant] Resolved SKU #{sku} -> multiUnitProduct #{mup_id}"
         else
           logger.warn "[WhatChefsWant] Could not find product for SKU #{sku}"
-          failed_items << { sku: sku, name: item[:name], error: 'Product not found in catalog' }
+          reason = Array(@off_guide_skus).include?(sku) ? "What Chefs Want couldn't add it from its catalog" : 'Product not found in catalog'
+          failed_items << { sku: sku, name: item[:name], error: reason }
         end
       end
 
@@ -750,15 +755,27 @@ module Scrapers
       map
     end
 
+    # Canonical product id for an exact item-code match only. (It used to fall
+    # back to the single fuzzy result even when its code differed — ordering
+    # a different product.)
     def resolve_product_id_via_search(sku)
       result = api_client.search_products(sku.to_s, limit: 5)
       contextual = result&.dig('data', 'catalogProductsSearchRootQuery', 'contextualProducts') || []
       products = contextual.map { |cp| cp['canonicalProduct'] }.compact
 
-      match = products.find { |p| p['itemCode'].to_s == sku.to_s }
-      match ||= products.first if products.size == 1
+      products.find { |p| p['itemCode'].to_s == sku.to_s }&.dig('id')
+    end
 
-      match&.dig('id')
+    # Off-guide item -> multi-unit product id the draft accepts, or nil.
+    def add_off_guide_product(sku)
+      logger.info "[WhatChefsWant] SKU #{sku} not in order guide — adding from the catalog"
+      canonical_id = resolve_product_id_via_search(sku)
+      return nil unless canonical_id
+
+      hidden = api_client.create_hidden_shop_product(canonical_id)
+      mup_id = hidden&.dig('id')
+      logger.warn "[WhatChefsWant] Could not attach SKU #{sku} (canonical #{canonical_id}) to the order form" unless mup_id
+      mup_id
     end
 
     # Fetch all order guide items, paginating through the API.
