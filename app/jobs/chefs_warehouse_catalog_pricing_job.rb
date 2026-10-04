@@ -5,13 +5,15 @@
 # and catalog search hides unpriced items — 13,444 of 15,624 CW products were
 # invisible to chefs. See docs/cw-catalog-pricing.md.
 #
-# MANUAL ONLY for now (Carmin: run it once by hand and check it before it goes
-# on a schedule). From a production console:
+# Scheduled in config/recurring.yml (nightly 'unpriced', weekly 'all') after
+# the first hand run checked out (Oct 3 2026). By hand, from a console:
 #
-#   ChefsWarehouseCatalogPricingJob.perform_now(limit: 200)              # small first run
+#   ChefsWarehouseCatalogPricingJob.perform_now(limit: 200)              # small run
 #   ChefsWarehouseCatalogPricingJob.perform_now(dry_run: true)           # price, don't save
 #   ChefsWarehouseCatalogPricingJob.perform_now                          # every unpriced item
-#   ChefsWarehouseCatalogPricingJob.perform_now(scope: 'all')            # re-price everything
+#   ChefsWarehouseCatalogPricingJob.perform_now('all')                   # re-price everything
+#
+# scope is positional because recurring.yml passes args by position.
 #
 # Writes only the catalog product (price, piece price, timestamps). Never
 # touches stock flags, carts or orders. Returns a summary hash and logs it.
@@ -21,7 +23,7 @@ class ChefsWarehouseCatalogPricingJob < ApplicationJob
   BATCH = 10 # SKUs per /product/prices call (x2 business units = 20 variants)
   SAMPLE_SIZE = 12
 
-  def perform(scope: 'unpriced', limit: nil, dry_run: false, credential_id: nil)
+  def perform(scope = 'unpriced', limit: nil, dry_run: false, credential_id: nil)
     supplier = Supplier.find_by(code: 'chefswarehouse')
     credential = credential_id ? SupplierCredential.find(credential_id) : pricing_credential(supplier)
     raise 'No active Chef\'s Warehouse credential to price with' unless credential

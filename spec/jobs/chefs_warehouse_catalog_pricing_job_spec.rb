@@ -52,7 +52,7 @@ RSpec.describe ChefsWarehouseCatalogPricingJob, type: :job do
     expect(already.reload.current_price).to eq(134.04)
 
     allow(api).to receive(:fetch_prices).and_return([price('JDE_GO135-800001', 140.00)])
-    described_class.perform_now(scope: 'all')
+    described_class.perform_now('all')
     expect(already.reload).to have_attributes(current_price: 140.00, previous_price: 134.04)
   end
 
@@ -90,6 +90,22 @@ RSpec.describe ChefsWarehouseCatalogPricingJob, type: :job do
 
     expect(summary[:batch_errors]).to eq(1)
     expect(calls).to be > 1
+  end
+
+  describe 'the production schedule' do
+    let(:recurring) { YAML.load_file(Rails.root.join('config/recurring.yml'))['production'] }
+
+    %w[cw_catalog_pricing_new cw_catalog_pricing_refresh].each do |key|
+      it "#{key} is a valid recurring task the job accepts" do
+        config = recurring.fetch(key)
+        task = SolidQueue::RecurringTask.from_configuration(key, **config.symbolize_keys)
+        expect(task).to be_valid
+        expect(config['class']).to eq(described_class.name)
+
+        # recurring.yml passes args by position — run exactly that
+        expect { described_class.perform_now(*config['args']) }.not_to raise_error
+      end
+    end
   end
 
   it 'never touches stock flags' do

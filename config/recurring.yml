@@ -21,6 +21,23 @@ production:
     schedule: "*/5 * * * *"
     description: "Alert on orders stuck processing for more than 15 minutes"
 
+  # Chef's Warehouse catalog prices: the catalog import stores none, and
+  # unpriced items are hidden from search (docs/cw-catalog-pricing.md).
+  # Nightly: new items only (minutes). Weekly: re-price all (~25 min).
+  cw_catalog_pricing_new:
+    class: ChefsWarehouseCatalogPricingJob
+    args: ["unpriced"]
+    queue: scraping
+    schedule: "30 5 * * * America/New_York"
+    description: "5:30 AM ET: price new Chef's Warehouse catalog items"
+
+  cw_catalog_pricing_refresh:
+    class: ChefsWarehouseCatalogPricingJob
+    args: ["all"]
+    queue: scraping
+    schedule: "30 3 * * 0 America/New_York"
+    description: "Sunday 3:30 AM ET: re-price every Chef's Warehouse catalog item"
+
   # Re-check US Foods orders after allocation; email the chef + owner(s) if
   # US Foods shorted, substituted or dropped items (order #332).
   usf_exceptions_evening:
