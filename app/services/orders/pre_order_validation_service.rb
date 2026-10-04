@@ -102,15 +102,31 @@ module Orders
       end
     end
 
+    # Our cached in_stock/discontinued flags go stale (import misses, another
+    # restaurant's guide sync, and nothing ever resets in_stock for off-guide
+    # items), and no scraper implements a live check_stock today. Carmin,
+    # Oct 3 2026: the supplier decides. So where the scraper confirms every
+    # line is on its cart before submitting (CW, WCW, Performance, Sysco),
+    # the cache never stops the order — add-to-cart does, naming the item.
+    # US Foods and PPO don't confirm lines yet: a line they quietly drop
+    # would ship short, so they keep the cached check until they do.
     def validate_stock_availability!
       return if @validation_errors.any? || !@scraper
+
+      live = @scraper.respond_to?(:check_stock)
+      supplier_decides = scraper_confirms_lines?
+      return if !live && supplier_decides
 
       order_items.each do |item|
         product = supplier_product_for(item)
         next unless product
 
+        unless live
+          validate_cached_stock_for_item(item)
+          next
+        end
+
         begin
-          # Check real-time stock via scraper
           stock_info = @scraper.check_stock(product.supplier_sku)
 
           if stock_info[:in_stock] == false
@@ -119,15 +135,15 @@ module Orders
             add_error(:stock,
                       "#{product.supplier_name} has insufficient stock. Available: #{stock_info[:available_quantity]}, Requested: #{item.quantity}", item: item)
           end
-        rescue NotImplementedError
-          # Scraper doesn't support stock checking - fall back to cached data
-          validate_cached_stock_for_item(item)
-        rescue StandardError => e
+        rescue NotImplementedError, StandardError => e
           Rails.logger.warn "[PreOrderValidation] Stock check failed for #{product.supplier_sku}: #{e.message}"
-          # Don't fail validation on stock check error - use cached data
-          validate_cached_stock_for_item(item)
+          validate_cached_stock_for_item(item) unless supplier_decides
         end
       end
+    end
+
+    def scraper_confirms_lines?
+      @scraper.respond_to?(:confirms_lines_before_submit?) && @scraper.confirms_lines_before_submit?
     end
 
     def validate_cached_stock!

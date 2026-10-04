@@ -266,6 +266,15 @@ module Scrapers
       raise NotImplementedError, 'Subclass must implement #checkout'
     end
 
+    # True when this scraper confirms, BEFORE submitting, that every line the
+    # chef ordered is on the supplier's cart (verify_cart_matches!, or an
+    # equivalent per-line check — Sysco). Pre-order validation lets the
+    # supplier decide stock only for these; for the rest, a line the supplier
+    # quietly drops would ship short, so our cached stock check stays.
+    def confirms_lines_before_submit?
+      respond_to?(:verify_cart_matches!)
+    end
+
     # Pre-order validation hooks. Override in subclasses that support them.
     def get_order_minimum
       nil

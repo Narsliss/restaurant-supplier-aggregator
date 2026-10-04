@@ -551,6 +551,12 @@ module Scrapers
     # Add items to a Sysco draft order via GraphQL API.
     # Items format: [{ sku: "7203474", name: "Chicken Breast", quantity: 2, expected_price: 63.10 }]
     # Returns: { added: count, failed: [{ sku:, name:, error: }], order_id: uuid }
+    # add_to_cart checks every SKU is on the order after updateOrderV2 and
+    # reports any that aren't (which stops the order) — see below.
+    def confirms_lines_before_submit?
+      true
+    end
+
     def add_to_cart(items, delivery_date: nil)
       ensure_api_session!
       tokens = load_api_tokens

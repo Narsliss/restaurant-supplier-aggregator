@@ -68,6 +68,59 @@ RSpec.describe Orders::PreOrderValidationService, type: :service do
       expect(result[:errors].any? { |e| e[:type] == :stock }).to be true
     end
 
+    # Carmin, Oct 3 2026: the supplier decides stock — our cached flags never
+    # stop an order where the scraper confirms every line before submitting.
+    # US Foods / PPO (no line check yet) keep the cached check, so a line they
+    # quietly drop can't ship short.
+    context 'when the supplier has no live stock check' do
+      def scraper_without_stock_check(confirms_lines:)
+        Class.new do
+          define_method(:confirms_lines_before_submit?) { confirms_lines }
+          def soft_refresh = true
+          def get_order_minimum = nil
+          def get_delivery_availability(_date = nil) = nil
+          def close_browser; end
+        end.new
+      end
+
+      context 'and it confirms every line before submit (CW, WCW, Performance, Sysco)' do
+        before { allow(fake_scraper_class).to receive(:new).and_return(scraper_without_stock_check(confirms_lines: true)) }
+
+        it 'does not fail the order on a cached out-of-stock flag' do
+          supplier_product.update!(in_stock: false)
+
+          result = build_service.validate!
+
+          expect(result[:errors]).to be_empty
+          expect(result[:valid]).to be true
+        end
+
+        it 'does not fail the order on a cached discontinued flag' do
+          supplier_product.update!(discontinued: true, discontinued_at: Time.current)
+
+          expect(build_service.validate![:errors]).to be_empty
+        end
+      end
+
+      context 'and it does not confirm lines yet (US Foods, PPO)' do
+        before { allow(fake_scraper_class).to receive(:new).and_return(scraper_without_stock_check(confirms_lines: false)) }
+
+        it 'keeps the cached check so a dropped line cannot ship silently' do
+          supplier_product.update!(in_stock: false)
+
+          expect(build_service.validate![:errors].map { |e| e[:type] }).to include(:stock)
+        end
+      end
+    end
+
+    it 'does not fall back to cached flags when the live check errors and the supplier confirms lines' do
+      supplier_product.update!(in_stock: false)
+      allow(fake_scraper).to receive(:check_stock).and_raise(StandardError, 'timeout')
+      allow(fake_scraper).to receive(:confirms_lines_before_submit?).and_return(true)
+
+      expect(build_service.validate![:errors].map { |e| e[:type] }).not_to include(:stock)
+    end
+
     it 'returns an order_minimum error when total is below the minimum' do
       allow(fake_scraper).to receive(:get_order_minimum).and_return({ minimum: 200.00 })
       result = build_service.validate!
