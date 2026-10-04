@@ -49,7 +49,7 @@ class OrderItemsController < ApplicationController
       verification_pending = true
     end
 
-    minimum = @order.supplier.order_minimum
+    minimum = @order.supplier.order_minimum(@order.location)
     render json: {
       item: {
         id: @order_item.id,
@@ -125,7 +125,7 @@ class OrderItemsController < ApplicationController
   end
 
   def order_item_json
-    minimum = @order.supplier.order_minimum
+    minimum = @order.supplier.order_minimum(@order.location)
     {
       item: {
         id: @order_item.id,

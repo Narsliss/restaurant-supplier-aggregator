@@ -105,7 +105,17 @@ class OrganizationsController < ApplicationController
       return render json: { error: 'Invalid requirement type' }, status: :unprocessable_entity
     end
 
+    # A requirement with no location is the EnPlace-wide default shared by
+    # EVERY restaurant (supplier_requirements has no organization). Until Oct
+    # 2026 any member saving the settings page's "Default" column rewrote it
+    # for everyone and deleted every restaurant's per-location overrides.
+    # Members now set their own locations; only a super admin edits the
+    # shared default, and that never touches anyone's overrides.
     is_global = params[:location_id].blank?
+    if is_global && !current_user.super_admin?
+      return render json: { error: 'Set minimums per restaurant — the EnPlace default is shared by every restaurant' },
+                    status: :forbidden
+    end
     location = is_global ? nil : @organization.locations.find(params[:location_id])
     value = params[:value].to_f
 
@@ -124,13 +134,6 @@ class OrganizationsController < ApplicationController
       )
       req.save!
 
-      # Global default supercedes all location overrides
-      if is_global
-        SupplierRequirement.where(
-          supplier: supplier, requirement_type: req_type
-        ).where.not(location_id: nil).destroy_all
-      end
-
       render json: { saved: true, global: is_global }
     else
       SupplierRequirement.where(
@@ -145,6 +148,12 @@ class OrganizationsController < ApplicationController
     supplier = Supplier.find(params[:supplier_id])
     day_of_week = params[:day_of_week].to_i
     enabled = ActiveModel::Type::Boolean.new.cast(params[:enabled])
+
+    # location: nil schedules apply to every restaurant (no organization on
+    # the table) — only a super admin may write them.
+    unless current_user.super_admin?
+      return render json: { error: 'Delivery schedules are shared by every restaurant' }, status: :forbidden
+    end
 
     schedule = SupplierDeliverySchedule.find_or_initialize_by(
       supplier: supplier, location: nil, day_of_week: day_of_week

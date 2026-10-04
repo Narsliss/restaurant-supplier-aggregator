@@ -603,7 +603,7 @@ module Orders
     # After OOS items are removed by validation, re-check
     # that the remaining total still meets the supplier's order minimum.
     def recheck_order_minimum_after_removals!
-      minimum = order.supplier.order_minimum
+      minimum = order.supplier.order_minimum(order.location)
       return unless minimum
 
       current_total = order.calculated_subtotal
