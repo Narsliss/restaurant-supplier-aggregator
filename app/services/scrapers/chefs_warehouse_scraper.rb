@@ -213,6 +213,47 @@ module Scrapers
       results
     end
 
+    # Prices for catalog SKUs (Oct 2026). The catalog import never stored a
+    # price (`current_price: nil # Prices fetched separately if needed`, since
+    # the Mar 23 API rewrite) and catalog search hides unpriced items, so 86%
+    # of CW was invisible to chefs. One /product/prices call per batch: each
+    # SKU under both business units (39% of CW is 133002), and a CS request
+    # already carries the piece price as its secondary price (verified live).
+    # Same rules as order-guide pricing (#fetch_order_guide_prices above):
+    # "Piece" pack sizes use the piece price; piece_price is kept only when it
+    # really differs. Returns { sku => { price:, piece_price:,
+    # piece_pack_size:, business_unit: } } for SKUs CW prices, unrestricted.
+    def catalog_prices(skus, pack_sizes: {})
+      return {} if skus.empty?
+
+      variants = skus.product(CW_BUSINESS_UNITS).map do |sku, unit|
+        { code: derive_variant_code(sku, unit), uom: 'CS', stocking_type: 'P', vendor_id: nil, business_unit_id: unit }
+      end
+      by_code = api_client.fetch_prices(variants).index_by { |p| p[:variant_code] }
+
+      skus.each_with_object({}) do |sku, out|
+        unit = CW_BUSINESS_UNITS.find do |u|
+          p = by_code[derive_variant_code(sku, u)]
+          p && p[:primary_price].to_f > 0 && !p[:restricted]
+        end
+        next unless unit
+
+        data = by_code[derive_variant_code(sku, unit)]
+        case_price = data[:primary_price]
+        piece_price = data[:secondary_price]
+        piece_pack = pack_sizes[sku].to_s.match?(/\bPiece\b/i)
+        main_price = piece_pack && piece_price.to_f > 0 ? piece_price : case_price
+        real_piece = piece_price.to_f > 0 && piece_price != case_price && piece_price != main_price
+
+        out[sku] = {
+          price: main_price,
+          piece_price: real_piece ? piece_price : nil,
+          piece_pack_size: real_piece ? 'PC' : nil,
+          business_unit: unit
+        }
+      end
+    end
+
     # ── Catalog ─────────────────────────────────────────────────
 
     # API-based catalog import:
