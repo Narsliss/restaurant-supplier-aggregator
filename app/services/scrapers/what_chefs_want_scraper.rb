@@ -186,6 +186,58 @@ module Scrapers
       logger.info '[WhatChefsWant] clear_cart: no active draft to clear'
     end
 
+    # ── Cart verification ────────────────────────────────────────
+
+    # Re-read the draft What Chefs Want actually holds and compare it with the
+    # order before anything is submitted. Order #388 (Oct 1 2026): the
+    # blackberries and pear purée weren't in the chef's WCW order guide, the
+    # catalog-search fallback's id didn't take in the draft, and WCW placed
+    # only the chicken ($107.90) while EnPlace showed 3 items ($170.35).
+    # Missing lines stop the whole order and name the item; a quantity
+    # difference or an extra line stops it for review. Fails CLOSED.
+    def verify_cart_matches!(expected_items)
+      draft_id = @last_wcw_draft_id
+      raise ScrapingError, 'No What Chefs Want draft to verify — nothing was submitted' unless draft_id
+
+      detail = api_client.get_draft(draft_id)&.dig('data', 'draft')
+      raise ScrapingError, "Couldn't read the What Chefs Want cart back — nothing was submitted" unless detail
+
+      lines = (detail['products'] || []).map do |p|
+        { codes: wcw_line_codes(p), quantity: p['quantity'].to_i, used: false }
+      end
+
+      missing = []
+      wrong_qty = []
+      expected_items.each do |item|
+        sku = item[:sku].to_s
+        line = lines.find { |l| !l[:used] && l[:codes].include?(sku) }
+        unless line
+          missing << { sku: sku, name: item[:name], message: wcw_missing_reason(sku) }
+          next
+        end
+
+        line[:used] = true
+        wanted = item[:quantity].to_i
+        wrong_qty << { type: 'quantity_mismatch', sku: sku, cart_qty: line[:quantity], expected_qty: wanted } if line[:quantity] != wanted
+      end
+      extra = lines.reject { |l| l[:used] }.map { |l| { type: 'extra_in_cart', sku: l[:codes].first, cart_qty: l[:quantity] } }
+
+      if missing.any?
+        discard_draft(draft_id)
+        raise ItemUnavailableError.new("What Chefs Want didn't take #{missing.size} item(s)", items: missing)
+      end
+
+      if wrong_qty.any? || extra.any?
+        discard_draft(draft_id)
+        raise CartMismatchError.new(
+          "What Chefs Want's cart doesn't match the order (#{(wrong_qty + extra).size} difference(s)) — nothing was submitted",
+          discrepancies: wrong_qty + extra
+        )
+      end
+
+      true
+    end
+
     # ── Checkout (API) ────────────────────────────────────────────
 
     def checkout(dry_run: false)
@@ -249,7 +301,13 @@ module Scrapers
         raise ScrapingError, "Order submission failed: #{errors}"
       end
 
-      confirmation_number = order['id'] || "WCW-#{Time.current.strftime('%Y%m%d%H%M%S')}"
+      # Only WCW's own order id counts — never a made-up "WCW-<timestamp>".
+      confirmation_number = order['id'].presence
+      unless confirmation_number
+        raise OrderUnconfirmedError,
+              'What Chefs Want did not return an order number, so this order may or may not have gone through. ' \
+              'Check What Chefs Want before reordering, so it is not placed twice.'
+      end
       order_total = order.dig('total', 'money')
       logger.info "[WhatChefsWant] API order placed: ##{confirmation_number}, total: #{order_total}"
 
@@ -578,6 +636,7 @@ module Scrapers
 
       # Build lookup of SKU -> multiUnitProduct ID from order guide
       mup_map = build_order_guide_mup_map
+      @off_guide_skus = []
 
       added_items = []
       failed_items = []
@@ -591,6 +650,7 @@ module Scrapers
           # Fallback: search the catalog (returns canonicalProduct ID — may not work for drafts)
           logger.warn "[WhatChefsWant] SKU #{sku} not in order guide, trying catalog search"
           mup_id = resolve_product_id_via_search(sku)
+          (@off_guide_skus ||= []) << sku
         end
 
         if mup_id
@@ -625,6 +685,32 @@ module Scrapers
       end
 
       { added: added_items.size, failed: failed_items, draft_id: @last_wcw_draft_id }
+    end
+
+    # Every item code a draft line can answer to: the line's own, its
+    # multi-unit product's, and each variant's (a guide SKU may be a variant
+    # of the multi-unit product the draft holds).
+    def wcw_line_codes(line)
+      mup = line['multiUnitProduct'] || {}
+      codes = [line['itemCode'], mup['itemCode']]
+      (mup['products'] || []).each { |v| codes << v['itemCode'] << v.dig('canonicalproduct', 'itemCode') }
+      codes.compact.map(&:to_s).reject(&:empty?).uniq
+    end
+
+    def wcw_missing_reason(sku)
+      if Array(@off_guide_skus).include?(sku)
+        "What Chefs Want didn't add it to the cart (it isn't in your What Chefs Want order guide)"
+      else
+        "What Chefs Want didn't add it to the cart"
+      end
+    end
+
+    # Leave no half-built draft behind at WCW after a failed check.
+    def discard_draft(draft_id)
+      api_client.delete_draft_items(draft_id)
+      @last_wcw_draft_id = nil
+    rescue StandardError => e
+      logger.warn "[WhatChefsWant] Could not clear draft #{draft_id} after a failed cart check: #{e.message}"
     end
 
     # Build a map of itemCode -> multiUnitProduct ID from the order guide.
