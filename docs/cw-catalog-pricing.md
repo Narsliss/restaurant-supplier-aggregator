@@ -40,6 +40,8 @@ The "separately" step was never built, and catalog search hides unpriced items (
 2. The full backfill: about 1,345 calls, **~20 minutes**.
 3. Only then add it to the nightly CW import.
 
+**Scheduled (Oct 3, after the runs passed):** nightly 5:30 AM ET for unpriced items; weekly full re-price **Wednesday** 3:30 AM ET. It was moved off Sunday, the heaviest ordering day (35 of 63 orders in 90 days, Wed 4), so a bad price would surface midweek with days to fix it.
+
 ## Caveat
 
 CW prices are account-specific. Catalog prices come from whichever login runs the job, the same as every other supplier's catalog today. The review-page price check re-prices against the ordering restaurant's own login before submit.

@@ -23,7 +23,9 @@ production:
 
   # Chef's Warehouse catalog prices: the catalog import stores none, and
   # unpriced items are hidden from search (docs/cw-catalog-pricing.md).
-  # Nightly: new items only (minutes). Weekly: re-price all (~25 min).
+  # Nightly: new items only (minutes). Weekly: re-price all (~25 min) on
+  # Wednesday — one of the quietest ordering days (90-day data: Sun 35 orders,
+  # Wed 4), leaving days to catch a bad price before Sunday's rush.
   cw_catalog_pricing_new:
     class: ChefsWarehouseCatalogPricingJob
     args: ["unpriced"]
@@ -35,8 +37,8 @@ production:
     class: ChefsWarehouseCatalogPricingJob
     args: ["all"]
     queue: scraping
-    schedule: "30 3 * * 0 America/New_York"
-    description: "Sunday 3:30 AM ET: re-price every Chef's Warehouse catalog item"
+    schedule: "30 3 * * 3 America/New_York"
+    description: "Wednesday 3:30 AM ET: re-price every Chef's Warehouse catalog item"
 
   # Re-check US Foods orders after allocation; email the chef + owner(s) if
   # US Foods shorted, substituted or dropped items (order #332).
