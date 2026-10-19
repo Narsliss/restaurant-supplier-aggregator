@@ -161,7 +161,8 @@ module Scrapers
           keep_items << {
             product_id: product_id,
             quantity: p['quantity'].to_i,
-            price: price.to_f
+            price: price.to_f,
+            source: Hash(@wcw_line_sources)[product_id.to_s]
           }
         end
       end
@@ -289,7 +290,7 @@ module Scrapers
           id: mup_id.to_s,
           quantity: p['quantity'].to_i,
           instructionText: nil,
-          sourceData: { sourcePage: 'OrderGuide', sourceLocation: 'API' },
+          sourceData: WhatChefsWantApi.source_data(Hash(@wcw_line_sources)[mup_id.to_s]),
           addedToCartAt: Time.now.to_f,
           spotPrice: nil,
           salesMargin: nil
@@ -656,6 +657,7 @@ module Scrapers
       mup_map = build_order_guide_mup_map
       @off_guide_skus = []
       @off_guide_errors = {}
+      @wcw_line_sources = {}
 
       added_items = []
       failed_items = []
@@ -681,10 +683,15 @@ module Scrapers
           logger.warn "[WhatChefsWant] SKU #{sku} (multiUnitProduct #{mup_id}) has several units — not ordering it"
           failed_items << { sku: sku, name: item[:name], error: unit_problem }
         elsif mup_id
+          # Labelled the way WCW's own site labels the line (see
+          # WhatChefsWantApi::SOURCE_*): from the guide, or from catalog search.
+          source = Array(@off_guide_skus).include?(sku) ? :catalog_search : :order_guide
+          @wcw_line_sources[mup_id.to_s] = source
           cart_items << {
             product_id: mup_id,
             quantity: item[:quantity].to_i,
-            price: item[:expected_price].to_f
+            price: item[:expected_price].to_f,
+            source: source
           }
           added_items << item
           logger.info "[WhatChefsWant] Resolved SKU #{sku} -> multiUnitProduct #{mup_id}"

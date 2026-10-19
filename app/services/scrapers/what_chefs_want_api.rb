@@ -6,6 +6,19 @@ module Scrapers
     BASE_URL = 'https://whatchefswant.cutanddry.com'
 
     attr_reader :credential, :vendor_id, :location_id, :form_id, :verified_vendor_id
+
+    # Where a cart line came from, in What Chefs Want's own words: the source
+    # labels its site sends, read from its public JS on Oct 19 2026 (page
+    # "Order Guide" / location "Order Guide"; a searched item is "Catalog" /
+    # "Catalog Search", as captured Oct 3). We used to send sourcePage
+    # "OrderGuide" and sourceLocation "API", values WCW's site never sends
+    # (Carmin: don't flag our orders as out of the ordinary).
+    SOURCE_ORDER_GUIDE = { sourcePage: 'Order Guide', sourceLocation: 'Order Guide' }.freeze
+    SOURCE_CATALOG_SEARCH = { sourcePage: 'Catalog', sourceLocation: 'Catalog Search' }.freeze
+
+    def self.source_data(source)
+      (source.to_s == 'catalog_search' ? SOURCE_CATALOG_SEARCH : SOURCE_ORDER_GUIDE).dup
+    end
     # What WCW said about the last call that failed (HTTP status or its
     # GraphQL errors), so a refusal can carry WCW's reason. nil after a clean call.
     attr_reader :last_error
@@ -317,7 +330,7 @@ module Scrapers
         {
           id: item[:product_id].to_s,
           quantity: item[:quantity].to_i,
-          sourceData: { sourcePage: 'OrderGuide', sourceLocation: 'API' },
+          sourceData: self.class.source_data(item[:source]),
           addedToCartAt: Time.now.to_f,
           truePrice: item[:price].to_f,
           originalPrice: item[:price].to_f
@@ -346,7 +359,7 @@ module Scrapers
         {
           id: item[:product_id].to_s,
           quantity: item[:quantity].to_i,
-          sourceData: { sourcePage: 'OrderGuide', sourceLocation: 'API' },
+          sourceData: self.class.source_data(item[:source]),
           addedToCartAt: Time.now.to_f,
           truePrice: item[:price].to_f,
           originalPrice: item[:price].to_f

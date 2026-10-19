@@ -152,7 +152,10 @@ module Scrapers
       uri = URI.parse("#{BASE_URL}#{encoded_path}/?expand=*&currentPageUrl=#{CGI.escape(category_path)}&tz=America%2FNew_York&t=#{Time.now.to_i}")
       req = Net::HTTP::Get.new(uri.request_uri)
       req['Accept'] = 'application/json'
-      req['User-Agent'] = 'Mozilla/5.0'
+      # The same browser ID as our other CW requests: a bare "Mozilla/5.0" is
+      # something no real browser sends (Carmin, Oct 19 2026: nothing we send
+      # should look out of the ordinary).
+      req['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
       h = Net::HTTP.new(uri.host, uri.port)
       h.use_ssl = true

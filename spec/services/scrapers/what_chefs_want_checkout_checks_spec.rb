@@ -139,6 +139,73 @@ RSpec.describe Scrapers::WhatChefsWantScraper, 'checkout checks' do
   end
 end
 
+# Carmin, Oct 19 2026: never flag our orders as out of the ordinary. Cart
+# lines carry the source labels WCW's own site sends, never "API".
+RSpec.describe Scrapers::WhatChefsWantApi, 'cart line labels' do
+  let(:supplier) { create(:supplier) }
+  let(:credential) { create(:supplier_credential, supplier: supplier) }
+  let(:api) { described_class.new(credential) }
+
+  def sent_products
+    sent = nil
+    allow(api).to receive(:graphql_request) { |_op, _query, vars| sent = vars; {} }
+    yield
+    sent[:products]
+  end
+
+  it "labels a guide item the way WCW's order guide page does, and a searched item as catalog search" do
+    products = sent_products do
+      api.create_draft('2026-10-21', [{ product_id: 'mup-1', quantity: 2, price: 9.5, source: :order_guide },
+                                      { product_id: 'hidden-2', quantity: 1, price: 4.0, source: :catalog_search }])
+    end
+
+    expect(products.map { |p| p[:sourceData] }).to eq([{ sourcePage: 'Order Guide', sourceLocation: 'Order Guide' },
+                                                       { sourcePage: 'Catalog', sourceLocation: 'Catalog Search' }])
+    expect(products.to_json).not_to include('API')
+  end
+
+  it 'uses the order guide labels when a line has no source (draft updates)' do
+    products = sent_products { api.update_draft('D1', '2026-10-21', [{ product_id: 'mup-1', quantity: 1, price: 9.5 }]) }
+
+    expect(products.first[:sourceData]).to eq(sourcePage: 'Order Guide', sourceLocation: 'Order Guide')
+  end
+end
+
+RSpec.describe Scrapers::WhatChefsWantScraper, 'cart line labels end to end' do
+  let(:supplier) { create(:supplier) }
+  let(:credential) { create(:supplier_credential, supplier: supplier) }
+  let(:scraper) { described_class.new(credential) }
+  let(:api) { instance_double(Scrapers::WhatChefsWantApi, last_error: nil) }
+
+  it 'tells the API which lines came from the guide and which from catalog search, and submits with the same labels' do
+    allow(scraper).to receive(:api_client).and_return(api)
+    allow(api).to receive(:ensure_session!)
+    allow(scraper).to receive(:build_order_guide_mup_map).and_return('18271' => 'mup-18271')
+    allow(scraper).to receive(:resolve_product_id_via_search).and_return('canonical-95839')
+    allow(api).to receive(:create_hidden_shop_product).and_return('id' => 'hidden-95839', 'products' => [{ 'unit' => 'case' }])
+    allow(api).to receive(:create_draft).and_return('data' => { 'CreateOrUpdateDraftMutation' => { 'id' => 'D1', 'itemCount' => 2 } })
+
+    scraper.add_to_cart([{ sku: '18271', name: 'Chicken', quantity: 1, expected_price: 9.0 },
+                         { sku: '95839', name: 'Pear Puree', quantity: 1, expected_price: 17.0 }])
+
+    expect(api).to have_received(:create_draft).with(nil, [hash_including(product_id: 'mup-18271', source: :order_guide),
+                                                           hash_including(product_id: 'hidden-95839', source: :catalog_search)])
+
+    allow(api).to receive(:get_draft).and_return('data' => { 'draft' => { 'id' => 'D1', 'itemCount' => 2, 'date' => '2026-10-21', 'products' => [
+      { 'id' => 'l1', 'quantity' => 1, 'multiUnitProduct' => { 'id' => 'mup-18271' } },
+      { 'id' => 'l2', 'quantity' => 1, 'multiUnitProduct' => { 'id' => 'hidden-95839' } }
+    ] } })
+    allow(api).to receive(:get_order_minimum).and_return({})
+    submitted = nil
+    allow(api).to receive(:submit_order) { |_draft, _date, products| submitted = products; { 'data' => { 'CreateNewOrderMutation' => { 'id' => '1' } } } }
+
+    scraper.checkout(dry_run: false)
+
+    expect(submitted.map { |p| p[:sourceData][:sourceLocation] }).to eq(['Order Guide', 'Catalog Search'])
+    expect(submitted.to_json).not_to include('API')
+  end
+end
+
 RSpec.describe Scrapers::WhatChefsWantApi, 'last_error' do
   let(:supplier) { create(:supplier) }
   let(:credential) { create(:supplier_credential, supplier: supplier) }
