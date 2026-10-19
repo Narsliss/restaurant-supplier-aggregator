@@ -134,23 +134,37 @@ module Scrapers
 
       # Build price lookup by SKU
       prices_by_sku = {}
+      info_by_sku = {}
       price_list.each do |p|
         sku = variant_to_sku[p['variant_pack_id']]
-        prices_by_sku[sku] = (p['price_in_micros'] || 0) / 1_000_000.0 if sku
+        next unless sku
+
+        prices_by_sku[sku] = (p['price_in_micros'] || 0) / 1_000_000.0
+        info_by_sku[sku] = p
       end
 
       product_skus.map do |sku|
         product = products_by_sku[sku]
         item = product&.dig('item') || {}
         sp = SupplierProduct.find_by(supplier: credential.supplier, supplier_sku: sku)
+        price_info = info_by_sku[sku]
 
         {
           supplier_sku: sku,
           current_price: prices_by_sku[sku],
-          in_stock: true,
+          # Same rule as the morning run: only OUT_OF_STOCK is out; no entry
+          # is unknown, never "in" (plan 3.3).
+          in_stock: ppo_in_stock(price_info),
+          stock_signal: price_info.is_a?(Hash) ? (price_info['availability_status'] || 'available') : nil,
           supplier_name: item['display_name'] || sp&.supplier_name || sku
         }
       end
+    end
+
+    # scrape_prices reads the availability list live, so the price check
+    # saves it (PriceVerificationService#save_live_stock, plan 3.3).
+    def self.reports_live_stock?
+      true
     end
 
     # ── Catalog ─────────────────────────────────────────────────

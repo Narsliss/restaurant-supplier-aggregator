@@ -1,6 +1,6 @@
 # Build plan: out of stock, all six suppliers (checkout + morning stock)
 
-**Date:** 2026-10-19 · **Status:** Step 0 and Phases 1–2 committed (not pushed); Phase 3 built and tested, not committed; 3.3, Phase 4 and Phase 5 not started. Carmin: hold the push until every phase is done, then ship once. · **Order placement:** most steps touch it. Each step states its ordering impact. Every step must fail closed and submit nothing on doubt.
+**Date:** 2026-10-19 · **Status:** Step 0 and Phases 1–3 committed (not pushed); 3.3 built and tested, not committed (`fix-price-check-live-stock.md`); Phase 4 and Phase 5 not started. Carmin: hold the push until every phase is done, then ship once. · **Order placement:** most steps touch it. Each step states its ordering impact. Every step must fail closed and submit nothing on doubt.
 
 Sources (same worktree): `docs/fix-cw-out-of-stock-message.md` (order 483 and the checkout audit A/B/C) and `docs/morning-jobs-audit.md` (morning jobs, live probes §9).
 
@@ -160,7 +160,7 @@ CW's `validationMessages` become named failed items. An all-missing cart mismatc
   - What Chefs Want: `unavailable`.
   - Sysco: `stockIndicator`.
   - Premiere Produce: when PPO reports one.
-- **Carmin decides:** warn (like US Foods) or block, per supplier.
+- **Carmin decided (Oct 19): block** for all five. Place stays off until the item is removed, on desktop and the phone. The phone blocks only on today's readings. **Built**, see `fix-price-check-live-stock.md`.
 
 ---
 

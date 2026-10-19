@@ -78,12 +78,13 @@
         </div>
 
         <% r[:items].each do |item| %>
-          <%# Warn-only "out" from the live price check (US Foods, Oct 2026).
-              Blocking states aren't shown on mobile yet: cached flags are
-              stale for several suppliers (plan Phase 3) and mobile never
-              gated on them. %>
+          <%# "Out" from today's reading (the price check or the morning run).
+              US Foods warns (D1); the other five block Place until it's
+              removed (plan 3.3, Oct 19). Older flags are stale for several
+              suppliers and show nothing here. %>
           <% stock_warn = order_item_stock_state(order, item) == :warn %>
-          <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-50 last:border-0 <%= 'bg-amber-50' if stock_warn %>" <%= 'data-stock-warning=true' if stock_warn %>>
+          <% stock_block = order_item_blocks_today?(order, item) %>
+          <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-50 last:border-0 <%= 'bg-amber-50' if stock_warn %><%= 'bg-red-50' if stock_block %>" <%= 'data-stock-warning=true' if stock_warn %> <%= 'data-stock-blocking=true' if stock_block %>>
             <div class="flex-1 min-w-0">
               <p class="text-[15px] font-bold text-brand-navy truncate"><%= item.supplier_name %></p>
               <p class="text-[11px] text-gray-400">
@@ -92,6 +93,11 @@
               <% if stock_warn %>
                 <p class="mt-0.5 text-[11px] font-bold text-amber-800 leading-snug">
                   Out of stock at <%= r[:supplier].name %> right now. Remove it with −, or place it and they'll send what they can — you'll get an email if it's shorted.
+                </p>
+              <% end %>
+              <% if stock_block %>
+                <p class="mt-0.5 text-[11px] font-bold text-red-600 leading-snug">
+                  Out of stock at <%= r[:supplier].name %> right now, so they won't take it. Tap − until it's gone to place this order.
                 </p>
               <% end %>
             </div>
@@ -136,6 +142,7 @@
             <span class="text-sm font-extrabold text-green-700">💰 <%= number_to_currency(@summary[:total_savings]) %></span>
           </div>
         <% end %>
+        <% stock_blocked = @review_orders.any? { |r| r[:items].any? { |i| order_item_blocks_today?(r[:order], i) } } %>
         <%= form_with(url: submit_batch_orders_path, method: :post) do %>
           <input type="hidden" name="batch_id" value="<%= @batch_id %>">
           <% if @aggregated_list_id %><input type="hidden" name="aggregated_list_id" value="<%= @aggregated_list_id %>"><% end %>
@@ -143,11 +150,17 @@
           <button type="submit"
                   data-mobile-review-target="placeButton"
                   data-minimums-met="<%= @summary[:all_minimums_met] %>"
+                  data-stock-blocked="<%= stock_blocked %>"
                   data-action="mobile-review#place"
-                  <%= "disabled" if @verifying || !@summary[:all_minimums_met] || dates_missing %>
+                  <%= "disabled" if @verifying || !@summary[:all_minimums_met] || dates_missing || stock_blocked %>
                   class="w-full bg-brand-green active:bg-brand-green-dark disabled:opacity-40 text-white font-heading font-semibold tracking-wide text-lg rounded-xl py-3.5">
             Place <%= @summary[:order_count] == 1 ? "Order" : "#{@summary[:order_count]} Orders" %>
           </button>
+        <% end %>
+        <% if stock_blocked %>
+          <p class="text-[11px] text-red-600 font-semibold text-center mt-2" data-stock-blocked-note>
+            Remove the items marked out of stock to place.
+          </p>
         <% end %>
         <% unless @summary[:all_minimums_met] %>
           <p class="text-[11px] text-red-600 font-semibold text-center mt-2">

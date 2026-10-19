@@ -61,7 +61,9 @@ export default class extends Controller {
     if (!this.hasPlaceButtonTarget) return
     const missing = this.dateButtonTargets.some(btn => !btn.dataset.date)
     const blockedByMinimum = this.placeButtonTarget.dataset.minimumsMet !== "true"
-    this.placeButtonTarget.disabled = missing || blockedByMinimum
+    // An item out of stock today keeps Place off until it's removed (plan 3.3)
+    const blockedByStock = this.placeButtonTarget.dataset.stockBlocked === "true"
+    this.placeButtonTarget.disabled = missing || blockedByMinimum || blockedByStock
   }
 
   place(event) {

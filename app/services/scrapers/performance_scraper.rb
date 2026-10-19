@@ -215,7 +215,9 @@ module Scrapers
         results << {
           supplier_sku: sku,
           current_price: case_price_for(product, prices),
-          in_stock: !product['IsOutOfStock'],
+          # Same rule as the morning run; absent = unknown (plan 3.3).
+          in_stock: product.key?('IsOutOfStock') ? !product['IsOutOfStock'] : nil,
+          stock_signal: product.key?('IsOutOfStock') ? "IsOutOfStock:#{product['IsOutOfStock']}" : nil,
           supplier_name: product_display_name(product),
           pack_size: product_pack_size(product)
         }
@@ -223,6 +225,12 @@ module Scrapers
         logger.warn "[Performance] scrape_prices: lookup failed for #{sku}: #{e.message}"
       end
       results
+    end
+
+    # scrape_prices reads IsOutOfStock live, so the price check saves it
+    # (PriceVerificationService#save_live_stock, plan 3.3).
+    def self.reports_live_stock?
+      true
     end
 
     # Pre-order validation hooks (read-only). PFG carries the order minimum and

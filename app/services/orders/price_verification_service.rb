@@ -138,6 +138,7 @@ module Orders
           # Raw: true / false / nil (unknown) — only trusted from scrapers
           # that report live stock (see save_live_stock).
           live_in_stock: result[:in_stock],
+          stock_signal: result[:stock_signal],
           name: result[:supplier_name]
         }
       end
@@ -215,18 +216,16 @@ module Orders
     end
 
     # The price check is the last read of the supplier before the chef places
-    # the order, so for a scraper that reports live stock (US Foods, Oct 2026)
-    # save it both ways, even when the price didn't change. The review page
-    # warns from it (Carmin, Oct 19: the chef should see "out" at the price
-    # check and remove it). nil (unknown) changes nothing. Stock is
-    # warehouse-wide, so the shared product row is the right place.
+    # the order, so for a scraper that reports live stock (US Foods, Oct 2026;
+    # all six suppliers since plan 3.3) save it both ways, even when the price
+    # didn't change. The review page flags it (Carmin, Oct 19: the chef should
+    # see "out" at the price check and remove it). nil (unknown) changes
+    # nothing. Stock is warehouse-wide, so the shared product row is the
+    # right place.
     def save_live_stock(supplier_product, verified)
       return unless @live_stock && supplier_product && verified
 
-      live = verified[:live_in_stock]
-      return if live.nil? || live == supplier_product.in_stock
-
-      supplier_product.update!(in_stock: live, last_scraped_at: Time.current)
+      supplier_product.record_live_stock!(verified[:live_in_stock], signal: verified[:stock_signal])
     end
 
     # update_price! writes in_stock too. For live-stock scrapers keep the

@@ -74,14 +74,36 @@ class SupplierProduct < ApplicationRecord
     price_changed? && current_price < previous_price
   end
 
+  # in_stock: nil means the supplier didn't say. Keep what we know. Writing
+  # nil would read as out of stock (out_of_stock? is !in_stock), and since
+  # Oct 2026 scrapers return nil for "can't tell" (plan Phase 3 / 3.3).
   def update_price!(new_price, in_stock: true)
     update!(
       previous_price: current_price,
       current_price: new_price,
-      in_stock: in_stock,
+      in_stock: in_stock.nil? ? self.in_stock : in_stock,
       price_updated_at: Time.current,
       last_scraped_at: Time.current
     )
+  end
+
+  # A live stock reading from the price check (plan 3.3): the last read of
+  # the supplier before the chef places the order. Saved both ways, and the
+  # reading is recorded as evidence even when nothing changed, so the review
+  # page and the morning report can tell a fresh "out" from a stale flag.
+  # nil (the supplier didn't say) changes nothing.
+  def record_live_stock!(live, signal: nil, source: 'price_check')
+    return if live.nil?
+
+    attrs = {}
+    attrs[:in_stock] = live unless live == in_stock
+    if self.class.stock_evidence?
+      attrs.merge!(stock_signal: signal.to_s.truncate(255).presence, stock_checked_at: Time.current, stock_source: source)
+    end
+    return if attrs.empty?
+
+    attrs[:last_scraped_at] = Time.current if attrs.key?(:in_stock)
+    update!(attrs)
   end
 
   def stale?

@@ -522,6 +522,7 @@ module Scrapers
       # Each SKU is priced under its own seller (third-party items return no
       # price under the account's seller — see price_with_sellers).
       results = []
+      live_stock = live_stock_for(product_skus)
       price_with_sellers(product_skus)[:prices].each_value do |pp|
         product_id = pp['productId'].to_s
         case_price_info = pp.dig('priceInfoV2', 'case') || {}
@@ -539,13 +540,21 @@ module Scrapers
           # total or a per-pound rate; without the hint OrderItem falls back
           # to the stored unit and a catch-weight quote reads as a case price.
           price_unit: price_unit_for(pp, case_price_info, each_price_info),
-          in_stock: true, # If the API returns a price, it's available
+          # A price says nothing about stock; the search does (nil = unknown).
+          in_stock: live_stock.dig(product_id, 0),
+          stock_signal: live_stock.dig(product_id, 1),
           supplier_name: pp.dig('productInfo', 'name') || product_id
         }
       end
 
       logger.info "[Sysco] Got live prices for #{results.size}/#{product_skus.size} SKUs"
       results
+    end
+
+    # scrape_prices reads stockIndicator live, so the price check saves it
+    # (PriceVerificationService#save_live_stock, plan 3.3).
+    def self.reports_live_stock?
+      true
     end
 
     # Add items to a Sysco draft order via GraphQL API.
@@ -2937,6 +2946,35 @@ module Scrapers
       raw.strip.presence
     end
 
+    # [in_stock, stock_signal] for one SearchProducts result. 'O' = out; S
+    # stocked, D demand (special order), R/N remote are all orderable (probe
+    # Oct 19 2026: no 'O' among 100 in-use items, every S/D/R/N orderable).
+    # Phased out or not orderable = out. Shared by the morning run and the
+    # price check so both read stock the same way.
+    def sysco_stock(result)
+      info = result['productInfo'] || {}
+      raw_indicator = result.dig('availableStockInfo', 'stockIndicator')
+      is_orderable = info['isOrderable'] != false && info['isShopOrderable'] != false
+      in_stock = (raw_indicator || 'S') != 'O' && !info['isPhasedOut'] && is_orderable
+      [in_stock, "#{raw_indicator.inspect} #{info['stockType']} orderable:#{is_orderable} phased_out:#{info['isPhasedOut'].inspect}"]
+    end
+
+    # Live stock for the price check (plan 3.3): the Prices query carries no
+    # stock, so read it from the same batched catalog search seller discovery
+    # uses (item numbers, 20 per call). A SKU the search doesn't return, or a
+    # failed search, is unknown — never "in", never "out".
+    def live_stock_for(skus)
+      skus.each_slice(SELLER_LOOKUP_BATCH_SIZE).each_with_object({}) do |batch, out|
+        results = graphql_search_products(batch.join(' '), start: 0, num: batch.size + 10)&.dig('results') || []
+        results.each do |r|
+          sku = r['productId'].to_s
+          out[sku] = sysco_stock(r) if batch.include?(sku)
+        end
+      rescue StandardError => e
+        logger.warn "[Sysco] Live stock read for #{batch.size} SKU(s) failed: #{e.class}: #{e.message}"
+      end
+    end
+
     def parse_search_result(result, price_map)
       product_id = result['productId'].to_s
       return nil if product_id.blank?
@@ -2952,14 +2990,7 @@ module Scrapers
       pack_size_info = info['packSize'] || {}
       pack_size = build_pack_size(pack_size_info)
 
-      raw_indicator = result.dig('availableStockInfo', 'stockIndicator')
-      stock_indicator = raw_indicator || 'S'
-      is_orderable = info['isOrderable'] != false && info['isShopOrderable'] != false
-      # 'O' = out; S stocked, D demand (special order), R/N remote are all
-      # orderable (probe Oct 19 2026: no 'O' among 100 in-use items, every
-      # S/D/R/N orderable). Phased out or not orderable = out.
-      in_stock = stock_indicator != 'O' && !info['isPhasedOut'] && is_orderable
-      stock_signal = "#{raw_indicator.inspect} #{info['stockType']} orderable:#{is_orderable} phased_out:#{info['isPhasedOut'].inspect}"
+      in_stock, stock_signal = sysco_stock(result)
 
       # Determine split/unit info
       sold_as = info['isSoldAs'] || {}

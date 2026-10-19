@@ -202,15 +202,33 @@ module Scrapers
           current_price = piece_price if piece_price.present? && piece_price > 0
         end
 
+        stock_count = guide_stock_counts[sku]
         results << {
           supplier_sku: sku,
           current_price: current_price,
-          in_stock: true,
+          in_stock: stock_count.is_a?(Numeric) ? stock_count.positive? : nil,
+          stock_signal: stock_count&.to_s,
           supplier_name: sp&.supplier_name || sp&.product&.name || sku
         }
       end
 
       results
+    end
+
+    # The price check is the last read before the chef places the order
+    # (plan 3.3, Oct 2026). CW has no stock lookup by item number; its order
+    # guides, including "Recently Purchased" (-1), carry each item's live
+    # warehouse count. An item on no guide reads as unknown (nil). A failed
+    # read never fails the price check — stock is unknown, prices still stand.
+    def self.reports_live_stock?
+      true
+    end
+
+    def guide_stock_counts
+      @guide_stock_counts ||= load_order_guide_items.transform_values { |item| item[:stock_count] }
+    rescue StandardError => e
+      logger.warn "[ChefsWarehouse] Live stock read from the order guides failed: #{e.class}: #{e.message}"
+      @guide_stock_counts = {}
     end
 
     # Prices for catalog SKUs (Oct 2026). The catalog import never stored a

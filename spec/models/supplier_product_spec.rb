@@ -62,4 +62,47 @@ RSpec.describe SupplierProduct, type: :model do
       expect(build(:supplier_product, price_unit: nil).priced_per_weight?).to be false
     end
   end
+
+  # Regression (Oct 2026, caught before deploy): scrapers now return nil for
+  # "can't tell", and update_price! used to write it, which reads as out of
+  # stock (out_of_stock? is !in_stock). VerifyItemPriceJob, ScrapeSupplierJob
+  # and QuickPriceUpdateService all pass the scraper's value straight in.
+  describe '#update_price!' do
+    it 'keeps the stock flag when the supplier did not say (nil)' do
+      sp = create(:supplier_product, current_price: 10.0, in_stock: false)
+      sp.update_price!(11.0, in_stock: nil)
+      expect(sp.reload).to have_attributes(current_price: 11.0, in_stock: false)
+
+      sp.update!(in_stock: true)
+      sp.update_price!(12.0, in_stock: nil)
+      expect(sp.reload.in_stock).to be(true)
+    end
+
+    it 'still writes a definite answer' do
+      sp = create(:supplier_product, current_price: 10.0, in_stock: true)
+      sp.update_price!(11.0, in_stock: false)
+      expect(sp.reload.in_stock).to be(false)
+    end
+  end
+
+  describe '#record_live_stock!' do
+    let(:sp) { create(:supplier_product, in_stock: true) }
+
+    it 'saves a live "out" and the reading' do
+      sp.record_live_stock!(false, signal: '0.0')
+      expect(sp.reload).to have_attributes(in_stock: false, stock_signal: '0.0', stock_source: 'price_check')
+      expect(sp.stock_checked_at).to be_within(1.minute).of(Time.current)
+    end
+
+    it 'records the reading even when the flag is unchanged' do
+      sp.record_live_stock!(true, signal: '8.0')
+      expect(sp.reload).to have_attributes(in_stock: true, stock_signal: '8.0')
+      expect(sp.stock_checked_at).to be_present
+    end
+
+    it 'changes nothing on nil' do
+      sp.record_live_stock!(nil, signal: 'whatever')
+      expect(sp.reload).to have_attributes(in_stock: true, stock_signal: nil, stock_checked_at: nil)
+    end
+  end
 end

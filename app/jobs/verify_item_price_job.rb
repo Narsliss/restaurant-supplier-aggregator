@@ -41,6 +41,13 @@ class VerifyItemPriceJob < ApplicationJob
     end
     result = results&.first
 
+    # Items added after the price check get the same live stock reading
+    # (plan 3.3). nil (unknown) changes nothing.
+    klass = supplier.scraper_klass
+    if result && klass.respond_to?(:reports_live_stock?) && klass.reports_live_stock?
+      item.supplier_product&.record_live_stock!(result[:in_stock], signal: result[:stock_signal])
+    end
+
     if result && result[:current_price]
       # Catch-weight items verify per-LB — convert to the line's case basis
       # before storing, or the review page reports a phantom price drop.

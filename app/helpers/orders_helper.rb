@@ -68,6 +68,17 @@ module OrdersHelper
     order_supplier_warns_only?(order) ? :warn : :block
   end
 
+  # Phone review (plan 3.3; Carmin, Oct 19: block). Place stays off for an
+  # item the supplier said is out TODAY, at the price check or in the morning
+  # run. Older "out" flags are stale for several suppliers; the phone never
+  # blocked on them and still doesn't. Desktop blocks on any :block item.
+  def order_item_blocks_today?(order, item)
+    return false unless order_item_stock_state(order, item) == :block
+
+    checked = item.supplier_product&.try(:stock_checked_at)
+    checked.present? && checked >= Time.current.beginning_of_day
+  end
+
   def order_supplier_warns_only?(order)
     return false if order.supplier&.scraper_class.blank? # email suppliers
 

@@ -221,9 +221,10 @@ RSpec.describe Orders::PriceVerificationService, type: :service do
     let!(:credential) { create(:supplier_credential, user: user, supplier: supplier, status: 'active') }
     before { supplier_product.update!(price_updated_at: 2.hours.ago) }
 
-    def scrape(in_stock)
+    def scrape(in_stock, signal: nil)
       allow(fake_scraper).to receive(:scrape_prices).and_return([
-        { supplier_sku: supplier_product.supplier_sku, current_price: 10.00, in_stock: in_stock, supplier_name: 'Foo' }
+        { supplier_sku: supplier_product.supplier_sku, current_price: 10.00, in_stock: in_stock,
+          stock_signal: signal, supplier_name: 'Foo' }
       ])
     end
 
@@ -253,7 +254,18 @@ RSpec.describe Orders::PriceVerificationService, type: :service do
 
         described_class.new(order).verify!
 
-        expect(supplier_product.reload.in_stock).to be(false)
+        expect(supplier_product.reload).to have_attributes(in_stock: false, stock_checked_at: nil)
+      end
+
+      # Plan 3.3: the reading is recorded even when the flag didn't change,
+      # so a fresh "out" can be told from a stale one.
+      it 'records the reading as evidence, even when nothing changed' do
+        scrape(true, signal: '12.0')
+
+        described_class.new(order).verify!
+
+        expect(supplier_product.reload).to have_attributes(in_stock: true, stock_signal: '12.0', stock_source: 'price_check')
+        expect(supplier_product.stock_checked_at).to be_within(1.minute).of(Time.current)
       end
 
       it 'keeps a live "out" when the price also changed' do

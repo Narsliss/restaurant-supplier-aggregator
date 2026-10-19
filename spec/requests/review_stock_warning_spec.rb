@@ -79,9 +79,33 @@ RSpec.describe "Review page out-of-stock warning", type: :request do
       expect(response.body).not_to include("may be shorted")
     end
 
-    it "shows no mobile notice yet (stale cached flags, plan Phase 3)" do
+    # Plan 3.3 (Carmin, Oct 19: block). The phone blocks only on today's
+    # readings; an old flag with no reading today stays quiet, as before.
+    it "shows nothing on mobile for an old flag with no reading today" do
+      cheese.update!(stock_checked_at: 1.day.ago)
+
       get review_orders_path(batch_id: batch_id), headers: MOBILE
 
+      expect(response.body).not_to include("Out of stock at")
+      expect(response.body).to include('data-stock-blocked="false"')
+    end
+
+    it "blocks Place on mobile when the supplier said it is out today, and says how to fix it" do
+      cheese.update!(stock_checked_at: 10.minutes.ago, stock_source: "price_check")
+
+      get review_orders_path(batch_id: batch_id), headers: MOBILE
+
+      expect(response.body).to include("Out of stock at Chef&#39;s Warehouse right now, so they won't take it")
+      expect(response.body).to include("data-stock-blocking=true", 'data-stock-blocked="true"')
+      expect(response.body).to include("Remove the items marked out of stock to place.")
+    end
+
+    it "lets Place go once the item is in stock again" do
+      cheese.update!(in_stock: true, stock_checked_at: 10.minutes.ago)
+
+      get review_orders_path(batch_id: batch_id), headers: MOBILE
+
+      expect(response.body).to include('data-stock-blocked="false"')
       expect(response.body).not_to include("Out of stock at")
     end
   end

@@ -104,7 +104,10 @@ module Scrapers
         results << {
           supplier_sku: sku.to_s,
           current_price: price&.to_f,
-          in_stock: !item['unavailable'],
+          # Same rule as the morning run: `unavailable`, never the
+          # date-dependent isOutOfStock; absent = unknown (plan 3.3).
+          in_stock: item.key?('unavailable') ? item['unavailable'] != true : nil,
+          stock_signal: item.key?('unavailable') ? "unavailable:#{item['unavailable']}" : nil,
           supplier_name: [item['description'] || item['nameWithoutBrand'], item['brandName']].compact.join(' ').truncate(255),
           pack_size: item['packSize'].to_s.presence
         }
@@ -354,6 +357,12 @@ module Scrapers
     # A browse crawl can miss search-only items; never let its gaps
     # discontinue products (ImportSupplierProductsService#import_catalog).
     def skip_miss_tracking?
+      true
+    end
+
+    # scrape_prices reads `unavailable` live, so the price check saves it
+    # (PriceVerificationService#save_live_stock, plan 3.3).
+    def self.reports_live_stock?
       true
     end
 
