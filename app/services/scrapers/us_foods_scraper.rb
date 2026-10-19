@@ -183,10 +183,29 @@ module Scrapers
           current_price: current_price,
           price_unit: price_unit,
           catch_weight: price&.dig(:catch_weight),
-          in_stock: product.present?,
+          # Live warehouse stock (was product.present?, so a failed lookup
+          # read as "out"). nil = can't tell; the price check leaves it alone.
+          in_stock: usf_live_in_stock(product, uom_by_number[pn]),
           supplier_name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - ')
         }
       end
+    end
+
+    # US Foods' live stock from the products call's inventory block (probed
+    # Oct 19 2026: casesOnHand / casesOnReserve / casesWaitlistReserve and the
+    # each counts, updated within the hour, division-wide). true / false, or
+    # nil when we can't tell: no product, no inventory block, or not a regular
+    # warehouse item (productType other than "R").
+    def usf_live_in_stock(product, uom)
+      inventory = product.is_a?(Hash) ? product['inventory'] : nil
+      return nil unless inventory.is_a?(Hash) && inventory['productType'].to_s == 'R'
+
+      available = if uom.to_s.strip.upcase == 'PC'
+                    inventory['eachOnHand'].to_i - inventory['eachOnReserve'].to_i - inventory['eachWaitListReserve'].to_i
+                  else
+                    inventory['casesOnHand'].to_i - inventory['casesOnReserve'].to_i - inventory['casesWaitlistReserve'].to_i
+                  end
+      available.positive?
     end
 
     # ── Catalog ─────────────────────────────────────────────────
@@ -1171,6 +1190,22 @@ module Scrapers
     # 4. Repeat for each item
 
     def add_to_cart(items, delivery_date: nil)
+      # Piece lines would go out as CASES: add_items_to_order sends
+      # eachesOrdered 0 / unitsOrdered qty and ignores uom. No USF order has
+      # used PC (180 days to Oct 19 2026) and no USF product has a piece
+      # price, so stop the order — before touching US Foods — rather than
+      # ship 3 cases for 3 pieces.
+      pieces = items.select { |i| i[:uom].to_s.strip.upcase == 'PC' }
+      if pieces.any?
+        return {
+          added: 0,
+          failed: pieces.map do |i|
+            { sku: i[:sku], name: i[:name],
+              error: "US Foods piece ordering isn't set up in EnPlace yet — order it by the case" }
+          end
+        }
+      end
+
       api_client.ensure_session!
 
       delivery_date_str = if delivery_date
@@ -1203,10 +1238,11 @@ module Scrapers
         }
       end
 
-      # Add items via API
+      # Add items via API. nil = US Foods did not take the update (we no
+      # longer fall back to our own copy of the order).
       result = api_client.add_items_to_order(order, enriched_items)
       unless result
-        raise ScrapingError, 'Failed to add items to US Foods order'
+        raise ScrapingError, "US Foods didn't accept the cart update, so nothing was ordered. Try again."
       end
 
       @last_usf_order = result
@@ -2154,6 +2190,11 @@ module Scrapers
 
       raise ScrapingError, 'No active order found — add items first' unless order
       raise ScrapingError, "Unexpected order format: #{order.class} — expected Hash" unless order.is_a?(Hash)
+      # Only ever submit the open cart. A non-IN_PROGRESS order would go to
+      # /updateSubmittedOrder and edit an order already placed.
+      unless order['orderStatus'] == 'IN_PROGRESS'
+        raise ScrapingError, "The US Foods order isn't an open cart (status #{order['orderStatus'].inspect}), so nothing was submitted."
+      end
 
       order_items = order['orderItems'] || []
       item_count = order_items.size
@@ -2163,6 +2204,22 @@ module Scrapers
       # Fetch prices for all items to calculate total
       product_numbers = order_items.map { |oi| oi['productNumber'] }
       prices = api_client.fetch_prices(product_numbers)
+      raise ScrapingError, "Couldn't get US Foods prices, so nothing was ordered. Try again." if prices.blank?
+
+      # A line US Foods prices with an error (discontinued, gone, another
+      # customer's item) used to count as $0 and go out anyway. Stop and name
+      # it — before the dry-run return, so dev and prod take the same path.
+      refused = order_items.filter_map do |oi|
+        reason = usf_line_refusal(prices[oi['productNumber'].to_i])
+        next unless reason
+
+        { sku: oi['productNumber'].to_i.to_s, name: expected_item_name(oi['productNumber']), message: reason }
+      end
+      if refused.any?
+        discard_cart_after_stop
+        raise ItemUnavailableError.new("US Foods can't supply #{refused.size} item(s)", items: refused)
+      end
+
       subtotal = order_items.sum do |oi|
         price_data = prices[oi['productNumber'].to_i]
         unit_price = price_data.is_a?(Hash) ? (price_data[:case_price] || 0) : price_data.to_f
@@ -2199,17 +2256,22 @@ module Scrapers
 
       # LIVE ORDER — submit via order-submission-domain-api
       logger.warn '[UsFoods] API PLACING LIVE ORDER via submission API'
-      result = api_client.submit_order(order)
-
-      unless result.is_a?(Hash)
-        raise ScrapingError, "Order submission failed — unexpected response: #{result.class}"
+      result = begin
+        api_client.submit_order(order)
+      rescue StandardError => e
+        # A timeout here may still have placed the order — confirm below.
+        logger.error "[UsFoods] submitIpOrder raised #{e.class}: #{e.message}"
+        nil
       end
+      logger.info "[UsFoods] submitIpOrder response: #{result.inspect[0, 500]}"
 
-      # The submission API returns the real order number in tandemOrderNumber
-      confirmation = result['tandemOrderNumber']&.to_s.presence ||
-                     result['orderId'] ||
-                     order['orderId']
-      submitted_status = result['orderStatus']
+      # A real submit answers with OUR orderId and a status past IN_PROGRESS
+      # (order 482, Oct 19 2026: status SUBMITTING, no tandem number yet — US
+      # Foods assigns it later and re-files the order). Anything else — no
+      # answer, a timeout, still IN_PROGRESS — is settled by reading the order
+      # back, never by assuming. Until Oct 2026 any Hash counted as placed.
+      confirmation = usf_submit_confirmation(result, order) || confirm_unacknowledged_submit!(order)
+      submitted_status = result.is_a?(Hash) ? result['orderStatus'] : nil
       logger.info "[UsFoods] API order submitted: confirmation=#{confirmation}, status=#{submitted_status}"
 
       {
@@ -2238,13 +2300,64 @@ module Scrapers
           items = order['orderItems'] || []
           if items.any?
             logger.info "[UsFoods] Clearing #{items.size} items from order #{order['orderId']}"
-            api_client.clear_order(order)
+            cleared = api_client.clear_order(order)
+            # Fail closed: a clear that didn't take used to be ignored, and
+            # add_to_cart then appended our lines to the leftovers.
+            if cleared.nil? || Array(cleared['orderItems']).any?
+              raise ScrapingError, "US Foods' cart could not be emptied (order #{order['orderId']}), so nothing was ordered. Try again."
+            end
           end
         end
+      else
+        raise ScrapingError, "Couldn't read the US Foods cart, so nothing was ordered. Try again."
       end
 
       @last_usf_order = nil
       logger.info '[UsFoods] API cart cleared'
+    end
+
+    # Line check before submit (Oct 2026). US Foods used to have none, so a
+    # line it dropped or changed was submitted short. Re-read the order from
+    # US Foods and compare every line with ours; on any difference empty the
+    # cart and stop (CartMismatchError — OrderPlacementService names missing
+    # items). On success, checkout submits US Foods' own copy.
+    def verify_cart_matches!(expected_items)
+      api_client.ensure_session!
+      order_id = @last_usf_order&.dig('orderId')
+      fresh = order_id && open_order(order_id)
+      unless fresh
+        discard_cart_after_stop
+        raise ScrapingError, "Couldn't read the US Foods order back to check it, so nothing was submitted. Try again."
+      end
+
+      discrepancies = usf_cart_discrepancies(fresh, expected_items)
+      if discrepancies.any?
+        logger.error "[UsFoods] Order #{order_id} does not match — NOT submitting: #{discrepancies.inspect}"
+        discard_cart_after_stop
+        raise CartMismatchError.new(
+          "US Foods order does not match (#{discrepancies.size} difference(s)): #{discrepancies.inspect}",
+          discrepancies: discrepancies
+        )
+      end
+
+      @expected_cart_items = expected_items
+      @last_usf_order = fresh
+      true
+    end
+
+    # verify_cart_matches! makes confirms_lines_before_submit? true, which
+    # turns OFF the cached stock check at pre-validation: our stale "out"
+    # flag no longer stops a US Foods order at submit. Carmin, Oct 19 2026
+    # (D1): an item US Foods shows out of stock is WARNED at the price check
+    # (it reads live stock — scrape_prices); if the chef submits anyway, US
+    # Foods fills or shorts it and the exception email reports it. Only
+    # discontinued items stop the order (checkout's price-error check).
+    def self.reports_live_stock?
+      true
+    end
+
+    def self.warn_only_out_of_stock?
+      true
     end
 
     def checkout_BROWSER(dry_run: false)
@@ -2746,6 +2859,123 @@ module Scrapers
     end
 
     private
+
+    # ── Order placement checks (Oct 2026) ─────────────────────────
+
+    # US Foods' current copy of one of our open (IN_PROGRESS) orders, or nil.
+    def open_order(order_id)
+      orders = api_client.get_orders
+      orders = [orders] if orders.is_a?(Hash)
+      return nil unless orders.is_a?(Array)
+
+      orders.find { |o| o.is_a?(Hash) && o['orderId'] == order_id && o['orderStatus'] == 'IN_PROGRESS' }
+    end
+
+    # Compare US Foods' order lines with ours by product number. We always
+    # order cases (piece lines are refused in add_to_cart), so a line carrying
+    # eaches is a unit change. Discrepancy shapes match the other suppliers so
+    # OrderPlacementService words them the same way.
+    def usf_cart_discrepancies(usf_order, expected_items)
+      cart = Hash.new { |h, k| h[k] = { units: 0, eaches: 0 } }
+      Array(usf_order['orderItems']).each do |line|
+        next unless line.is_a?(Hash)
+        next if line['tandemDeleted'] == true
+
+        units = line['unitsOrdered'].to_i
+        eaches = line['eachesOrdered'].to_i
+        next if units.zero? && eaches.zero?
+
+        pn = line['productNumber'].to_i.to_s
+        cart[pn][:units] += units
+        cart[pn][:eaches] += eaches
+      end
+
+      expected = Hash.new(0)
+      expected_items.each { |i| expected[i[:sku].to_i.to_s] += i[:quantity].to_i }
+
+      discrepancies = []
+      (cart.keys - expected.keys).sort.each do |pn|
+        discrepancies << { type: 'extra_in_cart', sku: pn, cart_qty: cart[pn][:units] + cart[pn][:eaches] }
+      end
+      (expected.keys - cart.keys).sort.each do |pn|
+        discrepancies << { type: 'missing_from_cart', sku: pn, expected_qty: expected[pn] }
+      end
+      (cart.keys & expected.keys).sort.each do |pn|
+        if cart[pn][:eaches].positive?
+          discrepancies << { type: 'uom_mismatch', sku: pn, cart_uom: :piece, expected_uom: :case }
+        elsif cart[pn][:units] != expected[pn]
+          discrepancies << { type: 'quantity_mismatch', sku: pn, cart_qty: cart[pn][:units], expected_qty: expected[pn] }
+        end
+      end
+      discrepancies
+    end
+
+    # The order is stopping, so nothing in US Foods' cart will be submitted.
+    # Empty it. Best effort: the next attempt's clear_cart fails closed.
+    def discard_cart_after_stop
+      clear_cart
+    rescue StandardError => e
+      logger.warn "[UsFoods] Could not empty the cart after stopping the order: #{e.message}"
+    end
+
+    # Why US Foods won't supply a priced line, or nil when the price is real.
+    # price: one entry of UsFoodsApi#fetch_prices (nil = US Foods returned none).
+    def usf_line_refusal(price)
+      return 'US Foods returned no price for this item' if price.nil?
+
+      case price[:error_number].to_i
+      when 0 then nil
+      when 1102 then "US Foods doesn't carry this item anymore"
+      when 1104 then 'US Foods has discontinued this item'
+      when 1106 then 'This item is reserved for another US Foods customer'
+      else "US Foods can't price this item right now (error #{price[:error_number]})"
+      end
+    end
+
+    # Our name for a US Foods product number (from the order being placed).
+    def expected_item_name(product_number)
+      pn = product_number.to_i.to_s
+      Array(@expected_cart_items).find { |i| i[:sku].to_i.to_s == pn }&.dig(:name)
+    end
+
+    # Confirmation for a submit US Foods answered: our order, moved past the
+    # cart. tandemOrderNumber when US Foods already gave one, else its orderId
+    # (what every live USF order has carried; the tandem number comes later).
+    def usf_submit_confirmation(result, order)
+      return nil unless result.is_a?(Hash) && result['orderId'] == order['orderId']
+      return nil if %w[IN_PROGRESS DELETED CANCELLED].include?(result['orderStatus'].to_s) || result['orderStatus'].blank?
+
+      tandem = result['tandemOrderNumber'].to_s.strip
+      tandem.present? && tandem.to_i != 0 ? tandem : result['orderId']
+    end
+
+    # Submit gave no usable answer. Decide from US Foods' own records whether
+    # it was placed — read-only, never resubmits.
+    def confirm_unacknowledged_submit!(order)
+      order_id = order['orderId']
+      still_open = begin
+        open_order(order_id)
+      rescue StandardError
+        nil
+      end
+      if still_open && Array(still_open['orderItems']).any?
+        raise ScrapingError, 'US Foods did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again.'
+      end
+
+      placed = begin
+        fetch_submitted_order(order_id)
+      rescue StandardError
+        nil
+      end
+      if placed && !%w[IN_PROGRESS DELETED CANCELLED].include?(placed['orderStatus'].to_s)
+        tandem = placed['tandemOrderNumber'].to_s.strip
+        return tandem.present? && tandem.to_i != 0 ? tandem : placed['orderId']
+      end
+
+      raise OrderUnconfirmedError,
+            'US Foods did not confirm this order and it may or may not have gone through. ' \
+            'Check US Foods before reordering, so it is not placed twice.'
+    end
 
     # US Foods returns delivery dates as "2026-09-28T00:00-05:00" (the
     # restaurant's local midnight) — the date part is the delivery day.

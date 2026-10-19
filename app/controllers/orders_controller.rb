@@ -725,12 +725,14 @@ class OrdersController < ApplicationController
         }
       end
 
-      # Include out-of-stock items so the review page can warn before submit
+      # Include out-of-stock items so the review page can warn before submit.
+      # blocking: false = warn only, Submit stays on (US Foods, Oct 2026).
       unavailable_items = order.order_items.select { |item| item.supplier_product&.out_of_stock? }.map do |item|
         {
           id: item.id,
           name: item.supplier_product.supplier_name,
-          sku: item.supplier_sku
+          sku: item.supplier_sku,
+          blocking: helpers.order_item_stock_state(order, item) == :block
         }
       end
 

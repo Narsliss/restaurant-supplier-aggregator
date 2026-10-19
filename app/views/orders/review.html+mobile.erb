@@ -78,12 +78,22 @@
         </div>
 
         <% r[:items].each do |item| %>
-          <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-50 last:border-0">
+          <%# Warn-only "out" from the live price check (US Foods, Oct 2026).
+              Blocking states aren't shown on mobile yet: cached flags are
+              stale for several suppliers (plan Phase 3) and mobile never
+              gated on them. %>
+          <% stock_warn = order_item_stock_state(order, item) == :warn %>
+          <div class="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-50 last:border-0 <%= 'bg-amber-50' if stock_warn %>" <%= 'data-stock-warning=true' if stock_warn %>>
             <div class="flex-1 min-w-0">
               <p class="text-[15px] font-bold text-brand-navy truncate"><%= item.supplier_name %></p>
               <p class="text-[11px] text-gray-400">
                 <%= number_to_currency(item.unit_price) %> ea<%= " · #{item.uom}" if item.uom.present? && item.uom != "CS" %><% if item.supplier_product&.priced_per_weight? %> <span class="text-amber-600">· est. (billed by weight)</span><% end %>
               </p>
+              <% if stock_warn %>
+                <p class="mt-0.5 text-[11px] font-bold text-amber-800 leading-snug">
+                  Out of stock at <%= r[:supplier].name %> right now. Remove it with −, or place it and they'll send what they can — you'll get an email if it's shorted.
+                </p>
+              <% end %>
             </div>
             <div class="flex items-center gap-0.5 shrink-0">
               <button type="button" data-action="mobile-review#decrementItem"

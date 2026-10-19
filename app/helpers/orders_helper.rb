@@ -54,6 +54,28 @@ module OrdersHelper
   def order_item_refused?(order, item)
     item.status == 'failed' && order_failure_notice(order).present?
   end
+
+  # Review page stock state for one line: :ok, :warn or :block.
+  # :block keeps Submit off until the item is removed (the long-standing rule).
+  # :warn shows "out" but lets the chef place it — the supplier fills or
+  # shorts it (Carmin, Oct 19 2026, for US Foods, whose stock the price check
+  # reads live). Discontinued items always block.
+  def order_item_stock_state(order, item)
+    sp = item.supplier_product
+    return :ok if sp.nil? || sp.in_stock?
+    return :block if sp.discontinued?
+
+    order_supplier_warns_only?(order) ? :warn : :block
+  end
+
+  def order_supplier_warns_only?(order)
+    return false if order.supplier&.scraper_class.blank? # email suppliers
+
+    klass = order.supplier.scraper_klass
+    klass.respond_to?(:warn_only_out_of_stock?) && klass.warn_only_out_of_stock?
+  rescue NameError
+    false
+  end
   # The bold "YOU ARE ORDERING FOR <restaurant>" banner — only for people who
   # can switch restaurants in EnPlace (owners/managers with more than one).
   # A chef ordering for their one restaurant never needs the reminder, so it

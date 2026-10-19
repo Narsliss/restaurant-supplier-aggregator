@@ -154,6 +154,9 @@ export default class extends Controller {
           const banner = card.querySelector(".unavailable-banner")
           if (banner) banner.remove()
         }
+        if (!card.querySelector("[data-stock-warning='true']")) {
+          card.querySelector(".stock-warning-banner")?.remove()
+        }
       }
     }
 
@@ -882,51 +885,83 @@ export default class extends Controller {
     })
   }
 
+  // blocking (default) = Submit stays off until removed; blocking: false =
+  // warn only, the supplier fills or shorts it (US Foods, Oct 2026).
   _markUnavailableItems(orderId, unavailableItems) {
-    const itemIds = unavailableItems.map(i => String(i.id))
+    const blocking = unavailableItems.filter(i => i.blocking !== false)
+    const warning = unavailableItems.filter(i => i.blocking === false)
+    const blockingIds = blocking.map(i => String(i.id))
+    const warningIds = warning.map(i => String(i.id))
 
     this.itemRowTargets.forEach(row => {
       if (row.offsetParent === null) return // skip hidden (mobile/desktop dual render)
       const itemId = row.dataset.itemId
-      if (!itemIds.includes(itemId)) return
+      const isBlocking = blockingIds.includes(itemId)
+      const isWarning = warningIds.includes(itemId)
+      if (!isBlocking && !isWarning) return
 
-      // Mark row with red background
-      row.classList.add("bg-red-50")
-      row.dataset.inStock = "false"
+      if (isBlocking) {
+        row.classList.remove("bg-amber-50")
+        row.classList.add("bg-red-50")
+        row.dataset.inStock = "false"
+        delete row.dataset.stockWarning
+      } else {
+        row.classList.remove("bg-red-50")
+        row.classList.add("bg-amber-50")
+        row.dataset.inStock = "true"
+        row.dataset.stockWarning = "true"
+      }
 
-      // Add "Out of stock" badge if not already present
+      // Badge: replace whatever is there so a state change shows correctly
       const existingBadge = row.querySelector("[data-order-review-target='stockBadge']")
-      if (!existingBadge) {
-        const nameCell = row.querySelector("td, .flex-1")
-        if (nameCell) {
-          const badge = document.createElement("span")
-          badge.className = "inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700"
-          badge.dataset.orderReviewTarget = "stockBadge"
-          badge.dataset.itemId = itemId
-          badge.textContent = "Out of stock"
-          const nameEl = nameCell.querySelector("p, span") || nameCell
-          nameEl.appendChild(badge)
-        }
+      if (existingBadge) existingBadge.remove()
+      const nameCell = row.querySelector("td, .flex-1")
+      if (nameCell) {
+        const badge = document.createElement("span")
+        badge.className = isBlocking
+          ? "inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700"
+          : "inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800"
+        badge.dataset.orderReviewTarget = "stockBadge"
+        badge.dataset.itemId = itemId
+        badge.textContent = isBlocking ? "Out of stock" : "Out of stock — may be shorted"
+        const nameEl = nameCell.querySelector("p, span") || nameCell
+        nameEl.appendChild(badge)
       }
     })
 
-    // Show warning banner for this order
-    if (unavailableItems.length > 0) {
-      const card = this._cardForOrder(orderId)
-      if (card && !card.querySelector(".unavailable-banner")) {
-        const itemsTable = card.querySelector("table, .divide-y")
-        if (itemsTable) {
-          const banner = document.createElement("div")
-          banner.className = "unavailable-banner mx-4 mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
-          const names = unavailableItems.map(i => i.name).join(", ")
-          banner.innerHTML = `
-            <div class="flex items-start gap-2">
-              <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"/></svg>
-              <div><strong>${unavailableItems.length} item${unavailableItems.length > 1 ? 's' : ''} out of stock:</strong> ${this._escapeHtml(names)}. Remove ${unavailableItems.length > 1 ? 'them' : 'it'} to submit this order.</div>
-            </div>
-          `
-          itemsTable.parentNode.insertBefore(banner, itemsTable)
-        }
+    const card = this._cardForOrder(orderId)
+    const itemsTable = card && card.querySelector("table, .divide-y")
+    if (itemsTable) {
+      const icon = `<svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"/></svg>`
+
+      // Blocking banner
+      card.querySelector(".unavailable-banner")?.remove()
+      if (blocking.length > 0) {
+        const banner = document.createElement("div")
+        banner.className = "unavailable-banner mx-4 mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"
+        const names = blocking.map(i => i.name).join(", ")
+        banner.innerHTML = `
+          <div class="flex items-start gap-2">
+            ${icon}
+            <div><strong>${blocking.length} item${blocking.length > 1 ? 's' : ''} out of stock:</strong> ${this._escapeHtml(names)}. Remove ${blocking.length > 1 ? 'them' : 'it'} to submit this order.</div>
+          </div>
+        `
+        itemsTable.parentNode.insertBefore(banner, itemsTable)
+      }
+
+      // Warn-only banner: the chef can still place the order
+      card.querySelector(".stock-warning-banner")?.remove()
+      if (warning.length > 0) {
+        const banner = document.createElement("div")
+        banner.className = "stock-warning-banner mx-4 mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800"
+        const names = warning.map(i => i.name).join(", ")
+        banner.innerHTML = `
+          <div class="flex items-start gap-2">
+            ${icon}
+            <div><strong>Out of stock right now:</strong> ${this._escapeHtml(names)}. Remove ${warning.length > 1 ? 'them' : 'it'}, or place the order and the supplier will send what it can — you'll get an email if anything is shorted.</div>
+          </div>
+        `
+        itemsTable.parentNode.insertBefore(banner, itemsTable)
       }
     }
 
@@ -937,14 +972,16 @@ export default class extends Controller {
     const card = this._cardForOrder(orderId)
     if (!card) return
 
-    // Remove the unavailable banner
+    // Remove the unavailable and warn-only banners
     const banner = card.querySelector(".unavailable-banner")
     if (banner) banner.remove()
+    card.querySelector(".stock-warning-banner")?.remove()
 
-    // Clear any data-in-stock="false" flags on remaining rows
-    card.querySelectorAll("[data-in-stock='false']").forEach(el => {
+    // Clear any out-of-stock or warn-only flags on remaining rows
+    card.querySelectorAll("[data-in-stock='false'], [data-stock-warning='true']").forEach(el => {
       el.dataset.inStock = "true"
-      el.classList.remove("bg-red-50")
+      delete el.dataset.stockWarning
+      el.classList.remove("bg-red-50", "bg-amber-50")
       const badge = el.querySelector("[data-order-review-target='stockBadge']")
       if (badge) badge.remove()
     })

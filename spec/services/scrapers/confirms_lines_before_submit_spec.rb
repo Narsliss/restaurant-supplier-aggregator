@@ -10,7 +10,7 @@ RSpec.describe 'Scrapers#confirms_lines_before_submit?' do
     Scrapers::WhatChefsWantScraper => true,
     Scrapers::PerformanceScraper => true,
     Scrapers::SyscoScraper => true,
-    Scrapers::UsFoodsScraper => false,
+    Scrapers::UsFoodsScraper => true, # Oct 2026: line check + live stock warned at the price check (D1)
     Scrapers::PremiereProduceOneScraper => false
   }.each do |klass, expected|
     it "#{klass.name.demodulize}: #{expected}" do

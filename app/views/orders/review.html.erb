@@ -395,13 +395,15 @@
             </thead>
             <tbody class="divide-y divide-gray-200">
               <% review[:items].each do |item| %>
+                <% stock = order_item_stock_state(order, item) %>
                 <tr data-order-review-target="itemRow"
                     data-item-id="<%= item.id %>"
                     data-order-id="<%= order.id %>"
                     data-unit-price="<%= item.unit_price %>"
                     data-sku="<%= item.supplier_sku %>"
-                    data-in-stock="<%= item.supplier_product.in_stock? %>"
-                    class="<%= 'bg-red-50' unless item.supplier_product.in_stock? %>">
+                    data-in-stock="<%= stock != :block %>"
+                    <% if stock == :warn %>data-stock-warning="true"<% end %>
+                    class="<%= { block: 'bg-red-50', warn: 'bg-amber-50' }[stock] %>">
                   <td class="px-4 py-2 text-sm text-gray-900">
                     <div class="flex items-center gap-2.5">
                       <img src="<%= product_thumb_url(order.canonical_image_source_for(item)) %>"
@@ -409,8 +411,10 @@
                            class="w-9 h-9 rounded object-cover border border-gray-200 bg-gray-50 shrink-0">
                       <span>
                         <%= item.supplier_product.supplier_name %>
-                        <% unless item.supplier_product.in_stock? %>
+                        <% if stock == :block %>
                           <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
+                        <% elsif stock == :warn %>
+                          <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock — may be shorted</span>
                         <% end %>
                       </span>
                     </div>
@@ -473,13 +477,15 @@
         <%# Mobile cards %>
         <div class="sm:hidden divide-y divide-gray-200">
           <% review[:items].each do |item| %>
-            <div class="p-3 <%= 'bg-red-50' unless item.supplier_product.in_stock? %>"
+            <% stock = order_item_stock_state(order, item) %>
+            <div class="p-3 <%= { block: 'bg-red-50', warn: 'bg-amber-50' }[stock] %>"
                  data-order-review-target="itemRow"
                  data-item-id="<%= item.id %>"
                  data-order-id="<%= order.id %>"
                  data-unit-price="<%= item.unit_price %>"
                  data-sku="<%= item.supplier_sku %>"
-                 data-in-stock="<%= item.supplier_product.in_stock? %>">
+                 data-in-stock="<%= stock != :block %>"
+                 <% if stock == :warn %>data-stock-warning="true"<% end %>>
               <div class="flex justify-between items-start mb-2">
                 <div class="flex-1 min-w-0 mr-3 flex items-start gap-2.5">
                   <img src="<%= product_thumb_url(order.canonical_image_source_for(item)) %>"
@@ -488,8 +494,10 @@
                   <div class="min-w-0">
                     <p class="text-sm font-medium text-gray-900">
                       <%= item.supplier_product.supplier_name %>
-                      <% unless item.supplier_product.in_stock? %>
+                      <% if stock == :block %>
                         <span class="inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock</span>
+                      <% elsif stock == :warn %>
+                        <span class="inline-flex items-center ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" data-order-review-target="stockBadge" data-item-id="<%= item.id %>">Out of stock — may be shorted</span>
                       <% end %>
                     </p>
                     <p class="text-xs text-gray-400">SKU: <%= item.supplier_sku %></p>

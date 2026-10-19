@@ -275,6 +275,22 @@ module Scrapers
       respond_to?(:verify_cart_matches!)
     end
 
+    # True when scrape_prices returns the supplier's LIVE stock (true / false,
+    # nil = unknown) rather than a placeholder. The price check then saves it
+    # onto the product both ways. Most scrapers hard-code in_stock: true, which
+    # must never clear a real "out".
+    def self.reports_live_stock?
+      false
+    end
+
+    # Out of stock at the price check: false (default) = the review page
+    # blocks Submit until the item is removed; true = warn only and let the
+    # supplier fill or short it (Carmin, Oct 19 2026, for US Foods).
+    # Discontinued items always block.
+    def self.warn_only_out_of_stock?
+      false
+    end
+
     # Pre-order validation hooks. Override in subclasses that support them.
     def get_order_minimum
       nil

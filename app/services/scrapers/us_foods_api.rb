@@ -498,14 +498,12 @@ module Scrapers
       order['updateDtm'] = now
 
       result = put_json('/order-domain-api/v1/orders', order)
-      # Normalize response — may be array, hash, or unexpected type (String on reuse)
-      normalized = if result.is_a?(Array)
-                     result.find { |o| o.is_a?(Hash) && o['orderId'] == order['orderId'] } || result.first
-                   elsif result.is_a?(Hash)
-                     result
-                   end
-      # Fall back to the locally-modified order if API returned non-Hash
-      normalized.is_a?(Hash) ? normalized : order
+      # Only US Foods' copy of THIS order counts. A failed PUT (nil) used to
+      # fall back to our locally-modified order, so a rejected cart still went
+      # on to checkout and was submitted from our copy; and an array without
+      # our orderId used to fall back to result.first — someone else's order.
+      # nil makes add_to_cart stop the order.
+      normalize_order_response(result, order['orderId'])
     end
 
     # Remove items from an order by product number
@@ -582,14 +580,20 @@ module Scrapers
     # USF order API always returns an array of all orders.
     # Extract the specific order we care about.
     def normalize_order_response(result, order_id = nil)
-      return result if result.is_a?(Hash)
-      return result unless result.is_a?(Array)
+      if result.is_a?(Hash)
+        return result if order_id.nil? || result['orderId'].nil? || result['orderId'] == order_id
+
+        return nil
+      end
+      return nil unless result.is_a?(Array)
 
       hash_orders = result.select { |o| o.is_a?(Hash) }
-      return result.first if hash_orders.empty?
+      return nil if hash_orders.empty?
 
       if order_id
-        hash_orders.find { |o| o['orderId'] == order_id } || hash_orders.first
+        # Never another order: that is how a submitted order could be picked
+        # up and sent to /updateSubmittedOrder.
+        hash_orders.find { |o| o['orderId'] == order_id }
       else
         hash_orders.find { |o| o['orderStatus'] == 'IN_PROGRESS' } || hash_orders.first
       end
@@ -739,7 +743,30 @@ module Scrapers
       end
     end
 
+    # The access token lasts about an hour, and ensure_session! only runs at
+    # the start of a job, so a long catalog import used to get nil from every
+    # call after expiry, silently. Renew an expired token before the call, and
+    # on a 401 renew once and retry once. @renewing_session stops the renewal
+    # (restore_session makes its own calls) from renewing itself.
     def request(method, path, body: nil)
+      renew_session_if_expired!
+      response = http.request(build_request(method, path, body))
+      if response.code.to_s == '401' && @access_token && !@renewing_session && renew_session!
+        logger.warn "[USF-API] 401 on #{method.upcase} #{path} — retrying once with the renewed session"
+        response = http.request(build_request(method, path, body))
+      end
+      response
+    rescue Net::OpenTimeout, Net::ReadTimeout, IOError, Errno::ECONNRESET => e
+      logger.warn "[USF-API] Connection error: #{e.class}, reconnecting..."
+      @http&.finish rescue nil
+      @http = nil
+      raise
+    rescue StandardError => e
+      logger.error "[USF-API] HTTP #{method.upcase} #{path} failed: #{e.class}: #{e.message}"
+      nil
+    end
+
+    def build_request(method, path, body)
       req = case method
             when :get
               Net::HTTP::Get.new(path)
@@ -756,17 +783,22 @@ module Scrapers
       req['correlation-id'] = "ecom-#{SecureRandom.uuid}"
       req['transaction-id'] = "#{(Time.current.to_f * 1000).to_i}"
       req.body = body if body
+      req
+    end
 
-      response = http.request(req)
-      response
-    rescue Net::OpenTimeout, Net::ReadTimeout, IOError, Errno::ECONNRESET => e
-      logger.warn "[USF-API] Connection error: #{e.class}, reconnecting..."
-      @http&.finish rescue nil
-      @http = nil
-      raise
-    rescue StandardError => e
-      logger.error "[USF-API] HTTP #{method.upcase} #{path} failed: #{e.class}: #{e.message}"
-      nil
+    def renew_session_if_expired!
+      # Only a KNOWN expiry; a missing expires_at would renew on every call.
+      return unless @access_token && @token_expires_at && token_expired? && !@renewing_session
+
+      logger.info '[USF-API] Access token expired mid-run — renewing'
+      renew_session!
+    end
+
+    def renew_session!
+      @renewing_session = true
+      handle_auth_failure
+    ensure
+      @renewing_session = false
     end
 
     def parse_response(response)

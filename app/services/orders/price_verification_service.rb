@@ -65,6 +65,8 @@ module Orders
         fetch_prices(scraper, sku_queries)
       end
       @delivery_address = scraper.last_delivery_address
+      klass = order.supplier.scraper_klass
+      @live_stock = klass.respond_to?(:reports_live_stock?) && klass.reports_live_stock?
       compare_prices(verified_prices)
 
       build_result
@@ -133,6 +135,9 @@ module Orders
           price: result[:current_price],
           price_unit: result[:price_unit],
           in_stock: result[:in_stock] != false,
+          # Raw: true / false / nil (unknown) — only trusted from scrapers
+          # that report live stock (see save_live_stock).
+          live_in_stock: result[:in_stock],
           name: result[:supplier_name]
         }
       end
@@ -144,6 +149,7 @@ module Orders
       order.order_items.includes(:supplier_product).each do |item|
         sku = item.supplier_product.supplier_sku
         verified = verified_prices[sku]
+        save_live_stock(item.supplier_product, verified)
 
         if verified && verified[:price]
           # Convert to this line's pricing basis first: catch-weight items come
@@ -180,7 +186,7 @@ module Orders
           # so the unconverted figure is what belongs in the cache. PC
           # verifications return the per-piece price, which would corrupt it.
           if item.uom != "PC" && verified[:price] != item.supplier_product.current_price
-            item.supplier_product.update_price!(verified[:price], in_stock: verified[:in_stock])
+            item.supplier_product.update_price!(verified[:price], in_stock: cached_stock_after_price_change(item.supplier_product, verified))
           end
 
           @results << {
@@ -206,6 +212,30 @@ module Orders
           }
         end
       end
+    end
+
+    # The price check is the last read of the supplier before the chef places
+    # the order, so for a scraper that reports live stock (US Foods, Oct 2026)
+    # save it both ways, even when the price didn't change. The review page
+    # warns from it (Carmin, Oct 19: the chef should see "out" at the price
+    # check and remove it). nil (unknown) changes nothing. Stock is
+    # warehouse-wide, so the shared product row is the right place.
+    def save_live_stock(supplier_product, verified)
+      return unless @live_stock && supplier_product && verified
+
+      live = verified[:live_in_stock]
+      return if live.nil? || live == supplier_product.in_stock
+
+      supplier_product.update!(in_stock: live, last_scraped_at: Time.current)
+    end
+
+    # update_price! writes in_stock too. For live-stock scrapers keep the
+    # value just saved when the supplier didn't say; for the rest keep the
+    # old behavior (their in_stock is a placeholder true).
+    def cached_stock_after_price_change(supplier_product, verified)
+      return verified[:in_stock] unless @live_stock
+
+      verified[:live_in_stock].nil? ? supplier_product.in_stock : verified[:live_in_stock]
     end
 
     def build_result

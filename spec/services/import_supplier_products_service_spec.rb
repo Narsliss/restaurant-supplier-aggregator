@@ -232,6 +232,32 @@ RSpec.describe ImportSupplierProductsService do
 
       expect(sp.reload.discontinued).to be(false)
     end
+
+    # Discontinuing set in_stock false, and a scraper that sends no stock
+    # (US Foods, WCW, Performance: nil) left a reinstated item "out" forever.
+    it 'puts a reinstated product back in stock when the scrape says nothing about stock' do
+      sp = SupplierProduct.create!(
+        supplier: supplier, supplier_sku: 'BACK1', supplier_name: 'Comeback',
+        current_price: 20.0, discontinued: true, discontinued_at: 1.week.ago, in_stock: false
+      )
+      batch = [{ supplier_sku: 'BACK1', supplier_name: 'Comeback', current_price: 20.0, in_stock: nil }]
+
+      service.import_catalog_deep(scraper: deep_scraper([batch]))
+
+      expect(sp.reload).to have_attributes(discontinued: false, in_stock: true)
+    end
+
+    it 'keeps a reinstated product out when the scrape says it is out' do
+      sp = SupplierProduct.create!(
+        supplier: supplier, supplier_sku: 'BACK2', supplier_name: 'Comeback 2',
+        current_price: 20.0, discontinued: true, discontinued_at: 1.week.ago, in_stock: false
+      )
+      batch = [{ supplier_sku: 'BACK2', supplier_name: 'Comeback 2', current_price: 20.0, in_stock: false }]
+
+      service.import_catalog_deep(scraper: deep_scraper([batch]))
+
+      expect(sp.reload).to have_attributes(discontinued: false, in_stock: false)
+    end
   end
 
   # Sep 25 2026: US Foods answers some SKUs with an error and a "0" price
@@ -348,6 +374,15 @@ RSpec.describe ImportSupplierProductsService do
     def apply(update)
       service.instance_variable_set(:@existing_by_sku, { sp.supplier_sku => sp })
       service.send(:apply_refresh_updates, [update])
+    end
+
+    it 'puts a product reinstated by the refresh back in stock' do
+      sp.update!(discontinued: true, discontinued_at: 1.week.ago, in_stock: false)
+      service.instance_variable_set(:@existing_by_sku, { sp.supplier_sku => sp.reload })
+
+      service.send(:apply_refresh_updates, [{ supplier_sku: '6292155', current_price: 41.0, price_unit: nil }])
+
+      expect(sp.reload).to have_attributes(discontinued: false, in_stock: true, current_price: 41.0)
     end
 
     it 'marks a discontinued product discontinued and clears its price everywhere' do

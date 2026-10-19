@@ -213,6 +213,70 @@ RSpec.describe Orders::PriceVerificationService, type: :service do
     end
   end
 
+  # Carmin, Oct 19 2026 (D1): an item that went out between the morning run
+  # and order time is shown at the price check so the chef can remove it.
+  # Only scrapers that read live stock (US Foods) may change the flag; the
+  # rest return a placeholder in_stock: true that must never clear an "out".
+  describe 'live stock at the price check' do
+    let!(:credential) { create(:supplier_credential, user: user, supplier: supplier, status: 'active') }
+    before { supplier_product.update!(price_updated_at: 2.hours.ago) }
+
+    def scrape(in_stock)
+      allow(fake_scraper).to receive(:scrape_prices).and_return([
+        { supplier_sku: supplier_product.supplier_sku, current_price: 10.00, in_stock: in_stock, supplier_name: 'Foo' }
+      ])
+    end
+
+    context 'for a scraper that reports live stock' do
+      before { allow(fake_scraper_class).to receive(:reports_live_stock?).and_return(true) }
+
+      it 'marks the item out even when the price did not change' do
+        scrape(false)
+
+        described_class.new(order).verify!
+
+        expect(supplier_product.reload.in_stock).to be(false)
+      end
+
+      it 'marks it back in when the supplier has it again' do
+        supplier_product.update!(in_stock: false)
+        scrape(true)
+
+        described_class.new(order).verify!
+
+        expect(supplier_product.reload.in_stock).to be(true)
+      end
+
+      it 'changes nothing when the supplier did not say (nil)' do
+        supplier_product.update!(in_stock: false)
+        scrape(nil)
+
+        described_class.new(order).verify!
+
+        expect(supplier_product.reload.in_stock).to be(false)
+      end
+
+      it 'keeps a live "out" when the price also changed' do
+        allow(fake_scraper).to receive(:scrape_prices).and_return([
+          { supplier_sku: supplier_product.supplier_sku, current_price: 10.30, in_stock: false, supplier_name: 'Foo' }
+        ])
+
+        described_class.new(order).verify!
+
+        expect(supplier_product.reload).to have_attributes(in_stock: false, current_price: 10.30)
+      end
+    end
+
+    it 'never lets a placeholder "in stock" clear a real out for other scrapers' do
+      supplier_product.update!(in_stock: false)
+      scrape(true)
+
+      described_class.new(order).verify!
+
+      expect(supplier_product.reload.in_stock).to be(false)
+    end
+  end
+
   describe 'auth error fallback for password suppliers' do
     let!(:credential) { create(:supplier_credential, user: user, supplier: supplier, status: 'active') }
 

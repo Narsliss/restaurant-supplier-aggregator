@@ -405,6 +405,10 @@ class ImportSupplierProductsService
       if existing.discontinued?
         row[:discontinued] = false
         row[:discontinued_at] = nil
+        # Discontinuing set in_stock false; undo it unless the scrape itself
+        # says out. resolve_stock_status keeps the old value on nil (US Foods,
+        # WCW, Performance send nil), so a reinstated item stayed "out" forever.
+        row[:in_stock] = item[:in_stock] != false
         results[:reinstated] += 1
         Rails.logger.info "[ImportProducts] Reinstated #{item[:supplier_name]} (SKU: #{item[:supplier_sku]}) — reappeared in catalog"
       end
@@ -487,7 +491,8 @@ class ImportSupplierProductsService
           price_unit: existing.price_unit,
           consecutive_misses: 0,
           discontinued: gone || existing.discontinued,
-          discontinued_at: gone ? (existing.discontinued_at || now) : existing.discontinued_at
+          discontinued_at: gone ? (existing.discontinued_at || now) : existing.discontinued_at,
+          in_stock: existing.in_stock
         }
         discontinued_ids << existing.id if gone
         next
@@ -509,7 +514,10 @@ class ImportSupplierProductsService
         price_unit: item[:price_unit].presence || existing.price_unit,
         consecutive_misses: 0,
         discontinued: reinstating ? false : existing.discontinued,
-        discontinued_at: reinstating ? nil : existing.discontinued_at
+        discontinued_at: reinstating ? nil : existing.discontinued_at,
+        # Discontinuing set in_stock false; a reinstated item is back. (Every
+        # row carries the key — upsert_all needs the same columns.)
+        in_stock: reinstating ? true : existing.in_stock
       }
 
       results[:updated] += 1 if price_changed
@@ -526,7 +534,7 @@ class ImportSupplierProductsService
       unique_by: %i[supplier_id supplier_sku],
       update_only: %i[
         last_scraped_at current_price previous_price price_updated_at
-        price_unit consecutive_misses discontinued discontinued_at
+        price_unit consecutive_misses discontinued discontinued_at in_stock
       ]
     )
 
