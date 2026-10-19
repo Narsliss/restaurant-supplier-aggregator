@@ -1,6 +1,6 @@
 # Build plan: out of stock, all six suppliers (checkout + morning stock)
 
-**Date:** 2026-10-19 · **Status:** Step 0 and Phases 1–3 committed (not pushed); 3.3 built and tested, not committed (`fix-price-check-live-stock.md`); Phase 4 and Phase 5 not started. Carmin: hold the push until every phase is done, then ship once. · **Order placement:** most steps touch it. Each step states its ordering impact. Every step must fail closed and submit nothing on doubt.
+**Date:** 2026-10-19 · **Status:** Step 0, Phases 1–3 and 3.3 committed (not pushed); Phase 4 built and tested, not committed (`fix-phase4-checkout-checks.md`); Phase 5 not started. Carmin: hold the push until every phase is done, then ship once. · **Order placement:** most steps touch it. Each step states its ordering impact. Every step must fail closed and submit nothing on doubt.
 
 Sources (same worktree): `docs/fix-cw-out-of-stock-message.md` (order 483 and the checkout audit A/B/C) and `docs/morning-jobs-audit.md` (morning jobs, live probes §9).
 
@@ -185,6 +185,8 @@ CW's `validationMessages` become named failed items. An all-missing cart mismatc
 
 *Ordering impact:* adds gates and better reasons, and removes the double-order retry path. Nothing is loosened.
 
+**Built (Oct 19), see `fix-phase4-checkout-checks.md`.** Changed from the above: WCW refuses items with two or more units at add (the draft carries no unit to check; none in use today). An unclear WCW submit is unconfirmed (its orders query can't be tied to our draft). Performance skips the price compare (catch-weight and price moves would stop good orders) and checks each line on the draft's totals (PFG has no line read). Sysco requires SUBMITTED, not just "not OPEN".
+
 ---
 
 ## Phase 5: Screens and alerts (all suppliers)
@@ -209,6 +211,8 @@ CW's `validationMessages` become named failed items. An all-missing cart mismatc
 - **D3:** commit Step 0 now?
 
 ## Outside this plan (found on the way, needs Carmin separately)
+
+- **Sysco order #337:** Sysco's order list (read-only probe, Oct 19) shows the main order as CANCELLED with 0 lines and $0. EnPlace shows it submitted, $358.67. The two seller split-offs were DELIVERED.
 
 - **Performance:** all four org-7 logins have ONE customer, AJM D'ORO (33902404). The login EnPlace attaches to alfios placed order 335 (Sep, "alfios") on D'oro's account (inferred).
 - **8 AM guide sync:** one login per organization, picked by a tie-break that flips daily. 35 lists stuck "syncing". Errors swallowed and runs logged "completed". The daily health email is never sent.

@@ -4,7 +4,7 @@ RSpec.describe Scrapers::WhatChefsWantScraper do
   let(:supplier) { create(:supplier) }
   let(:credential) { create(:supplier_credential, supplier: supplier) }
   let(:scraper) { described_class.new(credential) }
-  let(:api_client) { instance_double(Scrapers::WhatChefsWantApi) }
+  let(:api_client) { instance_double(Scrapers::WhatChefsWantApi, last_error: nil) }
 
   before do
     allow(scraper).to receive(:api_client).and_return(api_client)

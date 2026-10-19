@@ -475,9 +475,12 @@ module Orders
 
       # "Leftover" describes only a line in the cart that isn't on the order.
       leftover = error.discrepancies.any? && error.discrepancies.all? { |d| d[:type] == 'extra_in_cart' }
+      # Say what differed, line by line ("Sugar — Sysco had 1, you ordered
+      # 2"), not just that something did.
+      differences = cart_differences_text(error.discrepancies)
       order.update!(
         status: 'pending_review',
-        error_message: 'Supplier cart did not match your order, so we did not submit it. ' \
+        error_message: "Supplier cart did not match your order, so we did not submit it#{": #{differences}" if differences}. " \
                        "#{'This usually means a leftover item from a previous attempt. ' if leftover}" \
                        'Please review and try again.'
       )
@@ -634,8 +637,7 @@ module Orders
     # The order's own lines for missing_from_cart discrepancies, by SKU
     # (suppliers report it normalized, e.g. CW upcases and drops JDE_).
     def items_missing_from_cart(discrepancies)
-      by_sku = order.order_items.includes(:supplier_product)
-                    .index_by { |i| i.supplier_product&.supplier_sku.to_s.strip.upcase }
+      by_sku = order_items_by_cart_sku
 
       discrepancies.map do |d|
         sp = by_sku[d[:sku].to_s.strip.upcase]&.supplier_product
@@ -643,6 +645,79 @@ module Orders
           name: sp&.supplier_name || d[:name],
           message: 'left out of the cart, no reason given' }
       end
+    end
+
+    # The order's lines by the SKU a supplier cart reports: upcased, and
+    # without CW's JDE_ prefix.
+    def order_items_by_cart_sku
+      order.order_items.includes(:supplier_product).each_with_object({}) do |item, index|
+        sku = item.supplier_product&.supplier_sku.to_s.strip.upcase
+        next if sku.blank?
+
+        index[sku] ||= item
+        index[sku.sub(/\AJDE_/, '')] ||= item
+      end
+    end
+
+    CART_DIFFERENCES_SHOWN = 5
+
+    # "Sugar — Sysco had 1, you ordered 2; Pineapple — Sysco had it by the
+    # piece, you ordered it by the case". nil when there is nothing to say.
+    def cart_differences_text(discrepancies)
+      by_sku = order_items_by_cart_sku
+      lines = Array(discrepancies).map { |d| cart_difference_line(d, by_sku) }.compact
+      return nil if lines.empty?
+
+      shown = lines.first(CART_DIFFERENCES_SHOWN)
+      more = lines.size - shown.size
+      shown.join('; ') + (more.positive? ? "; and #{more} more" : '')
+    end
+
+    def cart_difference_line(diff, by_sku)
+      supplier = order.supplier.name
+      sp = by_sku[diff[:sku].to_s.strip.upcase]&.supplier_product
+      name = sp&.supplier_name.presence || diff[:name].presence || (diff[:sku].present? ? "SKU #{diff[:sku]}" : 'An item')
+
+      case diff[:type].to_s
+      when 'quantity_mismatch'
+        "#{name} — #{supplier} had #{cart_count(diff[:cart_qty])}, you ordered #{cart_count(diff[:expected_qty])}"
+      when 'uom_mismatch'
+        "#{name} — #{supplier} had it #{cart_unit_words(diff[:cart_uom])}, you ordered it #{cart_unit_words(diff[:expected_uom])}"
+      when 'extra_in_cart'
+        "#{name} — in the #{supplier} cart but not on your order"
+      when 'missing_from_cart'
+        "#{name} — left out of the #{supplier} cart"
+      when 'line_count'
+        "#{supplier}'s cart had #{cart_count(diff[:cart_lines])} item(s), your order has #{cart_count(diff[:expected_lines])}"
+      when 'total_quantity'
+        "#{supplier}'s cart had #{cart_count(diff[:cart_qty])} in all, your order has #{cart_count(diff[:expected_qty])}"
+      when 'delivery_date'
+        "#{supplier}'s cart is for #{cart_date_words(diff[:cart_date])}, your order is for #{cart_date_words(diff[:expected_date])}"
+      end
+    end
+
+    def cart_count(value)
+      return '?' if value.nil?
+
+      number = value.to_f
+      number == number.to_i ? number.to_i.to_s : number.to_s
+    end
+
+    def cart_unit_words(unit)
+      case unit.to_s
+      when 'piece' then 'by the piece'
+      when 'case' then 'by the case'
+      when '' then 'in an unknown unit'
+      else "as #{unit}"
+      end
+    end
+
+    def cart_date_words(value)
+      return 'no date' if value.blank?
+
+      Date.parse(value.to_s).strftime('%a %b %-d')
+    rescue ArgumentError, TypeError
+      value.to_s
     end
 
     # After OOS items are removed by validation, re-check

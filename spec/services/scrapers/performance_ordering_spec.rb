@@ -44,6 +44,8 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
         allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
         allow(api).to receive(:product_by_sku) { |sku| { 'ProductKey' => sku, 'ProductNumber' => sku } }
         allow(api).to receive(:fetch_prices) { |skus| skus.to_h { |s| [s, 10.0] } }
+        # No draft read: the per-line check stands down (performance_checkout_checks_spec covers it).
+        allow(api).to receive(:get_order).and_return(nil)
       end
 
       it 'fetches the product + price and writes each line via update_order_detail' do
@@ -113,11 +115,13 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
       scraper.clear_cart
     end
 
-    it 'leaves the draft (verify fails the order closed) when PFG refuses the delete' do
+    # Phase 4 (Oct 19 2026): stop before any add, not later at the cart check.
+    it 'stops the order when PFG refuses the delete' do
       allow(scraper).to receive(:cart_writes_enabled?).and_return(true)
       allow(api).to receive(:delete_order_entry_header).and_return({ 'IsSuccess' => false, 'ErrorMessages' => ['nope'] })
       expect(api).not_to receive(:forget_active_order!)
-      scraper.clear_cart
+      expect { scraper.clear_cart }
+        .to raise_error(Scrapers::BaseScraper::ScrapingError, "Couldn't empty your Performance cart, so nothing was sent: nope")
     end
 
     it 'does nothing when there is no open draft (sentinel)' do
@@ -161,6 +165,7 @@ RSpec.describe Scrapers::PerformanceScraper, 'ordering (phase 7)' do
         allow(api).to receive(:product_by_sku) { |sku| { 'ProductKey' => sku, 'ProductNumber' => sku } }
         allow(api).to receive(:fetch_prices) { |skus| skus.to_h { |s| [s, 10.0] } }
         allow(api).to receive(:update_delivery_date).and_return({ 'IsSuccess' => true })
+        allow(api).to receive(:get_order).and_return(nil)
         scraper.add_to_cart(items, delivery_date: Date.new(2026, 10, 2))
         allow(api).to receive(:get_order)
           .and_return({ 'TotalLines' => 2, 'TotalQuantity' => 3, 'DeliveryDate' => '2026-09-28T00:00:00' })

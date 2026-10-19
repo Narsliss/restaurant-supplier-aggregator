@@ -6,6 +6,9 @@ module Scrapers
     BASE_URL = 'https://whatchefswant.cutanddry.com'
 
     attr_reader :credential, :vendor_id, :location_id, :form_id, :verified_vendor_id
+    # What WCW said about the last call that failed (HTTP status or its
+    # GraphQL errors), so a refusal can carry WCW's reason. nil after a clean call.
+    attr_reader :last_error
 
     def initialize(credential)
       @credential = credential
@@ -476,6 +479,7 @@ module Scrapers
     private
 
     def graphql_request(operation_name, query, variables)
+      @last_error = nil
       uri = URI(GRAPHQL_URL)
       http = ensure_http(uri)
 
@@ -501,6 +505,7 @@ module Scrapers
       unless response.is_a?(Net::HTTPSuccess)
         @logger.error "[WCW-API] HTTP #{response.code} for #{operation_name}"
         @logger.error "[WCW-API] Response: #{response.body.to_s[0..500]}"
+        @last_error = "HTTP #{response.code}"
         return nil
       end
 
@@ -508,11 +513,13 @@ module Scrapers
       if data['errors']&.any?
         errors = data['errors'].map { |e| e['message'] }.join(', ')
         @logger.error "[WCW-API] GraphQL errors for #{operation_name}: #{errors}"
+        @last_error = errors.presence
       end
 
       data
     rescue JSON::ParserError => e
       @logger.error "[WCW-API] JSON parse error for #{operation_name}: #{e.message}"
+      @last_error = 'an unreadable answer'
       nil
     rescue Errno::ECONNRESET, Net::OpenTimeout, Net::ReadTimeout => e
       @logger.error "[WCW-API] Connection error for #{operation_name}: #{e.message}"

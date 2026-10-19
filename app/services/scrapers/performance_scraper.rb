@@ -27,6 +27,10 @@ module Scrapers
     PASSWORD_FIELD = '#password'
     SUBMIT_BUTTON = '#next'
 
+    # Reads of the order after a submit that got no clear answer.
+    SUBMIT_READ_BACK_ATTEMPTS = 3
+    SUBMIT_READ_BACK_PAUSE_SECONDS = 2
+
     def api_client
       @api_client ||= PerformanceApi.new(credential)
     end
@@ -301,6 +305,13 @@ module Scrapers
 
       added = []
       failed = []
+      # What the draft holds after each add. PFG has answered IsSuccess and
+      # created no line (see update_order_detail), so each add is checked on
+      # the draft's totals and a line that didn't land is named. nil = no
+      # per-line check (a read failed); verify_cart_matches! still checks the
+      # totals before submit.
+      line_check = cart_writes_enabled? ? starting_cart_totals(oeh) : nil
+      set_qty = {}
       items.each do |item|
         product_key = item[:sku].to_s
         quantity = item[:quantity].to_i
@@ -327,6 +338,15 @@ module Scrapers
               @active_draft_id = new_oeh
               oeh = new_oeh
             end
+            if line_check
+              landed = line_landed?(oeh, line_check, set_qty, product_key, quantity)
+              line_check = nil if landed.nil?
+              if landed == false
+                failed << item.merge(reason: "Performance didn't add it to the cart")
+                next
+              end
+            end
+            set_qty[product_key] = quantity
             added << item
           else
             failed << item.merge(reason: (res && res['ErrorMessages'])&.join('; '))
@@ -383,7 +403,11 @@ module Scrapers
         api_client.forget_active_order!
         logger.info "[Performance] cart cleared (deleted draft #{oeh})"
       else
-        logger.warn "[Performance] clear_cart: could not delete draft #{oeh}: #{res && res['ErrorMessages']}"
+        # Stop here, before any add: the old draft's lines would mix with
+        # this order's (verify_cart_matches! would also refuse it, later).
+        reason = Array(res && res['ErrorMessages']).join('; ').presence || 'no answer'
+        logger.warn "[Performance] clear_cart: could not delete draft #{oeh}: #{reason}"
+        raise ScrapingError, "Couldn't empty your Performance cart, so nothing was sent: #{reason}"
       end
     end
 
@@ -435,6 +459,9 @@ module Scrapers
         )
       end
 
+      # What a submitted order must still hold when checkout has to read it
+      # back (submit_outcome_unclear!).
+      @verified_totals = { lines: cart_lines, qty: cart_qty }
       true
     end
 
@@ -471,16 +498,28 @@ module Scrapers
       end
 
       logger.warn '[Performance] PLACING LIVE ORDER'
-      result = api_client.submit_order(oeh)
+      begin
+        result = api_client.submit_order(oeh)
+      rescue Scrapers::PerformanceApi::AuthError
+        raise # the login was turned away before the submit ran: nothing placed
+      rescue StandardError => e
+        # Timeout, dropped connection, 5xx: PFG may have the order.
+        logger.error "[Performance] submit gave no clear answer: #{e.class}: #{e.message}"
+        return submit_outcome_unclear!(oeh, order)
+      end
+      # An empty reply is no answer either.
+      return submit_outcome_unclear!(oeh, order) unless result.is_a?(Hash)
+
       # PFG reports rejections as HTTP 200 + IsSuccess:false — and, per the site's
       # own code, an order is only placed when ResultObject.AcceptOrder is true
       # (IsSuccess without it shows "Your order could not be submitted"). Anything
       # else must never read as a placed order.
-      accepted = result.is_a?(Hash) && result['IsSuccess'] && result.dig('ResultObject', 'AcceptOrder') == true
+      accepted = result['IsSuccess'] && result.dig('ResultObject', 'AcceptOrder') == true
       unless accepted
-        errors = result.is_a?(Hash) ? Array(result['ErrorMessages']).join('; ') : 'no response'
+        rejected = result.dig('ResultObject', 'RejectedMessage') if result['ResultObject'].is_a?(Hash)
+        errors = [rejected, *Array(result['ErrorMessages'])].map(&:to_s).map(&:strip).reject(&:empty?).uniq.join('; ')
         logger.error "[Performance] submit REJECTED: #{result.inspect.truncate(1500)}"
-        raise ScrapingError, "Performance rejected the order: #{errors.presence || 'IsSuccess false'}"
+        raise ScrapingError, "Performance rejected the order: #{errors.presence || 'no reason given'}"
       end
       logger.warn "[Performance] submit response: #{result.inspect.truncate(1500)}"
       # Response shape unverified until the first real order: prefer PFG's order
@@ -510,6 +549,48 @@ module Scrapers
       logger.warn "[Performance] could not read back order number for #{oeh}: #{e.message}"
       nil
     end
+
+    # The submit got no clear answer. A submitted PFG order has an order
+    # number and a draft doesn't (#335), so read the order back: a number
+    # plus the lines and cases checked before submit = placed. Anything else
+    # is unconfirmed — never "failed", which invites a second order.
+    def submit_outcome_unclear!(oeh, order)
+      read = nil
+      SUBMIT_READ_BACK_ATTEMPTS.times do |attempt|
+        sleep(SUBMIT_READ_BACK_PAUSE_SECONDS) if attempt.positive?
+        read = begin
+          api_client.get_order(oeh)
+        rescue StandardError => e
+          logger.warn "[Performance] read-back #{attempt + 1} after an unclear submit failed: #{e.class}: #{e.message}"
+          nil
+        end
+        break if read.is_a?(Hash) && read['OrderNumber'].present?
+      end
+
+      number = read.is_a?(Hash) ? read['OrderNumber'].presence&.to_s : nil
+      check = 'Check your Performance orders before ordering again, so it is not placed twice.'
+      unless number
+        raise OrderUnconfirmedError,
+              "We sent this order to Performance but got no clear answer, and it doesn't show an order number yet. #{check}"
+      end
+
+      totals = { lines: read['TotalLines'].to_i, qty: read['TotalQuantity'].to_i }
+      if @verified_totals && totals != @verified_totals
+        raise OrderUnconfirmedError,
+              "Performance has this order (##{number}) but it shows #{totals[:lines]} item(s) and #{totals[:qty]} case(s), " \
+              "not the #{@verified_totals[:lines]} and #{@verified_totals[:qty]} we sent. Check the order on Performance's site."
+      end
+
+      logger.warn "[Performance] LIVE order submitted (read back after an unclear submit): #{number}"
+      {
+        confirmation_number: number,
+        total: (order['TotalOrderPrice'] || order['TotalExtendedPrice']).to_f,
+        delivery_date: order['DeliveryDate'],
+        dry_run: false,
+        checkout_summary: read
+      }
+    end
+    private :submit_outcome_unclear!
 
     protected
 
@@ -558,6 +639,36 @@ module Scrapers
     # sentinel, which UpdateOrderEntryDetail auto-promotes to a real draft).
     def active_order_id!
       @active_draft_id || api_client.account_context[:order_entry_header_id]
+    end
+
+    # Lines and cases on the draft before the first add (none without one).
+    def starting_cart_totals(oeh)
+      return { lines: 0, qty: 0 } if oeh == Scrapers::PerformanceApi::NO_ACTIVE_ORDER
+
+      cart_totals(oeh)
+    end
+
+    def cart_totals(oeh)
+      read = api_client.get_order(oeh)
+      read.is_a?(Hash) ? { lines: read['TotalLines'].to_i, qty: read['TotalQuantity'].to_i } : nil
+    rescue StandardError => e
+      logger.warn "[Performance] could not read the draft's totals: #{e.class}: #{e.message}"
+      nil
+    end
+
+    # Did setting +sku+ to +quantity+ change the draft by exactly that line?
+    # true / false, or nil when the draft can't be read. +check+ is rebased
+    # on PFG's totals each time, so one missing line doesn't blame the next.
+    def line_landed?(oeh, check, set_qty, sku, quantity)
+      totals = cart_totals(oeh)
+      return nil unless totals
+
+      want_lines = check[:lines] + (set_qty.key?(sku) ? 0 : 1)
+      want_qty = check[:qty] - set_qty.fetch(sku, 0) + quantity
+      check.replace(totals)
+      landed = totals[:lines] == want_lines && totals[:qty] == want_qty
+      logger.warn "[Performance] #{sku} x#{quantity} didn't land: draft has #{totals[:lines]} lines / #{totals[:qty]} cases, expected #{want_lines} / #{want_qty}" unless landed
+      landed
     end
 
     # Tally quantities by SKU. Keys normalized to strings; quantities summed so

@@ -22,6 +22,17 @@ module Scrapers
     MAX_PAGES_PER_TERM = 5
     GRAPHQL_URL = 'https://gateway-api.shop.sysco.com/graphql'.freeze
 
+    # Order header statuses that mean Sysco took the order. Seen on our
+    # account: OPEN (a draft), SUBMITTED (right after submit, order #337),
+    # DELIVERED, CANCELLED. Nothing else right after submit counts as proof.
+    SUBMITTED_STATUSES = %w[SUBMITTED].freeze
+    CONFIRM_ATTEMPTS = 3
+    CONFIRM_PAUSE_SECONDS = 2
+
+    # submitOrderV2 answered with a refusal (or was never sent): nothing was
+    # placed. Any other submit failure leaves the outcome open.
+    class NotSubmittedError < ScrapingError; end
+
     LOGGED_IN_SELECTORS = [
       "a[href*='account']", "a[href*='logout']", "a[href*='sign-out']",
       '.account-menu', '.user-nav', '.user-menu',
@@ -651,26 +662,32 @@ module Scrapers
             added_items << item
             logger.info "[Sysco] Added SKU #{item[:sku]} qty #{item[:quantity]}"
           else
-            failed_items << { sku: item[:sku], name: item[:name], error: 'Not found on order after add' }
+            failed_items << { sku: item[:sku], name: item[:name], error: 'Sysco left it off the order, no reason given' }
             logger.warn "[Sysco] SKU #{item[:sku]} not found on order after add"
           end
         end
 
         @last_sysco_order_id = order_id
         @last_sysco_sequence_id = updated['sequenceId'] || sequence_id
+        # What Sysco says the draft holds; verify_cart_matches! compares it
+        # with the order before anything is submitted.
+        @last_sysco_draft_lines = updated['lineItems'] || []
+        echoed = @last_sysco_draft_lines.index_by { |li| li['productId'].to_s }
         # Cache minimal line items for submit. We intentionally DO NOT
         # cache price/pricingType/totalPrice — submit has stricter
         # validation than update and rejects our echoed values
         # ("pricingType [N] is not compatible with price [X]"). Let
         # Sysco's submit validator pull authoritative pricing from the
-        # stored draft state instead.
-        @last_sysco_line_items = (updated['lineItems'] || []).map do |li|
+        # stored draft state instead. The quantity is the chef's, never
+        # Sysco's echo: submit sends what was ordered.
+        @last_sysco_line_items = added_items.map do |item|
+          li = echoed[item[:sku].to_s] || {}
           {
-            qty: li['qty'],
+            qty: item[:quantity].to_i,
             soldAs: 'cs', # input enum is lowercase, response is "CASE"
-            productId: li['productId'].to_s,
+            productId: item[:sku].to_s,
             siteId: li['siteId'].presence || tokens[:site_id],
-            sellerId: li['sellerId'].presence || sellers[li['productId'].to_s] || tokens[:seller_id]
+            sellerId: li['sellerId'].presence || sellers[item[:sku].to_s] || tokens[:seller_id]
           }
         end
       rescue StandardError => e
@@ -682,6 +699,13 @@ module Scrapers
         rescue StandardError => del_err
           logger.warn "[Sysco] Could not clean up draft order: #{del_err.message}"
         end
+        # Sysco's refusal names the item it won't take: stop the order and
+        # name it, like any other refused line.
+        refused = refused_items_from(e, items)
+        if refused.any?
+          raise ItemUnavailableError.new("Sysco refused #{refused.size} item(s)", items: refused)
+        end
+
         raise ScrapingError, "Failed to add items to Sysco cart: #{e.message}"
       end
 
@@ -698,6 +722,24 @@ module Scrapers
 
       logger.info "[Sysco] Cart ready: #{added_items.size} items, #{failed_items.size} failed, order=#{order_id}"
       { added: added_items.size, failed: failed_items, order_id: order_id }
+    end
+
+    # Sysco's echo of the draft must match the order line for line before
+    # submit: same quantity, sold by the case, nothing extra. A difference
+    # deletes the draft and stops the order (CartMismatchError), so Sysco
+    # never gets a quantity the chef didn't ask for.
+    def verify_cart_matches!(expected_items)
+      raise ScrapingError, 'No draft order — call add_to_cart first' unless @last_sysco_order_id
+
+      discrepancies = sysco_draft_discrepancies(@last_sysco_draft_lines, expected_items)
+      return true if discrepancies.empty?
+
+      logger.error "[Sysco] Draft #{@last_sysco_order_id} does not match the order — NOT submitting: #{discrepancies.inspect}"
+      discard_draft!
+      raise CartMismatchError.new(
+        "Sysco's order did not match yours (#{discrepancies.size} difference(s))",
+        discrepancies: discrepancies
+      )
     end
 
     # Remove individual items from the current draft order by setting qty to 0.
@@ -852,29 +894,32 @@ module Scrapers
       # ═══ LIVE ORDER — Submit via API ═══════════
       # ═══════════════════════════════════════════
       logger.warn "[Sysco] PLACING LIVE ORDER — submitting order #{order_id}"
-      result = graphql_submit_order(order_id: order_id, sequence_id: sequence_id)
-
-      logger.warn "[Sysco] RAW submitOrderV2 response: #{result.inspect}"
-
-      # submitOrderV2 only returns __typename (see submit_order_mutation comment).
-      # Look up the submitted order via getOrderHeadersForAccounts to get the
-      # confirmation number and final total.
-      submitted_order = nil
+      lines_sent = (@last_sysco_line_items || []).size
       begin
-        all_orders = graphql_get_open_orders
-        submitted_order = all_orders.find { |o| o['id'] == order_id }
-        logger.info "[Sysco] Post-submit order lookup: #{submitted_order.inspect}"
+        result = graphql_submit_order(order_id: order_id, sequence_id: sequence_id)
+        logger.warn "[Sysco] RAW submitOrderV2 response: #{result.inspect}"
+      rescue NotSubmittedError, AuthenticationError => e
+        # Sysco refused the submit outright (GraphQL errors on a 200, or the
+        # gateway turned the login away): nothing was placed — unless its own
+        # order list already shows it submitted, so a retry would order twice.
+        raise unless sysco_lists_submitted?(order_id)
+
+        logger.error "[Sysco] submitOrderV2 refused (#{e.message}) but Sysco lists #{order_id} as submitted"
       rescue StandardError => e
-        logger.warn "[Sysco] Could not look up submitted order details: #{e.message}"
+        # No clear answer (timeout, dropped connection, 5xx): Sysco may have
+        # the order. Its own order list decides below.
+        logger.error "[Sysco] submitOrderV2 gave no clear answer for #{order_id}: #{e.class}: #{e.message}"
       end
 
-      confirmation = submitted_order&.dig('name') ||
-                     submitted_order&.dig('id') ||
-                     order_id ||
-                     "SYSCO-#{Time.current.strftime('%Y%m%d%H%M%S')}"
-      submitted_total = submitted_order&.dig('totalPrice') || order_total
+      # submitOrderV2 only returns __typename (see submit_order_mutation
+      # comment), so Sysco's order list is the only proof the order went
+      # through. No proof = unconfirmed, never a made-up confirmation.
+      submitted_order = confirm_submitted_order(order_id, lines_sent)
 
-      logger.info "[Sysco] Order submitted: #{confirmation}"
+      confirmation = submitted_order['name'].presence || submitted_order['id']
+      submitted_total = submitted_order['totalPrice'] || order_total
+
+      logger.info "[Sysco] Order submitted: #{confirmation} (#{submitted_order['totalLineItems']} lines, status #{submitted_order['status']})"
 
       @last_sysco_order_id = nil
       @last_sysco_sequence_id = nil
@@ -885,6 +930,134 @@ module Scrapers
         delivery_date: delivery_str
       }
     end
+
+    # Sysco's header for the order we just submitted, once it reads
+    # SUBMITTED with every line we sent. Raises OrderUnconfirmedError
+    # otherwise: the chef checks Sysco's site before ordering again.
+    def confirm_submitted_order(order_id, lines_sent)
+      header = nil
+      CONFIRM_ATTEMPTS.times do |attempt|
+        sleep(CONFIRM_PAUSE_SECONDS) if attempt.positive?
+        begin
+          header = graphql_get_open_orders.find { |o| o['id'] == order_id }
+        rescue StandardError => e
+          logger.warn "[Sysco] Post-submit lookup #{attempt + 1} failed: #{e.class}: #{e.message}"
+          header = nil
+        end
+        logger.info "[Sysco] Post-submit lookup #{attempt + 1}: #{header.inspect}"
+        break if header && SUBMITTED_STATUSES.include?(header['status'])
+      end
+
+      unless header && SUBMITTED_STATUSES.include?(header['status'])
+        seen = case header&.dig('status')
+               when nil then header ? 'Sysco gave no status for it' : "We couldn't find it in Sysco's orders"
+               when 'OPEN' then 'Sysco still lists it as a cart, not an order'
+               else "Sysco lists it as #{header['status'].to_s.downcase.tr('_', ' ')}"
+               end
+        raise OrderUnconfirmedError,
+              "We sent this order to Sysco but couldn't confirm it went through. #{seen}. " \
+              'Check your Sysco orders before ordering again, so it is not placed twice.'
+      end
+
+      on_order = header['totalLineItems']
+      if on_order.nil? || on_order.to_i < lines_sent
+        shows = on_order.nil? ? "doesn't say how many items it has" : "shows #{on_order.to_i} of the #{lines_sent} items we sent"
+        raise OrderUnconfirmedError,
+              "Sysco took this order but #{shows}. Check the order on Sysco's site: items may be missing."
+      end
+      logger.warn "[Sysco] Order #{order_id} shows #{on_order} lines, more than the #{lines_sent} sent" if on_order.to_i > lines_sent
+
+      header
+    end
+
+    # One look at Sysco's order list: does it already show this order
+    # submitted? false when it doesn't or the read fails.
+    def sysco_lists_submitted?(order_id)
+      header = graphql_get_open_orders.find { |o| o['id'] == order_id }
+      SUBMITTED_STATUSES.include?(header&.dig('status'))
+    rescue StandardError => e
+      logger.warn "[Sysco] Lookup after a refused submit failed: #{e.class}: #{e.message}"
+      false
+    end
+
+    # sku-keyed differences between Sysco's draft and the order, in the
+    # shape every scraper reports (OrderPlacementService words them).
+    def sysco_draft_discrepancies(draft_lines, expected_items)
+      cart = Array(draft_lines).group_by { |li| li['productId'].to_s }
+      discrepancies = []
+
+      expected_items.each do |item|
+        sku = item[:sku].to_s
+        lines = cart.delete(sku)
+        if lines.blank?
+          discrepancies << { type: 'missing_from_cart', sku: sku, expected_qty: item[:quantity].to_i }
+          next
+        end
+
+        cart_qty = sysco_qty(lines)
+        if cart_qty != item[:quantity].to_i
+          discrepancies << { type: 'quantity_mismatch', sku: sku, cart_qty: cart_qty, expected_qty: item[:quantity].to_i }
+        end
+
+        # Sent as 'cs'; Sysco answers "CASE". Anything else (or nothing)
+        # would bill another unit.
+        sold_as = lines.map { |li| li['soldAs'].to_s.upcase }.uniq
+        unless sold_as.all? { |s| %w[CASE CS].include?(s) }
+          discrepancies << { type: 'uom_mismatch', sku: sku, cart_uom: sysco_unit(sold_as), expected_uom: :case }
+        end
+      end
+
+      cart.each do |sku, lines|
+        discrepancies << { type: 'extra_in_cart', sku: sku, cart_qty: sysco_qty(lines) }
+      end
+      discrepancies
+    end
+
+    # Cases across a SKU's draft lines, whole when it is whole.
+    def sysco_qty(lines)
+      qty = lines.sum { |li| li['qty'].to_f }
+      qty == qty.to_i ? qty.to_i : qty
+    end
+
+    def sysco_unit(sold_as)
+      return :piece if sold_as.any? { |s| %w[EACH EA SPLIT PC PIECE].include?(s) }
+
+      sold_as.reject(&:blank?).join('/').downcase.presence || 'unknown'
+    end
+
+    # Items Sysco names in an updateOrderV2 refusal ("Product 6070898 is not
+    # available for seller USBL"), each with Sysco's own words. Empty when the
+    # refusal names none of them — then it is not an item problem.
+    def refused_items_from(error, items)
+      text = error.message.to_s
+      parts = text.sub(/\A.*?updateOrderV2 failed:\s*/m, '').split(/;\s*/)
+      items.filter_map do |item|
+        sku = item[:sku].to_s
+        next if sku.blank?
+
+        pattern = /(?<![\w-])#{Regexp.escape(sku)}(?![\w-])/
+        reason = parts.find { |p| p.match?(pattern) }
+        next unless reason
+
+        { sku: item[:sku], name: item[:name], error: "Sysco: #{reason.strip}" }
+      end
+    end
+
+    # Delete our draft (never another), best effort: a draft is never
+    # submitted on its own.
+    def discard_draft!
+      return unless @last_sysco_order_id
+
+      graphql_delete_order(@last_sysco_order_id)
+      logger.info "[Sysco] Deleted draft #{@last_sysco_order_id}"
+    rescue StandardError => e
+      logger.warn "[Sysco] Could not delete draft #{@last_sysco_order_id}: #{e.message}"
+    ensure
+      @last_sysco_order_id = nil
+      @last_sysco_sequence_id = nil
+    end
+
+    private :confirm_submitted_order, :sysco_lists_submitted?, :sysco_draft_discrepancies, :sysco_qty, :sysco_unit, :refused_items_from, :discard_draft!
 
     # The draft's deliveryDate as a Date. Sysco has sent it three ways: epoch
     # ms (number or digit string), ISO "2026-10-07", and — as of Sep 2026 —
@@ -3224,7 +3397,7 @@ module Scrapers
     def graphql_submit_order(order_id:, sequence_id:)
       cached = @last_sysco_line_items || []
       if cached.empty?
-        raise ScrapingError, 'Cannot submit: no cached line items (add_to_cart must run first)'
+        raise NotSubmittedError, 'Cannot submit: no cached line items (add_to_cart must run first)'
       end
 
       # submitOrderV2 has stricter validation than updateOrderV2:
@@ -3303,7 +3476,7 @@ module Scrapers
         msg = detailed.join('; ').presence || 'unknown error'
         logger.error "[Sysco] submitOrderV2 failed: #{msg}"
         logger.error "[Sysco] Full response: #{data.to_json[0..3000]}"
-        raise ScrapingError, "submitOrderV2 failed: #{msg}"
+        raise NotSubmittedError, "submitOrderV2 failed: #{msg}"
       end
       submitted
     end

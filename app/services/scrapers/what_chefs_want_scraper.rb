@@ -296,12 +296,27 @@ module Scrapers
         }
       end
 
-      result = api_client.submit_order(draft_id, delivery_date, draft_products)
-      order = result&.dig('data', 'CreateNewOrderMutation')
+      unconfirmed = 'Check What Chefs Want before reordering, so it is not placed twice.'
+      begin
+        result = api_client.submit_order(draft_id, delivery_date, draft_products)
+      rescue StandardError => e
+        # Timed out or dropped mid-submit: WCW may have the order.
+        logger.error "[WhatChefsWant] Submit gave no answer: #{e.class}: #{e.message}"
+        raise OrderUnconfirmedError,
+              "What Chefs Want didn't answer when we sent this order, so it may or may not have gone through. #{unconfirmed}"
+      end
 
+      if result.nil?
+        # A non-2xx or unreadable answer to the submit: not a clear refusal.
+        raise OrderUnconfirmedError,
+              "What Chefs Want answered this order with #{api_client.last_error || 'an error'}, so it may or may not have gone through. #{unconfirmed}"
+      end
+
+      order = result.dig('data', 'CreateNewOrderMutation')
       unless order
-        errors = result&.dig('errors')&.map { |e| e['message'] }&.join(', ') || 'Unknown error'
-        raise ScrapingError, "Order submission failed: #{errors}"
+        # GraphQL refused the mutation: nothing was placed. Keep WCW's words.
+        errors = Array(result['errors']).map { |e| e['message'] }.compact.join('; ').presence || 'no reason given'
+        raise ScrapingError, "What Chefs Want refused the order: #{errors}"
       end
 
       # Only WCW's own order id counts — never a made-up "WCW-<timestamp>".
@@ -639,6 +654,7 @@ module Scrapers
       # Build lookup of SKU -> multiUnitProduct ID from order guide
       mup_map = build_order_guide_mup_map
       @off_guide_skus = []
+      @off_guide_errors = {}
 
       added_items = []
       failed_items = []
@@ -659,7 +675,11 @@ module Scrapers
           mup_id = add_off_guide_product(sku)
         end
 
-        if mup_id
+        unit_problem = mup_id && wcw_unit_choice_reason(mup_id)
+        if unit_problem
+          logger.warn "[WhatChefsWant] SKU #{sku} (multiUnitProduct #{mup_id}) has several units — not ordering it"
+          failed_items << { sku: sku, name: item[:name], error: unit_problem }
+        elsif mup_id
           cart_items << {
             product_id: mup_id,
             quantity: item[:quantity].to_i,
@@ -670,7 +690,8 @@ module Scrapers
         else
           logger.warn "[WhatChefsWant] Could not find product for SKU #{sku}"
           reason = Array(@off_guide_skus).include?(sku) ? "What Chefs Want couldn't add it from its catalog" : 'Product not found in catalog'
-          failed_items << { sku: sku, name: item[:name], error: reason }
+          said = @off_guide_errors[sku]
+          failed_items << { sku: sku, name: item[:name], error: said ? "#{reason}: #{said}" : reason }
         end
       end
 
@@ -688,7 +709,8 @@ module Scrapers
         @last_wcw_draft_id = draft['id']
         logger.info "[WhatChefsWant] Created draft #{draft['id']}: #{draft['itemCount']} items"
       else
-        raise ScrapingError, 'Failed to create draft order via API'
+        said = Array(result&.dig('errors')).map { |e| e['message'] }.compact.join('; ').presence || api_client.last_error
+        raise ScrapingError, "What Chefs Want didn't create the cart, so nothing was sent#{": #{said}" if said}"
       end
 
       { added: added_items.size, failed: failed_items, draft_id: @last_wcw_draft_id }
@@ -722,19 +744,30 @@ module Scrapers
 
     # Build a map of itemCode -> multiUnitProduct ID from the order guide.
     # The order guide returns the correct product ID format for draft operations.
+    #
+    # A guide read that fails stops the order before anything is sent
+    # (Phase 4, Oct 19 2026). An empty map used to send every item down the
+    # off-guide path, attaching hidden copies of guide items to the form.
     def build_order_guide_mup_map
       map = {}
+      @mup_units = {}
       offset = 0
 
       loop do
         data = api_client.get_order_guide_items(limit: 100, offset: offset)
-        sections = data&.dig('data', 'formProducts', 'sectionsWithCount', 'sections') || []
+        if data.nil? || data['errors'].present?
+          reason = Array(data&.dig('errors')).map { |e| e['message'] }.compact.join('; ').presence || api_client.last_error
+          raise ScrapingError, "Couldn't read your What Chefs Want order guide, so nothing was sent#{": #{reason}" if reason}"
+        end
+
+        sections = data.dig('data', 'formProducts', 'sectionsWithCount', 'sections') || []
         page_count = 0
 
         sections.each do |s|
           (s['multiUnitProducts'] || []).each do |mup|
             mup_id = mup['id']
             mup_code = mup['itemCode'].to_s
+            remember_mup_units(mup)
 
             # Map the multiUnitProduct's own itemCode
             map[mup_code] = mup_id if mup_code.present?
@@ -776,8 +809,31 @@ module Scrapers
 
       hidden = api_client.create_hidden_shop_product(canonical_id)
       mup_id = hidden&.dig('id')
-      logger.warn "[WhatChefsWant] Could not attach SKU #{sku} (canonical #{canonical_id}) to the order form" unless mup_id
+      if mup_id
+        remember_mup_units(hidden)
+      else
+        (@off_guide_errors ||= {})[sku] = api_client.last_error
+        logger.warn "[WhatChefsWant] Could not attach SKU #{sku} (canonical #{canonical_id}) to the order form: #{api_client.last_error}"
+      end
       mup_id
+    end
+
+    # The units a multi-unit product is sold in (case, lb, each...).
+    def remember_mup_units(mup)
+      return unless mup && mup['id']
+
+      (@mup_units ||= {})[mup['id']] = (mup['products'] || []).map { |v| v['unit'].to_s.strip.presence || '?' }
+    end
+
+    # The draft takes a multi-unit product with no unit, so What Chefs Want
+    # picks the unit. With two or more it could pick one the chef didn't
+    # order: refuse it (none of our guides had one, Oct 19 2026 probe).
+    def wcw_unit_choice_reason(mup_id)
+      units = Array(@mup_units&.dig(mup_id))
+      return nil if units.size < 2
+
+      "comes in more than one unit at What Chefs Want (#{units.uniq.join(', ')}) and EnPlace can't pick which yet; " \
+        "order it on What Chefs Want's site"
     end
 
     # Fetch all order guide items, paginating through the API.

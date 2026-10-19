@@ -8,7 +8,7 @@ RSpec.describe Scrapers::WhatChefsWantScraper, 'cart check before submit' do
   let(:supplier) { create(:supplier) }
   let(:credential) { create(:supplier_credential, supplier: supplier) }
   let(:scraper) { described_class.new(credential) }
-  let(:api) { instance_double(Scrapers::WhatChefsWantApi) }
+  let(:api) { instance_double(Scrapers::WhatChefsWantApi, last_error: nil) }
 
   let(:order_items) do
     [{ sku: '18271', name: 'Chicken - Breast 6OZ', quantity: 1, expected_price: 107.90 },

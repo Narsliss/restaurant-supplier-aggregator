@@ -261,7 +261,51 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
       described_class.new(order).place_order(skip_pre_validation: true)
 
       expect(order.reload.status).to eq('pending_review')
-      expect(order.error_message).to eq('Supplier cart did not match your order, so we did not submit it. Please review and try again.')
+      expect(order.error_message).to eq(
+        'Supplier cart did not match your order, so we did not submit it: ' \
+        "#{supplier_product.supplier_name} — #{supplier.name} had 1, you ordered 2. Please review and try again."
+      )
+    end
+
+    # Phase 4 (Oct 19 2026): say what differed, line by line.
+    it 'words each cart difference for the chef' do
+      supplier.update!(name: 'Sysco')
+      supplier_product.update!(supplier_sku: 'JDE_4279592', supplier_name: 'Sugar')
+      allow(fake_scraper).to receive(:verify_cart_matches!).and_raise(
+        Scrapers::BaseScraper::CartMismatchError.new(
+          'differs', discrepancies: [
+            { type: 'uom_mismatch', sku: '4279592', cart_uom: :piece, expected_uom: :case },
+            { type: 'line_count', cart_lines: 3, expected_lines: 4 },
+            { type: 'total_quantity', cart_qty: 7.0, expected_qty: 8 },
+            { type: 'delivery_date', cart_date: '2026-10-21', expected_date: '2026-10-22' }
+          ]
+        )
+      )
+      expect(fake_scraper).not_to receive(:checkout)
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.status).to eq('pending_review')
+      expect(order.error_message).to eq(
+        'Supplier cart did not match your order, so we did not submit it: ' \
+        'Sugar — Sysco had it by the piece, you ordered it by the case; ' \
+        "Sysco's cart had 3 item(s), your order has 4; " \
+        "Sysco's cart had 7 in all, your order has 8; " \
+        "Sysco's cart is for Wed Oct 21, your order is for Thu Oct 22. Please review and try again."
+      )
+    end
+
+    it 'lists at most five differences' do
+      allow(fake_scraper).to receive(:verify_cart_matches!).and_raise(
+        Scrapers::BaseScraper::CartMismatchError.new(
+          'many', discrepancies: (1..7).map { |n| { type: 'extra_in_cart', sku: "X#{n}", cart_qty: 1 } }
+        )
+      )
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.error_message).to include("SKU X5 — in the #{supplier.name} cart but not on your order; and 2 more.")
+      expect(order.error_message).to include('leftover item from a previous attempt')
     end
 
     it 'skips the gate for scrapers that do not expose cart contents' do
