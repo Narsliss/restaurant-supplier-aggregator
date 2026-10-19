@@ -187,7 +187,8 @@
                      data-ordered-count="<%= @ordered_counts[sp&.id] || 0 %>"
                      data-initial-qty="<%= cell_selection["qty"].to_i %>"
                      data-initial-uom="<%= cell_selection["uom"].presence || "CS" %>"
-                     data-in-stock="<%= in_stock %>"></div>
+                     data-in-stock="<%= in_stock %>"
+                     data-orderable="<%= builder_cell_orderable?(supplier, item) %>"></div>
               <% end %>
             <% end %>
           </div>

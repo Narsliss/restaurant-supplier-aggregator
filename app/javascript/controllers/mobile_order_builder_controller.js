@@ -432,6 +432,7 @@ export default class extends Controller {
 
   tapCell(event) {
     const cell = event.currentTarget.closest("[data-supplier-id]")
+    if (cell.dataset.orderable === "false") return
     const { matchId, supplierId } = cell.dataset
     const existing = this.lineFor(matchId, supplierId)
 
@@ -472,6 +473,9 @@ export default class extends Controller {
     const supplierId = cell?.dataset.supplierId || event.currentTarget.dataset.supplierId
     const line = this.lineFor(matchId, supplierId)
     if (!line) return
+    // A line already on an out-of-stock cell can come down or off, never up.
+    const supplierCell = this.cellsFor(matchId).find(c => c.dataset.supplierId === supplierId)
+    if (delta > 0 && supplierCell?.dataset.orderable === "false") return
     this.setLine(matchId, supplierId, line.qty + delta, line.uom)
     this.afterChange(matchId)
   }
@@ -508,6 +512,9 @@ export default class extends Controller {
     const selected = Boolean(s)
     const choosing = this.chooser && this.chooser.matchId === d.matchId && this.chooser.supplierId === d.supplierId
     const inStock = d.inStock !== "false"
+    // Out at a supplier where that blocks the order (gap 1): no tap, no +.
+    // US Foods' "out" only warns (D1), so its cells stay orderable.
+    const orderable = d.orderable !== "false"
 
     if (choosing) {
       cell.innerHTML = `
@@ -532,7 +539,7 @@ export default class extends Controller {
           <div class="flex items-stretch justify-between">
             <button type="button" data-action="mobile-order-builder#decrement" class="w-6 py-1.5 text-base font-bold text-brand-green">−</button>
             <span class="text-[15px] font-extrabold text-brand-navy self-center">${s.qty}</span>
-            <button type="button" data-action="mobile-order-builder#increment" class="w-6 py-1.5 text-base font-bold text-brand-green">+</button>
+            <button type="button" data-action="mobile-order-builder#increment" ${orderable ? "" : "disabled"} class="w-6 py-1.5 text-base font-bold ${orderable ? "text-brand-green" : "text-gray-300"}">+</button>
           </div>
           <div class="text-[9px] font-bold -mt-1 pb-1 text-brand-green">${d.short}${s.uom === "PC" ? " · PC" : ""}</div>
         </div>`
@@ -541,9 +548,9 @@ export default class extends Controller {
 
     const best = d.best === "true"
     cell.innerHTML = `
-      <button type="button" data-action="mobile-order-builder#tapCell" ${inStock ? "" : "disabled"}
+      <button type="button" data-action="mobile-order-builder#tapCell" ${orderable ? "" : "disabled"}
               class="w-full rounded-lg border py-1 px-0.5 text-center transition-transform active:scale-95
-                     ${inStock ? "" : "opacity-50"}
+                     ${orderable ? "" : "opacity-50"}
                      ${best ? "border-green-500 bg-green-50" : "border-gray-200 bg-white"}">
         <div class="text-[9px] font-bold leading-none truncate ${best ? "text-green-700" : "text-gray-500"}">${d.short}${best ? ' <span class="text-green-600">★</span>' : ""}</div>
         <div class="text-[12px] font-extrabold leading-tight mt-0.5 ${best ? "text-green-800" : "text-brand-navy"}">${d.priceDisplay}</div>
@@ -573,11 +580,12 @@ export default class extends Controller {
           <div class="flex-1 min-w-0">
             <p class="text-[15px] font-bold text-brand-navy truncate">${card.dataset.displayName}</p>
             <p class="text-[11px] text-gray-500"><span class="font-bold">${cell.dataset.short}</span>${s.uom === "PC" ? " · PC" : ""} · ${this.currency(price)} ea</p>
+            ${cell.dataset.inStock === "false" ? `<p class="text-[11px] font-bold text-red-600">Out of stock at ${cell.dataset.short}${cell.dataset.orderable === "false" ? ": remove it or pick another supplier" : ""}</p>` : ""}
           </div>
           <div class="flex items-center gap-0.5">
             <button type="button" data-action="mobile-order-builder#decrement" data-match-id="${matchId}" data-supplier-id="${s.supplierId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">−</button>
             <span class="w-7 text-center text-sm font-extrabold">${s.qty}</span>
-            <button type="button" data-action="mobile-order-builder#increment" data-match-id="${matchId}" data-supplier-id="${s.supplierId}" class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold text-gray-600">+</button>
+            <button type="button" data-action="mobile-order-builder#increment" data-match-id="${matchId}" data-supplier-id="${s.supplierId}" ${cell.dataset.orderable === "false" ? "disabled" : ""} class="w-8 h-8 rounded-lg bg-brand-stone flex items-center justify-center font-bold ${cell.dataset.orderable === "false" ? "text-gray-300" : "text-gray-600"}">+</button>
           </div>
           <span class="text-sm font-extrabold text-brand-navy w-[62px] text-right">${this.currency(price * s.qty)}</span>
         </div>`

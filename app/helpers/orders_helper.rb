@@ -89,12 +89,18 @@ module OrdersHelper
   end
 
   def order_supplier_warns_only?(order)
-    return false if order.supplier&.scraper_class.blank? # email suppliers
+    order.supplier&.out_of_stock_warns_only? || false
+  end
 
-    klass = order.supplier.scraper_klass
-    klass.respond_to?(:warn_only_out_of_stock?) && klass.warn_only_out_of_stock?
-  rescue NameError
-    false
+  # Order builder (gap 1, Oct 19 2026): can a chef add this supplier's item?
+  # Not when it's discontinued, nor when it's out — except at a supplier
+  # where out only warns (US Foods, D1). Same rule as the review page.
+  def builder_cell_orderable?(supplier, item)
+    sp = item.supplier_product
+    return false if sp&.discontinued?
+
+    in_stock = sp ? sp.in_stock : item.in_stock
+    in_stock != false || supplier.out_of_stock_warns_only?
   end
   # The bold "YOU ARE ORDERING FOR <restaurant>" banner — only for people who
   # can switch restaurants in EnPlace (owners/managers with more than one).

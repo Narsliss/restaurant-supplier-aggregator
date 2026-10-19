@@ -52,8 +52,11 @@
           <% is_cheapest = comparable && cheapest && cheapest[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
           <% is_most_expensive = comparable && most_expensive && most_expensive[:supplier] == supplier && match.price_spread && match.price_spread > 0 %>
           <% is_default = cheapest && cheapest[:supplier] == supplier %>
-          <div class="cursor-pointer rounded-md px-1.5 py-1 -mx-1.5 -my-1 transition-all
-                      <%= is_default ? (comparable ? 'ring-2 ring-brand-green bg-green-50' : 'ring-2 ring-gray-300 bg-gray-50') : 'hover:bg-gray-100' %>"
+          <% orderable = builder_cell_orderable?(supplier, item) %>
+          <div class="rounded-md px-1.5 py-1 -mx-1.5 -my-1 transition-all
+                      <%= orderable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50' %>
+                      <%= is_default ? (comparable ? 'ring-2 ring-brand-green bg-green-50' : 'ring-2 ring-gray-300 bg-gray-50') : (orderable ? 'hover:bg-gray-100' : '') %>"
+               data-orderable="<%= orderable %>"
                data-action="click->order-builder#selectSupplier"
                data-supplier-price="<%= item.estimated_total_price || effective_price %>"
                data-supplier-id-value="<%= supplier.id %>"

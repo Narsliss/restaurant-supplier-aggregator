@@ -45,6 +45,22 @@ RSpec.describe Orders::PriceVerificationService, type: :service do
       expect(order.reload.verification_status).to eq('verified')
       expect(order.order_items.first.reload.verified_price).to eq(10.00)
     end
+
+    # Gap 2 (Oct 19 2026): for a supplier whose price check reads live stock,
+    # that read is the last stock check before Place, so fresh prices don't
+    # skip it.
+    it 'still reads live when the price check is also the stock check' do
+      allow(fake_scraper_class).to receive(:reports_live_stock?).and_return(true)
+      create(:supplier_credential, user: user, supplier: supplier, status: 'active')
+      allow(fake_scraper).to receive(:scrape_prices).and_return(
+        [{ supplier_sku: supplier_product.supplier_sku, current_price: 10.00, in_stock: false, stock_signal: '0.0', supplier_name: 'Foo' }]
+      )
+
+      described_class.new(order).verify!
+
+      expect(fake_scraper).to have_received(:scrape_prices)
+      expect(supplier_product.reload.in_stock).to be(false)
+    end
   end
 
   describe 'no credential' do

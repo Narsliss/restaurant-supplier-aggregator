@@ -23,8 +23,11 @@ module Orders
     def verify!
       Rails.logger.info "[PriceVerification] Starting verification for Order ##{order.id} (#{order.supplier.name})"
 
-      # Fast path: if all item prices were imported recently, skip the browser entirely
-      if prices_fresh?
+      # Fast path: if all item prices were imported recently, skip the browser
+      # entirely — except where this read is also the live stock check, the
+      # last one before Place (gap 2, Oct 19 2026: an all-guide order checked
+      # within an hour of the 8 AM guide sync used the 8 AM reading).
+      if prices_fresh? && !reads_live_stock?
         return skip_with_cached_prices!
       end
 
@@ -305,6 +308,15 @@ module Orders
         skip_reason: reason,
         verification_status: "skipped"
       }
+    end
+
+    def reads_live_stock?
+      return false if order.supplier.scraper_class.blank?
+
+      klass = order.supplier.scraper_klass
+      klass.respond_to?(:reports_live_stock?) && klass.reports_live_stock? ? true : false
+    rescue NameError
+      false
     end
 
     def prices_fresh?

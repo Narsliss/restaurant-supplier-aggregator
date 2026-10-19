@@ -283,7 +283,7 @@ export default class extends Controller {
         if (!this._sel[matchId]) this._sel[matchId] = {}
         this._sel[matchId][supplierId] = { qty, uom: cell.dataset.currentUom || "CS" }
       }
-      if (cell.dataset.default === "true" && supplierId) this._primary[matchId] = supplierId
+      if (cell.dataset.default === "true" && supplierId && this._orderable(cell)) this._primary[matchId] = supplierId
     })
     // A row with quantities but no marked default still needs somewhere to aim
     // the + button.
@@ -331,9 +331,17 @@ export default class extends Controller {
   // different cell moves the highlight; it never moves an existing quantity.
   _primarySupplier(matchId) {
     if (this._primary[matchId]) return this._primary[matchId]
-    const cell = this._matchCells?.[matchId]?.[0]
+    const cells = this._matchCells?.[matchId] || []
+    const cell = cells.find(c => this._orderable(c)) || cells[0]
     if (cell) this._primary[matchId] = cell.dataset.supplierIdValue
     return this._primary[matchId]
+  }
+
+  // Out of stock (or discontinued) at a supplier where that blocks the order:
+  // the cell can't be picked or take more (gap 1, Oct 19 2026). US Foods'
+  // "out" only warns, so its cells stay orderable (Carmin's D1).
+  _orderable(cell) {
+    return cell?.dataset.orderable !== "false"
   }
 
   _cellFor(matchId, supplierId) {
@@ -346,6 +354,9 @@ export default class extends Controller {
     const supplierId = this._primarySupplier(matchId)
     if (!supplierId) return
     const qty = Math.max(0, value)
+    // A line already on an out-of-stock cell can come down or off, never up.
+    const current = this._sel[matchId]?.[supplierId]?.qty || 0
+    if (qty > current && !this._orderable(this._cellFor(matchId, supplierId))) return
     if (!this._sel[matchId]) this._sel[matchId] = {}
     if (qty === 0) {
       delete this._sel[matchId][supplierId]
@@ -761,6 +772,9 @@ export default class extends Controller {
   selectSupplier(event) {
     const cell = event.currentTarget
     const matchId = cell.dataset.matchId
+    // An out-of-stock cell can't be picked — unless it already holds a line,
+    // which the chef can still bring down or remove.
+    if (!this._orderable(cell) && !this._sel[matchId]?.[cell.dataset.supplierIdValue]) return
     this._primary[matchId] = cell.dataset.supplierIdValue
 
     this._renderMatch(matchId)

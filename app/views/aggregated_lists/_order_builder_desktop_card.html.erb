@@ -106,10 +106,13 @@
               <% cell_ordered = cell_qty > 0 %>
               <% piece_uom = cell_uom == "PC" && item.piece_price.present? %>
               <% cell_active_price = piece_uom ? item.piece_price : cell_price %>
-              <div class="rounded-lg relative min-w-0 cursor-pointer transition-all border border-gray-200
+              <% orderable = builder_cell_orderable?(supplier, item) %>
+              <div class="rounded-lg relative min-w-0 transition-all border border-gray-200
+                          <%= orderable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50' %>
                           <%= is_default ? 'ring-2 ring-brand-orange' : '' %>
                           <%= cell_ordered ? 'bg-brand-orange-50' : 'bg-gray-50' %>"
                    style="padding:10px;"
+                   data-orderable="<%= orderable %>"
                    data-action="click->order-builder#selectSupplier"
                    data-supplier-price="<%= cell_active_price %>"
                    data-supplier-id-value="<%= supplier.id %>"

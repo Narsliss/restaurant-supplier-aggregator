@@ -118,6 +118,24 @@ class Supplier < ApplicationRecord
     scraper_class.constantize
   end
 
+  # US Foods fills from stock on the way, so an item it shows at 0 only
+  # warns (Carmin's D1, Oct 19 2026). Everywhere else an item the supplier
+  # calls out can't be ordered. One rule for the review page and both order
+  # builders.
+  def out_of_stock_warns_only?
+    return @out_of_stock_warns_only if defined?(@out_of_stock_warns_only)
+
+    @out_of_stock_warns_only =
+      if scraper_class.blank?
+        false
+      else
+        klass = scraper_klass
+        klass.respond_to?(:warn_only_out_of_stock?) && klass.warn_only_out_of_stock? ? true : false
+      end
+  rescue NameError
+    @out_of_stock_warns_only = false
+  end
+
   def order_minimum(location = nil)
     SupplierRequirement.effective_for(supplier: self, type: 'order_minimum', location: location)&.numeric_value
   end
