@@ -354,6 +354,17 @@ module Scrapers
       graphql('OrderStatus', ORDER_STATUS_QUERY, { orderUUID: order_uuid })&.dig('orders')
     end
 
+    # One order by uuid WITH its lines and quantities (read-only). The open-
+    # orders query has no quantities; this is what the line check before
+    # submit and the split-order check after submit read. Verified live Oct 19
+    # 2026 on order 484 (order_item_prices is one object per line).
+    def order_lines(order_uuid)
+      graphql('OrderLines', ORDER_LINES_QUERY, { orderUUID: order_uuid })&.dig('orders')&.first
+    end
+
+    # Reason PPO gave for the last failed call (GraphQL errors or HTTP status).
+    attr_reader :last_error
+
     def get_order_history(scope: 'UPCOMING')
       graphql('OrderHistory_SearchOrders', ORDER_HISTORY_QUERY, {
         filters: [{ operation: 'EQUALS', type: 'SCOPE', value: scope }],
@@ -429,14 +440,21 @@ module Scrapers
         query: query
       }].to_json
 
+      @last_error = nil
       resp = @graphql_http.request(req)
-      return nil unless resp.code == '200'
+      unless resp.code == '200'
+        @last_error = "HTTP #{resp.code}"
+        return nil
+      end
 
       data = JSON.parse(resp.body)
       result = data.is_a?(Array) ? data.first : data
 
       if result&.dig('errors')
-        logger.warn "[PPO-API] GraphQL #{operation_name} errors: #{result['errors'].first['message']}"
+        # Kept so callers can show PPO's own reason (a rejected cart update
+        # used to reach the chef as "API rejected").
+        @last_error = Array(result['errors']).filter_map { |e| e['message'] }.join('; ').presence
+        logger.warn "[PPO-API] GraphQL #{operation_name} errors: #{@last_error}"
         return nil
       end
 
@@ -545,6 +563,7 @@ module Scrapers
     SUBMIT_ORDER_QUERY = 'mutation NewOrder_SubmitOrder($orderUUID: uuid!, $orderNotes: String, $paymentMethod: String, $poNumber: String, $additionalInputValues: [AdditionalInputValueInput!]!) { submitOrder(order_id: $orderUUID, order_notes: $orderNotes, payment_method: $paymentMethod, po_number: $poNumber, additional_input_values: $additionalInputValues) { order { uuid status placed_at restaurant_desired_delivery_time __typename } split_order_id_list __typename } }'
 
     ORDER_STATUS_QUERY = 'query OrderStatus($orderUUID: uuid!) { orders(where: {uuid: {_eq: $orderUUID}}) { uuid status placed_at restaurant_desired_delivery_time __typename } }'
+    ORDER_LINES_QUERY = 'query OrderLines($orderUUID: uuid!) { orders(where: {uuid: {_eq: $orderUUID}}) { uuid status placed_at restaurant_desired_delivery_time orders_items { restaurant_display_name order_item_prices { pack_quantity_at_order __typename } variants_pack { uuid external_item_id __typename } __typename } __typename } }'
     # NOTE: searchOrders no longer exists on PPO (Oct 2026) — unused, kept for reference.
     ORDER_HISTORY_QUERY ='query OrderHistory_SearchOrders($filters: [OrderFilterInput!]!, $pageSize: Int!, $restaurantUUID: uuid!, $supplierUUID: uuid!) { searchOrders(filters: $filters, page_size: $pageSize, restaurant_id: $restaurantUUID, supplier_id: $supplierUUID) { orders { uuid status placed_at restaurant_desired_delivery_time orders_items { restaurant_display_name order_item_prices { pack_quantity_at_order unit_price_at_order_micros __typename } __typename } __typename } __typename } }'
   end

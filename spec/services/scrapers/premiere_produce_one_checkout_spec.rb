@@ -19,7 +19,13 @@ RSpec.describe Scrapers::PremiereProduceOneScraper do
     allow(api).to receive(:get_catalog).and_return(
       "getSupplierVariantPackGroupItems" => [{ "variant_pack" => { "external_item_id" => "A1", "uuid" => "vp-1", "item" => { "display_name" => "Limes" } } }]
     )
-    allow(api).to receive(:update_cart).and_return("updateCart" => { "order" => { "uuid" => draft_uuid } })
+    # The real reply lists the draft's lines (UPDATE_CART_QUERY); add_to_cart
+    # names any of ours missing from it (Oct 2026).
+    allow(api).to receive(:update_cart).and_return(
+      "updateCart" => { "order" => { "uuid" => draft_uuid, "orders_items" => [
+        { "variants_pack" => { "uuid" => "vp-1", "external_item_id" => "A1" }, "order_item_prices" => { "pack_quantity_at_order" => 2 } }
+      ] } }
+    )
   end
 
   def fulfillment_returning(time)

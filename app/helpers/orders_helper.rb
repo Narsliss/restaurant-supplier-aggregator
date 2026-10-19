@@ -122,7 +122,8 @@ module OrdersHelper
     "short_fill" => "Short-filled",
     "substituted" => "Substituted",
     "removed" => "Removed",
-    "price_change" => "Price changed"
+    "price_change" => "Price changed",
+    "delivery_changed" => "Arrives later"
   }.freeze
 
   def exception_type_label(type)

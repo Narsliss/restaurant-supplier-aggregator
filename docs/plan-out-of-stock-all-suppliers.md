@@ -4,6 +4,24 @@
 
 Sources (same worktree): `docs/fix-cw-out-of-stock-message.md` (order 483 and the checkout audit A/B/C) and `docs/morning-jobs-audit.md` (morning jobs, live probes §9).
 
+## Where things stand (Oct 19, evening)
+
+**Committed on `claude/charming-grothendieck-c1c08e`, not pushed:** `ebe2426` (Step 0, Chef's Warehouse) and `0601646` (Phase 1, US Foods). **This covers CW and US Foods only, not all suppliers.**
+
+| Supplier | Changed (committed) | Still open |
+|---|---|---|
+| Chef's Warehouse | A refused item is named, flagged, and removable in one tap; the cart is emptied on a stop | No live stock at the price check; 652 stale "out" flags still block desktop Submit; morning crawl reaches 6% |
+| US Foods | Line check before submit, honest submit confirmation, discontinued stopped, piece lines refused, live stock WARNED at the price check (desktop + mobile), session renewal | Morning stock read (Phase 3) |
+| Premiere Produce | **Phase 2 built (uncommitted):** line check, PPO's own rejection reason, fail-closed clear, our-draft submit, price × qty total, split orders read back and reported (in-app incl. mobile + email). See `fix-ppo-order-checks.md` | Stock at the price check (3.3), morning stock (3) |
+| Sysco, What Chefs Want, Performance | Only the shared "name the missing items" wording | Phase 4; stale flags (WCW 1,492) block desktop Submit |
+| All | | Stale flags, morning sync coin flip, no alerts, screens (Phases 3 and 5) |
+
+**Replay of the US Foods checks (read-only, prod):**
+- **Order 482:** US Foods' lines matched ours exactly (12/12); the line check would pass.
+- **Pricing:** every item on 482 and 452 priced with no errors.
+- **The other 6 orders:** can't be replayed (US Foods re-files submitted orders; the old lines are marked DELETED/TANDEM_DELETED).
+- **The line check has not run against a live, unsubmitted US Foods cart.** If it misreads one, it stops the order with a message and sends nothing.
+
 ## The two problems
 
 1. **At checkout:** when a supplier won't take an item, the WHOLE order stops and the chef is told which item and why (never ship short, Oct 3).
@@ -134,6 +152,15 @@ CW's `validationMessages` become named failed items. An all-missing cart mismatc
 - For US Foods and PPO, cached "out" blocks orders until Phase 1 and 2 add their line checks. Turn on their "out" flags only after that, or under D1's warn rule.
 
 **Specs:** definite out / in / unknown per supplier; unknown keeps the old value; a failed read changes nothing; a short crawl is detected and alerted; shadow writes no `in_stock`; the stale-flag reset only touches items the supplier confirms.
+
+**3.3 Live stock at the price check, every supplier** (Carmin's model, Oct 19: catch what sold out between the morning run and order time BEFORE the chef places the order). US Foods is done (1.3).
+- For each other supplier, make `scrape_prices` return real stock (`reports_live_stock?`) so the price check saves it and the review page flags it:
+  - Performance: `IsOutOfStock`, already in its search answer.
+  - Chef's Warehouse: the `variant.inStock` count, via guide or search.
+  - What Chefs Want: `unavailable`.
+  - Sysco: `stockIndicator`.
+  - Premiere Produce: when PPO reports one.
+- **Carmin decides:** warn (like US Foods) or block, per supplier.
 
 ---
 

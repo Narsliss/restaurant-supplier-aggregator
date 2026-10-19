@@ -263,7 +263,9 @@ class ImportSupplierListsService
       piece_price: (item_data[:piece_price].present? && item_data[:piece_price] != item_data[:price]) ? item_data[:piece_price] : nil,
       piece_pack_size: (item_data[:piece_price].present? && item_data[:piece_price] != item_data[:price]) ? item_data[:piece_pack_size] : nil,
       quantity: item_data[:quantity] || 1,
-      in_stock: item_data[:in_stock] != false,
+      # nil = the supplier didn't say (e.g. PPO's availability list failed):
+      # keep what we had rather than mark it in stock. New items default in.
+      in_stock: item_data[:in_stock].nil? ? (is_new || item.read_attribute(:in_stock) != false) : item_data[:in_stock] != false,
       position: item_data[:position] || 0,
       remote_item_id: item_data[:remote_item_id],
       # On the guide now, whatever put it on this list originally.

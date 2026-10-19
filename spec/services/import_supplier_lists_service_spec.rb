@@ -179,6 +179,25 @@ RSpec.describe ImportSupplierListsService do
       expect(sp.reload.in_stock).to be(true)
     end
 
+    # Oct 2026: PPO sends nil when its availability list failed or has no
+    # entry; that used to be written as "in stock".
+    it 'keeps an item out of stock when the guide says nothing about stock (nil)' do
+      sp = make_sp(sku: '20284', in_stock: false)
+      sli = make_sli(sku: '20284', supplier_product: sp, raw_in_stock: false)
+      by_sku = { '20284' => sli }
+
+      service.send(:upsert_item, supplier_list, { sku: '20284', name: 'Spinach', price: 10.0, in_stock: nil }, by_sku, Set.new)
+
+      expect(sli.reload.read_attribute(:in_stock)).to be(false)
+      expect(sp.reload.in_stock).to be(false)
+    end
+
+    it 'adds a new item as in stock when the guide says nothing about stock' do
+      service.send(:upsert_item, supplier_list, { sku: '99999', name: 'New', price: 5.0, in_stock: nil }, {}, Set.new)
+
+      expect(supplier_list.supplier_list_items.find_by(sku: '99999').read_attribute(:in_stock)).to be(true)
+    end
+
     it 'flips SP to out-of-stock when the order guide reports unavailability' do
       sp = make_sp(sku: '20284', in_stock: true)
       sli = make_sli(sku: '20284', supplier_product: sp, raw_in_stock: false)

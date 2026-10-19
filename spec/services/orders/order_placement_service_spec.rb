@@ -95,6 +95,38 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
     end
   end
 
+  # Order 484 (Oct 19 2026): Premiere Produce split 4 of 12 items onto later
+  # days; EnPlace showed one order arriving with everything.
+  describe 'supplier changes reported at placement' do
+    before do
+      allow(Rails.env).to receive(:production?).and_return(true)
+      supplier.update!(checkout_enabled: true)
+      scraper_checkout_result.merge!(
+        dry_run: false, confirmation_number: 'ppo-1',
+        supplier_exceptions: [{ sku: supplier_product.supplier_sku, name: 'Bone Marrow', type: 'delivery_changed',
+                                ordered: 1, filled: 1, message: 'Arrives Wed Oct 28 — Premiere Produce put it on a separate order' }]
+      )
+    end
+
+    it 'records them on the order and emails the chef and owner' do
+      expect { described_class.new(order).place_order(skip_pre_validation: true) }
+        .to have_enqueued_mail(OrderMailer, :supplier_changed_order)
+
+      order.reload
+      expect(order.status).to eq('submitted')
+      expect(order.supplier_exceptions.first).to include('type' => 'delivery_changed', 'name' => 'Bone Marrow')
+    end
+
+    it 'keeps the order submitted even if recording them fails' do
+      allow(OrderMailer).to receive(:supplier_changed_order).and_raise(StandardError, 'mail down')
+
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result[:success]).to be(true)
+      expect(order.reload.status).to eq('submitted')
+    end
+  end
+
   describe 'US Foods post-submission exception check' do
     before { allow(Rails.env).to receive(:production?).and_return(true) }
 

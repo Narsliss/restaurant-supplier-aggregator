@@ -11,7 +11,7 @@ RSpec.describe 'Scrapers#confirms_lines_before_submit?' do
     Scrapers::PerformanceScraper => true,
     Scrapers::SyscoScraper => true,
     Scrapers::UsFoodsScraper => true, # Oct 2026: line check + live stock warned at the price check (D1)
-    Scrapers::PremiereProduceOneScraper => false
+    Scrapers::PremiereProduceOneScraper => true # Oct 2026: line check from its draft lines
   }.each do |klass, expected|
     it "#{klass.name.demodulize}: #{expected}" do
       expect(klass.new(credential).confirms_lines_before_submit?).to be(expected)

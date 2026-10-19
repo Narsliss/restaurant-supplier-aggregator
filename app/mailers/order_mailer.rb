@@ -54,7 +54,14 @@ class OrderMailer < ApplicationMailer
     return if recipients.empty?
 
     missing = @exceptions.count { |e| %w[out_of_stock removed].include?(e['type']) }
-    what = missing.positive? ? "#{missing} item#{'s' if missing != 1} not coming" : "#{@exceptions.size} change#{'s' if @exceptions.size != 1}"
+    @only_later = @exceptions.all? { |e| e['type'] == 'delivery_changed' }
+    what = if missing.positive?
+             "#{missing} item#{'s' if missing != 1} not coming"
+           elsif @only_later
+             "#{@exceptions.size} item#{'s' if @exceptions.size != 1} arrive#{'s' if @exceptions.size == 1} on a later day"
+           else
+             "#{@exceptions.size} change#{'s' if @exceptions.size != 1}"
+           end
     when_text = order.delivery_date ? " for #{order.delivery_date.strftime('%a %b %-d')}" : ''
 
     mail(to: recipients, subject: "[EnPlace Pro] #{@supplier_name} changed your order#{when_text}: #{what}")

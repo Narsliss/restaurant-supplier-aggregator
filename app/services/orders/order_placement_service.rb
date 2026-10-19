@@ -115,6 +115,11 @@ module Orders
           )
           order.order_items.update_all(status: 'added')
 
+          # The supplier already changed the placed order (Premiere Produce
+          # splits lines onto later delivery days). Isolated: never touches
+          # the order's submitted state.
+          record_supplier_changes(result[:supplier_exceptions])
+
           # US Foods finalizes exceptions (out of stock, subs, short-fills) shortly
           # after submit. Kick off a fast re-check so the chef is alerted within
           # ~a minute, while they're still in the app. Isolated in its own rescue:
@@ -175,6 +180,21 @@ module Orders
     end
 
     private
+
+    # Lines the supplier changed while placing (e.g. PPO moved them to a later
+    # delivery day). Shown on the order page, and the chef + owner(s) get the
+    # "changed your order" email — the order looked placed but isn't what
+    # they asked for (Carmin's alerting rule, Oct 3 2026). Never raises: the
+    # order is already placed.
+    def record_supplier_changes(changes)
+      return if changes.blank?
+
+      order.update!(supplier_exceptions: changes, exceptions_checked_at: Time.current)
+      OrderMailer.supplier_changed_order(order).deliver_later
+      Rails.logger.warn "[OrderPlacement] Order #{order.id}: #{order.supplier.name} changed #{changes.size} line(s) while placing"
+    rescue StandardError => e
+      Rails.logger.error "[OrderPlacement] Order #{order.id} placed, but recording supplier changes failed: #{e.class}: #{e.message}"
+    end
 
     def dry_run_summary(result)
       lines = ["[DRY RUN — #{Time.current.strftime('%b %d, %Y %I:%M %p')}]"]

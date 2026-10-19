@@ -90,6 +90,14 @@
     </div>
   <% end %>
 
+  <%# The supplier changed a placed order (US Foods shorts, Premiere Produce
+      splits onto later days). Desktop showed this; phones never did. %>
+  <% if @order.has_supplier_exceptions? %>
+    <div class="mx-4 mt-4">
+      <%= render "orders/exception_alert", order: @order %>
+    </div>
+  <% end %>
+
   <!-- Failure reason — stays until the order is resubmitted (order #386) -->
   <% if (notice = order_failure_notice(@order)) %>
     <div class="mx-4 mt-4 bg-red-50 border-2 border-red-400 rounded-xl p-3" data-order-failure-notice>

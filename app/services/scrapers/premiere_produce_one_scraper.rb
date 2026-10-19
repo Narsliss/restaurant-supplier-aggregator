@@ -56,7 +56,7 @@ module Scrapers
     def scrape_lists
       api_client.ensure_session!
 
-      delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
+      delivery_date = ppo_delivery_time(Date.today + 1) # DST-safe (a fixed 04:00Z is 11 PM the day before all winter)
 
       # Get order guide items
       og_result = api_client.get_order_guide_items
@@ -85,7 +85,9 @@ module Scrapers
           price: price,
           pack_size: pack_size,
           quantity: 1,
-          in_stock: price_info&.dig('availability_status') != 'OUT_OF_STOCK',
+          # nil (unknown) when PPO's availability list failed or lacks this
+          # pack — the list sync keeps the old value. It used to read as "in".
+          in_stock: ppo_in_stock(price_info),
           position: idx,
           price_unit: price_unit,
           piece_price: nil,
@@ -112,7 +114,7 @@ module Scrapers
       api_client.ensure_session!
       product_skus = normalize_price_queries(product_skus).map { |q| q[:sku] }
 
-      delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
+      delivery_date = ppo_delivery_time(Date.today + 1) # DST-safe (a fixed 04:00Z is 11 PM the day before all winter)
 
       # Get all prices
       info_result = api_client.get_product_info_list(delivery_date: delivery_date)
@@ -167,7 +169,7 @@ module Scrapers
     def fetch_full_catalog(item_limit:, &on_batch)
       api_client.ensure_session!
 
-      delivery_date = (Date.today + 1).strftime('%Y-%m-%dT04:00:00.000Z')
+      delivery_date = ppo_delivery_time(Date.today + 1) # DST-safe (a fixed 04:00Z is 11 PM the day before all winter)
 
       # Get full catalog
       catalog_result = api_client.get_catalog(item_limit: item_limit)
@@ -199,7 +201,7 @@ module Scrapers
             supplier_name: item['display_name'],
             current_price: price,
             pack_size: pack_size,
-            in_stock: price_info&.dig('availability_status') != 'OUT_OF_STOCK',
+            in_stock: ppo_in_stock(price_info), # nil = unknown (failed or missing), never "in"
             category: item['category'] || ci['variant_pack_group_display_name'],
             supplier_url: "#{BASE_URL}/item/#{vp['uuid']}",
             image_url: (item['photo_url_list'] || []).find { |u| u.to_s.strip.present? }
@@ -239,10 +241,17 @@ module Scrapers
       end
 
       order_uuid = draft['uuid']
+      # The exact draft we fill is the one checked and submitted — never just
+      # "the first open order".
+      @order_uuid = order_uuid
 
       # Look up variant_pack_ids for SKUs
       catalog_result = api_client.get_catalog(item_limit: 5000)
       catalog_items = catalog_result&.dig('getSupplierVariantPackGroupItems') || []
+      # A failed catalog read used to report EVERY item "Not found in catalog".
+      if catalog_items.empty?
+        raise ScrapingError, "Couldn't load Premiere Produce's catalog, so nothing was ordered. Try again."
+      end
       sku_to_variant = {}
       sku_to_name = {}
       catalog_items.each do |ci|
@@ -263,7 +272,8 @@ module Scrapers
           cart_items << {
             variant_pack_id: variant_id,
             quantity: item[:quantity] || 1,
-            item_name: sku_to_name[item[:sku]] || item[:name] || ''
+            item_name: sku_to_name[item[:sku]] || item[:name] || '',
+            sku: item[:sku], name: item[:name]
           }
         else
           failed_items << { sku: item[:sku], error: 'Not found in catalog', name: item[:name] }
@@ -272,17 +282,31 @@ module Scrapers
 
       if cart_items.any?
         result = api_client.update_cart(order_uuid, cart_items)
-        unless result&.dig('updateCart', 'order')
-          failed_items.concat(cart_items.map { |i| { sku: i[:item_name], error: 'API rejected' } })
-          cart_items = []
+        reply = result&.dig('updateCart', 'order')
+        unless reply
+          # Used to record { sku: <item NAME>, error: 'API rejected' }: the chef
+          # saw "SKU Limes — API rejected" and no line could be flagged.
+          reason = api_client.last_error
+          raise ScrapingError, "Premiere Produce rejected the cart update#{": #{reason}" if reason.present?}. Nothing was ordered — try again."
+        end
+
+        # The reply lists the draft's lines. Name any of ours PPO left out
+        # now, rather than waiting for the line check before submit.
+        in_reply = Array(reply['orders_items']).map { |l| ppo_sku(l.dig('variants_pack', 'external_item_id')) }
+        cart_items.reject { |i| in_reply.include?(ppo_sku(i[:sku])) }.each do |i|
+          failed_items << { sku: i[:sku], name: i[:name], error: "Premiere Produce didn't add it to the cart" }
         end
       end
+
+      # The order is going to stop (never ship short); don't leave the draft
+      # filled on the restaurant's PPO account.
+      discard_cart_after_stop if failed_items.any? && cart_items.any?
 
       # Set delivery date and read it back. PPO keeps one draft per restaurant
       # and clear_cart only empties it, so a leftover draft carries whatever
       # date it was created with — if this update doesn't stick, the order
       # would go out on that stale date. Fails CLOSED.
-      if cart_items.any?
+      if cart_items.any? && failed_items.empty?
         result = api_client.update_fulfillment(order_uuid, delivery_date_str)
         set_to = result&.dig('update_orders', 'returning')&.first&.dig('restaurant_desired_delivery_time')
         unless same_delivery_day?(set_to, @requested_delivery_date)
@@ -339,11 +363,16 @@ module Scrapers
       { removed: removed, still_present: still_present }
     end
 
+    # Empty every open draft, then read back: FAIL CLOSED. This used to
+    # swallow every error, so leftover lines could ride along on the next
+    # submit (the new line check would also catch them).
     def clear_cart
       api_client.ensure_session!
 
       open_orders = api_client.get_open_orders
-      (open_orders&.dig('orders') || []).each do |order|
+      raise ScrapingError, "Couldn't read the Premiere Produce cart, so nothing was ordered. Try again." if open_orders.nil?
+
+      (open_orders['orders'] || []).each do |order|
         items = order['orders_items'] || []
         next if items.empty?
 
@@ -356,16 +385,46 @@ module Scrapers
 
         api_client.update_cart(order['uuid'], remove_items) if remove_items.any?
       end
+
+      left = Array(api_client.get_open_orders&.dig('orders')).sum { |o| Array(o['orders_items']).size }
+      raise ScrapingError, "Premiere Produce's cart could not be emptied (#{left} line(s) left), so nothing was ordered. Try again." if left.positive?
+
       logger.info '[PPO] API cart cleared'
-    rescue StandardError => e
-      logger.warn "[PPO] API clear_cart failed: #{e.message}"
+    end
+
+    # Line check before submit (Oct 2026). PPO had none, so a line it dropped
+    # or changed went out short. Re-read OUR draft with its quantities and
+    # compare every line with the order; on any difference empty the cart and
+    # stop (CartMismatchError — OrderPlacementService names missing items).
+    def verify_cart_matches!(expected_items)
+      api_client.ensure_session!
+      @expected_cart_items = expected_items
+      draft = @order_uuid && api_client.order_lines(@order_uuid)
+      unless draft && %w[DRAFT IN_REVIEW].include?(draft['status'].to_s)
+        discard_cart_after_stop
+        raise ScrapingError, "Couldn't read the Premiere Produce order back to check it, so nothing was submitted. Try again."
+      end
+
+      discrepancies = ppo_cart_discrepancies(draft, expected_items)
+      if discrepancies.any?
+        logger.error "[PPO] Draft #{@order_uuid} does not match — NOT submitting: #{discrepancies.inspect}"
+        discard_cart_after_stop
+        raise CartMismatchError.new(
+          "Premiere Produce order does not match (#{discrepancies.size} difference(s)): #{discrepancies.inspect}",
+          discrepancies: discrepancies
+        )
+      end
+
+      @verified_order = draft
+      true
     end
 
     def checkout(dry_run: false)
       api_client.ensure_session!
 
-      open_orders = api_client.get_open_orders
-      order = (open_orders&.dig('orders') || []).first
+      open_orders = Array(api_client.get_open_orders&.dig('orders'))
+      # Submit the draft we filled and checked, never just the first open one.
+      order = @order_uuid ? open_orders.find { |o| o['uuid'] == @order_uuid } : open_orders.first
       raise ScrapingError, 'No draft order to checkout' unless order
 
       order_uuid = order['uuid']
@@ -385,10 +444,13 @@ module Scrapers
       prices = {}
       (info&.dig('getVariantPackInfoList') || []).each { |p| prices[p['variant_pack_id']] = p }
 
-      total = order_items.sum do |item|
+      # Price × quantity (the total used to add one price per line, so 2 cases
+      # at $12.50 recorded $12.50). Quantities come from the checked draft.
+      priced_lines = Array(@verified_order&.dig('orders_items')).presence || order_items
+      total = priced_lines.sum do |item|
         vp_uuid = item.dig('variants_pack', 'uuid')
         price_info = prices[vp_uuid]
-        (price_info&.dig('price_in_micros') || 0) / 1_000_000.0
+        (price_info&.dig('price_in_micros') || 0) / 1_000_000.0 * ppo_line_qty(item)
       end
 
       if dry_run
@@ -413,11 +475,20 @@ module Scrapers
         nil
       end
       submitted = result&.dig('submitOrder', 'order')
-      submitted = confirm_unacknowledged_submit!(order_uuid) unless submitted&.dig('uuid')
+      answered = submitted&.dig('uuid').present?
+      submitted = confirm_unacknowledged_submit!(order_uuid) unless answered
 
       # Only PPO's own order id counts as a confirmation — never a made-up one.
       confirmation_number = submitted['uuid']
       logger.info "[PPO] Order placed: #{confirmation_number}"
+
+      # PPO can split one order into several with different delivery days
+      # (order 484, Oct 19 2026: 4 of 12 items went to orders delivering Oct
+      # 21, 22 and 28 while EnPlace showed one order for Oct 20). Read them
+      # back so the chef is told. Post-submit and best effort: never fails
+      # the placed order.
+      split_ids = answered ? Array(result.dig('submitOrder', 'split_order_id_list')).map(&:to_s) - [confirmation_number.to_s] : []
+      changes = answered ? ppo_order_changes(confirmation_number, split_ids) : []
 
       {
         confirmation_number: confirmation_number,
@@ -425,7 +496,9 @@ module Scrapers
         delivery_date: delivery_date,
         dry_run: false,
         cart_items: order_items.map { |i| { name: i['restaurant_display_name'] } },
-        checkout_summary: submitted
+        checkout_summary: submitted,
+        split_order_ids: split_ids,
+        supplier_exceptions: changes
       }
     end
 
@@ -467,6 +540,112 @@ module Scrapers
       raise OrderUnconfirmedError,
             'Premiere Produce did not confirm this order and it may or may not have gone through. ' \
             'Check the Premiere Produce app before reordering, so it is not placed twice.'
+    end
+
+    # ── Order placement checks (Oct 2026) ─────────────────────────
+
+    # PPO SKUs are compared without leading zeros ("01298" == "1298").
+    def ppo_sku(sku)
+      sku.to_s.strip.sub(/\A0+(?=\d)/, '')
+    end
+
+    # One line's ordered quantity (order_item_prices is one object per line;
+    # tolerate a list).
+    def ppo_line_qty(line)
+      prices = line['order_item_prices']
+      prices = prices.first if prices.is_a?(Array)
+      qty = prices.is_a?(Hash) ? prices['pack_quantity_at_order'] : nil
+      qty.nil? ? 1 : qty.to_f
+    end
+
+    # nil = unknown (PPO's availability list failed or has no entry for this
+    # pack) — never "in stock". Only OUT_OF_STOCK is out.
+    def ppo_in_stock(price_info)
+      return nil unless price_info.is_a?(Hash)
+
+      price_info['availability_status'] != 'OUT_OF_STOCK'
+    end
+
+    # Compare PPO's draft lines with ours. Discrepancy shapes match the other
+    # suppliers; missing lines carry OUR SKU so the chef's item is named.
+    def ppo_cart_discrepancies(draft, expected_items)
+      cart = Hash.new(0)
+      Array(draft['orders_items']).each do |line|
+        qty = ppo_line_qty(line)
+        next unless qty.positive?
+
+        cart[ppo_sku(line.dig('variants_pack', 'external_item_id'))] += qty
+      end
+
+      expected = Hash.new(0)
+      our_sku = {}
+      expected_items.each do |i|
+        key = ppo_sku(i[:sku])
+        expected[key] += i[:quantity].to_f
+        our_sku[key] ||= i[:sku].to_s
+      end
+
+      discrepancies = []
+      (cart.keys - expected.keys).sort.each { |k| discrepancies << { type: 'extra_in_cart', sku: k, cart_qty: cart[k] } }
+      (expected.keys - cart.keys).sort.each { |k| discrepancies << { type: 'missing_from_cart', sku: our_sku[k], expected_qty: expected[k] } }
+      (cart.keys & expected.keys).sort.each do |k|
+        next if cart[k] == expected[k]
+
+        discrepancies << { type: 'quantity_mismatch', sku: our_sku[k], cart_qty: cart[k], expected_qty: expected[k] }
+      end
+      discrepancies
+    end
+
+    # The order is stopping, so nothing in PPO's draft will be submitted.
+    # Empty it. Best effort: the next attempt's clear_cart fails closed.
+    def discard_cart_after_stop
+      clear_cart
+    rescue StandardError => e
+      logger.warn "[PPO] Could not empty the cart after stopping the order: #{e.message}"
+    end
+
+    # After a placed order: lines PPO moved to another delivery day (split
+    # orders) or that are on none of the placed orders. Returned in the
+    # supplier_exceptions shape (sku, type, ordered, filled, message, name) so
+    # the order page and the "changed your order" email show them. Read-only
+    # and best effort — an empty list when anything can't be read, so a
+    # placed order is never failed and nothing is claimed missing on a guess.
+    def ppo_order_changes(main_uuid, split_ids)
+      expected = Array(@expected_cart_items)
+      return [] if expected.empty? || @requested_delivery_date.nil?
+
+      placed = [main_uuid, *split_ids].map { |uuid| api_client.order_lines(uuid) }
+      return [] if placed.any?(&:nil?)
+
+      names = expected.to_h { |i| [ppo_sku(i[:sku]), i[:name]] }
+      skus = expected.to_h { |i| [ppo_sku(i[:sku]), i[:sku].to_s] }
+      seen = {}
+      changes = []
+      placed.each do |ord|
+        day = Time.zone.parse(ord['restaurant_desired_delivery_time'].to_s)&.in_time_zone('America/New_York')&.to_date
+        Array(ord['orders_items']).each do |line|
+          key = ppo_sku(line.dig('variants_pack', 'external_item_id'))
+          seen[key] = true
+          next if day.nil? || day == @requested_delivery_date || !skus.key?(key)
+
+          qty = ppo_line_qty(line)
+          changes << { sku: skus[key], name: names[key], type: 'delivery_changed', ordered: qty, filled: qty,
+                       message: "Arrives #{day.strftime('%a %b %-d')} — Premiere Produce put it on a separate order" }
+        end
+      end
+
+      skus.each do |key, sku|
+        next if seen[key]
+
+        qty = expected.select { |i| ppo_sku(i[:sku]) == key }.sum { |i| i[:quantity].to_f }
+        changes << { sku: sku, name: names[key], type: 'removed', ordered: qty, filled: 0,
+                     message: "Not on Premiere Produce's placed order" }
+      end
+      logger.warn "[PPO] Order #{main_uuid}: #{changes.size} item(s) not arriving as ordered (splits: #{split_ids.inspect})" if changes.any?
+      changes
+    rescue StandardError => e
+      logger.error "[PPO] Could not read split orders for #{main_uuid}: #{e.class}: #{e.message}"
+      []
     end
 
     public
