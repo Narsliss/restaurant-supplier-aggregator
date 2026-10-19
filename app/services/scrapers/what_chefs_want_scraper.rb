@@ -332,82 +332,75 @@ module Scrapers
     # real WCW category.
     DEEP_MAX_PAGES_PER_CATEGORY = 200
 
-    # Full-catalog crawl: paginate EVERY leaf category to exhaustion (no
-    # per-category cap), yielding batches for incremental DB writes. This is what
-    # DeepCatalogImportJob calls; the daily import still uses the shallow
-    # scrape_catalog. Per-category failures are logged and skipped (the import is
-    # additive, so a skipped category never discontinues anything).
+    # Full-catalog crawl of every leaf category, paging by offset up to WCW's
+    # own `count` for the category. Since Oct 2026 the 6 AM import uses it
+    # too (it read one page of 50 per category, ~49% of the catalog), so the
+    # morning run reads `unavailable` for every WCW item (plan Phase 3). An
+    # HTTP or GraphQL error used to read as an empty page and end the category
+    # silently; now it is counted in crawl_stats. Additive: never
+    # discontinues anything.
     def scrape_catalog_deep(&on_batch)
+      crawl_full_catalog('DEEP', &on_batch)
+    end
+
+    def scrape_catalog(_search_terms = nil, max_per_term: nil, &on_batch)
+      crawl_full_catalog('API', &on_batch)
+    end
+
+    # What the last crawl read (for the morning stock report):
+    # { 'categories', 'fetched', 'expected', 'short' => [names], 'failed' => [names] }
+    attr_reader :crawl_stats
+
+    # A browse crawl can miss search-only items; never let its gaps
+    # discontinue products (ImportSupplierProductsService#import_catalog).
+    def skip_miss_tracking?
+      true
+    end
+
+    def crawl_full_catalog(label, &on_batch)
       api_client.ensure_session!
       results = []
       leaves = catalog_leaf_categories
-      logger.info "[WhatChefsWant] DEEP: crawling #{leaves.size} leaf categories (full pagination)"
+      logger.info "[WhatChefsWant] #{label}: crawling #{leaves.size} leaf categories (full pagination)"
+      @crawl_stats = { 'categories' => leaves.size, 'fetched' => 0, 'expected' => 0, 'short' => [], 'failed' => [] }
 
       leaves.each do |leaf|
+        cat_started = Time.current
+        fetched = 0
+        expected = nil
         begin
-          cat_started = Time.current
           offset = 0
-          pages = 0
-          loop do
+          DEEP_MAX_PAGES_PER_CATEGORY.times do
             data = api_client.browse_category(leaf[:category_id], limit: 50, offset: offset, subcategory_id: leaf[:subcategory_id])
-            contextual = data&.dig('data', 'catalogProductsRootQuery', 'contextualProducts') || []
+            root = data&.dig('data', 'catalogProductsRootQuery')
+            if data.nil? || (data['errors'].present? && root.nil?)
+              raise ScrapingError, "browse failed at offset #{offset}: #{Array(data&.dig('errors')).first&.dig('message') || 'no response'}"
+            end
+
+            expected ||= root&.dig('count').to_i
+            contextual = root&.dig('contextualProducts') || []
             break if contextual.empty?
 
             batch = contextual.map { |cp| format_api_product(cp['canonicalProduct'], leaf[:name]) }.compact
             on_batch ? on_batch.call(batch) : results.concat(batch) if batch.any?
-
+            fetched += contextual.size
             offset += 50
-            pages += 1
-            break if pages >= DEEP_MAX_PAGES_PER_CATEGORY
-
-            rate_limit_delay # be polite between pages
+            break if expected.positive? && fetched >= expected
           end
-          logger.info "[WhatChefsWant] DEEP '#{leaf[:name]}': ~#{offset} products in #{format('%.1f', Time.current - cat_started)}s"
         rescue StandardError => e
-          logger.warn "[WhatChefsWant] DEEP '#{leaf[:name]}' failed: #{e.class}: #{e.message}"
+          @crawl_stats['failed'] << leaf[:name]
+          logger.warn "[WhatChefsWant] #{label} '#{leaf[:name]}' failed: #{e.class}: #{e.message}"
         end
+
+        @crawl_stats['fetched'] += fetched
+        @crawl_stats['expected'] += expected.to_i
+        @crawl_stats['short'] << leaf[:name] if expected.to_i.positive? && fetched < (expected * 0.98)
+        logger.info "[WhatChefsWant] #{label} '#{leaf[:name]}': #{fetched}/#{expected.inspect} products in #{format('%.1f', Time.current - cat_started)}s"
       end
 
+      logger.info "[WhatChefsWant] #{label} crawl: #{@crawl_stats['fetched']} of #{@crawl_stats['expected']} expected, " \
+                  "short: #{@crawl_stats['short'].inspect}, failed: #{@crawl_stats['failed'].inspect}"
       on_batch ? [] : results.uniq { |r| r[:supplier_sku] }
-    end
-
-    def scrape_catalog(search_terms, max_per_term: 50, &on_batch)
-      api_client.ensure_session!
-      results = []
-
-      leaves = catalog_leaf_categories
-      logger.info "[WhatChefsWant] API: Crawling #{leaves.size} leaf categories (shallow, max #{max_per_term}/cat)"
-
-      leaves.each do |leaf|
-        begin
-          offset = 0
-          leaf_products = []
-
-          loop do
-            data = api_client.browse_category(leaf[:category_id], limit: 50, offset: offset, subcategory_id: leaf[:subcategory_id])
-            contextual = data&.dig('data', 'catalogProductsRootQuery', 'contextualProducts') || []
-            break if contextual.empty?
-
-            batch = contextual.map { |cp| format_api_product(cp['canonicalProduct'], leaf[:name]) }.compact
-            leaf_products.concat(batch)
-            on_batch&.call(batch) if batch.any?
-
-            offset += 50
-            break if leaf_products.size >= max_per_term
-          end
-
-          results.concat(leaf_products) unless on_batch
-          logger.info "[WhatChefsWant] API '#{leaf[:name]}': #{leaf_products.size} products"
-        rescue StandardError => e
-          logger.warn "[WhatChefsWant] API '#{leaf[:name]}' failed: #{e.class}: #{e.message}"
-        end
-      end
-
-      return [] if on_batch
-
-      deduped = results.uniq { |r| r[:supplier_sku] }
-      logger.info "[WhatChefsWant] API total unique products: #{deduped.size} (from #{results.size} raw)"
-      deduped
     end
 
     private
@@ -839,7 +832,12 @@ module Scrapers
         current_price: price&.to_f,
         price_unit: wcw_price_unit(product),
         pack_size: product['packSize'].to_s.strip.presence,
-        in_stock: nil, # Don't set stock from catalog browse — only order guide is authoritative
+        # WCW's own unavailable(locationId) — the flag the order guide has
+        # used since fcf11a8 (Mar 2026). isOutOfStock is NOT used: it depends
+        # on a delivery date we can only guess (that guess once flagged every
+        # item out). nil = WCW didn't say. Plan Phase 3, Oct 2026.
+        in_stock: product.key?('unavailable') ? product['unavailable'] != true : nil,
+        stock_signal: product.key?('unavailable') ? "unavailable:#{product['unavailable']} oos:#{product['isOutOfStock'].inspect}" : nil,
         category: category || product.dig('l0category', 'name'),
         supplier_url: nil,
         image_url: product.dig('thumbnail', 'url'),

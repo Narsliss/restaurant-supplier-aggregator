@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_09_27_230000) do
+ActiveRecord::Schema[7.1].define(version: 2026_10_19_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -1004,6 +1004,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_27_230000) do
     t.string "match_confidence"
     t.string "supplier_seller_id"
     t.string "supplier_seller_group"
+    t.string "stock_signal"
+    t.datetime "stock_checked_at"
+    t.string "stock_source"
     t.index ["consecutive_misses"], name: "index_supplier_products_on_consecutive_misses"
     t.index ["discontinued"], name: "index_supplier_products_on_discontinued"
     t.index ["image_status"], name: "index_supplier_products_on_image_status"
@@ -1085,6 +1088,8 @@ ActiveRecord::Schema[7.1].define(version: 2026_09_27_230000) do
     t.bigint "created_by_id"
     t.integer "display_position", default: 0
     t.boolean "case_pricing", default: true, null: false
+    t.string "morning_stock_mode", default: "shadow", null: false
+    t.jsonb "last_stock_run"
     t.index ["active"], name: "index_suppliers_on_active"
     t.index ["code"], name: "index_suppliers_on_code", unique: true
     t.index ["contact_email"], name: "index_suppliers_on_contact_email"

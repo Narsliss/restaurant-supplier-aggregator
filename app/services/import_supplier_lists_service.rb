@@ -352,7 +352,16 @@ class ImportSupplierListsService
     # whose catalog returns nil for stock) had no path to flip SP.in_stock
     # back to true once it ever went false.
     list_item_stock = item.read_attribute(:in_stock)
-    attrs[:in_stock] = list_item_stock unless list_item_stock.nil?
+    unless list_item_stock.nil?
+      attrs[:in_stock] = list_item_stock
+      # Evidence for the morning stock report: the guide read this item's
+      # stock just now (plan Phase 3).
+      if SupplierProduct.stock_evidence?
+        attrs[:stock_signal] = "guide:#{list_item_stock ? 'in' : 'out'}"
+        attrs[:stock_checked_at] = Time.current
+        attrs[:stock_source] = 'guide'
+      end
+    end
 
     # Update pack_size if present and different
     attrs[:pack_size] = item.pack_size if item.pack_size.present? && item.pack_size != sp.pack_size

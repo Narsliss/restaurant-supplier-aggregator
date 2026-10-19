@@ -2952,9 +2952,14 @@ module Scrapers
       pack_size_info = info['packSize'] || {}
       pack_size = build_pack_size(pack_size_info)
 
-      stock_indicator = result.dig('availableStockInfo', 'stockIndicator') || 'S'
+      raw_indicator = result.dig('availableStockInfo', 'stockIndicator')
+      stock_indicator = raw_indicator || 'S'
       is_orderable = info['isOrderable'] != false && info['isShopOrderable'] != false
+      # 'O' = out; S stocked, D demand (special order), R/N remote are all
+      # orderable (probe Oct 19 2026: no 'O' among 100 in-use items, every
+      # S/D/R/N orderable). Phased out or not orderable = out.
       in_stock = stock_indicator != 'O' && !info['isPhasedOut'] && is_orderable
+      stock_signal = "#{raw_indicator.inspect} #{info['stockType']} orderable:#{is_orderable} phased_out:#{info['isPhasedOut'].inspect}"
 
       # Determine split/unit info
       sold_as = info['isSoldAs'] || {}
@@ -2989,6 +2994,7 @@ module Scrapers
         pack_size: pack_size,
         price_unit: price_unit,
         in_stock: in_stock,
+        stock_signal: stock_signal,
         supplier_url: "#{BASE_URL}/app/product/#{product_id}",
         category: category,
         image_url: (info['images'] || []).find { |u| u.to_s.strip.present? },

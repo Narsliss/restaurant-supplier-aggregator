@@ -55,8 +55,13 @@ class Admin::OperationsController < Admin::BaseController
                      .where('expires_at > ?', Time.current)
                      .includes(supplier_credential: [:supplier, :user])
 
-    # List sync status
+    # List sync status. "syncing" for over an hour means a run left it behind
+    # (it used to show blue, like work in progress, for days).
     @list_sync_stats = SupplierList.group(:sync_status).count
+    @stuck_syncing = SupplierList.where(sync_status: 'syncing').where('updated_at < ?', 1.hour.ago).count
+
+    # Morning stock run per supplier (plan Phase 3)
+    @stock_report = MorningStockReportJob.build_report
 
     # Job queue health
     @queue_stats = {
@@ -64,5 +69,19 @@ class Admin::OperationsController < Admin::BaseController
       failed:  SolidQueue::FailedExecution.count,
       running: SolidQueue::ClaimedExecution.count
     }
+  end
+
+  # Carmin flips a supplier from shadow (record only) to live (the morning
+  # run marks items out and back in) after reviewing its shadow numbers.
+  # No deploy needed.
+  def stock_mode
+    supplier = Supplier.find(params[:supplier_id])
+    mode = params[:mode].to_s
+    if Supplier::MORNING_STOCK_MODES.include?(mode)
+      supplier.update!(morning_stock_mode: mode)
+      redirect_to admin_operations_path, notice: "#{supplier.name}: morning stock is now #{mode}."
+    else
+      redirect_to admin_operations_path, alert: "Unknown mode #{mode.inspect}."
+    end
   end
 end

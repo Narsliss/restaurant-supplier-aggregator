@@ -39,6 +39,14 @@ class SupplierProduct < ApplicationRecord
   scope :for_user, ->(user) { where(supplier_id: user.validated_supplier_ids) }
   scope :for_suppliers, ->(supplier_ids) { where(supplier_id: supplier_ids) }
 
+  # The morning stock evidence columns (stock_signal, stock_checked_at,
+  # stock_source) arrive with migration 20261019180000. A worker that booted
+  # before web migrated doesn't know them; imports skip the evidence until it
+  # restarts instead of failing.
+  def self.stock_evidence?
+    column_names.include?('stock_checked_at')
+  end
+
   # Methods
   def in_stock?
     in_stock

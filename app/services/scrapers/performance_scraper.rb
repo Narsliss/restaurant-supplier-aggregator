@@ -532,9 +532,12 @@ module Scrapers
         supplier_name: product_display_name(product),
         current_price: case_price_for(product, prices),
         pack_size: product_pack_size(product),
-        # Don't set stock from catalog — only the order-guide sync has the
-        # per-location context to mark items out of stock (see USF).
-        in_stock: nil,
+        # The search answer already carries IsOutOfStock. "Per-location" was
+        # the old reason to ignore it, but every Performance login here is
+        # the same customer (AJM D'ORO, opco 790) and it matched our guide
+        # flags 7/7 live (Oct 19 2026). nil when absent. Plan Phase 3.
+        in_stock: product.key?('IsOutOfStock') ? !product['IsOutOfStock'] : nil,
+        stock_signal: product.key?('IsOutOfStock') ? "IsOutOfStock:#{product['IsOutOfStock']}" : nil,
         category: product['ProductCategory'].presence&.titleize,
         subcategory: product['ShoppingCategory'].presence,
         supplier_url: nil,

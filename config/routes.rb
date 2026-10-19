@@ -363,7 +363,9 @@ Rails.application.routes.draw do
       end
 
       resource :revenue, only: [:show]
-      resource :operations, only: [:show]
+      resource :operations, only: [:show] do
+        patch :stock_mode # per-supplier morning stock mode (off/shadow/live)
+      end
       resource :usage, only: [:show]
 
       # Supplier Portal User Management

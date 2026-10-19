@@ -82,6 +82,21 @@ class ScrapingErrorMailer < ApplicationMailer
     )
   end
 
+  # Morning stock run problems (MorningStockReportJob). Only sent when a
+  # supplier's stock wasn't fully read this morning — quiet on success.
+  # rows: MorningStockReportJob.build_report rows that have problems
+  def morning_stock_problems(rows)
+    @super_admin = User.super_admin
+    return unless @super_admin
+
+    @rows = rows
+    names = rows.map { |r| r[:supplier].name }
+    mail(
+      to: @super_admin.email,
+      subject: "[EnPlace Pro] Morning stock check: problems at #{names.to_sentence}"
+    )
+  end
+
   # Alert when credential has expired and needs revalidation
   def credentials_expired(supplier, credential)
     @supplier = supplier

@@ -43,6 +43,25 @@ class Supplier < ApplicationRecord
 
   validates :auth_type, inclusion: { in: AUTH_TYPES }
 
+  # What the morning catalog run does with the supplier's stock answer (plan
+  # Phase 3, Oct 2026; see ImportSupplierProductsService#apply_stock_evidence!).
+  # shadow = record and count only; live = mark items out and back in;
+  # off = record nothing. Carmin flips it per supplier on the Operations page.
+  MORNING_STOCK_MODES = %w[off shadow live].freeze
+  validates :morning_stock_mode, inclusion: { in: MORNING_STOCK_MODES }, if: -> { has_attribute?(:morning_stock_mode) }
+
+  # Code can load before migration 20261019180000 has run: db:migrate itself
+  # boots the app (and the supplier seed in config/initializers), and the
+  # worker boots before web migrates. Until the columns exist, a supplier
+  # reads as "off" with no run recorded, so nothing at boot can fail on them.
+  def morning_stock_mode
+    has_attribute?(:morning_stock_mode) ? super : 'off'
+  end
+
+  def last_stock_run
+    has_attribute?(:last_stock_run) ? super : nil
+  end
+
   # Authentication type helpers
   def two_fa_only?
     auth_type == 'two_fa'

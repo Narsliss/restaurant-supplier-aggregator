@@ -223,6 +223,64 @@
           <%= status.capitalize %> &middot; <%= count %>
         </span>
       <% end %>
+      <% if @stuck_syncing.positive? %>
+        <span class="rounded-full px-3 py-1 text-xs font-medium bg-red-100 text-red-800" data-stuck-syncing>
+          Stuck syncing over 1h &middot; <%= @stuck_syncing %>
+        </span>
+      <% end %>
+    </div>
+  </div>
+
+  <%# Morning stock (plan Phase 3, Oct 2026) %>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden" data-morning-stock>
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-semibold text-gray-900">Morning stock</h2>
+      <p class="text-sm text-gray-500 mt-1">
+        What each supplier's morning run read about stock. <strong>Shadow</strong> records and counts only (no change to what chefs see);
+        <strong>live</strong> marks items out and back in from the supplier's answer. Problems are emailed at 9:15 AM ET.
+      </p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Mode</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last run</th>
+            <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Read</th>
+            <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">On lists, read today</th>
+            <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Would mark out / in</th>
+            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Problems</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+          <% @stock_report.each do |row| %>
+            <% run = row[:run] %>
+            <tr data-stock-supplier="<%= row[:supplier].code %>">
+              <td class="px-4 py-2 font-medium text-gray-900"><%= row[:supplier].name %></td>
+              <td class="px-4 py-2">
+                <div class="flex gap-1">
+                  <% Supplier::MORNING_STOCK_MODES.each do |mode| %>
+                    <%= button_to mode, stock_mode_admin_operations_path(supplier_id: row[:supplier].id, mode: mode), method: :patch,
+                          class: "rounded px-2 py-0.5 text-xs font-medium #{row[:mode] == mode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700'}",
+                          disabled: row[:mode] == mode %>
+                  <% end %>
+                </div>
+              </td>
+              <td class="px-4 py-2 text-gray-600">
+                <%= row[:ran_at] ? row[:ran_at].in_time_zone('America/New_York').strftime('%b %-d %-l:%M %p') : '—' %>
+                <% if run['kind'] %><span class="text-xs text-gray-400"><%= run['kind'] %></span><% end %>
+              </td>
+              <td class="px-4 py-2 text-right text-gray-900"><%= run['stock_checked'] || '—' %></td>
+              <td class="px-4 py-2 text-right text-gray-900"><%= row[:in_use_checked] %> / <%= row[:in_use_total] %></td>
+              <td class="px-4 py-2 text-right text-gray-900"><%= run['would_mark_out'] || 0 %> / <%= run['would_mark_in'] || 0 %></td>
+              <td class="px-4 py-2 <%= row[:problems].any? ? 'text-red-700' : 'text-gray-400' %>">
+                <%= row[:problems].any? ? row[:problems].join('; ') : 'none' %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>

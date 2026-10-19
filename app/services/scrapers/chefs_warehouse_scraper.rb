@@ -264,96 +264,73 @@ module Scrapers
     # Safety ceiling against an API that never returns a blank page_token.
     DEEP_MAX_PAGES_PER_CATEGORY = 200
 
-    # Full-catalog crawl: paginate EVERY leaf category to exhaustion (until the
-    # API stops returning a next-page token), yielding batches for incremental DB
-    # writes. Called by DeepCatalogImportJob; the daily import keeps using the
-    # shallow scrape_catalog. Additive — per-category failures are logged/skipped
-    # and never discontinue anything.
+    # Full-catalog crawl of every leaf category, paged BY PAGE NUMBER up to
+    # CW's own total for the category. The next-page token is unreliable: live
+    # Oct 19 2026 it was missing on any login at random (Sky/Cody on Oct 4/18,
+    # Nate today), so "until the token runs out" fetched one page — 512 of
+    # ~15,900 items — and logged complete. Page numbers worked on every login.
+    #
+    # Since Oct 2026 the 6 AM import uses this too (it used to read the first
+    # 100 items per category, ~6% of the catalog), so the morning run reads
+    # stock for every CW item (plan Phase 3). Additive: per-category failures
+    # are logged and counted in crawl_stats, never discontinue anything.
     def scrape_catalog_deep(&on_batch)
+      crawl_full_catalog('DEEP', &on_batch)
+    end
+
+    def scrape_catalog(_search_terms = nil, max_per_term: nil, &on_batch)
+      crawl_full_catalog('API', &on_batch)
+    end
+
+    # What the last crawl read, per category (for the morning stock report):
+    # { 'categories', 'fetched', 'expected', 'short' => [names], 'failed' => [names] }
+    attr_reader :crawl_stats
+
+    # A browse crawl can miss search-only items; never let its gaps
+    # discontinue products (ImportSupplierProductsService#import_catalog).
+    def skip_miss_tracking?
+      true
+    end
+
+    def crawl_full_catalog(label, &on_batch)
       api_client.ensure_session!
       results = []
       leaf_categories = discover_leaf_categories
-      logger.info "[ChefsWarehouse] DEEP: crawling #{leaf_categories.size} leaf categories (full pagination)"
+      logger.info "[ChefsWarehouse] #{label}: crawling #{leaf_categories.size} leaf categories (page-number pagination)"
+      @crawl_stats = { 'categories' => leaf_categories.size, 'fetched' => 0, 'expected' => 0, 'short' => [], 'failed' => [] }
 
       leaf_categories.each do |category|
+        cat_started = Time.current
+        fetched = 0
+        total = nil
         begin
-          cat_started = Time.current
-          page_token = ''
-          pages = 0
-          count = 0
-          loop do
-            search_result = api_client.search_category(category[:path], page_size: 50, page_token: page_token)
+          (0...DEEP_MAX_PAGES_PER_CATEGORY).each do |page|
+            search_result = api_client.search_category(category[:path], page: page, page_size: 50, page_token: '')
+            total ||= search_result[:total].to_i
             batch = search_result[:products]
             break if batch.empty?
 
             formatted = batch.map { |p| format_catalog_product(p, category[:name]) }
-            on_batch ? on_batch.call(formatted) : results.concat(formatted) if formatted.any?
-            count += formatted.size
-
-            page_token = search_result[:page_token].to_s
-            pages += 1
-            break if page_token.blank?
-            break if pages >= DEEP_MAX_PAGES_PER_CATEGORY
+            on_batch ? on_batch.call(formatted) : results.concat(formatted)
+            fetched += formatted.size
+            break if total.positive? && fetched >= total
 
             rate_limit_delay # be polite between pages
           end
-          logger.info "[ChefsWarehouse] DEEP '#{category[:name]}': #{count} products in #{format('%.1f', Time.current - cat_started)}s"
         rescue StandardError => e
-          logger.warn "[ChefsWarehouse] DEEP '#{category[:name]}' failed: #{e.class}: #{e.message}"
+          @crawl_stats['failed'] << category[:name]
+          logger.warn "[ChefsWarehouse] #{label} '#{category[:name]}' failed: #{e.class}: #{e.message}"
         end
+
+        @crawl_stats['fetched'] += fetched
+        @crawl_stats['expected'] += total.to_i
+        @crawl_stats['short'] << category[:name] if total.to_i.positive? && fetched < (total * 0.98)
+        logger.info "[ChefsWarehouse] #{label} '#{category[:name]}': #{fetched}/#{total.inspect} products in #{format('%.1f', Time.current - cat_started)}s"
       end
 
+      logger.info "[ChefsWarehouse] #{label} crawl: #{@crawl_stats['fetched']} of #{@crawl_stats['expected']} expected, " \
+                  "short: #{@crawl_stats['short'].inspect}, failed: #{@crawl_stats['failed'].inspect}"
       on_batch ? [] : results.uniq { |r| r[:supplier_sku] }
-    end
-
-    def scrape_catalog(search_terms, max_per_term: 100, &on_batch)
-      api_client.ensure_session!
-      results = []
-
-      # Discover all leaf categories
-      logger.info '[ChefsWarehouse] API: Discovering leaf categories...'
-      leaf_categories = discover_leaf_categories
-      logger.info "[ChefsWarehouse] API: Found #{leaf_categories.size} leaf categories"
-
-      leaf_categories.each do |category|
-        begin
-          category_products = []
-          page_token = ''
-
-          loop do
-            search_result = api_client.search_category(
-              category[:path],
-              page_size: 50,
-              page_token: page_token
-            )
-            batch = search_result[:products]
-            break if batch.empty?
-
-            formatted = batch.map { |p| format_catalog_product(p, category[:name]) }
-            category_products.concat(formatted)
-
-            if on_batch && formatted.any?
-              on_batch.call(formatted)
-            end
-
-            # Check for next page
-            page_token = search_result[:page_token].to_s
-            break if page_token.blank?
-            break if category_products.size >= max_per_term
-          end
-
-          results.concat(category_products) unless on_batch
-          logger.info "[ChefsWarehouse] API category '#{category[:name]}': #{category_products.size} products"
-        rescue StandardError => e
-          logger.warn "[ChefsWarehouse] API category '#{category[:name]}' failed: #{e.class}: #{e.message}"
-        end
-      end
-
-      return [] if on_batch
-
-      deduped = results.uniq { |r| r[:supplier_sku] }
-      logger.info "[ChefsWarehouse] API total unique products: #{deduped.size} (from #{results.size} raw)"
-      deduped
     end
 
     # ── Cart & Checkout ─────────────────────────────────────────
@@ -952,6 +929,9 @@ module Scrapers
         current_price: nil, # Prices fetched separately if needed
         pack_size: product[:pack_size],
         in_stock: product[:in_stock],
+        # CW's raw stock count (warehouse-wide — identical across D'oro, Noche
+        # and alfios, live Oct 19 2026). Evidence for the morning stock run.
+        stock_signal: product[:stock_count]&.to_s,
         category: category_name,
         subcategory: product[:subcategory],
         brand: product[:brand],

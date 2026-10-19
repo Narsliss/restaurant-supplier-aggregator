@@ -196,6 +196,15 @@ module Scrapers
     # each counts, updated within the hour, division-wide). true / false, or
     # nil when we can't tell: no product, no inventory block, or not a regular
     # warehouse item (productType other than "R").
+    # The raw inventory numbers, kept as evidence ("on 14 res 2 wait 0 R").
+    def usf_stock_signal(product)
+      inventory = product.is_a?(Hash) ? product['inventory'] : nil
+      return nil unless inventory.is_a?(Hash)
+
+      "on #{inventory['casesOnHand'].to_i} res #{inventory['casesOnReserve'].to_i} " \
+        "wait #{inventory['casesWaitlistReserve'].to_i} #{inventory['productType']}"
+    end
+
     def usf_live_in_stock(product, uom)
       inventory = product.is_a?(Hash) ? product['inventory'] : nil
       return nil unless inventory.is_a?(Hash) && inventory['productType'].to_s == 'R'
@@ -276,7 +285,12 @@ module Scrapers
             supplier_name: [summary['brand'], summary['productDescTxtl'] || summary['productDescLong']].compact.join(' - '),
             current_price: (price&.dig(:case_price) unless self.class.price_error(price)),
             pack_size: summary['salesPackSize'],
-            in_stock: nil, # Don't set stock from catalog — only order guide is authoritative
+            # Live warehouse stock from the inventory block this products call
+            # already returns (plan Phase 3; was nil — USF stock was never
+            # read). nil = can't tell. The importer decides what to do with it
+            # (supplier.morning_stock_mode).
+            in_stock: usf_live_in_stock(p, nil),
+            stock_signal: usf_stock_signal(p),
             category: summary['classDescription']&.titleize,
             subcategory: summary['categoryDescription']&.titleize,
             supplier_url: "#{BASE_URL}/desktop/product/#{pn}",

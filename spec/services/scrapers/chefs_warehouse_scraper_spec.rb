@@ -545,27 +545,62 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
     end
   end
 
-  # Deep catalog crawl must paginate a category past the old 100-item cap.
-  describe '#scrape_catalog_deep' do
+  # Full catalog crawl (the 6 AM import and the weekly deep crawl). Live Oct 19
+  # 2026: the next-page token went missing at random on any login, so the
+  # "deep" crawl read one page per category (512 of ~15,900 items) and logged
+  # complete. Paging by page number up to CW's total worked on every login.
+  describe 'full catalog crawl' do
     before do
       allow(scraper).to receive(:rate_limit_delay)
       allow(scraper).to receive(:discover_leaf_categories).and_return([{ path: '/seafood', name: 'Seafood' }])
       allow(scraper).to receive(:format_catalog_product) { |p, _n| { supplier_sku: p[:code] } }
     end
 
-    it 'paginates via page_token past the old 100-item cap until the token runs out' do
+    def pages(total, per = 50)
       allow(api).to receive(:search_category) do |_path, **kw|
-        case kw[:page_token]
-        when '' then { products: Array.new(50) { |i| { code: "A#{i}" } }, page_token: 't1' }
-        when 't1' then { products: Array.new(50) { |i| { code: "B#{i}" } }, page_token: 't2' }
-        when 't2' then { products: Array.new(50) { |i| { code: "C#{i}" } }, page_token: '' } # 150 total
-        end
+        start = kw[:page] * per
+        count = [[total - start, per].min, 0].max
+        { products: Array.new(count) { |i| { code: "S#{start + i}" } }, total: total, page_token: '' } # no token, like live
       end
+    end
+
+    it 'pages by number up to the total even when CW sends no next-page token' do
+      pages(150)
 
       collected = []
       scraper.scrape_catalog_deep { |batch| collected.concat(batch) }
 
-      expect(collected.size).to eq(150) # old cap would have stopped at 100
+      expect(collected.size).to eq(150)
+      expect(scraper.crawl_stats).to include('fetched' => 150, 'expected' => 150, 'short' => [], 'failed' => [])
+    end
+
+    it 'is what the 6 AM import runs now (was 100 per category)' do
+      pages(320)
+
+      collected = []
+      scraper.scrape_catalog(%w[ignored]) { |batch| collected.concat(batch) }
+
+      expect(collected.size).to eq(320)
+    end
+
+    it 'reports a short crawl instead of logging it complete' do
+      allow(api).to receive(:search_category) do |_path, **kw|
+        kw[:page].zero? ? { products: Array.new(50) { |i| { code: "S#{i}" } }, total: 300 } : { products: [], total: 300 }
+      end
+
+      scraper.scrape_catalog_deep { |_batch| nil }
+
+      expect(scraper.crawl_stats).to include('fetched' => 50, 'expected' => 300, 'short' => ['Seafood'])
+    end
+
+    it 'never lets the crawl discontinue products' do
+      expect(scraper.skip_miss_tracking?).to be(true)
+    end
+
+    it "records CW's raw stock count as evidence" do
+      allow(scraper).to receive(:format_catalog_product).and_call_original
+      formatted = scraper.send(:format_catalog_product, { sku: 'NW101B', name: 'Walnuts', in_stock: false, stock_count: 0.0 }, 'Nuts')
+      expect(formatted).to include(in_stock: false, stock_signal: '0.0')
     end
   end
 end

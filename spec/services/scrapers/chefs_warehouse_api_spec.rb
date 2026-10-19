@@ -82,14 +82,16 @@ RSpec.describe Scrapers::ChefsWarehouseApi do
       expect(parsed[:stock_count]).to eq(0.0)
     end
 
-    it 'defaults to in_stock=true when the variant has no inStock field (avoids stranding fresh SKUs)' do
+    # Oct 2026 (plan Phase 3): no count = unknown (nil), not "in". Fresh SKUs
+    # still land in stock — the importer stores new items with nil as in.
+    it 'is unknown (nil) when the variant has no inStock field' do
       product = { 'name' => 'Unknown', 'sku' => 'X3', 'variants' => [{ 'code' => 'JDE_X3-1', 'metadata' => {} }] }
-      expect(api.send(:parse_search_product, product)[:in_stock]).to be(true)
+      expect(api.send(:parse_search_product, product)[:in_stock]).to be_nil
     end
 
     it 'handles a missing variants array gracefully' do
       product = { 'name' => 'No Variants', 'sku' => 'X4' }
-      expect(api.send(:parse_search_product, product)[:in_stock]).to be(true)
+      expect(api.send(:parse_search_product, product)[:in_stock]).to be_nil
     end
   end
 

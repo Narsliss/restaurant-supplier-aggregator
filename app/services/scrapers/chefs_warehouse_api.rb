@@ -713,10 +713,12 @@ module Scrapers
       # boolean here; missing/non-numeric falls back to true (treat unknown
       # as available rather than stranding fresh SKUs as out-of-stock).
       variant_stock_count = variant['inStock']
+      # nil = no count, can't tell (plan Phase 3, Oct 2026: was "in"). New
+      # SKUs still land in stock — the importer treats nil as in for those.
       available = if variant_stock_count.is_a?(Numeric)
                     variant_stock_count > 0
-                  else
-                    variant_stock_count != false
+                  elsif variant_stock_count == false
+                    false
                   end
 
       {

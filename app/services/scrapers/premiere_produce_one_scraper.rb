@@ -202,6 +202,7 @@ module Scrapers
             current_price: price,
             pack_size: pack_size,
             in_stock: ppo_in_stock(price_info), # nil = unknown (failed or missing), never "in"
+            stock_signal: price_info.is_a?(Hash) ? (price_info["availability_status"] || "available") : nil,
             category: item['category'] || ci['variant_pack_group_display_name'],
             supplier_url: "#{BASE_URL}/item/#{vp['uuid']}",
             image_url: (item['photo_url_list'] || []).find { |u| u.to_s.strip.present? }

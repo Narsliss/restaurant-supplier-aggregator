@@ -63,12 +63,14 @@ production:
     schedule: "*/15 * * * *"
     description: "Expire old 2FA requests every 15 minutes"
 
-  # Daily catalog import via super_admin credentials (once per day, staggered)
+  # Daily catalog import (once per day, staggered). Uses the most recently used
+  # active login per supplier (StaggeredSupplierImportJob#best_credential_for),
+  # not a super_admin one. Unzoned crons run in the app time zone (Eastern).
   staggered_supplier_import:
     class: StaggeredSupplierImportJob
     queue: scraping
     schedule: "0 6 * * *"
-    description: "Daily supplier product catalog import at 2 AM EST (6 AM UTC)"
+    description: "6 AM ET (app time zone): daily catalog import, one login per supplier"
 
   # Daily list/order guide sync for all organization credentials
   # Scheduled 3 hours after staggered import to avoid overlap —
@@ -78,7 +80,17 @@ production:
     class: SyncAllListsJob
     queue: scraping
     schedule: "0 8 * * *"
-    description: "Sync supplier lists/order guides once daily at 4 AM EST (8 AM UTC)"
+    description: "8 AM ET (app time zone): sync supplier lists/order guides"
+
+  # Morning stock report (plan Phase 3, Oct 2026): after the 6 AM catalog runs
+  # and the 8 AM guide sync, check each supplier's stock was really read this
+  # morning. Emails the super admin ONLY on a problem (no run, errors, short
+  # crawl, low coverage of items on lists). Quiet on success.
+  morning_stock_report:
+    class: MorningStockReportJob
+    queue: low
+    schedule: "15 9 * * * America/New_York"
+    description: "9:15 AM ET: check every supplier's morning stock run; alert only on problems"
 
   # Daily matched-list health check, after the list sync: emails the super admin
   # if rows lost all their products or order-list entries point at empty rows.
@@ -86,7 +98,7 @@ production:
     class: MatchHealthCheckJob
     queue: low
     schedule: "0 11 * * *"
-    description: "Check matched lists for newly empty rows at 7 AM EST (11 AM UTC)"
+    description: "11 AM ET (app time zone): check matched lists for newly empty rows"
 
   # Daily re-check of owners' multi-restaurant supplier logins: links a
   # restaurant the supplier set up after it was added in EnPlace. Silent.
@@ -94,14 +106,14 @@ production:
     class: AutoLinkSupplierRestaurantsJob
     queue: low
     schedule: "30 10 * * *"
-    description: "Link new supplier restaurants to owners' EnPlace restaurants at 6:30 AM EST (10:30 AM UTC)"
+    description: "10:30 AM ET (app time zone): link new supplier restaurants to owners' EnPlace restaurants"
 
   # Nightly demo environment reset (no-op unless DEMO_MODE=true)
   demo_nightly_reset:
     class: DemoResetJob
     queue: critical
     schedule: "0 5 * * *"
-    description: "Reset demo environment to golden state (1 AM EST / 5 AM UTC)"
+    description: "5 AM ET (app time zone): reset demo environment to golden state"
 
   # Nightly cleanup of finished Solid Queue job rows. Solid Queue 0.9.0 does NOT
   # auto-clear these; because the queue lives in Postgres they pile up on the DB
@@ -111,7 +123,7 @@ production:
     class: ClearFinishedJobsJob
     queue: low
     schedule: "15 4 * * *"
-    description: "Clear finished Solid Queue jobs daily at 12:15 AM EST (4:15 AM UTC)"
+    description: "4:15 AM ET (app time zone): clear finished Solid Queue jobs"
 
   # Daily cleanup: delete drafts older than Order::DRAFT_EXPIRY_DAYS (14 days by default)
   # Timer resets when the chef returns to checkout — see OrdersController#review.
@@ -119,7 +131,7 @@ production:
     class: ExpireDraftsJob
     queue: low
     schedule: "30 4 * * *"
-    description: "Delete expired draft orders daily at 12:30 AM EST (4:30 AM UTC)"
+    description: "4:30 AM ET (app time zone): delete expired draft orders"
 
   # Nightly driver for full-catalog deep imports (What Chefs Want, Chef's
   # Warehouse, Premiere Produce One). Each supplier deep-crawls ONCE A WEEK on a

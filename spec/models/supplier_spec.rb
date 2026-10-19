@@ -113,4 +113,26 @@ RSpec.describe Supplier, type: :model do
       expect(Supplier.web_suppliers).not_to include(email)
     end
   end
+
+  describe 'morning stock mode' do
+    it 'accepts only off, shadow or live, and starts in shadow' do
+      expect(Supplier.new.morning_stock_mode).to eq('shadow')
+      expect(build(:supplier, morning_stock_mode: 'maybe')).not_to be_valid
+    end
+
+    # Regression (Oct 2026, caught before deploy): db:migrate boots the app,
+    # and the supplier seed initializer saves every supplier. With the
+    # validation reading a column that did not exist yet, boot raised
+    # NoMethodError, so the migration that adds the column could never run.
+    it 'reads as off, and still saves, before its column exists' do
+      supplier = build(:supplier)
+      allow(supplier).to receive(:has_attribute?).and_call_original
+      allow(supplier).to receive(:has_attribute?).with(:morning_stock_mode).and_return(false)
+      allow(supplier).to receive(:has_attribute?).with(:last_stock_run).and_return(false)
+
+      expect(supplier.morning_stock_mode).to eq('off')
+      expect(supplier.last_stock_run).to be_nil
+      expect(supplier).to be_valid
+    end
+  end
 end

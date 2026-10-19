@@ -217,6 +217,19 @@ RSpec.describe ImportSupplierListsService do
 
       expect { service.send(:refresh_linked_product, sli.reload) }
         .not_to change { sp.reload.in_stock }
+      expect(sp.stock_checked_at).to be_nil
+    end
+
+    # Plan Phase 3: the morning report counts an item on a list as read
+    # today when the guide sync read its stock.
+    it 'records the guide reading as stock evidence' do
+      sp = make_sp(sku: '20284', in_stock: true)
+      sli = make_sli(sku: '20284', supplier_product: sp, raw_in_stock: false)
+
+      service.send(:refresh_linked_product, sli)
+
+      expect(sp.reload).to have_attributes(stock_signal: 'guide:out', stock_source: 'guide')
+      expect(sp.stock_checked_at).to be_within(1.minute).of(Time.current)
     end
   end
 

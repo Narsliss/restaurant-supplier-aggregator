@@ -1,20 +1,20 @@
 # Build plan: out of stock, all six suppliers (checkout + morning stock)
 
-**Date:** 2026-10-19 · **Status:** PLAN, waiting for Carmin's approval. Nothing below is built except Step 0. · **Order placement:** most steps touch it. Each step states its ordering impact. Every step must fail closed and submit nothing on doubt.
+**Date:** 2026-10-19 · **Status:** Step 0 and Phases 1–2 committed (not pushed); Phase 3 built and tested, not committed; 3.3, Phase 4 and Phase 5 not started. Carmin: hold the push until every phase is done, then ship once. · **Order placement:** most steps touch it. Each step states its ordering impact. Every step must fail closed and submit nothing on doubt.
 
 Sources (same worktree): `docs/fix-cw-out-of-stock-message.md` (order 483 and the checkout audit A/B/C) and `docs/morning-jobs-audit.md` (morning jobs, live probes §9).
 
 ## Where things stand (Oct 19, evening)
 
-**Committed on `claude/charming-grothendieck-c1c08e`, not pushed:** `ebe2426` (Step 0, Chef's Warehouse) and `0601646` (Phase 1, US Foods). **This covers CW and US Foods only, not all suppliers.**
+**Committed on `claude/charming-grothendieck-c1c08e`, not pushed:** `ebe2426` (Step 0, Chef's Warehouse), `0601646` (Phase 1, US Foods) and `f56b41b` (Phase 2, Premiere Produce). **Phase 3 (morning stock, all six) is built, uncommitted:** see `fix-morning-stock.md`. Every supplier starts in shadow mode, so `in_stock` doesn't change until Carmin switches a supplier to live.
 
 | Supplier | Changed (committed) | Still open |
 |---|---|---|
-| Chef's Warehouse | A refused item is named, flagged, and removable in one tap; the cart is emptied on a stop | No live stock at the price check; 652 stale "out" flags still block desktop Submit; morning crawl reaches 6% |
-| US Foods | Line check before submit, honest submit confirmation, discontinued stopped, piece lines refused, live stock WARNED at the price check (desktop + mobile), session renewal | Morning stock read (Phase 3) |
-| Premiere Produce | **Phase 2 built (uncommitted):** line check, PPO's own rejection reason, fail-closed clear, our-draft submit, price × qty total, split orders read back and reported (in-app incl. mobile + email). See `fix-ppo-order-checks.md` | Stock at the price check (3.3), morning stock (3) |
-| Sysco, What Chefs Want, Performance | Only the shared "name the missing items" wording | Phase 4; stale flags (WCW 1,492) block desktop Submit |
-| All | | Stale flags, morning sync coin flip, no alerts, screens (Phases 3 and 5) |
+| Chef's Warehouse | A refused item is named, flagged, and removable in one tap; the cart is emptied on a stop. **Phase 3 (uncommitted):** the 6 AM run crawls the whole catalog and records stock | Live stock at the price check (3.3); stale "out" flags block desktop Submit until CW is switched to live |
+| US Foods | Line check before submit, honest submit confirmation, discontinued stopped, piece lines refused, live stock WARNED at the price check (desktop + mobile), session renewal. **Phase 3 (uncommitted):** morning stock read | Switch to live after two shadow mornings |
+| Premiere Produce | Line check, PPO's own rejection reason, fail-closed clear, our-draft submit, price × qty total, split orders read back and reported (in-app incl. mobile + email). See `fix-ppo-order-checks.md`. **Phase 3 (uncommitted):** morning stock evidence | Stock at the price check (3.3) |
+| Sysco, What Chefs Want, Performance | Only the shared "name the missing items" wording. **Phase 3 (uncommitted):** morning stock read (WCW full crawl, Performance `IsOutOfStock`, Sysco indicator) | 3.3; Phase 4; stale flags (WCW 1,492) block desktop Submit until switched to live |
+| All | **Phase 3 (uncommitted):** shadow/live switch per supplier, morning report (email only on a problem), Operations page panel, stuck-syncing count | D2 stale-flag reset, morning sync coin flip, screens (Phase 5) |
 
 **Replay of the US Foods checks (read-only, prod):**
 - **Order 482:** US Foods' lines matched ours exactly (12/12); the line check would pass.

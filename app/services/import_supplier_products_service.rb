@@ -78,7 +78,16 @@ class ImportSupplierProductsService
     # After scraping, identify products that were NOT seen in this import.
     # Only do this if we scraped enough products to trust the results —
     # a partial/failed scrape shouldn't penalize the entire catalog.
-    record_misses_for_unseen_products
+    # A category-browse crawl (CW, WCW since Oct 2026) can miss items that
+    # are only reachable by search, and used to see under 60% so miss
+    # tracking never ran for them. Keep it that way: a crawl's gaps must not
+    # discontinue real products (same rule as the weekly deep crawl).
+    if scraper.respond_to?(:skip_miss_tracking?) && scraper.skip_miss_tracking?
+      Rails.logger.info "[ImportProducts] #{supplier.name}: full-catalog crawl — miss tracking skipped (additive only)"
+    else
+      record_misses_for_unseen_products
+    end
+    record_stock_run!(scraper, 'catalog')
 
     Rails.logger.info "[ImportProducts] #{supplier.name} import complete: " \
                       "#{results[:imported]} imported, #{results[:updated]} updated, " \
@@ -120,6 +129,7 @@ class ImportSupplierProductsService
       Rails.logger.error "[ImportProducts] Deep scrape failed for #{supplier.name}: #{e.message}"
       # Keep whatever was imported incrementally — do NOT discontinue anything.
     end
+    record_stock_run!(scraper, 'deep')
 
     elapsed = Time.current - started_at
     Rails.logger.info "[ImportProducts] #{supplier.name} DEEP import complete in " \
@@ -414,6 +424,8 @@ class ImportSupplierProductsService
       end
     end
 
+    apply_stock_evidence!(row, item, existing, now)
+
     results[:updated] += 1
 
     # Track category backfill needed
@@ -441,7 +453,7 @@ class ImportSupplierProductsService
         piece_price piece_pack_size consecutive_misses
         discontinued discontinued_at
         image_source_url image_status image_checked_at supplier_seller_id supplier_seller_group
-      ]
+      ] + (SupplierProduct.stock_evidence? ? %i[stock_signal stock_checked_at stock_source] : [])
     )
   end
 
@@ -651,6 +663,13 @@ class ImportSupplierProductsService
       supplier_seller_id: item[:seller_id].presence,
       supplier_seller_group: item[:seller_group].presence
     )
+    if item.key?(:stock_signal) && supplier.morning_stock_mode != 'off' && SupplierProduct.stock_evidence? &&
+       !(item[:stock_signal].nil? && item[:in_stock].nil?)
+      supplier_product.assign_attributes(stock_signal: item[:stock_signal].to_s.truncate(255),
+                                         stock_checked_at: Time.current, stock_source: 'catalog')
+      stock_counts[:checked] += 1
+      stock_counts[:out] += 1 if item[:in_stock] == false
+    end
 
     product = find_or_create_product(item, product_index)
     supplier_product.product = product if product
@@ -784,6 +803,61 @@ class ImportSupplierProductsService
     @existing_by_sku = SupplierProduct.where(supplier: supplier).index_by(&:supplier_sku)
     @items_processed = 0
     @seen_skus = Set.new
+    @stock_counts = Hash.new(0)
+  end
+
+  # ── Morning stock (plan Phase 3, Oct 2026) ─────────────────────
+  #
+  # A scraper that reads stock puts :stock_signal (the supplier's raw value,
+  # e.g. CW's count "0.0", Sysco's "O") and a DEFINITE :in_stock (true /
+  # false, nil = can't tell) on each catalog item. Every run records the
+  # evidence. supplier.morning_stock_mode decides what it does to in_stock:
+  #   shadow (default) — nothing new: catalog runs still only mark items IN
+  #                      (resolve_stock_status); we only count what live
+  #                      would change, for Carmin to review
+  #   live             — the supplier's definite answer, both ways
+  #   off              — record nothing
+  # Every row carries the keys: upsert_all needs the same columns.
+  def apply_stock_evidence!(row, item, existing, now)
+    return unless SupplierProduct.stock_evidence?
+
+    row[:stock_signal] = existing.stock_signal
+    row[:stock_checked_at] = existing.stock_checked_at
+    row[:stock_source] = existing.stock_source
+    return if supplier.morning_stock_mode == 'off' || !item.key?(:stock_signal)
+
+    definite = item[:in_stock]
+    return if definite.nil? && item[:stock_signal].nil?
+
+    row[:stock_signal] = item[:stock_signal].to_s.truncate(255)
+    row[:stock_checked_at] = now
+    row[:stock_source] = 'catalog'
+
+    stock_counts[:checked] += 1
+    stock_counts[:out] += 1 if definite == false
+    stock_counts[:would_mark_out] += 1 if definite == false && existing.in_stock
+    stock_counts[:would_mark_in] += 1 if definite == true && !existing.in_stock
+
+    row[:in_stock] = definite if supplier.morning_stock_mode == 'live' && !definite.nil?
+  end
+
+  def stock_counts
+    @stock_counts ||= Hash.new(0)
+  end
+
+  # What this run read, for the morning stock report (MorningStockReportJob)
+  # and the Operations page. Never raises — reporting must not fail an import.
+  def record_stock_run!(scraper, kind)
+    stats = scraper.respond_to?(:crawl_stats) ? scraper.crawl_stats : nil
+    supplier.update_columns(last_stock_run: {
+      'at' => Time.current.iso8601, 'kind' => kind, 'credential_id' => credential.id,
+      'mode' => supplier.morning_stock_mode, 'items_seen' => @seen_skus&.size.to_i,
+      'stock_checked' => stock_counts[:checked], 'out' => stock_counts[:out],
+      'would_mark_out' => stock_counts[:would_mark_out], 'would_mark_in' => stock_counts[:would_mark_in],
+      'errors' => results[:errors].first(5), 'crawl' => stats
+    })
+  rescue StandardError => e
+    Rails.logger.warn "[ImportProducts] Could not record the stock run for #{supplier.name}: #{e.class}: #{e.message}"
   end
 
   # The canonical-Product word index spans the ENTIRE products table and is only

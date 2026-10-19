@@ -112,5 +112,47 @@ RSpec.describe Scrapers::WhatChefsWantScraper do
 
       expect(collected.size).to eq(described_class::DEEP_MAX_PAGES_PER_CATEGORY * 50)
     end
+
+    # Plan Phase 3 (Oct 2026): the 6 AM import crawls the full catalog too,
+    # stops at WCW's own count, and reports errors instead of reading them as
+    # an empty page.
+    it 'is what the 6 AM import runs now, and stops at the category count' do
+      allow(api_client).to receive(:browse_category) do |_cat, **kw|
+        page = page(50, kw[:offset])
+        page['data']['catalogProductsRootQuery']['count'] = 100
+        page
+      end
+
+      collected = []
+      scraper.scrape_catalog(%w[ignored]) { |batch| collected.concat(batch) }
+
+      expect(collected.size).to eq(100)
+      expect(scraper.crawl_stats).to include('fetched' => 100, 'expected' => 100, 'short' => [], 'failed' => [])
+      expect(scraper.skip_miss_tracking?).to be(true)
+    end
+
+    it 'counts an API error as a failed category instead of an empty one' do
+      allow(api_client).to receive(:browse_category).and_return(nil)
+
+      scraper.scrape_catalog_deep { |_batch| nil }
+
+      expect(scraper.crawl_stats['failed']).to eq(['Seafood'])
+    end
+  end
+
+  describe 'stock from the catalog (plan Phase 3)' do
+    def formatted(fields)
+      scraper.send(:format_api_product, { 'itemCode' => '91185', 'description' => 'Brie' }.merge(fields), 'Cheese')
+    end
+
+    it "uses WCW's unavailable flag, not the date-dependent isOutOfStock" do
+      expect(formatted('unavailable' => true, 'isOutOfStock' => false)[:in_stock]).to be(false)
+      expect(formatted('unavailable' => false, 'isOutOfStock' => true)[:in_stock]).to be(true)
+      expect(formatted('unavailable' => false)[:stock_signal]).to eq('unavailable:false oos:nil')
+    end
+
+    it 'is unknown when WCW did not say' do
+      expect(formatted({})).to include(in_stock: nil, stock_signal: nil)
+    end
   end
 end
