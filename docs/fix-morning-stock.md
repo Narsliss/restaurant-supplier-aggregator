@@ -10,7 +10,8 @@ A run every morning reads stock for ALL products, once per supplier. Items it fi
 
 1. **Records the evidence.** Every catalog run now stores, per product, what the supplier said about stock (`stock_signal`, the raw value), when it was read (`stock_checked_at`) and by what (`stock_source`: `catalog` or `guide`). Before this we only kept true/false, so "what did CW say at 8 AM?" had no answer.
 2. **A per-supplier switch** (`suppliers.morning_stock_mode`), set on the Operations page:
-   - **shadow** (the default after deploy): record and count only. `in_stock` follows today's rule (a catalog run only ever marks items IN). The run counts how many items live mode would mark out and back in.
+   - **live** (the default after deploy, Carmin Oct 19 evening; see "Live from day one" below): the supplier's definite answer is written both ways, behind a guard.
+   - **shadow**: record and count only. `in_stock` follows today's rule (a catalog run only ever marks items IN). The run counts how many items live mode would mark out and back in.
    - **live**: the supplier's definite answer is written both ways (out AND back in). "Can't tell" (nil) never changes anything.
    - **off**: record nothing.
 3. **Each scraper maps its supplier's raw value** to in / out / unknown (live read-only probes, Oct 19):
@@ -33,15 +34,15 @@ A run every morning reads stock for ALL products, once per supplier. Items it fi
 ## Ordering impact
 
 - **No cart, add-to-cart or submit code changed.** Every gate from Step 0 and Phases 1 and 2 is untouched.
-- **In shadow mode (every supplier after deploy), `in_stock` moves only as it does today**, with one deliberate exception: a Chef's Warehouse search result with no stock count used to be read as "in" and now changes nothing. New products still arrive as in stock.
+- **In live mode (every supplier after deploy), the morning run marks items out and back in** from the supplier's answer, behind the guard below. Items the supplier says are available go back in, which clears the old stale "out" flags (D2) on the first morning.
 - **Switching a supplier to live changes what chefs see:** out labels, the review-page warning, add-item search, the default/cheapest supplier, and split and minimum suggestions. For US Foods, "out" only warns (D1). For the other five, a cached "out" blocks desktop Submit until 3.3 replaces it with a live read.
 
 ## Deploy notes
 
-- **One migration** (`20261019180000_add_stock_evidence`). It adds three nullable columns to `supplier_products` and two to `suppliers`; `morning_stock_mode` defaults to `shadow`. No data is rewritten.
+- **One migration** (`20261019180000_add_stock_evidence`). It adds three nullable columns to `supplier_products` and two to `suppliers`; `morning_stock_mode` defaults to `live`. No data is rewritten.
 - **Restart the worker after web migrates** (`railway redeploy --service worker --yes`, after checking it is idle). Until then the worker skips the evidence and imports exactly as before, instead of failing.
 - **The CW 6 AM run gets longer:** about 300 pages, roughly 17 minutes, instead of a few minutes.
-- **Leave every supplier in shadow for two mornings,** read the would-mark-out/in numbers on the Operations page, then switch them to live one at a time.
+- **No switching needed.** Every supplier starts live. A supplier can still be set to shadow or off on the Operations page.
 
 ## What did NOT work / caught on the way
 
@@ -69,3 +70,17 @@ All 25 new Phase 3 specs fail on the previous commit's code, and the 117 older s
 - **3.3:** live stock at the price check for CW, WCW, Performance, Sysco and PPO (US Foods is done). Until then a cached "out" from a live supplier blocks desktop Submit.
 - **Sysco items it no longer lists** should go down the discontinued path, not "out" (not built).
 - **Drop the extra local test database** when this branch is merged: `dropdb restaurant_supplier_aggregator_test_stock`.
+
+## Live from day one, with a guard (Oct 19, evening)
+
+**Carmin:** no two-morning shadow and no manual checks ("so you think I would manually check thousands of items?"). The shadow plan expected him to read "would mark out" totals before switching each supplier on; nobody should have to.
+
+**What replaces it:** a guard in the morning run (`ImportSupplierProductsService#apply_held_outs!`).
+- "Back in stock" is written as the crawl reads it. That's the safe direction: a wrong "in" is still caught at the price check and at checkout.
+- "Out" is held until the run ends. If more than **25%** of the supplier's items on lists read out, nothing is marked out at that supplier that morning. The run records `held` (share, basis, count), the Operations page shows "held", and the 9:15 report emails the super admin once.
+- With fewer than 20 list items read, the guard uses every item read.
+- New products the supplier calls out are created in stock and marked out with the rest, so a broken reader can't create thousands of products as out on the first full crawl.
+
+**Why 25%, not the 10% first suggested:** today's guide-sync flags already put 1% (US Foods, Premiere Produce) to 11% (What Chefs Want) of list items out. Those flags are partly stale, but 10% would trip on normal mornings. A broken reader shows 50–100%; What Chefs Want's `isOutOfStock` once marked everything out (fcf11a8).
+
+**Specs:** `import_supplier_products_stock_evidence_spec.rb` "the held-outs guard": applies at 10%, holds at 60% and reports it, still marks items back in on a held morning, falls back to all items read, new items wait for the guard. Default is live (`supplier_spec`, `admin_operations_stock_spec`).

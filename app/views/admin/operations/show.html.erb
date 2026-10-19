@@ -236,8 +236,9 @@
     <div class="px-6 py-4 border-b border-gray-200">
       <h2 class="text-lg font-semibold text-gray-900">Morning stock</h2>
       <p class="text-sm text-gray-500 mt-1">
-        What each supplier's morning run read about stock. <strong>Shadow</strong> records and counts only (no change to what chefs see);
-        <strong>live</strong> marks items out and back in from the supplier's answer. Problems are emailed at 9:15 AM ET.
+        What each supplier's morning run read about stock. <strong>Live</strong> (the default) marks items out and back in from the
+        supplier's answer; a run that reads more than <%= (ImportSupplierProductsService::STOCK_OUT_HOLD_SHARE * 100).round %>% of list items
+        out is held (nothing marked out) and emailed. <strong>Shadow</strong> records and counts only. Problems are emailed at 9:15 AM ET.
       </p>
     </div>
     <div class="overflow-x-auto">
@@ -249,7 +250,7 @@
             <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last run</th>
             <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Read</th>
             <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">On lists, read today</th>
-            <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Would mark out / in</th>
+            <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Out / back in</th>
             <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Problems</th>
           </tr>
         </thead>
@@ -273,7 +274,15 @@
               </td>
               <td class="px-4 py-2 text-right text-gray-900"><%= run['stock_checked'] || '—' %></td>
               <td class="px-4 py-2 text-right text-gray-900"><%= row[:in_use_checked] %> / <%= row[:in_use_total] %></td>
-              <td class="px-4 py-2 text-right text-gray-900"><%= run['would_mark_out'] || 0 %> / <%= run['would_mark_in'] || 0 %></td>
+              <td class="px-4 py-2 text-right text-gray-900">
+                <% if run['held'].present? %>
+                  <span class="text-red-700">held (<%= run['held']['held_outs'].to_i %>)</span> / <%= run['would_mark_in'] || 0 %>
+                <% elsif run['mode'] == 'live' %>
+                  <%= run['marked_out'] || 0 %> / <%= run['would_mark_in'] || 0 %>
+                <% else %>
+                  <span class="text-gray-500">would <%= run['would_mark_out'] || 0 %> / <%= run['would_mark_in'] || 0 %></span>
+                <% end %>
+              </td>
               <td class="px-4 py-2 <%= row[:problems].any? ? 'text-red-700' : 'text-gray-400' %>">
                 <%= row[:problems].any? ? row[:problems].join('; ') : 'none' %>
               </td>

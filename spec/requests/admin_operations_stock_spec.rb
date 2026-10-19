@@ -43,6 +43,6 @@ RSpec.describe 'Admin operations — morning stock', type: :request do
 
   it 'only accepts off, shadow or live on the supplier itself' do
     expect(supplier.update(morning_stock_mode: 'maybe')).to be(false)
-    expect(Supplier.new.morning_stock_mode).to eq('shadow')
+    expect(Supplier.new.morning_stock_mode).to eq('live')
   end
 end

@@ -115,8 +115,10 @@ RSpec.describe Supplier, type: :model do
   end
 
   describe 'morning stock mode' do
-    it 'accepts only off, shadow or live, and starts in shadow' do
-      expect(Supplier.new.morning_stock_mode).to eq('shadow')
+    # Carmin, Oct 19 2026: live from the first morning, behind the
+    # held-outs guard (ImportSupplierProductsService#apply_held_outs!).
+    it 'accepts only off, shadow or live, and starts live' do
+      expect(Supplier.new.morning_stock_mode).to eq('live')
       expect(build(:supplier, morning_stock_mode: 'maybe')).not_to be_valid
     end
 

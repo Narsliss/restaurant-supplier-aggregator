@@ -121,7 +121,7 @@ CW's `validationMessages` become named failed items. An all-missing cart mismatc
 **3.0 Foundation**
 - **Record the evidence.** New columns on `supplier_products`: `stock_signal` (the raw supplier value), `stock_checked_at` and `stock_source` (job and login). No new rows.
 - **Per-supplier rule.** Each scraper maps its raw value to in / out / unknown. The importer writes "out" only on a definite out, "in" only on a definite in, and nothing on unknown. This replaces the blanket "only mark in" rule (042aa34) supplier by supplier.
-- **Shadow mode.** Each supplier records signals and "would flip" counts for two mornings before it can change `in_stock`.
+- ~~**Shadow mode.** Each supplier records signals and "would flip" counts for two mornings before it can change `in_stock`.~~ **Changed Oct 19 evening (Carmin): live from day one** behind a guard: a run that reads more than 25% of list items out marks nothing out and emails once. See `fix-morning-stock.md`, "Live from day one".
 - **Morning stock report.** Per supplier: in-use items checked today, how many are out, and any failure or short run. **Email Carmin only on failure, a short run or no run.** The Operations page shows the same; "syncing" older than an hour shows red with its age.
 - Log which login every morning job used. Fix the wrong `recurring.yml` times.
 
@@ -137,7 +137,7 @@ CW's `validationMessages` become named failed items. An all-missing cart mismatc
 | Premiere Produce | availability list | none seen yet | 0 |
 
 **3.2 Clearing the ~2,600 stale flags**
-- After each supplier's shadow run, reset "out" to "in" **only where that supplier says the item is available today**:
+- **Settled by going live (Oct 19 evening):** the first live morning resets "out" to "in" wherever the supplier says the item is available. Originally planned after each supplier's shadow run, reset "out" to "in" **only where that supplier says the item is available today**:
   - WCW 1,492;
   - CW 652;
   - USF 242;

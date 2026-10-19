@@ -74,6 +74,12 @@ class MorningStockReportJob < ApplicationJob
                   "short: #{Array(crawl['short']).join(', ').presence || '—'}, failed: #{Array(crawl['failed']).join(', ').presence || '—'})"
     end
 
+    if (held = run['held']).present?
+      problems << "this morning's run read #{(held['share'].to_f * 100).round}% of #{held['basis']} as out of stock " \
+                  "(normal is a few percent), so EnPlace held it: #{held['held_outs'].to_i} item(s) were NOT marked out " \
+                  'and nothing changed for chefs. Likely a reading problem at the supplier or in EnPlace.'
+    end
+
     if total.positive? && (checked.to_f / total) < COVERAGE_ALERT_BELOW
       problems << "only #{checked} of #{total} items on lists got a stock reading (#{(checked * 100.0 / total).round}%)"
     end

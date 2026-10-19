@@ -87,7 +87,7 @@ class ImportSupplierProductsService
     else
       record_misses_for_unseen_products
     end
-    record_stock_run!(scraper, 'catalog')
+    finish_stock_run!(scraper, 'catalog')
 
     Rails.logger.info "[ImportProducts] #{supplier.name} import complete: " \
                       "#{results[:imported]} imported, #{results[:updated]} updated, " \
@@ -129,7 +129,7 @@ class ImportSupplierProductsService
       Rails.logger.error "[ImportProducts] Deep scrape failed for #{supplier.name}: #{e.message}"
       # Keep whatever was imported incrementally — do NOT discontinue anything.
     end
-    record_stock_run!(scraper, 'deep')
+    finish_stock_run!(scraper, 'deep')
 
     elapsed = Time.current - started_at
     Rails.logger.info "[ImportProducts] #{supplier.name} DEEP import complete in " \
@@ -655,7 +655,7 @@ class ImportSupplierProductsService
       piece_price: item[:piece_price],
       piece_pack_size: item[:piece_pack_size],
       supplier_url: item[:supplier_url],
-      in_stock: item[:in_stock] != false,
+      in_stock: item[:in_stock] != false || hold_out_for_guard?(item),
       price_updated_at: item[:current_price].present? ? Time.current : nil,
       last_scraped_at: Time.current,
       image_source_url: item[:image_url],
@@ -669,6 +669,7 @@ class ImportSupplierProductsService
                                          stock_checked_at: Time.current, stock_source: 'catalog')
       stock_counts[:checked] += 1
       stock_counts[:out] += 1 if item[:in_stock] == false
+      read_new = true
     end
 
     product = find_or_create_product(item, product_index)
@@ -677,6 +678,11 @@ class ImportSupplierProductsService
     if supplier_product.save
       @existing_by_sku[item[:supplier_sku]] = supplier_product
       results[:imported] += 1
+      if read_new
+        stock_read_ids << supplier_product.id
+        stock_out_ids << supplier_product.id if item[:in_stock] == false
+        held_out_ids << supplier_product.id if hold_out_for_guard?(item)
+      end
     else
       results[:errors] << "#{item[:supplier_name]}: #{supplier_product.errors.full_messages.join(', ')}"
     end
@@ -804,6 +810,10 @@ class ImportSupplierProductsService
     @items_processed = 0
     @seen_skus = Set.new
     @stock_counts = Hash.new(0)
+    @stock_read_ids = Set.new
+    @stock_out_ids = Set.new
+    @held_out_ids = Set.new
+    @stock_hold = nil
   end
 
   # ── Morning stock (plan Phase 3, Oct 2026) ─────────────────────
@@ -812,11 +822,13 @@ class ImportSupplierProductsService
   # e.g. CW's count "0.0", Sysco's "O") and a DEFINITE :in_stock (true /
   # false, nil = can't tell) on each catalog item. Every run records the
   # evidence. supplier.morning_stock_mode decides what it does to in_stock:
-  #   shadow (default) — nothing new: catalog runs still only mark items IN
-  #                      (resolve_stock_status); we only count what live
-  #                      would change, for Carmin to review
-  #   live             — the supplier's definite answer, both ways
-  #   off              — record nothing
+  #   live (default) — the supplier's definite answer, both ways. "In" is
+  #                    written as the crawl goes; "out" is held to the end of
+  #                    the run and applied only if the guard passes
+  #                    (apply_held_outs!)
+  #   shadow         — catalog runs only mark items IN (resolve_stock_status);
+  #                    we count what live would change
+  #   off            — record nothing
   # Every row carries the keys: upsert_all needs the same columns.
   def apply_stock_evidence!(row, item, existing, now)
     return unless SupplierProduct.stock_evidence?
@@ -837,12 +849,79 @@ class ImportSupplierProductsService
     stock_counts[:out] += 1 if definite == false
     stock_counts[:would_mark_out] += 1 if definite == false && existing.in_stock
     stock_counts[:would_mark_in] += 1 if definite == true && !existing.in_stock
+    stock_read_ids << existing.id
+    stock_out_ids << existing.id if definite == false
 
-    row[:in_stock] = definite if supplier.morning_stock_mode == 'live' && !definite.nil?
+    return unless supplier.morning_stock_mode == 'live'
+
+    # In: now. Out: held for the guard at the end of the run.
+    row[:in_stock] = true if definite == true
+    held_out_ids << existing.id if definite == false && existing.in_stock
   end
 
   def stock_counts
     @stock_counts ||= Hash.new(0)
+  end
+
+  def stock_read_ids = (@stock_read_ids ||= Set.new)
+  def stock_out_ids = (@stock_out_ids ||= Set.new)
+  def held_out_ids = (@held_out_ids ||= Set.new)
+
+  # A new product the supplier calls out, in live mode: created in stock and
+  # marked out with the rest at the end of the run, if the guard passes.
+  def hold_out_for_guard?(item)
+    item[:in_stock] == false && item.key?(:stock_signal) && supplier.morning_stock_mode == 'live' &&
+      SupplierProduct.stock_evidence?
+  end
+
+  # The morning run's guard (Carmin, Oct 19 2026: live from day one, no
+  # manual checks). A reader that breaks calls most of the catalog out —
+  # What Chefs Want's isOutOfStock once marked everything out (fcf11a8).
+  # Real mornings: 1-11% of list items out (guide sync flags, Oct 19). So
+  # when more than STOCK_OUT_HOLD_SHARE of the items on lists read out, the
+  # run's outs are held: nothing is marked out at that supplier that
+  # morning and the morning report emails the super admin. Items on lists
+  # are what chefs order, and the sample the guard trusts; with too few of
+  # them read, it falls back to every item read.
+  STOCK_OUT_HOLD_SHARE = 0.25
+  STOCK_OUT_MIN_SAMPLE = 20
+
+  def apply_held_outs!
+    return unless supplier.morning_stock_mode == 'live' && SupplierProduct.stock_evidence?
+
+    share, basis, sample = stock_out_share
+    if share > STOCK_OUT_HOLD_SHARE
+      @stock_hold = { 'share' => share.round(3), 'basis' => basis, 'sample' => sample, 'held_outs' => held_out_ids.size }
+      Rails.logger.warn "[ImportProducts] #{supplier.name}: #{(share * 100).round}% of #{basis} read out " \
+                        "(over #{(STOCK_OUT_HOLD_SHARE * 100).round}%) — holding #{held_out_ids.size} out mark(s), changing nothing"
+      return
+    end
+
+    now = Time.current
+    held_out_ids.each_slice(1000) do |ids|
+      SupplierProduct.where(id: ids).update_all(in_stock: false, updated_at: now)
+    end
+    stock_counts[:marked_out] = held_out_ids.size
+  rescue StandardError => e
+    results[:errors] << "Applying out-of-stock marks failed: #{e.class}: #{e.message}"
+    Rails.logger.error "[ImportProducts] #{supplier.name}: applying held outs failed: #{e.class}: #{e.message}"
+  end
+
+  # [share read out, what it was measured on, how many items]
+  def stock_out_share
+    on_lists = SupplierListItem.where(supplier_product_id: stock_read_ids.to_a).distinct.pluck(:supplier_product_id).to_set
+    if on_lists.size >= STOCK_OUT_MIN_SAMPLE
+      [(on_lists & stock_out_ids).size.to_f / on_lists.size, 'list items', on_lists.size]
+    elsif stock_read_ids.any?
+      [stock_out_ids.size.to_f / stock_read_ids.size, 'items read', stock_read_ids.size]
+    else
+      [0.0, 'items read', 0]
+    end
+  end
+
+  def finish_stock_run!(scraper, kind)
+    apply_held_outs!
+    record_stock_run!(scraper, kind)
   end
 
   # What this run read, for the morning stock report (MorningStockReportJob)
@@ -854,6 +933,7 @@ class ImportSupplierProductsService
       'mode' => supplier.morning_stock_mode, 'items_seen' => @seen_skus&.size.to_i,
       'stock_checked' => stock_counts[:checked], 'out' => stock_counts[:out],
       'would_mark_out' => stock_counts[:would_mark_out], 'would_mark_in' => stock_counts[:would_mark_in],
+      'marked_out' => stock_counts[:marked_out], 'held' => @stock_hold,
       'errors' => results[:errors].first(5), 'crawl' => stats
     })
   rescue StandardError => e

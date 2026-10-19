@@ -45,8 +45,9 @@ class Supplier < ApplicationRecord
 
   # What the morning catalog run does with the supplier's stock answer (plan
   # Phase 3, Oct 2026; see ImportSupplierProductsService#apply_stock_evidence!).
-  # shadow = record and count only; live = mark items out and back in;
-  # off = record nothing. Carmin flips it per supplier on the Operations page.
+  # live (the default) = mark items out and back in, with a guard that holds a
+  # run reading an implausible share out; shadow = record and count only;
+  # off = record nothing. Set per supplier on the Operations page.
   MORNING_STOCK_MODES = %w[off shadow live].freeze
   validates :morning_stock_mode, inclusion: { in: MORNING_STOCK_MODES }, if: -> { has_attribute?(:morning_stock_mode) }
 

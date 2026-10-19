@@ -1088,7 +1088,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_10_19_180000) do
     t.bigint "created_by_id"
     t.integer "display_position", default: 0
     t.boolean "case_pricing", default: true, null: false
-    t.string "morning_stock_mode", default: "shadow", null: false
+    t.string "morning_stock_mode", default: "live", null: false
     t.jsonb "last_stock_run"
     t.index ["active"], name: "index_suppliers_on_active"
     t.index ["code"], name: "index_suppliers_on_code", unique: true
