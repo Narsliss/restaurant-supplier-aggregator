@@ -9,7 +9,10 @@ module OrdersHelper
     title = case order.status
             when 'failed' then 'Order NOT placed'
             when 'pending_review' then 'Order NOT placed: needs your review'
-            when 'pending_manual' then 'Check with the supplier before reordering'
+            when 'pending_manual'
+              # A sign-in code or robot check stopped it before anything was
+              # sent; only an unconfirmed submit needs checking (Phase 5).
+              order_not_sent?(order) ? 'Order NOT placed' : 'Check with the supplier before reordering'
             when 'pending', 'draft' then "Your last attempt wasn't placed. Fix this, then resubmit"
             end
     title && { title: title, message: order.error_message }
@@ -45,10 +48,16 @@ module OrdersHelper
   # [label, dismissable?] for one row of the bar
   def attention_label(order)
     case order.status
-    when 'pending_manual' then ["Check with #{order.display_supplier_name} before reordering", false]
+    when 'pending_manual'
+      order_not_sent?(order) ? ['NOT placed. Tap to fix', false] : ["Check with #{order.display_supplier_name} before reordering", false]
     when 'processing' then ["Still not placed. Check with #{order.display_supplier_name}", false]
     else ['NOT placed. Tap to fix', true]
     end
+  end
+
+  # The order's own message says nothing went to the supplier ("Not placed…").
+  def order_not_sent?(order)
+    order.error_message.to_s.start_with?('Not placed')
   end
 
   def order_item_refused?(order, item)

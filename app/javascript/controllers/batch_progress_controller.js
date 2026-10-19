@@ -88,8 +88,9 @@ export default class extends Controller {
     // Update status badge
     const badge = card.querySelector("[data-status-badge]")
     if (badge) {
-      badge.textContent = this._statusLabel(order.status)
-      badge.className = this._badgeClasses(order.status)
+      const status = this._displayStatus(order)
+      badge.textContent = this._statusLabel(status)
+      badge.className = this._badgeClasses(status)
     }
 
     // Show/hide spinner
@@ -130,11 +131,18 @@ export default class extends Controller {
       }
     }
 
-    // Hide/show retry button based on status
+    // Fix & Resubmit for every retryable status (Order#retryable?)
     const retryWrapper = card.querySelector("[data-retry-wrapper]")
     if (retryWrapper) {
-      retryWrapper.classList.toggle("hidden", order.status !== "failed")
+      retryWrapper.classList.toggle("hidden", !["failed", "pending_review"].includes(order.status))
     }
+  }
+
+  // pending_manual is "not placed" when nothing was sent (a sign-in code,
+  // a robot check) and "check the supplier" when a submit went unconfirmed.
+  _displayStatus(order) {
+    if (order.status !== "pending_manual") return order.status
+    return (order.error_message || "").startsWith("Not placed") ? "failed" : "pending_manual"
   }
 
   _statusLabel(status) {
@@ -144,7 +152,9 @@ export default class extends Controller {
       submitted: "Submitted",
       confirmed: "Confirmed",
       dry_run_complete: "Dry Run Complete",
-      failed: "Failed",
+      failed: "Not placed",
+      pending_review: "Not placed: review",
+      pending_manual: "Check supplier",
       cancelled: "Cancelled"
     }
     return labels[status] || status
@@ -159,6 +169,8 @@ export default class extends Controller {
       confirmed: "bg-green-100 text-green-800",
       dry_run_complete: "bg-purple-100 text-purple-800",
       failed: "bg-red-100 text-red-800",
+      pending_review: "bg-red-100 text-red-800",
+      pending_manual: "bg-yellow-100 text-yellow-800",
       cancelled: "bg-gray-100 text-gray-800"
     }
     return `${base} ${colors[status] || "bg-gray-100 text-gray-800"}`

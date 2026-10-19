@@ -222,6 +222,15 @@ RSpec.describe Scrapers::SyscoScraper do
       expect { scraper.checkout(dry_run: false) }.to raise_error(described_class::NotSubmittedError, /nope/)
     end
 
+    it 'calls a login refusal at submit not placed, and says to reconnect' do
+      allow(scraper).to receive(:graphql_submit_order).and_raise(Scrapers::BaseScraper::AuthenticationError, 'Sysco API auth failed: expired')
+      headers_after_submit([draft])
+
+      expect { scraper.checkout(dry_run: false) }
+        .to raise_error(Scrapers::BaseScraper::NotPlacedError, /turned the login away.*Reconnect Sysco/)
+      expect(scraper.submit_sent?).to be(true)
+    end
+
     # A refusal Sysco's own list contradicts must not invite a second order.
     it 'calls a refused submit placed when Sysco lists the order as submitted' do
       allow(scraper).to receive(:graphql_submit_order).and_raise(described_class::NotSubmittedError, 'submitOrderV2 failed: odd')

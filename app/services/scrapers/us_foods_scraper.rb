@@ -1256,7 +1256,7 @@ module Scrapers
       # longer fall back to our own copy of the order).
       result = api_client.add_items_to_order(order, enriched_items)
       unless result
-        raise ScrapingError, "US Foods didn't accept the cart update, so nothing was ordered. Try again."
+        raise NotPlacedError, "US Foods didn't accept the cart update, so nothing was ordered. Try again."
       end
 
       @last_usf_order = result
@@ -2207,7 +2207,7 @@ module Scrapers
       # Only ever submit the open cart. A non-IN_PROGRESS order would go to
       # /updateSubmittedOrder and edit an order already placed.
       unless order['orderStatus'] == 'IN_PROGRESS'
-        raise ScrapingError, "The US Foods order isn't an open cart (status #{order['orderStatus'].inspect}), so nothing was submitted."
+        raise NotPlacedError, "The US Foods order isn't an open cart (status #{order['orderStatus'].inspect}), so nothing was submitted."
       end
 
       order_items = order['orderItems'] || []
@@ -2218,7 +2218,7 @@ module Scrapers
       # Fetch prices for all items to calculate total
       product_numbers = order_items.map { |oi| oi['productNumber'] }
       prices = api_client.fetch_prices(product_numbers)
-      raise ScrapingError, "Couldn't get US Foods prices, so nothing was ordered. Try again." if prices.blank?
+      raise NotPlacedError, "Couldn't get US Foods prices, so nothing was ordered. Try again." if prices.blank?
 
       # A line US Foods prices with an error (discontinued, gone, another
       # customer's item) used to count as $0 and go out anyway. Stop and name
@@ -2270,6 +2270,7 @@ module Scrapers
 
       # LIVE ORDER — submit via order-submission-domain-api
       logger.warn '[UsFoods] API PLACING LIVE ORDER via submission API'
+      submit_sent!
       result = begin
         api_client.submit_order(order)
       rescue StandardError => e
@@ -2318,12 +2319,12 @@ module Scrapers
             # Fail closed: a clear that didn't take used to be ignored, and
             # add_to_cart then appended our lines to the leftovers.
             if cleared.nil? || Array(cleared['orderItems']).any?
-              raise ScrapingError, "US Foods' cart could not be emptied (order #{order['orderId']}), so nothing was ordered. Try again."
+              raise NotPlacedError, "US Foods' cart could not be emptied (order #{order['orderId']}), so nothing was ordered. Try again."
             end
           end
         end
       else
-        raise ScrapingError, "Couldn't read the US Foods cart, so nothing was ordered. Try again."
+        raise NotPlacedError, "Couldn't read the US Foods cart, so nothing was ordered. Try again."
       end
 
       @last_usf_order = nil
@@ -2341,7 +2342,7 @@ module Scrapers
       fresh = order_id && open_order(order_id)
       unless fresh
         discard_cart_after_stop
-        raise ScrapingError, "Couldn't read the US Foods order back to check it, so nothing was submitted. Try again."
+        raise NotPlacedError, "Couldn't read the US Foods order back to check it, so nothing was submitted. Try again."
       end
 
       discrepancies = usf_cart_discrepancies(fresh, expected_items)
@@ -2973,7 +2974,7 @@ module Scrapers
         nil
       end
       if still_open && Array(still_open['orderItems']).any?
-        raise ScrapingError, 'US Foods did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again.'
+        raise NotPlacedError, 'US Foods did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again.'
       end
 
       placed = begin

@@ -124,7 +124,8 @@ RSpec.describe Scrapers::PremiereProduceOneScraper do
         )
 
         expect { scraper.checkout(dry_run: false) }
-          .to raise_error(Scrapers::BaseScraper::ScrapingError, /rejected the order. Nothing was placed/)
+          .to raise_error(Scrapers::BaseScraper::NotPlacedError, /rejected the order. Nothing was placed/)
+        expect(scraper.submit_sent?).to be(true)
       end
 
       it "treats it as placed when PPO shows a placed_at" do

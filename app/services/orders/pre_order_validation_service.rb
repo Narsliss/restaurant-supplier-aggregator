@@ -310,7 +310,12 @@ module Orders
 
     def add_error(type, message, item: nil)
       error = { type: type, message: message }
-      error[:item_id] = item.id if item
+      if item
+        error[:item_id] = item.id
+        # The order's line is found by product: list items built from an
+        # order are never saved, so item_id is nil there.
+        error[:product_id] = item.product_id if item.respond_to?(:product_id)
+      end
       @validation_errors << error
     end
 

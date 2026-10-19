@@ -6,10 +6,7 @@ class OrderItemsController < ApplicationController
   # Adds a product to a pending order (e.g., from suggestion quick-add).
   # Expects JSON: { supplier_product_id: Integer, quantity: Integer }
   def create
-    unless @order.editable?
-      render json: { error: "Cannot add items to this order" }, status: :unprocessable_entity
-      return
-    end
+    return render_not_editable unless @order.editable?
 
     supplier_product = SupplierProduct
       .where(supplier_id: @order.supplier_id)
@@ -20,27 +17,30 @@ class OrderItemsController < ApplicationController
     qty = [params[:quantity].to_i, 1].max
     is_existing = false
 
-    # If product already in the order, increment quantity
-    existing = @order.order_items.find_by(supplier_product: supplier_product)
-    if existing
-      new_qty = existing.quantity + qty
-      existing.update!(quantity: new_qty, line_total: existing.unit_price * new_qty)
-      @order_item = existing
-      is_existing = true
-    else
-      # estimated_case_price: catch-weight products store current_price per LB
-      case_price = supplier_product.estimated_case_price
-      @order_item = @order.order_items.create!(
-        supplier_product: supplier_product,
-        quantity: qty,
-        unit_price: case_price,
-        line_total: case_price * qty,
-        status: "pending"
-      )
-    end
+    edited = @order.edit_while_editable do
+      # If product already in the order, increment quantity
+      existing = @order.order_items.find_by(supplier_product: supplier_product)
+      if existing
+        new_qty = existing.quantity + qty
+        existing.update!(quantity: new_qty, line_total: existing.unit_price * new_qty)
+        @order_item = existing
+        is_existing = true
+      else
+        # estimated_case_price: catch-weight products store current_price per LB
+        case_price = supplier_product.estimated_case_price
+        @order_item = @order.order_items.create!(
+          supplier_product: supplier_product,
+          quantity: qty,
+          unit_price: case_price,
+          line_total: case_price * qty,
+          status: "pending"
+        )
+      end
 
-    @order.recalculate_totals!
-    @order.recalculate_savings!
+      @order.recalculate_totals!
+      @order.recalculate_savings!
+    end
+    return render_not_editable unless edited
 
     # Queue background price verification for newly added items (not qty bumps)
     verification_pending = false
@@ -73,10 +73,7 @@ class OrderItemsController < ApplicationController
   # Updates quantity on a single item, recalculates order totals.
   # Returns JSON with updated item + order totals + minimum status.
   def update
-    unless @order.editable?
-      render json: { error: "Cannot edit this order" }, status: :unprocessable_entity
-      return
-    end
+    return render_not_editable unless @order.editable?
 
     new_qty = params[:quantity].to_i
     if new_qty <= 0
@@ -84,11 +81,14 @@ class OrderItemsController < ApplicationController
       return
     end
 
-    @order_item.update!(
-      quantity: new_qty,
-      line_total: @order_item.unit_price * new_qty
-    )
-    @order.recalculate_totals!
+    edited = @order.edit_while_editable do
+      @order_item.update!(
+        quantity: new_qty,
+        line_total: @order_item.unit_price * new_qty
+      )
+      @order.recalculate_totals!
+    end
+    return render_not_editable unless edited
 
     render json: order_item_json
   end
@@ -96,12 +96,9 @@ class OrderItemsController < ApplicationController
   # DELETE /orders/:order_id/order_items/:id
   # Removes an item. If order has no items left, destroys the empty order.
   def destroy
-    unless @order.editable?
-      render json: { error: "Cannot edit this order" }, status: :unprocessable_entity
-      return
-    end
+    return render_not_editable unless @order.editable?
 
-    @order_item.destroy!
+    return render_not_editable unless @order.edit_while_editable { @order_item.destroy! }
 
     if @order.order_items.reload.empty?
       order_id = @order.id
@@ -115,6 +112,12 @@ class OrderItemsController < ApplicationController
   end
 
   private
+
+  # Placement started between the page loading and this edit (checked under
+  # the order's row lock — Order#edit_while_editable).
+  def render_not_editable
+    render json: { error: @order.not_editable_message }, status: :unprocessable_entity
+  end
 
   def set_order
     @order = scoped_orders.find(params[:order_id])

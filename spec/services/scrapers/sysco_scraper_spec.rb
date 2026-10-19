@@ -240,7 +240,8 @@ RSpec.describe Scrapers::SyscoScraper do
       allow(scraper).to receive(:graphql_available_delivery_days).and_return(%w[2026-09-30 2026-10-14])
 
       expect { scraper.checkout(dry_run: true) }
-        .to raise_error(Scrapers::BaseScraper::DeliveryUnavailableError, /2026-10-07/)
+        .to raise_error(Scrapers::BaseScraper::DeliveryUnavailableError,
+                        "Sysco won't deliver on Wed Oct 7. The earliest it will is Wed Sep 30. Change the delivery date and resubmit.")
     end
   end
 

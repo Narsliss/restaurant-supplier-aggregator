@@ -200,10 +200,10 @@ module Scrapers
     # difference or an extra line stops it for review. Fails CLOSED.
     def verify_cart_matches!(expected_items)
       draft_id = @last_wcw_draft_id
-      raise ScrapingError, 'No What Chefs Want draft to verify — nothing was submitted' unless draft_id
+      raise NotPlacedError, 'No What Chefs Want draft to verify — nothing was submitted' unless draft_id
 
       detail = api_client.get_draft(draft_id)&.dig('data', 'draft')
-      raise ScrapingError, "Couldn't read the What Chefs Want cart back — nothing was submitted" unless detail
+      raise NotPlacedError, "Couldn't read the What Chefs Want cart back — nothing was submitted" unless detail
 
       lines = (detail['products'] || []).map do |p|
         { codes: wcw_line_codes(p), quantity: p['quantity'].to_i, used: false }
@@ -297,6 +297,7 @@ module Scrapers
       end
 
       unconfirmed = 'Check What Chefs Want before reordering, so it is not placed twice.'
+      submit_sent!
       begin
         result = api_client.submit_order(draft_id, delivery_date, draft_products)
       rescue StandardError => e
@@ -316,7 +317,7 @@ module Scrapers
       unless order
         # GraphQL refused the mutation: nothing was placed. Keep WCW's words.
         errors = Array(result['errors']).map { |e| e['message'] }.compact.join('; ').presence || 'no reason given'
-        raise ScrapingError, "What Chefs Want refused the order: #{errors}"
+        raise NotPlacedError, "What Chefs Want refused the order: #{errors}"
       end
 
       # Only WCW's own order id counts — never a made-up "WCW-<timestamp>".
@@ -710,7 +711,7 @@ module Scrapers
         logger.info "[WhatChefsWant] Created draft #{draft['id']}: #{draft['itemCount']} items"
       else
         said = Array(result&.dig('errors')).map { |e| e['message'] }.compact.join('; ').presence || api_client.last_error
-        raise ScrapingError, "What Chefs Want didn't create the cart, so nothing was sent#{": #{said}" if said}"
+        raise NotPlacedError, "What Chefs Want didn't create the cart, so nothing was sent#{": #{said}" if said}"
       end
 
       { added: added_items.size, failed: failed_items, draft_id: @last_wcw_draft_id }
@@ -757,7 +758,7 @@ module Scrapers
         data = api_client.get_order_guide_items(limit: 100, offset: offset)
         if data.nil? || data['errors'].present?
           reason = Array(data&.dig('errors')).map { |e| e['message'] }.compact.join('; ').presence || api_client.last_error
-          raise ScrapingError, "Couldn't read your What Chefs Want order guide, so nothing was sent#{": #{reason}" if reason}"
+          raise NotPlacedError, "Couldn't read your What Chefs Want order guide, so nothing was sent#{": #{reason}" if reason}"
         end
 
         sections = data.dig('data', 'formProducts', 'sectionsWithCount', 'sections') || []

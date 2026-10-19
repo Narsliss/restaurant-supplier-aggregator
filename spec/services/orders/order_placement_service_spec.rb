@@ -189,7 +189,10 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
       }.to raise_error(Orders::OrderValidationService::ValidationError)
 
       expect(order.reload.status).to eq('failed')
-      expect(order.error_message).to include('No active credentials')
+      expect(order.error_message).to eq(
+        "Not placed. EnPlace isn't connected to #{supplier.name} for this restaurant, or the login stopped working. " \
+        "Reconnect #{supplier.name} under Suppliers, then resubmit."
+      )
     end
   end
 
@@ -492,6 +495,100 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
     end
   end
 
+  # Phase 5 (Oct 19 2026): every stop says "Not placed", what happened and
+  # what to do, in the chef's words (docs/fix-cw-out-of-stock-message.md B).
+  describe 'chef-facing messages' do
+    let(:name) { supplier.name }
+
+    def pre_validation(result)
+      validator = double('PreOrderValidation', validate!: { valid: true, errors: [], price_changes: [], requires_2fa: false }.merge(result))
+      allow(Orders::PreOrderValidationService).to receive(:new).and_return(validator)
+      described_class.new(order).place_order
+    end
+
+    it 'names and marks the items pre-order validation stopped on' do
+      pre_validation(valid: false, errors: [{ type: :stock, message: "#{supplier_product.supplier_name} is out of stock (cached data)",
+                                              item_id: nil, product_id: supplier_product.product_id }])
+
+      expect(order.reload.status).to eq('failed')
+      expect(order.error_message).to eq(
+        "Not placed. #{name} can't supply 1 item: #{supplier_product.supplier_name} — out of stock. Remove or change it, then resubmit."
+      )
+      expect(order.order_items.first).to have_attributes(status: 'failed', notes: "Out of stock at #{name}")
+    end
+
+    it 'says how to reconnect when the login is not active' do
+      pre_validation(valid: false, errors: [{ type: :credentials, message: "Credentials for #{name} are not active (status: expired)" }])
+
+      expect(order.reload.error_message).to eq(
+        "Not placed. EnPlace isn't connected to #{name} for this restaurant, or the login stopped working. " \
+        "Reconnect #{name} under Suppliers, then resubmit."
+      )
+    end
+
+    it 'lists the price changes it needs the chef to accept' do
+      pre_validation(price_changes: [{ item_id: 1, product_name: 'Walnut Halves', old_price: 42.10, new_price: 45.80, difference: 3.70 }])
+
+      expect(order.reload.status).to eq('pending_review')
+      expect(order.error_message).to eq(
+        "Not placed yet. #{name} prices changed on 1 item: Walnut Halves $42.10 → $45.80. " \
+        'Resubmit to order at the new prices, or remove them.'
+      )
+    end
+
+    it 'says NOT placed yet, and what to do, when a sign-in code is needed' do
+      pre_validation(requires_2fa: true)
+
+      expect(order.reload.status).to eq('pending_manual')
+      expect(order.error_message).to start_with("Not placed yet. #{name} needs a sign-in code.")
+    end
+
+    it 'words a missed minimum with the supplier and the amounts' do
+      allow(fake_scraper).to receive(:checkout)
+        .and_raise(Scrapers::BaseScraper::OrderMinimumError.new('Order minimum not met', minimum: 400, current_total: 312.10))
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.error_message).to eq(
+        "Not placed. #{name}'s minimum is $400.00 and this order is $312.10. Add $87.90 more, then resubmit."
+      )
+    end
+
+    it "doesn't list every line when the cart call itself failed" do
+      create(:order_item, order: order, supplier_product: create(:supplier_product, supplier: supplier), quantity: 1, unit_price: 5)
+      allow(fake_scraper).to receive(:add_to_cart).and_return(
+        added: [], failed: order.order_items.map { |i| { sku: i.supplier_product.supplier_sku, error: 'HTTP 503' } }
+      )
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.error_message).to eq("Not placed. Couldn't reach #{name}'s cart, and nothing was ordered. Try again in a minute.")
+    end
+
+    it 'words a robot check and an account hold' do
+      allow(fake_scraper).to receive(:checkout).and_raise(Scrapers::BaseScraper::CaptchaDetectedError, 'captcha')
+      described_class.new(order).place_order(skip_pre_validation: true)
+      expect(order.reload.error_message).to eq(
+        "Not placed. #{name}'s site asked for a robot check EnPlace can't answer. Place this order on #{name}'s site or app."
+      )
+
+      allow(fake_scraper).to receive(:checkout).and_raise(Scrapers::BaseScraper::AccountHoldError, 'Account on credit hold.')
+      described_class.new(order.reload).place_order(skip_pre_validation: true)
+      expect(order.reload.error_message).to eq(
+        "Not placed. #{name} has a hold on your account: Account on credit hold. Call your #{name} rep; EnPlace can't clear this."
+      )
+    end
+
+    it 'starts a delivery refusal with Not placed' do
+      allow(fake_scraper).to receive(:checkout)
+        .and_raise(Scrapers::BaseScraper::DeliveryUnavailableError, "Sysco won't deliver on Wed Oct 7. The earliest it will is Wed Sep 30. Change the delivery date and resubmit.")
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.error_message).to start_with("Not placed. Sysco won't deliver on Wed Oct 7.")
+    end
+  end
+
   describe 'scraper exceptions' do
     it 'handles OrderMinimumError without raising' do
       err = Scrapers::BaseScraper::OrderMinimumError.new('Below minimum', minimum: 200, current_total: 20)
@@ -510,7 +607,50 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
 
       expect(result).to include(success: false, error_type: 'unknown')
       expect(order.reload.status).to eq('failed')
-      expect(order.error_message).to include('unexpected')
+      # The technical text stays in the logs, not in front of the chef.
+      expect(order.error_message).to eq(
+        "Not placed. Something went wrong talking to #{supplier.name}, and nothing was ordered. " \
+        "Try again; if it fails twice, order on #{supplier.name}'s site."
+      )
+    end
+
+    it "shows a refusal written for chefs as it is" do
+      allow(fake_scraper).to receive(:checkout)
+        .and_raise(Scrapers::BaseScraper::NotPlacedError, "Couldn't read the US Foods cart, so nothing was ordered. Try again.")
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload).to have_attributes(status: 'failed', error_message: "Couldn't read the US Foods cart, so nothing was ordered. Try again.")
+    end
+
+    # Phase 5 (Oct 19 2026): once the live submit went out, "failed" would
+    # let the chef place the order twice.
+    context 'after the scraper sent the live submit' do
+      before { allow(fake_scraper).to receive(:submit_sent?).and_return(true) }
+
+      it 'parks an unexpected error as unconfirmed' do
+        allow(fake_scraper).to receive(:checkout).and_raise(NoMethodError, "undefined method `[]' for nil")
+
+        result = described_class.new(order).place_order(skip_pre_validation: true)
+
+        expect(result).to include(success: false, error_type: 'unconfirmed')
+        expect(order.reload.status).to eq('pending_manual')
+        expect(order.error_message).to eq(
+          "We sent this order to #{supplier.name}, then something went wrong before it confirmed, so it may or may not " \
+          "have gone through. Check #{supplier.name} before reordering, so it is not placed twice."
+        )
+        expect(order).not_to be_retryable
+      end
+
+      it "keeps a supplier's clear refusal as not placed" do
+        allow(fake_scraper).to receive(:checkout)
+          .and_raise(Scrapers::BaseScraper::NotPlacedError, 'What Chefs Want refused the order: Order minimum not met')
+
+        result = described_class.new(order).place_order(skip_pre_validation: true)
+
+        expect(result).to include(error_type: 'unknown')
+        expect(order.reload).to have_attributes(status: 'failed', error_message: 'What Chefs Want refused the order: Order minimum not met')
+      end
     end
 
     it 'parks an unconfirmed submit as pending_manual so it cannot be retried into a duplicate' do

@@ -631,6 +631,7 @@ module Scrapers
 
       # LIVE ORDER
       logger.warn "[ChefsWarehouse] API PLACING LIVE ORDER"
+      submit_sent!
       result = begin
         api_client.submit_cart(dry_run: false)
       rescue StandardError => e
@@ -763,7 +764,7 @@ module Scrapers
     def confirm_unacknowledged_submit!(result)
       if result.is_a?(Hash) && result['success'] == false
         reasons = Array(result['validationMessages']).map { |m| m.is_a?(Hash) ? (m['message'] || m['text']) : m }.compact.join('; ')
-        raise ScrapingError, "Chef's Warehouse rejected the order#{": #{reasons}" if reasons.present?}. Nothing was placed."
+        raise NotPlacedError, "Chef's Warehouse rejected the order#{": #{reasons}" if reasons.present?}. Nothing was placed."
       end
 
       cart = begin
@@ -772,7 +773,7 @@ module Scrapers
         nil
       end
       if cart.is_a?(Hash) && cart.dig('summary', 'itemCount').to_i > 0
-        raise ScrapingError, "Chef's Warehouse did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again."
+        raise NotPlacedError, "Chef's Warehouse did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again."
       end
 
       raise OrderUnconfirmedError,

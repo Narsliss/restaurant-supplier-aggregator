@@ -169,6 +169,18 @@ module Orders
       end
     end
 
+    # True once the scraper has sent the live submit (submit_sent!). From
+    # then on an unexpected error may hide a placed order.
+    def submit_sent?
+      scraper.respond_to?(:submit_sent?) && scraper.submit_sent? ? true : false
+    end
+
+    def self.unconfirmed_message(order)
+      name = order.supplier&.name || 'the supplier'
+      "We sent this order to #{name}, then something went wrong before it confirmed, so it may or may not have " \
+        "gone through. Check #{name} before reordering, so it is not placed twice."
+    end
+
     def retry_after_2fa(request)
       return unless request.verified?
 
@@ -253,9 +265,10 @@ module Orders
       # Handle validation result
       unless result[:valid]
         error_messages = result[:errors].map { |e| e[:message] }.join('; ')
+        mark_pre_validation_items!(result[:errors])
         order.update!(
           status: 'failed',
-          error_message: "Pre-order validation failed: #{error_messages}"
+          error_message: pre_validation_message(result[:errors])
         )
 
         Rails.logger.warn "[OrderPlacement] Order #{order.id} failed pre-validation: #{error_messages}"
@@ -273,7 +286,7 @@ module Orders
       if result[:price_changes].any? && !@accept_price_changes
         order.update!(
           status: 'pending_review',
-          error_message: "#{result[:price_changes].count} item(s) have price changes. Review required."
+          error_message: price_changes_message(result[:price_changes].map { |pc| [pc[:product_name], pc[:old_price], pc[:new_price]] })
         )
 
         Rails.logger.info "[OrderPlacement] Order #{order.id} pending review: price changes detected"
@@ -292,7 +305,7 @@ module Orders
       if result[:requires_2fa]
         order.update!(
           status: 'pending_manual',
-          error_message: 'Two-factor authentication required to validate order.'
+          error_message: sign_in_code_message
         )
 
         return {
@@ -350,7 +363,7 @@ module Orders
       credential = Suppliers::OrderCredential.scope(order, statuses: %w[active]).take
 
       unless credential
-        order.update!(status: 'failed', error_message: "No active credentials for #{order.supplier.name}")
+        order.update!(status: 'failed', error_message: not_connected_message)
         raise OrderValidationService::ValidationError.new(
           errors: [{ type: 'no_credentials', message: "No active credentials for #{order.supplier.name}" }]
         )
@@ -376,9 +389,8 @@ module Orders
 
       order.update!(
         status: 'failed',
-        error_message: "Order minimum not met. Minimum: #{format_currency(error.minimum)}, " \
-                       "Current: #{format_currency(error.current_total)}. " \
-                       "Add #{format_currency(difference)} more to proceed."
+        error_message: "Not placed. #{order.supplier.name}'s minimum is #{format_currency(error.minimum)} and this order is " \
+                       "#{format_currency(error.current_total)}. Add #{format_currency(difference)} more, then resubmit."
       )
 
       Rails.logger.warn "[OrderPlacement] Order #{order.id} failed: minimum not met"
@@ -402,11 +414,17 @@ module Orders
       end
       count = error.items.count
 
-      order.update!(
-        status: 'failed',
-        error_message: "Not placed. #{order.supplier.name} couldn't take #{count} item#{'s' if count != 1}: " \
-                       "#{lines.join('; ')}. Remove or change #{count == 1 ? 'it' : 'them'} and resubmit."
-      )
+      message = if count.zero?
+                  not_placed_message(StandardError.new('no items named'))
+                elsif cart_unreachable?(error.items)
+                  # Every line failed for the same technical reason: the cart
+                  # call failed, not the items. Don't list 30 lines.
+                  "Not placed. Couldn't reach #{order.supplier.name}'s cart, and nothing was ordered. Try again in a minute."
+                else
+                  "Not placed. #{order.supplier.name} couldn't take #{count} item#{'s' if count != 1}: " \
+                    "#{lines.join('; ')}. Remove or change #{count == 1 ? 'it' : 'them'} and resubmit."
+                end
+      order.update!(status: 'failed', error_message: message)
 
       # Mark specific items as failed and update supplier product stock status
       error.items.each do |item|
@@ -447,7 +465,7 @@ module Orders
 
       order.update!(
         status: 'pending_review',
-        error_message: "Prices changed for #{error.changes.count} item(s). Review required."
+        error_message: price_changes_message(error.changes.map { |c| [c[:name] || c[:sku], c[:old_price], c[:new_price]] })
       )
 
       Rails.logger.info "[OrderPlacement] Order #{order.id} pending review: price changes"
@@ -500,9 +518,11 @@ module Orders
     def handle_account_hold_error(error, credential)
       credential&.mark_on_hold!(error.message)
 
+      name = order.supplier.name
       order.update!(
         status: 'failed',
-        error_message: "Account issue: #{error.message}"
+        error_message: "Not placed. #{name} has a hold on your account: #{error.message.to_s.strip.sub(/\.\z/, '')}. " \
+                       "Call your #{name} rep; EnPlace can't clear this."
       )
 
       Rails.logger.error "[OrderPlacement] Order #{order.id} failed: account hold"
@@ -518,7 +538,8 @@ module Orders
     def handle_captcha_error(error)
       order.update!(
         status: 'pending_manual',
-        error_message: 'CAPTCHA detected. Manual order placement required.'
+        error_message: "Not placed. #{order.supplier.name}'s site asked for a robot check EnPlace can't answer. " \
+                       "Place this order on #{order.supplier.name}'s site or app."
       )
 
       Rails.logger.warn "[OrderPlacement] Order #{order.id} requires manual intervention: CAPTCHA"
@@ -533,9 +554,10 @@ module Orders
     end
 
     def handle_delivery_error(error)
+      text = error.message.to_s.strip
       order.update!(
         status: 'failed',
-        error_message: error.message
+        error_message: text.start_with?('Not placed') ? text : "Not placed. #{text}"
       )
 
       Rails.logger.warn "[OrderPlacement] Order #{order.id} failed: delivery unavailable"
@@ -565,7 +587,7 @@ module Orders
     def handle_2fa_required(error)
       order.update!(
         status: 'pending_manual',
-        error_message: 'Two-factor authentication required. Please enter the verification code.'
+        error_message: sign_in_code_message
       )
 
       Rails.logger.info "[OrderPlacement] Order #{order.id} waiting for 2FA"
@@ -583,18 +605,34 @@ module Orders
 
     def handle_generic_error(error)
       Rails.logger.error "[OrderPlacement] Order #{order.id} failed: #{error.class} - #{error.message}"
-      Rails.logger.error error.backtrace.first(10).join("\n")
+      Rails.logger.error Array(error.backtrace).first(10).join("\n")
 
-      order.update!(
-        status: 'failed',
-        error_message: "Order failed: #{error.message}"
-      )
+      # After the live submit went out, an unexpected error doesn't mean
+      # "not placed": the supplier may have the order, and "failed" would
+      # let the chef place it twice. Only a clear refusal (NotPlacedError)
+      # still counts as not placed (Phase 5, Oct 19 2026).
+      if submit_sent? && !error.is_a?(Scrapers::BaseScraper::NotPlacedError)
+        return handle_unconfirmed_submit(Scrapers::BaseScraper::OrderUnconfirmedError.new(self.class.unconfirmed_message(order)))
+      end
+
+      order.update!(status: 'failed', error_message: not_placed_message(error))
 
       {
         success: false,
         error_type: 'unknown',
         error: error.message
       }
+    end
+
+    # The chef-facing text for an error before (or clearly refused at) submit.
+    # NotPlacedError messages are written for chefs; anything else is a
+    # technical failure whose text stays in the logs.
+    def not_placed_message(error)
+      return error.message if error.is_a?(Scrapers::BaseScraper::NotPlacedError)
+
+      name = order.supplier.name
+      "Not placed. Something went wrong talking to #{name}, and nothing was ordered. " \
+        "Try again; if it fails twice, order on #{name}'s site."
     end
 
     def update_order_with_new_prices(changes)
@@ -718,6 +756,90 @@ module Orders
       Date.parse(value.to_s).strftime('%a %b %-d')
     rescue ArgumentError, TypeError
       value.to_s
+    end
+
+    def not_connected_message
+      name = order.supplier.name
+      "Not placed. EnPlace isn't connected to #{name} for this restaurant, or the login stopped working. " \
+        "Reconnect #{name} under Suppliers, then resubmit."
+    end
+
+    def sign_in_code_message
+      name = order.supplier.name
+      "Not placed yet. #{name} needs a sign-in code. Enter the code when EnPlace asks for it " \
+        "(or reconnect #{name} under Suppliers), then resubmit."
+    end
+
+    PRICE_CHANGES_SHOWN = 5
+
+    # "Not placed yet. Chef's Warehouse prices changed on 2 items: Walnut
+    # Halves $42.10 → $45.80; ..." from [name, old, new] triples.
+    def price_changes_message(changes)
+      name = order.supplier.name
+      shown = changes.first(PRICE_CHANGES_SHOWN).map do |item, old_price, new_price|
+        "#{item.presence || 'An item'} #{format_currency(old_price.to_f)} → #{format_currency(new_price.to_f)}"
+      end
+      more = changes.size - shown.size
+      "Not placed yet. #{name} prices changed on #{changes.size} item#{'s' if changes.size != 1}: " \
+        "#{shown.join('; ')}#{"; and #{more} more" if more.positive?}. " \
+        'Resubmit to order at the new prices, or remove them.'
+    end
+
+    # Every line failed with the same technical reason (a timeout, an HTTP
+    # error, "API rejected"): the cart call failed, not the items.
+    TECHNICAL_REASON = /HTTP \d{3}|timeout|timed out|Net::|ECONN|API rejected|connection/i
+
+    def cart_unreachable?(items)
+      reasons = items.map { |i| (i[:message].presence || i[:error].presence || i[:reason]).to_s }
+      items.size > 1 && items.size >= order.order_items.size &&
+        reasons.uniq.size == 1 && reasons.first.match?(TECHNICAL_REASON)
+    end
+
+    # Pre-order validation names items it stops on (out of stock,
+    # discontinued): mark those lines failed with the reason, so they show
+    # red like a refusal at the cart. Display only; the order is stopped
+    # either way.
+    def mark_pre_validation_items!(errors)
+      by_product = order.order_items.includes(:supplier_product).index_by { |i| i.supplier_product&.product_id }
+      errors.each do |e|
+        reason = pre_validation_item_reason(e)
+        item = by_product[e[:product_id]] if e[:product_id]
+        item&.mark_failed!(reason) if reason
+      end
+    rescue StandardError => e
+      Rails.logger.warn "[OrderPlacement] Order #{order.id}: could not mark pre-validation items: #{e.class}: #{e.message}"
+    end
+
+    def pre_validation_item_reason(error)
+      case error[:type].to_s
+      when 'stock' then "Out of stock at #{order.supplier.name}"
+      when 'discontinued' then "No longer sold by #{order.supplier.name}"
+      end
+    end
+
+    # "Pre-order validation failed: ... (status: expired)" read as jargon
+    # (B/238). Each stop in words a chef can act on.
+    def pre_validation_message(errors)
+      name = order.supplier.name
+      by_product = order.order_items.includes(:supplier_product).index_by { |i| i.supplier_product&.product_id }
+      items = []
+      sentences = errors.filter_map do |e|
+        case e[:type].to_s
+        when 'credentials' then not_connected_message.delete_prefix('Not placed. ')
+        when 'session' then "EnPlace couldn't sign in to #{name}. Reconnect #{name} under Suppliers, then resubmit."
+        when 'stock', 'discontinued'
+          what = e[:type].to_s == 'stock' ? 'out of stock' : 'no longer sold'
+          items << "#{by_product[e[:product_id]]&.supplier_name || e[:message].to_s.split(' is ').first} — #{what}"
+          nil
+        when 'order_minimum', 'delivery' then e[:message].to_s.strip.sub(/([^.])\z/, '\\1.')
+        else "Something went wrong checking this order with #{name}, and nothing was ordered. Try again."
+        end
+      end
+      if items.any?
+        sentences.unshift("#{name} can't supply #{items.size} item#{'s' if items.size != 1}: #{items.join('; ')}. " \
+                          "Remove or change #{items.size == 1 ? 'it' : 'them'}, then resubmit.")
+      end
+      "Not placed. #{sentences.uniq.join(' ')}"
     end
 
     # After OOS items are removed by validation, re-check

@@ -90,7 +90,10 @@ class OrdersController < ApplicationController
 
   def show
     record_failure_seen(@order)
-    @items = @order.order_items.includes(supplier_product: [:supplier, :product])
+    # Lines the supplier refused come first, so the chef doesn't scroll a
+    # 30-line order to find them (order 483).
+    @items = @order.order_items.includes(supplier_product: [:supplier, :product]).to_a
+                   .sort_by.with_index { |item, i| [helpers.order_item_refused?(@order, item) ? 0 : 1, i] }
     @validations = @order.order_validations.order(validated_at: :desc)
 
     # Order minimum (blocking) — skip if supplier was deleted
@@ -154,7 +157,9 @@ class OrdersController < ApplicationController
   end
 
   def update
-    if @order.editable? && @order.update(order_params)
+    updated = false
+    edited = @order.edit_while_editable { updated = @order.update(order_params) }
+    if edited && updated
       @order.recalculate_totals!
       respond_to do |format|
         format.html { redirect_to @order }
@@ -186,8 +191,12 @@ class OrdersController < ApplicationController
     # Mark processing BEFORE enqueueing (as submit_batch does): the other way
     # round, a fast failure could be overwritten back to "processing" with its
     # reason wiped — the chef would see "Submitting…" forever. A new attempt
-    # also clears the previous attempt's reason.
-    @order.update!(status: "processing", error_message: nil)
+    # also clears the previous attempt's reason. Under the row lock item
+    # edits take, so none lands after this (order 483).
+    unless @order.start_placement!(error_message: nil)
+      redirect_to @order
+      return
+    end
 
     PlaceOrderJob.perform_later(
       @order.id,
@@ -664,9 +673,19 @@ class OrdersController < ApplicationController
     # Accept any price changes and proceed directly to placement.
     # Stagger jobs by 15s each to avoid overwhelming the worker with
     # concurrent Chromium instances (which causes browser hydration failures).
+    # Under the row lock item edits take; an order that changed state since
+    # the query (another tab, a double tap) is skipped.
+    orders = orders.select do |order|
+      order.start_placement!(allowed_statuses: %w[pending price_changed draft], error_message: nil, confirmation_number: nil) do
+        order.accept_price_changes! if order.price_changed?
+      end
+    end
+    if orders.empty?
+      redirect_to batch_progress_orders_path(batch_id: batch_id)
+      return
+    end
+
     orders.each_with_index do |order, index|
-      order.accept_price_changes! if order.price_changed?
-      order.update!(status: "processing", error_message: nil, confirmation_number: nil)
       delay = index * 15.seconds
       if delay.zero?
         PlaceOrderJob.perform_later(order.id)
@@ -805,9 +824,11 @@ class OrdersController < ApplicationController
       return
     end
 
+    orders = orders.select do |order|
+      order.start_placement!(allowed_statuses: %w[price_changed]) { order.accept_price_changes! }
+    end
+
     orders.each_with_index do |order, index|
-      order.accept_price_changes!
-      order.update!(status: "processing")
       delay = index * 15.seconds
       if delay.zero?
         PlaceOrderJob.perform_later(order.id)

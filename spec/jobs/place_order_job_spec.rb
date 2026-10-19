@@ -106,17 +106,56 @@ RSpec.describe PlaceOrderJob, type: :job do
   end
 
   describe 'rescue path (rescue-hazard pattern)' do
-    it 're-raises and writes status:failed when the service raises' do
-      service = instance_double(Orders::OrderPlacementService)
+    def crashing_service(submit_sent: false, &before_crash)
+      service = instance_double(Orders::OrderPlacementService, submit_sent?: submit_sent)
       allow(Orders::OrderPlacementService).to receive(:new).and_return(service)
-      allow(service).to receive(:place_order).and_raise(StandardError, 'boom')
+      allow(service).to receive(:place_order) do
+        before_crash&.call
+        raise StandardError, 'boom'
+      end
+      service
+    end
+
+    it 're-raises and writes a plain not-placed message when nothing was sent' do
+      crashing_service
 
       expect {
         described_class.new.perform(order.id)
       }.to raise_error(StandardError, 'boom')
 
       expect(order.reload.status).to eq('failed')
-      expect(order.error_message).to eq('boom')
+      expect(order.error_message).to eq(
+        "Not placed. Something went wrong before anything was sent to #{supplier.name}. " \
+        "Try again; if it fails twice, order on #{supplier.name}'s site."
+      )
+    end
+
+    # Phase 5 (Oct 19 2026): "failed" after the submit went out invites a
+    # second order; the supplier may already have this one.
+    it 'calls the order unconfirmed when the crash came after the live submit' do
+      crashing_service(submit_sent: true) { order.update!(status: 'processing') }
+      expect(OrderFailureAlertJob).to receive(:schedule).with(kind_of(Order), kind: 'unconfirmed')
+
+      expect { described_class.new.perform(order.id) }.to raise_error(StandardError, 'boom')
+
+      expect(order.reload.status).to eq('pending_manual')
+      expect(order.error_message).to include("may or may not have gone through. Check #{supplier.name} before reordering")
+    end
+
+    it 'never touches an order that was placed before the crash (order 102)' do
+      crashing_service(submit_sent: true) { order.update!(status: 'submitted', submitted_at: Time.current, confirmation_number: 'C1') }
+
+      expect { described_class.new.perform(order.id) }.to raise_error(StandardError, 'boom')
+
+      expect(order.reload).to have_attributes(status: 'submitted', confirmation_number: 'C1')
+    end
+
+    it 'keeps an outcome the service already wrote during this run' do
+      crashing_service { order.update!(status: 'failed', error_message: 'Not placed. EnPlace isn\'t connected to Sysco.') }
+
+      expect { described_class.new.perform(order.id) }.to raise_error(StandardError, 'boom')
+
+      expect(order.reload.error_message).to eq("Not placed. EnPlace isn't connected to Sysco.")
     end
   end
 
@@ -169,7 +208,7 @@ RSpec.describe PlaceOrderJob, type: :job do
     end
 
     it 'alerts when the service raises' do
-      service = instance_double(Orders::OrderPlacementService)
+      service = instance_double(Orders::OrderPlacementService, submit_sent?: false)
       allow(Orders::OrderPlacementService).to receive(:new).and_return(service)
       allow(service).to receive(:place_order).and_raise(StandardError, 'boom')
 

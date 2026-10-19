@@ -30,6 +30,25 @@ export default class extends Controller {
 
   connect() {
     this._debounceTimers = {}
+    this._pending = {}          // debounced saves not sent yet, by key
+    this._inflight = new Set()  // saves sent, no answer yet
+  }
+
+  // Submit: send any change still waiting on its debounce (and wait for
+  // the ones on their way) before the order is placed, so it goes out with
+  // what the chef last set. The server refuses edits once placement starts
+  // (order 483: a change landed 0.5 s after Submit).
+  async flushBeforeSubmit(event) {
+    if (this._flushed) return
+    const waiting = Object.keys(this._pending)
+    if (waiting.length === 0 && this._inflight.size === 0) return
+
+    event.preventDefault()
+    const form = event.target
+    waiting.forEach(key => this._pending[key] && this._pending[key]())
+    await Promise.allSettled([...this._inflight])
+    this._flushed = true
+    form.requestSubmit ? form.requestSubmit() : form.submit()
   }
 
   // --- Quantity adjustments ---
@@ -50,10 +69,32 @@ export default class extends Controller {
     const input = this._inputForItem(itemId)
     if (!input) return
     const current = parseInt(input.value) || 0
-    if (current <= 1) return
+    if (current <= 1) return this._armRemove(btn, event)
     const newQty = current - 1
     input.value = newQty
     this._onQuantityChange(itemId, newQty)
+  }
+
+  // "−" at 1 used to do nothing, so a chef couldn't take a line off a
+  // reopened order (order 483). First tap asks, a second tap within 3 s
+  // removes it.
+  _armRemove(btn, event) {
+    if (btn.dataset.removeArmed === "true") {
+      clearTimeout(this._armTimer)
+      return this.removeItem(event)
+    }
+
+    btn.dataset.removeArmed = "true"
+    btn.dataset.armedClass = btn.className
+    btn.dataset.armedLabel = btn.innerHTML
+    btn.className = "h-7 px-2 rounded-lg border border-red-300 bg-red-50 text-red-600 text-xs font-semibold"
+    btn.textContent = "Remove?"
+    clearTimeout(this._armTimer)
+    this._armTimer = setTimeout(() => {
+      btn.dataset.removeArmed = "false"
+      btn.className = btn.dataset.armedClass
+      btn.innerHTML = btn.dataset.armedLabel
+    }, 3000)
   }
 
   updateQuantity(event) {
@@ -258,11 +299,8 @@ export default class extends Controller {
   // --- Server communication ---
 
   _debouncePatch(itemId, quantity) {
-    const key = `item_${itemId}`
-    if (this._debounceTimers[key]) clearTimeout(this._debounceTimers[key])
-
-    this._debounceTimers[key] = setTimeout(() => {
-      fetch(`/orders/${this.orderIdValue}/order_items/${itemId}`, {
+    this._schedule(`item_${itemId}`, () =>
+      this._track(fetch(`/orders/${this.orderIdValue}/order_items/${itemId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -274,12 +312,30 @@ export default class extends Controller {
       .then(res => {
         if (!res.ok) console.error("Failed to update item quantity")
       })
-      .catch(err => console.error("Error updating item:", err))
-    }, 500)
+      .catch(err => console.error("Error updating item:", err)))
+    )
+  }
+
+  // Debounce a save by key, keeping it sendable early (flushBeforeSubmit).
+  _schedule(key, send) {
+    if (this._debounceTimers[key]) clearTimeout(this._debounceTimers[key])
+    this._pending[key] = () => {
+      clearTimeout(this._debounceTimers[key])
+      delete this._debounceTimers[key]
+      delete this._pending[key]
+      return send()
+    }
+    this._debounceTimers[key] = setTimeout(() => this._pending[key] && this._pending[key](), 500)
+  }
+
+  _track(request) {
+    this._inflight.add(request)
+    request.finally(() => this._inflight.delete(request))
+    return request
   }
 
   _deleteItem(itemId) {
-    fetch(`/orders/${this.orderIdValue}/order_items/${itemId}`, {
+    this._track(fetch(`/orders/${this.orderIdValue}/order_items/${itemId}`, {
       method: "DELETE",
       headers: {
         "X-CSRF-Token": this._csrfToken(),
@@ -298,15 +354,12 @@ export default class extends Controller {
         window.location.reload()
       }
     })
-    .catch(err => console.error("Error deleting item:", err))
+    .catch(err => console.error("Error deleting item:", err)))
   }
 
   _patchOrder(data) {
-    const key = "order_patch"
-    if (this._debounceTimers[key]) clearTimeout(this._debounceTimers[key])
-
-    this._debounceTimers[key] = setTimeout(() => {
-      fetch(`/orders/${this.orderIdValue}`, {
+    this._schedule("order_patch", () =>
+      this._track(fetch(`/orders/${this.orderIdValue}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -318,8 +371,8 @@ export default class extends Controller {
       .then(res => {
         if (!res.ok) console.error("Failed to update order")
       })
-      .catch(err => console.error("Error updating order:", err))
-    }, 500)
+      .catch(err => console.error("Error updating order:", err)))
+    )
   }
 
   // --- Helpers ---

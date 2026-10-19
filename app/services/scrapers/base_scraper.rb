@@ -51,6 +51,11 @@ module Scrapers
     # The submit may have reached the supplier but we couldn't confirm it.
     # Never retried automatically — a retry could place a duplicate order.
     class OrderUnconfirmedError < StandardError; end
+    # The supplier clearly refused the submit, or it was never sent: nothing
+    # was placed and the chef can safely try again. Raise it for a refusal
+    # that comes AFTER submit_sent!, so OrderPlacementService doesn't treat
+    # it as "may have gone through" (Phase 5, Oct 19 2026).
+    class NotPlacedError < ScrapingError; end
     class RateLimitedError < StandardError; end
     class MaintenanceError < StandardError; end
 
@@ -264,6 +269,18 @@ module Scrapers
 
     def checkout(dry_run: false)
       raise NotImplementedError, 'Subclass must implement #checkout'
+    end
+
+    # Called right before the request that places a live order. From here
+    # on an unexpected error means the supplier may have the order, so
+    # OrderPlacementService reports it unconfirmed, never "failed" (which
+    # invites a second order). Refusals after this point raise NotPlacedError.
+    def submit_sent!
+      @submit_sent = true
+    end
+
+    def submit_sent?
+      @submit_sent == true
     end
 
     # True when this scraper confirms, BEFORE submitting, that every line the

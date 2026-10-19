@@ -146,7 +146,8 @@
         <%= button_to submit_order_path(@order), method: :post,
             class: "w-full text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-sm #{@meets_minimum ? 'bg-brand-green' : 'bg-gray-300 cursor-not-allowed'}",
             disabled: !@meets_minimum,
-            data: { order_edit_target: "submitButton" } do %>
+            data: { order_edit_target: "submitButton" },
+            form: { data: { action: "submit->order-edit#flushBeforeSubmit" } } do %>
           Submit Order
         <% end %>
         <%= button_to cancel_order_path(@order), method: :post,
@@ -176,7 +177,7 @@
     <h2 class="font-heading text-sm font-semibold text-brand-navy uppercase tracking-wider mb-3">Items (<%= @order.order_items.size %>)</h2>
 
     <div class="space-y-2">
-      <% @order.order_items.includes(:supplier_product).each do |item| %>
+      <% @items.each do |item| %>
         <% refused = order_item_refused?(@order, item) %>
         <div class="bg-white rounded-xl border <%= refused ? 'border-2 border-red-400' : 'border-gray-200' %> shadow-sm p-3"
              data-order-edit-target="itemRow" data-item-id="<%= item.id %>" data-unit-price="<%= item.unit_price %>">

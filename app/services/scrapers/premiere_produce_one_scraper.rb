@@ -265,7 +265,7 @@ module Scrapers
       catalog_items = catalog_result&.dig('getSupplierVariantPackGroupItems') || []
       # A failed catalog read used to report EVERY item "Not found in catalog".
       if catalog_items.empty?
-        raise ScrapingError, "Couldn't load Premiere Produce's catalog, so nothing was ordered. Try again."
+        raise NotPlacedError, "Couldn't load Premiere Produce's catalog, so nothing was ordered. Try again."
       end
       sku_to_variant = {}
       sku_to_name = {}
@@ -302,7 +302,7 @@ module Scrapers
           # Used to record { sku: <item NAME>, error: 'API rejected' }: the chef
           # saw "SKU Limes — API rejected" and no line could be flagged.
           reason = api_client.last_error
-          raise ScrapingError, "Premiere Produce rejected the cart update#{": #{reason}" if reason.present?}. Nothing was ordered — try again."
+          raise NotPlacedError, "Premiere Produce rejected the cart update#{": #{reason}" if reason.present?}. Nothing was ordered — try again."
         end
 
         # The reply lists the draft's lines. Name any of ours PPO left out
@@ -385,7 +385,7 @@ module Scrapers
       api_client.ensure_session!
 
       open_orders = api_client.get_open_orders
-      raise ScrapingError, "Couldn't read the Premiere Produce cart, so nothing was ordered. Try again." if open_orders.nil?
+      raise NotPlacedError, "Couldn't read the Premiere Produce cart, so nothing was ordered. Try again." if open_orders.nil?
 
       (open_orders['orders'] || []).each do |order|
         items = order['orders_items'] || []
@@ -402,7 +402,7 @@ module Scrapers
       end
 
       left = Array(api_client.get_open_orders&.dig('orders')).sum { |o| Array(o['orders_items']).size }
-      raise ScrapingError, "Premiere Produce's cart could not be emptied (#{left} line(s) left), so nothing was ordered. Try again." if left.positive?
+      raise NotPlacedError, "Premiere Produce's cart could not be emptied (#{left} line(s) left), so nothing was ordered. Try again." if left.positive?
 
       logger.info '[PPO] API cart cleared'
     end
@@ -417,7 +417,7 @@ module Scrapers
       draft = @order_uuid && api_client.order_lines(@order_uuid)
       unless draft && %w[DRAFT IN_REVIEW].include?(draft['status'].to_s)
         discard_cart_after_stop
-        raise ScrapingError, "Couldn't read the Premiere Produce order back to check it, so nothing was submitted. Try again."
+        raise NotPlacedError, "Couldn't read the Premiere Produce order back to check it, so nothing was submitted. Try again."
       end
 
       discrepancies = ppo_cart_discrepancies(draft, expected_items)
@@ -482,6 +482,7 @@ module Scrapers
 
       # LIVE ORDER
       logger.warn "[PPO] API PLACING LIVE ORDER — #{order_items.size} items, total=$#{'%.2f' % total}"
+      submit_sent!
       result = begin
         api_client.submit_order(order_uuid)
       rescue StandardError => e
@@ -549,7 +550,7 @@ module Scrapers
       end
 
       if order && %w[DRAFT IN_REVIEW].include?(order['status'])
-        raise ScrapingError, 'Premiere Produce rejected the order. Nothing was placed — it is safe to try again.'
+        raise NotPlacedError, 'Premiere Produce rejected the order. Nothing was placed — it is safe to try again.'
       end
 
       raise OrderUnconfirmedError,

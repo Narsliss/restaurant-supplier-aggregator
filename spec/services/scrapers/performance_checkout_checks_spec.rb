@@ -123,7 +123,18 @@ RSpec.describe Scrapers::PerformanceScraper, 'checkout checks' do
       allow(api).to receive(:get_order).and_return(order)
       allow(api).to receive(:submit_order).and_raise(Scrapers::PerformanceApi::AuthError, 'Unauthenticated (HTTP 401)')
 
-      expect { scraper.checkout(dry_run: false) }.to raise_error(Scrapers::PerformanceApi::AuthError)
+      expect { scraper.checkout(dry_run: false) }
+        .to raise_error(Scrapers::BaseScraper::NotPlacedError, /turned the login away.*nothing was placed.*Reconnect Performance/)
+      expect(scraper.submit_sent?).to be(true)
+    end
+
+    it 'marks the submit as sent only when it goes out' do
+      allow(api).to receive(:get_order).and_return(order)
+      expect { scraper.checkout(dry_run: true) }.not_to change(scraper, :submit_sent?)
+
+      allow(api).to receive(:submit_order).and_return('IsSuccess' => true, 'ResultObject' => { 'AcceptOrder' => true, 'OrderNumber' => '1' })
+      scraper.checkout(dry_run: false)
+      expect(scraper.submit_sent?).to be(true)
     end
   end
 end

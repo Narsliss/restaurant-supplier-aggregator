@@ -206,7 +206,8 @@ RSpec.describe Scrapers::UsFoodsScraper do
       allow(api).to receive(:get_orders).and_return([order])
 
       expect { scraper.checkout(dry_run: false) }
-        .to raise_error(Scrapers::BaseScraper::ScrapingError, /still in the cart\. Nothing was placed/)
+        .to raise_error(Scrapers::BaseScraper::NotPlacedError, /still in the cart\. Nothing was placed/)
+      expect(scraper.submit_sent?).to be(true)
     end
 
     it 'confirms from US Foods’ records when the submit timed out but the order went through' do

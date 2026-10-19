@@ -407,7 +407,7 @@ module Scrapers
         # this order's (verify_cart_matches! would also refuse it, later).
         reason = Array(res && res['ErrorMessages']).join('; ').presence || 'no answer'
         logger.warn "[Performance] clear_cart: could not delete draft #{oeh}: #{reason}"
-        raise ScrapingError, "Couldn't empty your Performance cart, so nothing was sent: #{reason}"
+        raise NotPlacedError, "Couldn't empty your Performance cart, so nothing was sent: #{reason}"
       end
     end
 
@@ -498,10 +498,12 @@ module Scrapers
       end
 
       logger.warn '[Performance] PLACING LIVE ORDER'
+      submit_sent!
       begin
         result = api_client.submit_order(oeh)
-      rescue Scrapers::PerformanceApi::AuthError
-        raise # the login was turned away before the submit ran: nothing placed
+      rescue Scrapers::PerformanceApi::AuthError => e
+        # The login was turned away before the submit ran: nothing placed.
+        raise NotPlacedError, "Performance turned the login away when we sent the order, so nothing was placed (#{e.message}). Reconnect Performance, then resubmit."
       rescue StandardError => e
         # Timeout, dropped connection, 5xx: PFG may have the order.
         logger.error "[Performance] submit gave no clear answer: #{e.class}: #{e.message}"
@@ -519,7 +521,7 @@ module Scrapers
         rejected = result.dig('ResultObject', 'RejectedMessage') if result['ResultObject'].is_a?(Hash)
         errors = [rejected, *Array(result['ErrorMessages'])].map(&:to_s).map(&:strip).reject(&:empty?).uniq.join('; ')
         logger.error "[Performance] submit REJECTED: #{result.inspect.truncate(1500)}"
-        raise ScrapingError, "Performance rejected the order: #{errors.presence || 'no reason given'}"
+        raise NotPlacedError, "Performance rejected the order: #{errors.presence || 'no reason given'}"
       end
       logger.warn "[Performance] submit response: #{result.inspect.truncate(1500)}"
       # Response shape unverified until the first real order: prefer PFG's order

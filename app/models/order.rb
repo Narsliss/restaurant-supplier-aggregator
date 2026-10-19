@@ -200,6 +200,36 @@ class Order < ApplicationRecord
     pending? || status == "pending_review" || price_changed? || draft?
   end
 
+  # Flip to "processing" under a row lock, re-checking first, so an item
+  # edit can't land between the check and the flip (order 483: a quantity
+  # change was accepted 0.5 s after Submit). Item edits take the same lock
+  # (edit_while_editable). The block runs inside it before the flip.
+  # false when the order can no longer be placed (or someone got there first).
+  def start_placement!(allowed_statuses: nil, **attrs)
+    with_lock do
+      next false unless allowed_statuses ? status.in?(allowed_statuses) : can_submit?
+
+      yield if block_given?
+      update!(attrs.merge(status: "processing"))
+      true
+    end
+  end
+
+  # Run an edit to this order or its items only while it is editable, under
+  # the lock start_placement! takes. false when it no longer is.
+  def edit_while_editable
+    with_lock do
+      next false unless editable?
+
+      yield
+      true
+    end
+  end
+
+  def not_editable_message
+    processing? ? "This order is being placed, so it can't be changed now." : "This order can't be changed."
+  end
+
   def can_cancel?
     # failed: "Don't place this order" — the chef's dismiss for a failure she
     # has decided not to fix (Carmin, Oct 3 2026). Nothing was sent.

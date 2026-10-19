@@ -31,7 +31,7 @@ module Scrapers
 
     # submitOrderV2 answered with a refusal (or was never sent): nothing was
     # placed. Any other submit failure leaves the outcome open.
-    class NotSubmittedError < ScrapingError; end
+    class NotSubmittedError < NotPlacedError; end
 
     LOGGED_IN_SELECTORS = [
       "a[href*='account']", "a[href*='logout']", "a[href*='sign-out']",
@@ -854,11 +854,15 @@ module Scrapers
         draft_date_iso = draft_date&.iso8601
         logger.info "[Sysco] Draft delivery date=#{draft_date_iso.inspect}, available=#{available_days.first(5).inspect}..."
         if draft_date_iso && !available_days.include?(draft_date_iso)
-          earliest = available_days.first
+          earliest = available_days.min
+          earliest_words = begin
+            Date.parse(earliest.to_s).strftime('%a %b %-d')
+          rescue ArgumentError, TypeError
+            earliest.to_s
+          end
           raise DeliveryUnavailableError,
-                "Sysco is not accepting delivery on #{draft_date_iso} for this account. " \
-                "Earliest currently-available date is #{earliest}. " \
-                "Available: #{available_days.first(5).join(', ')}#{available_days.size > 5 ? '...' : ''}."
+                "Sysco won't deliver on #{draft_date.strftime('%a %b %-d')}. The earliest it will is #{earliest_words}. " \
+                'Change the delivery date and resubmit.'
         end
       else
         logger.warn "[Sysco] Could not fetch availableDays — skipping pre-submit date validation"
@@ -895,6 +899,7 @@ module Scrapers
       # ═══════════════════════════════════════════
       logger.warn "[Sysco] PLACING LIVE ORDER — submitting order #{order_id}"
       lines_sent = (@last_sysco_line_items || []).size
+      submit_sent!
       begin
         result = graphql_submit_order(order_id: order_id, sequence_id: sequence_id)
         logger.warn "[Sysco] RAW submitOrderV2 response: #{result.inspect}"
@@ -902,7 +907,11 @@ module Scrapers
         # Sysco refused the submit outright (GraphQL errors on a 200, or the
         # gateway turned the login away): nothing was placed — unless its own
         # order list already shows it submitted, so a retry would order twice.
-        raise unless sysco_lists_submitted?(order_id)
+        unless sysco_lists_submitted?(order_id)
+          raise if e.is_a?(NotSubmittedError)
+
+          raise NotSubmittedError, "Sysco turned the login away when we sent the order, so nothing was placed (#{e.message}). Reconnect Sysco, then resubmit."
+        end
 
         logger.error "[Sysco] submitOrderV2 refused (#{e.message}) but Sysco lists #{order_id} as submitted"
       rescue StandardError => e

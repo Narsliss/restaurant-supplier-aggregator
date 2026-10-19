@@ -519,7 +519,8 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
       )
 
       expect { scraper.checkout(dry_run: false) }
-        .to raise_error(Scrapers::BaseScraper::ScrapingError, /rejected the order: Cutoff passed. Nothing was placed/)
+        .to raise_error(Scrapers::BaseScraper::NotPlacedError, /rejected the order: Cutoff passed. Nothing was placed/)
+      expect(scraper.submit_sent?).to be(true)
     end
 
     it 'fails as not placed when submit returns nothing and the items are still in the cart' do

@@ -26,6 +26,7 @@ class PlaceOrderJob < ApplicationJob
 
     Rails.logger.info "[PlaceOrderJob] Processing order #{order.id} for #{order.supplier.name}"
 
+    started_at = Time.current
     service = Orders::OrderPlacementService.new(order)
     result = service.place_order(
       accept_price_changes: options[:accept_price_changes] || false,
@@ -48,15 +49,41 @@ class PlaceOrderJob < ApplicationJob
   rescue ActiveRecord::RecordNotFound
     raise # let `discard_on` handle missing orders cleanly
   rescue => e
-    Rails.logger.error "[PlaceOrderJob] Order #{order_id} failed: #{e.message}"
+    Rails.logger.error "[PlaceOrderJob] Order #{order_id} failed: #{e.class}: #{e.message}"
 
-    order&.update!(status: "failed", error_message: e.message)
-    alert_not_placed(order) if order
+    record_crash(order, service, started_at) if order
 
     raise # Re-raise for retry logic
   end
 
   private
+
+  # Something escaped OrderPlacementService. A placed or cancelled order is
+  # never touched (this rescue once flipped submitted order 102 to failed),
+  # nor is an outcome the service already wrote during this run (a named
+  # refusal, "no connection"). Otherwise the order is still "processing", or
+  # untouched since the job started (a 2FA retry): if the live submit had
+  # gone out the supplier may have the order, so unconfirmed, never failed.
+  def record_crash(order, service, started_at)
+    order.reload
+    return if order.completed? || order.cancelled?
+
+    settled = !order.processing? && started_at && order.updated_at >= started_at
+    unless settled
+      if service&.submit_sent?
+        order.update!(status: "pending_manual", error_message: Orders::OrderPlacementService.unconfirmed_message(order))
+        return alert_not_placed(order, { error_type: "unconfirmed" })
+      end
+
+      name = order.supplier&.name || "the supplier"
+      order.update!(status: "failed",
+                    error_message: "Not placed. Something went wrong before anything was sent to #{name}. " \
+                                   "Try again; if it fails twice, order on #{name}'s site.")
+    end
+    alert_not_placed(order)
+  rescue StandardError => e
+    Rails.logger.error "[PlaceOrderJob] Could not record the failure of order #{order&.id}: #{e.class}: #{e.message}"
+  end
 
   # Email the chef + owner(s) if she doesn't see the failure in the app
   # (OrderFailureAlertJob). Swallows everything: this runs inside perform's

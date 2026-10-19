@@ -1,0 +1,5 @@
+<%# A line the supplier refused: why, under its name (Phase 5, Oct 19 2026) %>
+<p class="text-xs text-red-600 leading-snug mt-0.5" data-refused-reason>
+  <span class="font-semibold">Not taken by <%= order.display_supplier_name %>:</span>
+  <%= item.notes.presence || "the supplier couldn't take this item" %>
+</p>

@@ -133,9 +133,8 @@ RSpec.describe Scrapers::WhatChefsWantScraper, 'checkout checks' do
                                                       'errors' => [{ 'message' => 'Order minimum not met' }])
 
       expect { scraper.checkout(dry_run: false) }
-        .to raise_error(Scrapers::BaseScraper::ScrapingError, 'What Chefs Want refused the order: Order minimum not met') { |e|
-          expect(e).not_to be_a(Scrapers::BaseScraper::OrderUnconfirmedError)
-        }
+        .to raise_error(Scrapers::BaseScraper::NotPlacedError, 'What Chefs Want refused the order: Order minimum not met')
+      expect(scraper.submit_sent?).to be(true)
     end
   end
 end
