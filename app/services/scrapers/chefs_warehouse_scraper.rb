@@ -416,6 +416,8 @@ module Scrapers
       end
 
       if api_items.any?
+        # Our own lines (our SKU + name), so a failure names the order item.
+        sent_items = items.reject { |i| failed_items.any? { |f| f[:sku] == i[:sku] } }
         begin
           requested_skus = api_items.map { |i| i[:code] }
           logger.info "[ChefsWarehouse] cart/add request: #{api_items.size} line(s), SKUs=#{requested_skus.inspect}"
@@ -424,21 +426,27 @@ module Scrapers
           # CW has been observed to return success: true while omitting a line.
           logger.info "[ChefsWarehouse] cart/add response: #{result.inspect}"
           if result.is_a?(Hash) && result['success']
+            failed_items.concat(lines_cw_refused(result['validationMessages'], sent_items))
             refused = failed_items.map { |f| f[:sku] }
             added_items = items.reject { |i| refused.include?(i[:sku]) }
             logger.info "[ChefsWarehouse] API added #{result['totalCount']} items to cart"
           else
             logger.warn "[ChefsWarehouse] API add_to_cart returned non-success: #{result.inspect[0..200]}"
-            failed_items.concat(api_items.map { |i| { sku: i[:code], error: 'API rejected', name: nil } })
+            failed_items.concat(sent_items.map { |i| { sku: i[:sku], error: 'API rejected', name: i[:name] } })
           end
         rescue StandardError => e
           logger.error "[ChefsWarehouse] API add_to_cart failed: #{e.message}"
-          failed_items.concat(api_items.map { |i| { sku: i[:code], error: e.message, name: nil } })
+          failed_items.concat(sent_items.map { |i| { sku: i[:sku], error: e.message, name: i[:name] } })
         end
       end
 
+      # A line that won't be in the cart stops the whole order (never ship
+      # short), so nothing here will be submitted. Empty the cart rather than
+      # leave it on the chef's CW account (order 483 left $1,402.15 there).
+      discard_cart_after_stop if failed_items.any?
+
       # Set delivery date if provided
-      if delivery_date && added_items.any?
+      if delivery_date && added_items.any? && failed_items.empty?
         begin
           api_client.set_delivery_date(delivery_date.to_s)
           logger.info "[ChefsWarehouse] API set delivery date: #{delivery_date}"
@@ -524,7 +532,8 @@ module Scrapers
     # Guard rail run AFTER add_to_cart and BEFORE checkout: assert the CW cart
     # contains exactly the items we intend to order (by normalized SKU and
     # quantity). Raises CartMismatchError on any extra/orphaned line, missing
-    # item, or quantity mismatch so OrderPlacementService can halt the submit.
+    # item, or quantity mismatch so OrderPlacementService can halt the submit,
+    # after emptying the cart (order 483 left $1,402.15 sitting in it).
     #
     # expected_items: array of hashes with :sku and :quantity (as built by
     # OrderPlacementService#build_cart_items).
@@ -535,6 +544,7 @@ module Scrapers
       discrepancies = cart_discrepancies(api_client.get_cart, expected_items)
 
       if discrepancies.any?
+        discard_cart_after_stop
         raise Scrapers::BaseScraper::CartMismatchError.new(
           "CW cart does not match order (#{discrepancies.size} discrepancy(ies)): #{discrepancies.inspect}",
           discrepancies: discrepancies
@@ -557,11 +567,7 @@ module Scrapers
       return if discrepancies.empty?
 
       logger.error "[ChefsWarehouse] Cart changed at price refresh — NOT submitting: #{discrepancies.inspect}"
-      begin
-        clear_cart
-      rescue StandardError => e
-        logger.warn "[ChefsWarehouse] clear_cart after refresh mismatch failed: #{e.message}"
-      end
+      discard_cart_after_stop
 
       if discrepancies.all? { |d| d[:type] == 'missing_from_cart' }
         names = @expected_cart_items.index_by { |i| normalize_sku(i[:sku]) }
@@ -674,6 +680,47 @@ module Scrapers
     # SupplierProduct (e.g. "JDE_NP120-800001" or "JDE_NP120" → "NP120").
     def normalize_sku(code)
       code.to_s.strip.sub(/\AJDE_/i, '').sub(/-\d+\z/, '').upcase
+    end
+
+    # "Out of stock - (NW101B) Walnut Halves"
+    CART_ADD_LINE_MESSAGE = /\A(?<reason>.+?)\s+-\s+\((?<sku>[^)]+)\)\s*(?<name>.*)\z/
+
+    # cart/add answers success: true even when it leaves a line out, and says
+    # which only in validationMessages (order 483, Oct 19 2026: Walnut Halves
+    # out of stock, the chef saw "leftover item" three times). Each message
+    # naming a line we sent becomes a failed item with CW's reason. A message we
+    # can't tie to a line is logged; verify_cart_matches! still stops the order
+    # if that line is missing.
+    def lines_cw_refused(messages, sent_items)
+      by_sku = sent_items.index_by { |i| normalize_sku(i[:sku]) }
+
+      Array(messages).filter_map do |m|
+        text = (m.is_a?(Hash) ? (m['message'] || m['text']) : m).to_s.strip
+        next if text.empty?
+
+        parsed = text.match(CART_ADD_LINE_MESSAGE)
+        item = parsed && by_sku[normalize_sku(parsed[:sku])]
+        reason = parsed[:reason].strip if item
+        # Another wording: any "(SKU)" in it that is one of our lines. Keep
+        # CW's whole text as the reason.
+        item ||= text.scan(/\(([^)]+)\)/).flatten.filter_map { |code| by_sku[normalize_sku(code)] }.first
+        unless item
+          logger.warn "[ChefsWarehouse] cart/add message not tied to a line we sent: #{text}"
+          next
+        end
+
+        logger.warn "[ChefsWarehouse] CW refused #{item[:sku]} at cart/add: #{text}"
+        { sku: item[:sku], name: item[:name].presence || (parsed[:name].presence if parsed), error: reason || text }
+      end.uniq { |f| f[:sku] }
+    end
+
+    # The order is stopping, so nothing in CW's cart will be submitted. Empty
+    # it so the chef's account isn't left holding this attempt's lines. Best
+    # effort: the next attempt's clear_cart fails closed if this didn't work.
+    def discard_cart_after_stop
+      clear_cart
+    rescue StandardError => e
+      logger.warn "[ChefsWarehouse] Could not empty the cart after stopping the order: #{e.message}"
     end
 
     # Walk an arbitrary CW cart payload and pull out the product line items.

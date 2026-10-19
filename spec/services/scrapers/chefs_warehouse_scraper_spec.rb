@@ -34,6 +34,36 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
       [{ sku: 'GF210', quantity: 1 }, { sku: 'QG16686', quantity: 2 }]
     end
 
+    before do
+      allow(api).to receive(:delete_cart)
+      allow(api).to receive(:remove_cart_item)
+    end
+
+    # Order 483 (Oct 19 2026): the order stopped but D'oro's CW cart kept
+    # $1,402.15 of lines on Chef's Warehouse's website.
+    it 'empties the cart before stopping the order' do
+      allow(api).to receive(:get_cart).and_return(cart_with(line(code: 'JDE_GF210', qty: 1, id: 10)), empty_cart)
+
+      expect { scraper.verify_cart_matches!(expected) }.to raise_error(Scrapers::BaseScraper::CartMismatchError)
+      expect(api).to have_received(:delete_cart)
+    end
+
+    it 'still stops the order when the cart will not empty' do
+      allow(api).to receive(:get_cart).and_return(cart_with(line(code: 'JDE_GF210', qty: 1, id: 10)))
+
+      expect { scraper.verify_cart_matches!(expected) }.to raise_error(Scrapers::BaseScraper::CartMismatchError)
+    end
+
+    it 'leaves a matching cart alone' do
+      allow(api).to receive(:get_cart).and_return(
+        cart_with(line(code: 'JDE_GF210', qty: 1, id: 10), line(code: 'JDE_QG16686', qty: 2, id: 11))
+      )
+
+      scraper.verify_cart_matches!(expected)
+
+      expect(api).not_to have_received(:delete_cart)
+    end
+
     it 'passes silently when the cart exactly matches the order' do
       allow(api).to receive(:get_cart).and_return(
         cart_with(line(code: 'JDE_GF210', qty: 1, id: 10),
@@ -263,6 +293,9 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
       allow(scraper).to receive(:load_order_guide_items).and_return(guide)
       allow(api).to receive(:set_delivery_date)
       allow(api).to receive(:fetch_prices).and_return(prices_for('JDE_QG80027A-800001'))
+      allow(api).to receive(:delete_cart)
+      allow(api).to receive(:remove_cart_item)
+      allow(api).to receive(:get_cart).and_return(empty_cart)
     end
 
     it 'asks the price endpoint about both business units, for off-guide SKUs only' do
@@ -345,6 +378,104 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
 
       expect { scraper.verify_cart_matches!(items) }
         .to raise_error(Scrapers::BaseScraper::CartMismatchError)
+    end
+
+    it "empties the cart when an item can't go in, since the order will stop" do
+      allow(api).to receive(:fetch_prices).and_return([])
+      allow(api).to receive(:add_to_cart).and_return({ 'success' => true })
+
+      scraper.add_to_cart(items, delivery_date: Date.new(2026, 10, 2))
+
+      expect(api).to have_received(:delete_cart)
+      expect(api).not_to have_received(:set_delivery_date)
+    end
+  end
+
+  # Regression — order 483 (Oct 19 2026, D'oro). cart/add answered
+  #   {"totalCount"=>29, "success"=>true,
+  #    "validationMessages"=>["Out of stock - (NW101B) Walnut Halves"]}
+  # and left the walnuts out. We read success: true as "all added", so the
+  # cart check stopped the order as "a leftover item from a previous attempt"
+  # three times, and the chef never learned which item.
+  describe '#add_to_cart when CW refuses a line in validationMessages' do
+    let(:guide) do
+      { 'NW101B' => { variant_code: 'JDE_NW101B-800001', variant_metadata: {}, business_unit_id: '800001' },
+        'GO135' => { variant_code: 'JDE_GO135-800001', variant_metadata: {}, business_unit_id: '800001' } }
+    end
+    let(:items) do
+      [{ sku: 'NW101B', name: 'Walnut Halves', quantity: 1 },
+       { sku: 'GO135', name: 'Olive Oil', quantity: 1 }]
+    end
+
+    def cw_answers(*messages)
+      allow(api).to receive(:add_to_cart)
+        .and_return({ 'totalCount' => 29, 'success' => true, 'validationMessages' => messages })
+    end
+
+    before do
+      allow(scraper).to receive(:load_order_guide_items).and_return(guide)
+      allow(api).to receive(:set_delivery_date)
+      allow(api).to receive(:delete_cart)
+      allow(api).to receive(:remove_cart_item)
+      allow(api).to receive(:get_cart).and_return(empty_cart)
+    end
+
+    it "reports the line as failed with CW's reason" do
+      cw_answers('Out of stock - (NW101B) Walnut Halves')
+
+      expect(scraper.add_to_cart(items)).to eq(
+        added: 1, failed: [{ sku: 'NW101B', name: 'Walnut Halves', error: 'Out of stock' }]
+      )
+    end
+
+    it 'empties the cart and skips the delivery date, since the order will stop' do
+      cw_answers('Out of stock - (NW101B) Walnut Halves')
+
+      scraper.add_to_cart(items, delivery_date: Date.new(2026, 10, 21))
+
+      expect(api).to have_received(:delete_cart)
+      expect(api).not_to have_received(:set_delivery_date)
+    end
+
+    it 'matches the line however CW writes the code' do
+      cw_answers('Out of stock - (JDE_nw101b-800001) Walnut Halves')
+
+      expect(scraper.add_to_cart(items)[:failed].map { |f| f[:sku] }).to eq(['NW101B'])
+    end
+
+    it "keeps CW's whole text when the wording is different" do
+      cw_answers('Walnut Halves (NW101B) is no longer sold')
+
+      expect(scraper.add_to_cart(items)[:failed]).to eq(
+        [{ sku: 'NW101B', name: 'Walnut Halves', error: 'Walnut Halves (NW101B) is no longer sold' }]
+      )
+    end
+
+    it "doesn't fail a line for a message that names none of ours" do
+      cw_answers('Out of stock - (ZZ999) Something Else', 'Cart updated')
+
+      expect(scraper.add_to_cart(items, delivery_date: Date.new(2026, 10, 21))).to eq(added: 2, failed: [])
+      expect(api).not_to have_received(:delete_cart)
+      expect(api).to have_received(:set_delivery_date)
+    end
+
+    it 'raises ItemUnavailableError naming every line when CW refuses them all' do
+      cw_answers('Out of stock - (NW101B) Walnut Halves', 'Out of stock - (GO135) Olive Oil')
+
+      expect { scraper.add_to_cart(items) }.to raise_error(Scrapers::BaseScraper::ItemUnavailableError) { |e|
+        expect(e.items.map { |i| i[:name] }).to eq(['Walnut Halves', 'Olive Oil'])
+      }
+      expect(api).to have_received(:delete_cart)
+    end
+
+    it 'names our own lines when CW rejects the whole request' do
+      allow(api).to receive(:add_to_cart).and_return({ 'success' => false })
+
+      expect { scraper.add_to_cart(items) }.to raise_error(Scrapers::BaseScraper::ItemUnavailableError) { |e|
+        expect(e.items.map { |i| i.slice(:sku, :name) }).to eq(
+          [{ sku: 'NW101B', name: 'Walnut Halves' }, { sku: 'GO135', name: 'Olive Oil' }]
+        )
+      }
     end
   end
 

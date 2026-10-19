@@ -442,14 +442,25 @@ module Orders
     end
 
     def handle_cart_mismatch_error(error)
+      Rails.logger.error "[OrderPlacement] Order #{order.id} HALTED (cart mismatch): #{error.discrepancies.inspect}"
+
+      # Every difference is a line the supplier left out of its cart: name
+      # them like a refusal at add-to-cart. Order 483 (Oct 19 2026): CW left
+      # Walnut Halves out and the chef was told "a leftover item" three times.
+      if error.discrepancies.any? && error.discrepancies.all? { |d| d[:type] == 'missing_from_cart' }
+        return handle_item_unavailable_error(
+          Scrapers::BaseScraper::ItemUnavailableError.new(error.message, items: items_missing_from_cart(error.discrepancies))
+        )
+      end
+
+      # "Leftover" describes only a line in the cart that isn't on the order.
+      leftover = error.discrepancies.any? && error.discrepancies.all? { |d| d[:type] == 'extra_in_cart' }
       order.update!(
         status: 'pending_review',
         error_message: 'Supplier cart did not match your order, so we did not submit it. ' \
-                       'This usually means a leftover item from a previous attempt. ' \
+                       "#{'This usually means a leftover item from a previous attempt. ' if leftover}" \
                        'Please review and try again.'
       )
-
-      Rails.logger.error "[OrderPlacement] Order #{order.id} HALTED (cart mismatch): #{error.discrepancies.inspect}"
 
       {
         success: false,
@@ -598,6 +609,20 @@ module Orders
         "#{order.supplier.name} could not add #{items.size} item(s) to the cart",
         items: items
       )
+    end
+
+    # The order's own lines for missing_from_cart discrepancies, by SKU
+    # (suppliers report it normalized, e.g. CW upcases and drops JDE_).
+    def items_missing_from_cart(discrepancies)
+      by_sku = order.order_items.includes(:supplier_product)
+                    .index_by { |i| i.supplier_product&.supplier_sku.to_s.strip.upcase }
+
+      discrepancies.map do |d|
+        sp = by_sku[d[:sku].to_s.strip.upcase]&.supplier_product
+        { sku: sp&.supplier_sku || d[:sku],
+          name: sp&.supplier_name || d[:name],
+          message: 'left out of the cart, no reason given' }
+      end
     end
 
     # After OOS items are removed by validation, re-check

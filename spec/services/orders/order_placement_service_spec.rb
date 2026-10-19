@@ -187,8 +187,49 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
       expect(result).to include(success: false, error_type: 'cart_mismatch', requires_review: true)
       expect(result[:details][:discrepancies]).to include(hash_including(type: 'extra_in_cart', sku: 'NP120'))
       expect(order.reload.status).to eq('pending_review')
+      expect(order.error_message).to include('leftover item from a previous attempt')
       expect(order.confirmation_number).to be_nil
       expect(order.submitted_at).to be_nil
+    end
+
+    # Regression — order 483 (Oct 19 2026): CW left Walnut Halves out of the
+    # cart and the chef was told "a leftover item" three times, never which.
+    it 'names the item the supplier left out of the cart, and places nothing' do
+      supplier.update!(name: "Chef's Warehouse")
+      supplier_product.update!(supplier_sku: 'nw101b', supplier_name: 'Walnut Halves', in_stock: true)
+      allow(fake_scraper).to receive(:verify_cart_matches!).and_raise(
+        Scrapers::BaseScraper::CartMismatchError.new(
+          'missing', discrepancies: [{ type: 'missing_from_cart', sku: 'NW101B', expected_qty: 2 }]
+        )
+      )
+      expect(fake_scraper).not_to receive(:checkout)
+
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result).to include(success: false, error_type: 'items_unavailable')
+      order.reload
+      expect(order.status).to eq('failed')
+      expect(order.error_message).to eq(
+        "Not placed. Chef's Warehouse couldn't take 1 item: Walnut Halves — left out of the cart, " \
+        'no reason given. Remove or change it and resubmit.'
+      )
+      expect(order.order_items.first.status).to eq('failed')
+      expect(order.confirmation_number).to be_nil
+      # No reason given is not evidence it's out of stock.
+      expect(supplier_product.reload.in_stock).to be(true)
+    end
+
+    it "doesn't blame a leftover item for a quantity difference" do
+      allow(fake_scraper).to receive(:verify_cart_matches!).and_raise(
+        Scrapers::BaseScraper::CartMismatchError.new(
+          'qty', discrepancies: [{ type: 'quantity_mismatch', sku: supplier_product.supplier_sku, cart_qty: 1, expected_qty: 2 }]
+        )
+      )
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(order.reload.status).to eq('pending_review')
+      expect(order.error_message).to eq('Supplier cart did not match your order, so we did not submit it. Please review and try again.')
     end
 
     it 'skips the gate for scrapers that do not expose cart contents' do
@@ -296,6 +337,82 @@ RSpec.describe Orders::OrderPlacementService, type: :service do
       described_class.new(order).place_order(skip_pre_validation: true)
 
       expect(supplier_product.reload.in_stock).to be(false)
+    end
+  end
+
+  # Regression — order 483 (Oct 19 2026, D'oro), through the real CW scraper.
+  # cart/add said success: true and named the line it left out only in
+  # validationMessages.
+  describe "Chef's Warehouse refuses a line at cart/add" do
+    let(:api) { instance_double(Scrapers::ChefsWarehouseApi, ensure_session!: nil) }
+    let(:cw_scraper) { Scrapers::ChefsWarehouseScraper.new(credential) }
+    let(:olive_oil) { create(:supplier_product, supplier: supplier, supplier_sku: 'GO135', supplier_name: 'Olive Oil') }
+    let(:empty_cart) { { 'cartGroups' => [], 'summary' => { 'totals' => {} } } }
+
+    before do
+      supplier.update!(name: "Chef's Warehouse", checkout_enabled: true)
+      allow(Rails.env).to receive(:production?).and_return(true)
+      supplier_product.update!(supplier_sku: 'NW101B', supplier_name: 'Walnut Halves', in_stock: true)
+      create(:order_item, order: order, supplier_product: olive_oil, quantity: 1, unit_price: 50)
+
+      allow(fake_scraper_class).to receive(:new).with(credential).and_return(cw_scraper)
+      allow(cw_scraper).to receive(:api_client).and_return(api)
+      allow(cw_scraper).to receive(:load_order_guide_items).and_return(
+        'NW101B' => { variant_code: 'JDE_NW101B-800001', variant_metadata: {}, business_unit_id: '800001' },
+        'GO135' => { variant_code: 'JDE_GO135-800001', variant_metadata: {}, business_unit_id: '800001' }
+      )
+      allow(api).to receive_messages(delete_cart: nil, get_cart: empty_cart, set_delivery_date: nil,
+                                     refresh_cart_prices: nil, validate_cart: {}, submit_cart: nil)
+      allow(api).to receive(:add_to_cart).and_return(
+        { 'totalCount' => 29, 'success' => true, 'validationMessages' => ['Out of stock - (NW101B) Walnut Halves'] }
+      )
+    end
+
+    it 'names the item and why, keeps every line, places nothing, and empties the cart' do
+      result = described_class.new(order).place_order(skip_pre_validation: true)
+
+      expect(result).to include(success: false, error_type: 'items_unavailable')
+      order.reload
+      expect(order.status).to eq('failed')
+      expect(order.error_message).to eq(
+        "Not placed. Chef's Warehouse couldn't take 1 item: Walnut Halves — Out of stock. " \
+        'Remove or change it and resubmit.'
+      )
+      expect(order.order_items.count).to eq(2)
+      walnuts = order.order_items.find_by(supplier_product: supplier_product)
+      expect(walnuts.status).to eq('failed')
+      expect(walnuts.notes).to eq('Out of stock')
+      expect(order.confirmation_number).to be_nil
+      expect(api).not_to have_received(:submit_cart)
+      # Once before adding, once after stopping.
+      expect(api).to have_received(:delete_cart).twice
+    end
+
+    # The 4th attempt (17:47): two more items had gone out of stock. All of
+    # them must be named and flagged, so each gets a Remove button on mobile
+    # (the chef couldn't take the walnuts off with "−", which stops at 1).
+    it 'names and flags every item CW refused in one go' do
+      leeks = create(:supplier_product, supplier: supplier, supplier_sku: 'SW88700', supplier_name: 'Leeks')
+      create(:order_item, order: order, supplier_product: leeks, quantity: 1, unit_price: 20)
+      allow(cw_scraper).to receive(:load_order_guide_items).and_return(
+        'NW101B' => { variant_code: 'JDE_NW101B-800001', variant_metadata: {}, business_unit_id: '800001' },
+        'GO135' => { variant_code: 'JDE_GO135-800001', variant_metadata: {}, business_unit_id: '800001' },
+        'SW88700' => { variant_code: 'JDE_SW88700-800001', variant_metadata: {}, business_unit_id: '800001' }
+      )
+      allow(api).to receive(:add_to_cart).and_return(
+        { 'totalCount' => 27, 'success' => true,
+          'validationMessages' => ['Out of stock - (SW88700) Leeks', 'Out of stock - (NW101B) Walnut Halves'] }
+      )
+
+      described_class.new(order).place_order(skip_pre_validation: true)
+
+      order.reload
+      expect(order.error_message).to eq(
+        "Not placed. Chef's Warehouse couldn't take 2 items: Leeks — Out of stock; Walnut Halves — Out of stock. " \
+        'Remove or change them and resubmit.'
+      )
+      expect(order.order_items.where(status: 'failed').map(&:supplier_name)).to contain_exactly('Leeks', 'Walnut Halves')
+      expect(order.order_items.find_by(supplier_product: olive_oil).status).not_to eq('failed')
     end
   end
 
