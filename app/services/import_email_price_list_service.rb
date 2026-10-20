@@ -132,8 +132,11 @@ class ImportEmailPriceListService
 
     attrs = { last_scraped_at: Time.current }
 
+    # Only a price the price list itself sent: without one, estimated_total_price
+    # works from the product's own case price and multiplies it by the pack
+    # again (docs/fix-compounding-piece-prices.md).
     effective_price = item.estimated_total_price
-    if effective_price.present? && effective_price != sp.current_price
+    if item.read_attribute(:price).present? && effective_price.present? && effective_price != sp.current_price
       attrs[:previous_price] = sp.current_price
       attrs[:current_price] = effective_price
       attrs[:price_updated_at] = Time.current
