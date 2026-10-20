@@ -349,8 +349,9 @@ module Scrapers
 
     # Safety ceiling so a misbehaving API (never returning an empty page) can't
     # loop forever. 200 pages x 50 = 10,000 products per category — far above any
-    # real WCW category.
+    # real WCW category. A category that reaches it is reported "capped".
     DEEP_MAX_PAGES_PER_CATEGORY = 200
+    CATALOG_PAGE_SIZE = 50
 
     # Full-catalog crawl of every leaf category, paging by offset up to WCW's
     # own `count` for the category. Since Oct 2026 the 6 AM import uses it
@@ -368,7 +369,8 @@ module Scrapers
     end
 
     # What the last crawl read (for the morning stock report):
-    # { 'categories', 'fetched', 'expected', 'short' => [names], 'failed' => [names] }
+    # { 'categories', 'fetched', 'expected', 'short' => [names], 'failed' => [names],
+    #   'capped' => [names], 'capped_fetched', 'capped_expected' }
     attr_reader :crawl_stats
 
     # A browse crawl can miss search-only items; never let its gaps
@@ -388,7 +390,8 @@ module Scrapers
       results = []
       leaves = catalog_leaf_categories
       logger.info "[WhatChefsWant] #{label}: crawling #{leaves.size} leaf categories (full pagination)"
-      @crawl_stats = { 'categories' => leaves.size, 'fetched' => 0, 'expected' => 0, 'short' => [], 'failed' => [] }
+      @crawl_stats = { 'categories' => leaves.size, 'fetched' => 0, 'expected' => 0, 'short' => [], 'failed' => [],
+                       'capped' => [], 'capped_fetched' => 0, 'capped_expected' => 0 }
 
       leaves.each do |leaf|
         cat_started = Time.current
@@ -397,7 +400,7 @@ module Scrapers
         begin
           offset = 0
           DEEP_MAX_PAGES_PER_CATEGORY.times do
-            data = api_client.browse_category(leaf[:category_id], limit: 50, offset: offset, subcategory_id: leaf[:subcategory_id])
+            data = api_client.browse_category(leaf[:category_id], limit: CATALOG_PAGE_SIZE, offset: offset, subcategory_id: leaf[:subcategory_id])
             root = data&.dig('data', 'catalogProductsRootQuery')
             if data.nil? || (data['errors'].present? && root.nil?)
               raise ScrapingError, "browse failed at offset #{offset}: #{Array(data&.dig('errors')).first&.dig('message') || 'no response'}"
@@ -410,7 +413,7 @@ module Scrapers
             batch = contextual.map { |cp| format_api_product(cp['canonicalProduct'], leaf[:name]) }.compact
             on_batch ? on_batch.call(batch) : results.concat(batch) if batch.any?
             fetched += contextual.size
-            offset += 50
+            offset += CATALOG_PAGE_SIZE
             break if expected.positive? && fetched >= expected
           end
         rescue StandardError => e
@@ -420,7 +423,13 @@ module Scrapers
 
         @crawl_stats['fetched'] += fetched
         @crawl_stats['expected'] += expected.to_i
-        @crawl_stats['short'] << leaf[:name] if expected.to_i.positive? && fetched < (expected * 0.98)
+        if fetched >= DEEP_MAX_PAGES_PER_CATEGORY * CATALOG_PAGE_SIZE && expected.to_i > fetched
+          @crawl_stats['capped'] << leaf[:name]
+          @crawl_stats['capped_fetched'] += fetched
+          @crawl_stats['capped_expected'] += expected.to_i
+        elsif expected.to_i.positive? && fetched < (expected * 0.98)
+          @crawl_stats['short'] << leaf[:name]
+        end
         logger.info "[WhatChefsWant] #{label} '#{leaf[:name]}': #{fetched}/#{expected.inspect} products in #{format('%.1f', Time.current - cat_started)}s"
       end
 

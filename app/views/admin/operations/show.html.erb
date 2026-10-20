@@ -273,7 +273,12 @@
                 <% if run['kind'] %><span class="text-xs text-gray-400"><%= run['kind'] %></span><% end %>
               </td>
               <td class="px-4 py-2 text-right text-gray-900"><%= run['stock_checked'] || '—' %></td>
-              <td class="px-4 py-2 text-right text-gray-900"><%= row[:in_use_checked] %> / <%= row[:in_use_total] %></td>
+              <td class="px-4 py-2 text-right text-gray-900">
+                <%= row[:in_use_checked] %> / <%= row[:in_use_total] %>
+                <% if row[:in_use_no_data].to_i.positive? %>
+                  <div class="text-xs text-gray-400" data-stock-no-data><%= row[:in_use_no_data] %> no stock sent</div>
+                <% end %>
+              </td>
               <td class="px-4 py-2 text-right text-gray-900">
                 <% if run['held'].present? %>
                   <span class="text-red-700">held (<%= run['held']['held_outs'].to_i %>)</span> / <%= run['would_mark_in'] || 0 %>
@@ -285,6 +290,9 @@
               </td>
               <td class="px-4 py-2 <%= row[:problems].any? ? 'text-red-700' : 'text-gray-400' %>">
                 <%= row[:problems].any? ? row[:problems].join('; ') : 'none' %>
+                <% Array(row[:notes]).each do |note| %>
+                  <div class="text-xs text-gray-400" data-stock-note><%= note %></div>
+                <% end %>
               </td>
             </tr>
           <% end %>

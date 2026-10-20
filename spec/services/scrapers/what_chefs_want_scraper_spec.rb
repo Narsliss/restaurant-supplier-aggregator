@@ -131,6 +131,20 @@ RSpec.describe Scrapers::WhatChefsWantScraper do
       expect(scraper.skip_miss_tracking?).to be(true)
     end
 
+    it 'reports a category stopped at the page limit as capped, not short' do
+      stub_const("#{described_class}::DEEP_MAX_PAGES_PER_CATEGORY", 2)
+      allow(api_client).to receive(:browse_category) do |_cat, **kw|
+        page = page(50, kw[:offset])
+        page['data']['catalogProductsRootQuery']['count'] = 300
+        page
+      end
+
+      scraper.scrape_catalog_deep { |_batch| nil }
+
+      expect(scraper.crawl_stats).to include('fetched' => 100, 'expected' => 300, 'short' => [],
+                                             'capped' => ['Seafood'], 'capped_fetched' => 100, 'capped_expected' => 300)
+    end
+
     it 'counts an API error as a failed category instead of an empty one' do
       allow(api_client).to receive(:browse_category).and_return(nil)
 

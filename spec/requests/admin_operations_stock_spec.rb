@@ -18,6 +18,19 @@ RSpec.describe 'Admin operations — morning stock', type: :request do
     expect(response.body).to include('Morning stock', 'Stock Test Foods', 'shadow')
   end
 
+  it 'shows page-only notes and the items a supplier sends no stock for' do
+    sp = create(:supplier_product, supplier: supplier)
+    create(:supplier_list_item, supplier_list: create(:supplier_list, supplier: supplier), supplier_product: sp)
+    supplier.update!(last_stock_run: { 'at' => Time.current.iso8601, 'kind' => 'catalog', 'errors' => [],
+                                       'crawl' => { 'fetched' => 100, 'expected' => 120, 'short' => [], 'failed' => [],
+                                                    'capped' => ['Supplies'], 'capped_fetched' => 80, 'capped_expected' => 100 },
+                                       'list_no_stock_data_ids' => [sp.id] })
+
+    get admin_operations_path
+
+    expect(response.body).to include('Supplies stopped at the 10,000-item category limit', '1 no stock sent')
+  end
+
   it 'switches a supplier to live' do
     patch stock_mode_admin_operations_path, params: { supplier_id: supplier.id, mode: 'live' }
 

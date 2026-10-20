@@ -16,17 +16,21 @@ RSpec.describe MorningStockReportJob do
   # The supplier seed creates the real suppliers at boot; only ours is under test.
   before { Supplier.where.not(id: supplier.id).update_all(morning_stock_mode: 'off') }
 
-  def ran(at: Time.current, errors: [], crawl: { 'fetched' => 100, 'expected' => 100, 'short' => [], 'failed' => [] })
-    supplier.update!(last_stock_run: { 'at' => at.iso8601, 'kind' => 'catalog', 'errors' => errors, 'crawl' => crawl })
+  def ran(at: Time.current, errors: [], crawl: { 'fetched' => 100, 'expected' => 100, 'short' => [], 'failed' => [] }, no_data: [])
+    supplier.update!(last_stock_run: { 'at' => at.iso8601, 'kind' => 'catalog', 'errors' => errors, 'crawl' => crawl,
+                                       'list_no_stock_data_ids' => no_data.map(&:id) })
   end
 
   def read_today(products)
     products.each { |sp| sp.update!(stock_checked_at: Time.current) }
   end
 
-  def problems
-    described_class.build_report.find { |r| r[:supplier] == supplier }[:problems]
+  def row
+    described_class.build_report.find { |r| r[:supplier] == supplier }
   end
+
+  def problems = row[:problems]
+  def notes = row[:notes]
 
   it 'finds nothing wrong when the run happened, was complete, and read the items on lists' do
     ran
@@ -47,6 +51,88 @@ RSpec.describe MorningStockReportJob do
     read_today(on_list)
 
     expect(problems.join).to include('crawl came up short (512 of 15900', 'Seafood, Produce')
+  end
+
+  # Oct 20 2026: CW Supplies (~19,500 non-food items) stops at the 10,000
+  # limit, and Carmin keeps it there. That is not a short crawl.
+  it 'does not email for a category stopped at the limit on purpose, but notes it on the page' do
+    ran(crawl: { 'fetched' => 15_574, 'expected' => 25_023, 'short' => [], 'failed' => [],
+                 'capped' => ['Supplies'], 'capped_fetched' => 10_000, 'capped_expected' => 19_449 })
+    read_today(on_list)
+
+    expect(problems).to eq([])
+    expect(notes.join).to include('Supplies stopped at the 10,000-item category limit')
+  end
+
+  # What Chefs Want, Oct 20 2026: 6,501 of 6,675 with no errors, 99% of list
+  # items read. Every morning's email said "crawl came up short".
+  it 'notes, without emailing, a crawl a few items short with no errors' do
+    ran(crawl: { 'fetched' => 6_501, 'expected' => 6_675, 'short' => ['Meat > Pork', 'Eggs'], 'failed' => [] })
+    read_today(on_list)
+
+    expect(problems).to eq([])
+    expect(notes).to include('a few items short in Meat > Pork, Eggs')
+  end
+
+  it 'flags a category that failed, however small' do
+    ran(crawl: { 'fetched' => 6_600, 'expected' => 6_675, 'short' => [], 'failed' => ['Eggs'] })
+    read_today(on_list)
+
+    expect(problems.join).to include('crawl came up short (6600 of 6675', 'failed: Eggs')
+  end
+
+  it 'still flags a short crawl once the capped category is set aside' do
+    ran(crawl: { 'fetched' => 12_000, 'expected' => 25_000, 'short' => ['Seafood'], 'failed' => [],
+                 'capped' => ['Supplies'], 'capped_fetched' => 10_000, 'capped_expected' => 19_000 })
+    read_today(on_list)
+
+    expect(problems.join).to include('crawl came up short (2000 of 6000', 'short: Seafood')
+  end
+
+  # US Foods, Oct 20 2026: 612 of 800 read, but 88 were discontinued and 100
+  # had no inventory block, so every item it could read was read.
+  describe 'items on lists that can never be read' do
+    it 'leaves discontinued items out of the coverage check' do
+      on_list.last.update!(discontinued: true)
+      ran
+      read_today(on_list.first(3))
+
+      expect(problems).to eq([])
+      expect(row[:in_use_total]).to eq(3)
+    end
+
+    it 'leaves out items the supplier sent no stock for this morning, and shows how many' do
+      ran(no_data: [on_list.last])
+      read_today(on_list.first(3))
+
+      expect(problems).to eq([])
+      expect(row[:in_use_no_data]).to eq(1)
+    end
+
+    it 'still flags a real gap among the items it could read' do
+      ran(no_data: [on_list.last])
+      read_today(on_list.first(1))
+
+      expect(problems).to include('only 1 of 3 items on lists got a stock reading (33%)')
+    end
+
+    it 'ignores no-stock items from an older run' do
+      ran(at: 1.day.ago, no_data: [on_list.last])
+
+      expect(row[:in_use_no_data]).to eq(0)
+    end
+
+    it 'flags a supplier that suddenly sends no stock for most items on lists' do
+      more = Array.new(16) do |i|
+        create(:supplier_product, supplier: supplier, supplier_sku: "M#{i}").tap do |sp|
+          create(:supplier_list_item, supplier_list: list, supplier_product: sp, sku: "M#{i}", name: "More #{i}")
+        end
+      end
+      ran(no_data: more.first(12))
+      read_today(on_list + more.last(4))
+
+      expect(problems.join).to include('the supplier sent no stock for 12 of 20 items on lists (60%', 'stock reader may have broken')
+    end
   end
 
   it 'flags run errors' do

@@ -87,6 +87,7 @@ class ImportSupplierProductsService
     else
       record_misses_for_unseen_products
     end
+    read_stock_for_unread_list_items!(scraper)
     finish_stock_run!(scraper, 'catalog')
 
     Rails.logger.info "[ImportProducts] #{supplier.name} import complete: " \
@@ -839,7 +840,10 @@ class ImportSupplierProductsService
     return if supplier.morning_stock_mode == 'off' || !item.key?(:stock_signal)
 
     definite = item[:in_stock]
-    return if definite.nil? && item[:stock_signal].nil?
+    if definite.nil? && item[:stock_signal].nil?
+      stock_no_data_ids << existing.id # the run reached it; the supplier sent no stock
+      return
+    end
 
     row[:stock_signal] = item[:stock_signal].to_s.truncate(255)
     row[:stock_checked_at] = now
@@ -866,6 +870,57 @@ class ImportSupplierProductsService
   def stock_read_ids = (@stock_read_ids ||= Set.new)
   def stock_out_ids = (@stock_out_ids ||= Set.new)
   def held_out_ids = (@held_out_ids ||= Set.new)
+  def stock_no_data_ids = (@stock_no_data_ids ||= Set.new)
+
+  # Items on lists that the run reached but the supplier sent no stock for.
+  # US Foods has no inventory block for ~100 list items (supplies, paper,
+  # some drinks; prod, Oct 20 2026), so they can never get a reading. The
+  # morning report leaves them out of its coverage check instead of calling
+  # them a gap every morning.
+  LIST_NO_DATA_IDS_KEPT = 2000
+
+  def list_items_without_stock_data
+    ids = stock_no_data_ids - stock_read_ids
+    return [] if ids.empty?
+
+    SupplierListItem.where(supplier_product_id: ids.to_a).distinct.pluck(:supplier_product_id).first(LIST_NO_DATA_IDS_KEPT)
+  rescue StandardError => e # must never cost the run its summary
+    Rails.logger.warn "[ImportProducts] #{supplier.name}: could not list no-stock-data items: #{e.class}: #{e.message}"
+    []
+  end
+
+  # Items on lists the crawl didn't read. Sysco's term search missed 142 of
+  # its 586 list items on Oct 20 2026 (the known-SKU refresh after it prices
+  # them but carries no stock). Its item-number search reads their stock
+  # (live_stock_for, the price check's lookup, 20 per call). Same evidence
+  # rules as the crawl, so the guard and the morning report count them.
+  def read_stock_for_unread_list_items!(scraper)
+    return unless scraper.respond_to?(:live_stock_for) && SupplierProduct.stock_evidence?
+    return if supplier.morning_stock_mode == 'off'
+
+    listed = SupplierProduct.where(supplier: supplier, discontinued: false)
+                            .joins(:supplier_list_items).distinct.pluck(:id)
+    unread = SupplierProduct.where(id: listed - stock_read_ids.to_a).where.not(supplier_sku: [nil, '']).index_by(&:supplier_sku)
+    return if unread.empty?
+
+    credential.update_columns(import_status_text: "Checking stock for #{unread.size} list items...")
+    now = Time.current
+    scraper.live_stock_for(unread.keys).each do |sku, (in_stock, signal)|
+      sp = unread[sku]
+      next unless sp
+
+      row = {}
+      apply_stock_evidence!(row, { in_stock: in_stock, stock_signal: signal }, sp, now)
+      next unless row[:stock_checked_at] == now # nothing said about this one
+
+      row[:in_stock] = true if in_stock == true # shadow marks items in too, as the crawl does
+      sp.update_columns(row.slice(:stock_signal, :stock_checked_at, :stock_source, :in_stock).merge(updated_at: now))
+    end
+    Rails.logger.info "[ImportProducts] #{supplier.name}: read stock for list items the crawl missed (#{unread.size} looked up)"
+  rescue StandardError => e
+    results[:errors] << "Reading stock for list items failed: #{e.class}: #{e.message}"
+    Rails.logger.error "[ImportProducts] #{supplier.name}: list-item stock read failed: #{e.class}: #{e.message}"
+  end
 
   # A new product the supplier calls out, in live mode: created in stock and
   # marked out with the rest at the end of the run, if the guard passes.
@@ -934,6 +989,7 @@ class ImportSupplierProductsService
       'stock_checked' => stock_counts[:checked], 'out' => stock_counts[:out],
       'would_mark_out' => stock_counts[:would_mark_out], 'would_mark_in' => stock_counts[:would_mark_in],
       'marked_out' => stock_counts[:marked_out], 'held' => @stock_hold,
+      'list_no_stock_data_ids' => list_items_without_stock_data,
       'errors' => results[:errors].first(5), 'crawl' => stats
     })
   rescue StandardError => e

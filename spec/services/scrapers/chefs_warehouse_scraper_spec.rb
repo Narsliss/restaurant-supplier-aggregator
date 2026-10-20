@@ -594,6 +594,18 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
       expect(scraper.crawl_stats).to include('fetched' => 50, 'expected' => 300, 'short' => ['Seafood'])
     end
 
+    # Supplies (~19,500 non-food items) stops at the limit, and Carmin keeps
+    # it there (Oct 20 2026). That is "capped", not a short crawl.
+    it 'reports a category stopped at the page limit as capped, not short' do
+      stub_const("#{described_class}::DEEP_MAX_PAGES_PER_CATEGORY", 2)
+      pages(300)
+
+      scraper.scrape_catalog_deep { |_batch| nil }
+
+      expect(scraper.crawl_stats).to include('fetched' => 100, 'expected' => 300, 'short' => [],
+                                             'capped' => ['Seafood'], 'capped_fetched' => 100, 'capped_expected' => 300)
+    end
+
     it 'never lets the crawl discontinue products' do
       expect(scraper.skip_miss_tracking?).to be(true)
     end

@@ -158,6 +158,128 @@ RSpec.describe ImportSupplierProductsService, 'stock evidence' do
     end
   end
 
+  # US Foods, Oct 20 2026: ~100 list items come back with no inventory
+  # block. The morning report must know they can't be read.
+  describe 'items the supplier sends no stock for' do
+    let(:list) { create(:supplier_list) }
+
+    before { create(:supplier_list_item, supplier_list: list, supplier_product: flour) }
+
+    it 'names the ones on lists in the run summary' do
+      run([item('GF210', 'Flour', nil, nil), item('NW101B', 'Walnuts', nil, nil)]) # walnuts is on no list
+
+      service.send(:record_stock_run!, double('Scraper', crawl_stats: nil), 'catalog')
+
+      expect(supplier.reload.last_stock_run['list_no_stock_data_ids']).to eq([flour.id])
+    end
+
+    it 'drops an item the same run read after all (the list-item lookup)' do
+      run([item('GF210', 'Flour', nil, nil)])
+      scraper = double('Sysco', crawl_stats: nil, live_stock_for: { 'GF210' => [true, '"S" S'] })
+      service.send(:read_stock_for_unread_list_items!, scraper)
+
+      service.send(:record_stock_run!, scraper, 'catalog')
+
+      expect(supplier.reload.last_stock_run['list_no_stock_data_ids']).to eq([])
+    end
+  end
+
+  # Sysco, Oct 20 2026: the term search missed 142 of 586 list items, so
+  # they got no stock reading. Its item-number search reads them.
+  describe 'list items the crawl missed' do
+    let(:mode) { 'live' }
+    let(:list) { create(:supplier_list) }
+    let(:scraper) { double('Sysco', crawl_stats: nil) }
+
+    before { [walnuts, flour].each { |sp| create(:supplier_list_item, supplier_list: list, supplier_product: sp) } }
+
+    def read_missed
+      service.send(:read_stock_for_unread_list_items!, scraper)
+    end
+
+    it 'reads their stock by item number, with the same rules as the crawl' do
+      allow(scraper).to receive(:live_stock_for).with(match_array(%w[NW101B GF210]))
+                                                 .and_return('NW101B' => [false, '"O" S'], 'GF210' => [true, '"S" S'])
+
+      read_missed
+
+      expect(flour.reload).to have_attributes(in_stock: true, stock_signal: '"S" S', stock_source: 'catalog')
+      expect(flour.stock_checked_at).to be_within(1.minute).of(Time.current)
+      expect(walnuts.reload).to have_attributes(in_stock: true, stock_signal: '"O" S') # out waits for the guard
+      expect(service.send(:held_out_ids)).to include(walnuts.id)
+      expect(service.send(:stock_counts)).to include(checked: 2, out: 1)
+    end
+
+    it 'only looks up the ones the crawl did not read' do
+      run([item('NW101B', 'Walnuts', true, '"S" S')])
+      expect(scraper).to receive(:live_stock_for).with(['GF210']).and_return({})
+
+      read_missed
+    end
+
+    it 'leaves alone an item the search does not return' do
+      allow(scraper).to receive(:live_stock_for).and_return({})
+
+      read_missed
+
+      expect(flour.reload).to have_attributes(in_stock: false, stock_checked_at: nil)
+    end
+
+    it 'skips discontinued items' do
+      flour.update!(discontinued: true)
+      expect(scraper).to receive(:live_stock_for).with(['NW101B']).and_return({})
+
+      read_missed
+    end
+
+    it 'records a failed lookup as a run error, for the morning report' do
+      allow(scraper).to receive(:live_stock_for).and_raise(StandardError, 'search down')
+
+      read_missed
+
+      expect(service.results[:errors].join).to include('Reading stock for list items failed', 'search down')
+    end
+
+    it 'does nothing for a supplier without the lookup' do
+      expect { service.send(:read_stock_for_unread_list_items!, double('Crawler')) }.not_to raise_error
+      expect(flour.reload.stock_checked_at).to be_nil
+    end
+
+    it 'runs inside the catalog import, before the run is summed up' do
+      allow(scraper).to receive(:scrape_catalog).and_return([])
+      allow(scraper).to receive(:live_stock_for).and_return('GF210' => [true, '"S" S'])
+
+      service.import_catalog(search_terms: %w[x], scraper: scraper)
+
+      expect(flour.reload.in_stock).to be(true)
+      expect(supplier.reload.last_stock_run).to include('stock_checked' => 1, 'would_mark_in' => 1)
+    end
+
+    context 'in shadow mode' do
+      let(:mode) { 'shadow' }
+
+      it 'marks items in but never out' do
+        allow(scraper).to receive(:live_stock_for).and_return('NW101B' => [false, '"O" S'], 'GF210' => [true, '"S" S'])
+
+        read_missed
+
+        expect(flour.reload.in_stock).to be(true)
+        expect(walnuts.reload.in_stock).to be(true)
+        expect(service.send(:held_out_ids)).to be_empty
+      end
+    end
+
+    context 'in off mode' do
+      let(:mode) { 'off' }
+
+      it 'looks nothing up' do
+        expect(scraper).not_to receive(:live_stock_for)
+
+        read_missed
+      end
+    end
+  end
+
   # A worker that booted before web ran the migration doesn't know the
   # evidence columns. The import must still run, without the evidence.
   describe 'before the evidence columns exist' do

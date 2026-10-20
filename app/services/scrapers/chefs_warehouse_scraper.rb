@@ -280,7 +280,12 @@ module Scrapers
     #   3. Fetch prices in batches
     # No browser needed.
     # Safety ceiling against an API that never returns a blank page_token.
+    # Also a deliberate limit: Supplies (~19,500 non-food items) stops at
+    # 10,000, and Carmin keeps it there (Oct 20 2026: "primarily around food
+    # ordering", no massive non-food imports). A category that reaches it is
+    # reported "capped", not short.
     DEEP_MAX_PAGES_PER_CATEGORY = 200
+    CATALOG_PAGE_SIZE = 50
 
     # Full-catalog crawl of every leaf category, paged BY PAGE NUMBER up to
     # CW's own total for the category. The next-page token is unreliable: live
@@ -301,7 +306,8 @@ module Scrapers
     end
 
     # What the last crawl read, per category (for the morning stock report):
-    # { 'categories', 'fetched', 'expected', 'short' => [names], 'failed' => [names] }
+    # { 'categories', 'fetched', 'expected', 'short' => [names], 'failed' => [names],
+    #   'capped' => [names], 'capped_fetched', 'capped_expected' }
     attr_reader :crawl_stats
 
     # A browse crawl can miss search-only items; never let its gaps
@@ -315,7 +321,8 @@ module Scrapers
       results = []
       leaf_categories = discover_leaf_categories
       logger.info "[ChefsWarehouse] #{label}: crawling #{leaf_categories.size} leaf categories (page-number pagination)"
-      @crawl_stats = { 'categories' => leaf_categories.size, 'fetched' => 0, 'expected' => 0, 'short' => [], 'failed' => [] }
+      @crawl_stats = { 'categories' => leaf_categories.size, 'fetched' => 0, 'expected' => 0, 'short' => [], 'failed' => [],
+                       'capped' => [], 'capped_fetched' => 0, 'capped_expected' => 0 }
 
       leaf_categories.each do |category|
         cat_started = Time.current
@@ -323,7 +330,7 @@ module Scrapers
         total = nil
         begin
           (0...DEEP_MAX_PAGES_PER_CATEGORY).each do |page|
-            search_result = api_client.search_category(category[:path], page: page, page_size: 50, page_token: '')
+            search_result = api_client.search_category(category[:path], page: page, page_size: CATALOG_PAGE_SIZE, page_token: '')
             total ||= search_result[:total].to_i
             batch = search_result[:products]
             break if batch.empty?
@@ -342,7 +349,13 @@ module Scrapers
 
         @crawl_stats['fetched'] += fetched
         @crawl_stats['expected'] += total.to_i
-        @crawl_stats['short'] << category[:name] if total.to_i.positive? && fetched < (total * 0.98)
+        if fetched >= DEEP_MAX_PAGES_PER_CATEGORY * CATALOG_PAGE_SIZE && total.to_i > fetched
+          @crawl_stats['capped'] << category[:name]
+          @crawl_stats['capped_fetched'] += fetched
+          @crawl_stats['capped_expected'] += total.to_i
+        elsif total.to_i.positive? && fetched < (total * 0.98)
+          @crawl_stats['short'] << category[:name]
+        end
         logger.info "[ChefsWarehouse] #{label} '#{category[:name]}': #{fetched}/#{total.inspect} products in #{format('%.1f', Time.current - cat_started)}s"
       end
 
