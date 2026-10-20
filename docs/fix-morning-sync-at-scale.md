@@ -55,12 +55,14 @@ Source: the Oct 20 Railway and scaling analysis. Two parts of the 8 AM sync (`Sy
   - The production DB pool is `RAILS_MAX_THREADS + 5` = 10 per process, which is enough.
   - One more process costs about 0.2 GB, or **+$2–3 a month**. `critical` stays isolated for `PlaceOrderJob`.
 
-| Restaurants | Last guide starts after 8 AM, after the change |
+| Restaurants | Last guide finishes after 8 AM, after the change |
 |---|---|
 | 100 | about 40 min |
-| 250 | about 1 h 30 m |
+| 250 | about 1 h 30 m if a guide sync takes about 30 s; about 3 h if it takes about a minute |
 
-Past about 250 restaurants, shorten the per-supplier gap or allow 2 at a time per supplier. That's a setting to tune, not a redesign.
+Correction (Oct 20): the first version said 250 restaurants finish in about 1.5 hours. That assumed the per-supplier lanes are the only limit. With 6 `list_sync` threads, about 1,100 syncs of about a minute each take about 3 hours. A second `list_sync` process (+about $2–3 a month) brings it back to about 1.5 hours. How long a guide sync takes in production hasn't been measured.
+
+Past about 250 restaurants, shorten the per-supplier gap, allow 2 at a time per supplier, or add a `list_sync` process. These are settings to tune, not a redesign. The long-term answer is `prd-prices-and-guides-at-scale.md`: no scheduled per-restaurant guide reads.
 
 **Ordering impact:** none on submit. Guides are fresh earlier in the morning.
 
