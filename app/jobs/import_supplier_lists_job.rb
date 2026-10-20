@@ -33,12 +33,13 @@ class ImportSupplierListsJob < ApplicationJob
     return unless credential&.active? ||
                   (credential&.expired? && credential.supplier.password_auth?)
 
-    # Skip if this supplier+org already has fresh lists (unless forced).
-    # This prevents redundant scraping when multiple users have credentials
-    # for the same supplier, or when multiple triggers fire in quick succession.
+    # Skip if this login's own lists are already fresh (unless forced).
+    # This prevents redundant scraping when several people at one restaurant
+    # have logins for the same supplier, or when triggers fire in quick
+    # succession. Another restaurant's fresh lists say nothing about these.
     unless force
       org = credential.organization || credential.user.current_organization
-      fresh_lists = SupplierList.where(supplier: credential.supplier, organization: org)
+      fresh_lists = lists_this_login_syncs(credential, org)
                                 .where(sync_status: 'synced')
                                 .where('last_synced_at > ?', FRESHNESS_THRESHOLD.ago)
 
@@ -60,11 +61,11 @@ class ImportSupplierListsJob < ApplicationJob
       started_at: Time.current
     )
 
-    # Mark all existing lists as syncing immediately so the UI shows progress
+    # Mark this login's lists as syncing immediately so the UI shows progress
     org ||= credential.organization || credential.user.current_organization
-    SupplierList.where(supplier: credential.supplier, organization: org)
-                .where.not(sync_status: 'syncing')
-                .update_all(sync_status: 'syncing')
+    lists_this_login_syncs(credential, org)
+      .where.not(sync_status: 'syncing')
+      .update_all(sync_status: 'syncing')
 
     service = ImportSupplierListsService.new(credential)
     result = service.call
@@ -93,9 +94,9 @@ class ImportSupplierListsJob < ApplicationJob
     # Mark any still-syncing lists as failed so the UI doesn't show a stale spinner
     org ||= credential&.organization || credential&.user&.current_organization
     if credential && org
-      SupplierList.where(supplier: credential.supplier, organization: org)
-                  .where(sync_status: 'syncing')
-                  .update_all(sync_status: 'failed', sync_error: "#{e.class}: #{e.message}")
+      lists_this_login_syncs(credential, org)
+        .where(sync_status: 'syncing')
+        .update_all(sync_status: 'failed', sync_error: "#{e.class}: #{e.message}")
     end
     raise # Let Solid Queue handle retries
   ensure
@@ -104,5 +105,18 @@ class ImportSupplierListsJob < ApplicationJob
     if credential&.persisted? && credential.importing?
       credential.update_columns(importing: false, import_status_text: nil)
     end
+  end
+
+  private
+
+  # The lists this login's sync can reach: its own restaurant, or each
+  # restaurant matched on a multi-restaurant login. Marking, skipping and
+  # failing must stay inside these. They used to cover every list of the
+  # supplier in the organization, so one restaurant's sync left the other
+  # restaurants' lists "syncing" for good (35 of Alfio's lists, Oct 2026;
+  # docs/fix-stuck-syncing-lists.md).
+  def lists_this_login_syncs(credential, org)
+    locations = credential.multi_restaurant? ? credential.restaurants.pluck(:location_id) : [credential.location_id]
+    SupplierList.where(supplier: credential.supplier, organization: org, location_id: locations)
   end
 end

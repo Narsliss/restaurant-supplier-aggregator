@@ -7,7 +7,11 @@ RSpec.describe ImportSupplierListsJob do
 
   let(:owner) { create(:user, :with_organization) }
   let(:supplier) { Supplier.find_by!(code: 'sysco') } # seeded at boot
-  let(:credential) { create(:supplier_credential, user: owner, supplier: supplier, organization_id: owner.current_organization_id) }
+  let(:restaurant) { create(:location, organization: owner.current_organization, user: owner) }
+  let(:credential) do
+    create(:supplier_credential, user: owner, supplier: supplier, organization_id: owner.current_organization_id,
+                                 location_id: restaurant.id)
+  end
   let(:result) { { lists_synced: 1, items_imported: 2, items_updated: 0, errors: [] } }
 
   before do
@@ -27,7 +31,7 @@ RSpec.describe ImportSupplierListsJob do
   end
 
   it 'still refreshes the delivery dates when the guide was synced recently and is skipped' do
-    create(:supplier_list, supplier: supplier, organization: owner.current_organization,
+    create(:supplier_list, supplier: supplier, organization: owner.current_organization, location: restaurant,
                            sync_status: 'synced', last_synced_at: 1.hour.ago)
 
     described_class.perform_now(credential.id, delivery_dates: true)

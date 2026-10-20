@@ -552,12 +552,13 @@ class ImportSupplierListsService
 
     org = credential.organization || credential.user.current_organization
 
-    # Scope to supplier+org (matching the deduplication key in upsert_list).
-    # One restaurant of a multi-restaurant login saw only THAT restaurant's
-    # lists, so it may only judge that restaurant's lists.
-    stale = SupplierList.where(supplier: credential.supplier, organization: org)
+    # Scope to supplier + org + location, the deduplication key in
+    # upsert_list. A login sees only its own restaurant's lists (one
+    # restaurant at a time on a multi-restaurant login), so it may only judge
+    # those. Org-wide, a chef's Sync at one restaurant marked every other
+    # restaurant's lists "no longer found" (docs/fix-stuck-syncing-lists.md).
+    stale = SupplierList.where(supplier: credential.supplier, organization: org, location_id: target_location_id)
                         .where.not(remote_list_id: scraped_remote_ids)
-    stale = stale.where(location_id: target_location_id) if @restaurant_location_id
     stale.find_each do |list|
       Rails.logger.info "[ImportLists] List '#{list.name}' no longer found on supplier site"
       # Don't destroy - just mark as stale. The list might come back.
