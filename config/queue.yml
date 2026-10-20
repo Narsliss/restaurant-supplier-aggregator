@@ -2,10 +2,14 @@ default: &default
   dispatchers:
     - polling_interval: 5
       batch_size: 100
-  # Memory: each worker entry is a full Rails process (~170MB idle). Three
-  # processes instead of five — critical stays ISOLATED so order placement
-  # (PlaceOrderJob) never shares threads with anything else; queues listed
-  # first are polled first within a process.
+  # Memory: each worker entry is a full Rails process (~170MB idle). Four
+  # processes — critical stays ISOLATED so order placement (PlaceOrderJob)
+  # never shares threads with anything else; queues listed first are polled
+  # first within a process. list_sync (guide syncs, Sysco delivery dates) is
+  # short supplier API calls, kept off the scraping process so they never wait
+  # behind a catalog import and don't raise its memory
+  # (docs/fix-morning-sync-at-scale.md). Production DB pool is
+  # RAILS_MAX_THREADS + 5 = 10 per process, enough for 6 threads.
   workers:
     - queues: [critical]
       threads: 2
@@ -19,6 +23,10 @@ default: &default
       threads: 2
       processes: 1
       polling_interval: 5
+    - queues: [list_sync]
+      threads: 6
+      processes: 1
+      polling_interval: 2
 
 development:
   <<: *default

@@ -5,7 +5,9 @@
 # FRESHNESS_THRESHOLD, skip the scrape to avoid redundant browser sessions.
 # Pass force: true to bypass (used when user explicitly clicks "Sync" on a list).
 class ImportSupplierListsJob < ApplicationJob
-  queue_as :scraping
+  # Own queue and worker (config/queue.yml): short supplier API calls that
+  # shouldn't wait behind catalog imports — at 8 AM, or when a chef presses Sync.
+  queue_as :list_sync
 
   # If all lists for this supplier+org were synced within this window, skip.
   # 4 hours is short enough that the daily cron (24h cadence) always runs,
@@ -19,7 +21,10 @@ class ImportSupplierListsJob < ApplicationJob
   # refresh_seeded: chef pressed "Refresh Recent Orders" — after the live
   # scrape lands, create/re-mirror their seeded order lists so the button's
   # promise completes without a second press.
-  def perform(credential_id, force: false, refresh_seeded: false)
+  #
+  # delivery_dates: Sysco at 8 AM (SyncAllListsJob) — refresh the account's
+  # delivery dates once the guide sync is done, reusing the session it checked.
+  def perform(credential_id, force: false, refresh_seeded: false, delivery_dates: false)
     @refresh_seeded = refresh_seeded
     credential = SupplierCredential.find_by(id: credential_id)
 
@@ -40,6 +45,7 @@ class ImportSupplierListsJob < ApplicationJob
       if fresh_lists.exists?
         Rails.logger.info "[ImportListsJob] Skipping credential #{credential_id} (#{credential.supplier.name}) — " \
                           "#{fresh_lists.count} list(s) already synced within #{FRESHNESS_THRESHOLD.inspect}"
+        FetchSyscoDeliveryDatesJob.perform_later(credential.id, force: true) if delivery_dates
         return
       end
     end
@@ -74,6 +80,12 @@ class ImportSupplierListsJob < ApplicationJob
       product_count: result.is_a?(Hash) ? result[:imported] : nil,
       products_updated: result.is_a?(Hash) ? result[:updated] : nil
     )
+    # The service catches its own errors, so a supplier refusing us (HTTP
+    # 429/403) would otherwise vanish. The 9:15 report counts these.
+    if result.is_a?(Hash) && result[:errors].present?
+      @scraping_log.update!(metadata: { 'errors' => result[:errors].first(5) })
+    end
+    FetchSyscoDeliveryDatesJob.perform_later(credential.id, force: true) if delivery_dates
   rescue StandardError => e
     Rails.logger.error "[ImportListsJob] Failed for credential #{credential_id}: #{e.class}: #{e.message}"
     @scraping_log&.mark_failed!("#{e.class}: #{e.message}")
