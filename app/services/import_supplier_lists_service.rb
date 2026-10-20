@@ -323,12 +323,20 @@ class ImportSupplierListsService
     # factor, so a case total tagged 'LB' reads as a per-pound price 16x too
     # high. The catalog importer and VerifyItemPriceJob both cache the price as
     # quoted, per its unit; match them and let callers convert.
+    #
+    # Only a price the guide itself sent may update the product. Without one,
+    # effective_price borrows the product's own price, already a case total,
+    # and estimated_total_price multiplies it by the pack again. Every guide
+    # sync that missed a price raised a piece-sold item 12x, and the guard
+    # below let each step through as a pack multiple: Chef's Warehouse half
+    # & half (DM132) reached $54,535.68 = $2.63 x 12^4 (docs/fix-compounding-piece-prices.md).
+    own_price = item.read_attribute(:price).present?
     effective_price = if per_weight_unit?(item.price_unit)
       item.effective_price
     else
       item.estimated_total_price
     end
-    if effective_price.present? && effective_price != sp.current_price
+    if own_price && effective_price.present? && effective_price != sp.current_price
       if sp.current_price.present? && sp.current_price > 0 &&
          extreme_price_change?(sp.current_price, effective_price, item.pack_size.presence || sp.pack_size)
         Rails.logger.warn "[ImportLists] EXTREME price change for #{sp.supplier_name} (SKU: #{sp.supplier_sku}): " \
@@ -442,8 +450,23 @@ class ImportSupplierListsService
     return false if old_price.nil? || old_price <= 0
     ratio = new_price / old_price
     return false if ratio > 5.0 && pack_multiple?(ratio, pack_size)
+    # A drop by the pack size squared or more is the guide's real price
+    # undoing compounded pack conversions (12^2, 12^3, ...), not bad data.
+    # Without this the product stayed inflated: the guard refused every fix.
+    return false if ratio < 0.2 && compounded_pack_multiple?(1 / ratio, pack_size)
 
     ratio > 5.0 || ratio < 0.2
+  end
+
+  # Is this ratio the pack size raised to a power of 2 or more?
+  def compounded_pack_multiple?(ratio, pack_size)
+    parsed = UnitParser.parse(pack_size.to_s)
+    return false unless parsed[:parseable]
+
+    quantity = parsed[:quantity].to_f
+    return false unless quantity > 1
+
+    (2..6).any? { |power| (ratio - quantity**power).abs <= quantity**power * PACK_MULTIPLE_TOLERANCE }
   end
 
   # Does this ratio match the pack's own size — i.e. is it price-per-unit
