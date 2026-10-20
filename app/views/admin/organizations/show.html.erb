@@ -73,6 +73,9 @@
                 by <%= @org.complimentary_granted_by.full_name %>
               <% end %>
             </p>
+            <p class="text-xs text-gray-500 mt-1" data-comp-switch-hint>
+              To switch to paid with no interruption, have the owner click <strong>Switch to paid</strong> on their Subscription page. Complimentary access ends on its own once they've paid.
+            </p>
           <% else %>
             <p class="text-sm text-gray-500 mt-1">This organization must subscribe to access the app.</p>
           <% end %>
@@ -82,7 +85,7 @@
             <%= button_to "Revoke", revoke_complimentary_admin_organization_path(@org),
                 method: :post,
                 class: "inline-flex items-center rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors duration-150",
-                data: { turbo_confirm: "Revoke complimentary access for #{@org.name}? They will need to subscribe." } %>
+                data: { turbo_confirm: "Revoke complimentary access for #{@org.name}? Everyone there is sent to the pricing page on their next click until the owner subscribes. Orders already submitted still go through." } %>
           <% else %>
             <%= form_with url: grant_complimentary_admin_organization_path(@org), method: :post, class: "flex items-center gap-2" do |f| %>
               <%= f.text_field :reason, placeholder: "Reason (e.g., Beta tester)", class: "rounded-lg border-gray-300 text-sm px-3 py-1.5 focus:ring-brand-green-dark focus:border-brand-green-dark", size: 25 %>

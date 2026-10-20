@@ -363,6 +363,7 @@ Rails.application.routes.draw do
       end
 
       resource :revenue, only: [:show]
+      resource :billing_cutover, only: [:show, :create] # one-time Stripe test-mode cleanup (docs/stripe-go-live.md)
       resource :operations, only: [:show] do
         patch :stock_mode # per-supplier morning stock mode (off/shadow/live)
       end

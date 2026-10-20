@@ -1,5 +1,15 @@
 module Stripe
   class WebhookHandler
+    # Every event type #dispatch handles. The Stripe webhook endpoint must be
+    # subscribed to all of them (docs/stripe-go-live.md, step 1e).
+    HANDLED_EVENTS = %w[
+      checkout.session.completed
+      customer.subscription.created customer.subscription.updated customer.subscription.deleted
+      customer.subscription.paused customer.subscription.resumed customer.subscription.trial_will_end
+      invoice.paid invoice.payment_failed invoice.payment_action_required invoice.created invoice.finalized
+      customer.created customer.updated
+    ].freeze
+
     class << self
       # Entry point. Records the event before processing so that:
       #   1. Duplicate deliveries from Stripe (parallel retries) are detected
@@ -205,12 +215,14 @@ module Stripe
     def handle_invoice_paid
       stripe_invoice = @event.data.object
       invoice = ::Invoice.sync_from_stripe(stripe_invoice)
+      return unmatched_invoice(stripe_invoice) unless invoice
       { status: :success, user: invoice.user, subscription: invoice.subscription }
     end
 
     def handle_invoice_payment_failed
       stripe_invoice = @event.data.object
       invoice = ::Invoice.sync_from_stripe(stripe_invoice)
+      return unmatched_invoice(stripe_invoice) unless invoice
 
       Rails.logger.warn "[Stripe] Payment failed for user #{invoice.user_id}"
       BillingMailer.payment_failed(invoice).deliver_later if invoice.subscription
@@ -223,6 +235,7 @@ module Stripe
     def handle_invoice_payment_action_required
       stripe_invoice = @event.data.object
       invoice = ::Invoice.sync_from_stripe(stripe_invoice)
+      return unmatched_invoice(stripe_invoice) unless invoice
 
       Rails.logger.warn "[Stripe] Payment action required for user #{invoice.user_id}"
       BillingMailer.payment_action_required(invoice).deliver_later if invoice.subscription
@@ -233,12 +246,14 @@ module Stripe
     def handle_invoice_created
       stripe_invoice = @event.data.object
       invoice = ::Invoice.sync_from_stripe(stripe_invoice)
+      return unmatched_invoice(stripe_invoice) unless invoice
       { status: :success, user: invoice.user, subscription: invoice.subscription }
     end
 
     def handle_invoice_finalized
       stripe_invoice = @event.data.object
       invoice = ::Invoice.sync_from_stripe(stripe_invoice)
+      return unmatched_invoice(stripe_invoice) unless invoice
       { status: :success, user: invoice.user, subscription: invoice.subscription }
     end
 
@@ -258,6 +273,13 @@ module Stripe
       customer = @event.data.object
       org = ::Organization.find_by(stripe_customer_id: customer.id)
       { status: :success, user: org&.owner }
+    end
+
+    # The invoice's subscription and customer match nothing we know. Leave the
+    # event unprocessed (visible on the admin dashboard) instead of crashing.
+    def unmatched_invoice(stripe_invoice)
+      Rails.logger.warn "[Stripe] Invoice #{stripe_invoice.id} (customer #{stripe_invoice.customer}) matches no organization"
+      { status: :user_not_found }
     end
 
     def find_user_for_subscription(stripe_subscription)

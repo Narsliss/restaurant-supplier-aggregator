@@ -73,7 +73,8 @@ class Admin::OrganizationsController < Admin::BaseController
     end
 
     days = (params[:days].presence || 14).to_i
-    new_trial_end = (subscription.trial_end || Time.current) + days.days
+    # From today when the old trial already ended; Stripe rejects a past trial_end.
+    new_trial_end = [subscription.trial_end, Time.current].compact.max + days.days
 
     begin
       Stripe::Subscription.update(
@@ -89,7 +90,7 @@ class Admin::OrganizationsController < Admin::BaseController
 
   def cancel_subscription
     org = Organization.find(params[:id])
-    subscription = org.subscriptions.where(status: %w[active trialing]).order(created_at: :desc).first
+    subscription = org.current_subscription
 
     unless subscription&.stripe_subscription_id
       redirect_to admin_organization_path(org), alert: "No active subscription to cancel."

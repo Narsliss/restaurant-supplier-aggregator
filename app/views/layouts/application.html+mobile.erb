@@ -55,15 +55,8 @@
         <% if user_signed_in? && !devise_controller? && controller.class.module_parent_name.nil? %>
           <%= render "shared/unplaced_orders_bar" %>
         <% end %>
-        <% if user_signed_in? && current_user.current_organization&.subscription_status == 'past_due' && !current_user.super_admin? && defined?(owner?) && owner? %>
-          <div class="rounded-lg bg-yellow-50 border border-yellow-200 px-4 py-3 mb-4 flex flex-col gap-2">
-            <p class="text-sm text-yellow-800">
-              <strong>Payment failed.</strong> Please update your payment method.
-            </p>
-            <%= button_to "Update Payment", subscription_billing_portal_path,
-                method: :post,
-                class: "inline-flex items-center justify-center rounded-md bg-yellow-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-700 transition-colors" %>
-          </div>
+        <% if user_signed_in? && !current_user.super_admin? && current_user.current_organization&.subscription_status == 'past_due' && current_user.current_organization.owner?(current_user) %>
+          <%= render "shared/payment_failed_bar" %>
         <% end %>
         <%= yield %>
       </main>

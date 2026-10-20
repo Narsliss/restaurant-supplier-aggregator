@@ -16,17 +16,22 @@ class Subscription < ApplicationRecord
     paused
   ].freeze
 
+  # past_due keeps access while Stripe retries the card (Smart Retries, ~2
+  # weeks); Stripe cancels the subscription if every retry fails.
+  ACCESS_STATUSES = %w[active trialing past_due].freeze
+
   validates :stripe_subscription_id, presence: true, uniqueness: true
   validates :status, presence: true, inclusion: { in: STATUSES }
 
   scope :active_or_trialing, -> { where(status: %w[active trialing]) }
+  scope :with_access, -> { where(status: ACCESS_STATUSES) }
   scope :past_due, -> { where(status: "past_due") }
   scope :canceled, -> { where(status: "canceled") }
   scope :expiring_soon, -> { where("current_period_end < ?", 7.days.from_now) }
 
   # Check if subscription allows access to the app
   def allows_access?
-    %w[active trialing past_due].include?(status)
+    ACCESS_STATUSES.include?(status)
   end
 
   # Check if in trial period
@@ -78,9 +83,15 @@ class Subscription < ApplicationRecord
     period_start = stripe_subscription_period(stripe_subscription, first_item, :current_period_start)
     period_end = stripe_subscription_period(stripe_subscription, first_item, :current_period_end)
 
+    # Checkout stamps organization_id into the subscription's metadata. Prefer
+    # it over the user's current org, which follows whatever restaurant the
+    # user last switched to.
+    metadata_org_id = stripe_subscription.metadata && stripe_subscription.metadata["organization_id"]
+    metadata_org_id = nil unless metadata_org_id.present? && Organization.exists?(id: metadata_org_id)
+
     subscription.assign_attributes(
       user: resolved_user,
-      organization_id: resolved_user&.current_organization_id || subscription.organization_id,
+      organization_id: metadata_org_id || resolved_user&.current_organization_id || subscription.organization_id,
       stripe_price_id: first_item&.price&.id,
       status: stripe_subscription.status,
       current_period_start: period_start ? Time.zone.at(period_start) : nil,
@@ -94,6 +105,7 @@ class Subscription < ApplicationRecord
     )
 
     subscription.save!
+    subscription.organization&.end_complimentary_for!(subscription)
     subscription
   end
 

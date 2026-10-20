@@ -32,6 +32,12 @@ class Admin::DashboardController < Admin::BaseController
     past_due = Subscription.past_due.count
     @alerts << { level: :warning, message: "#{past_due} subscription(s) past due" } if past_due > 0
 
+    # Billing webhooks that errored or matched no restaurant: an invoice or
+    # cancellation we never recorded.
+    unmatched_billing = BillingEvent.where(processed: false, event_type: Stripe::WebhookHandler::HANDLED_EVENTS)
+                                    .where('created_at >= ?', 7.days.ago).count
+    @alerts << { level: :error, message: "#{unmatched_billing} Stripe event(s) in the last 7 days failed or matched no restaurant" } if unmatched_billing > 0
+
     locked_users = User.where.not(locked_at: nil).count
     @alerts << { level: :info, message: "#{locked_users} locked user account(s)" } if locked_users > 0
   end

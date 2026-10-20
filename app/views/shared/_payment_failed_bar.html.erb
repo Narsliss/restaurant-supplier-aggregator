@@ -1,0 +1,15 @@
+<%# Red bar on every screen for the owner while the subscription is past_due.
+    The restaurant keeps access while Stripe retries the card (~2 weeks);
+    if every retry fails Stripe cancels and the paywall takes over.
+    data-turbo=false: the portal redirect goes to stripe.com, which a Turbo
+    fetch can't follow. %>
+<div class="rounded-xl bg-red-600 text-white px-3 py-2.5 mb-3 shadow-sm flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between" role="alert" data-payment-failed-bar>
+  <p class="text-sm leading-snug">
+    <span class="font-bold">Payment failed.</span>
+    Your card was declined. Update it to keep EnPlace Pro running; Stripe will retry automatically.
+  </p>
+  <%= button_to "Update card", billing_portal_subscription_path,
+      method: :post,
+      form: { data: { turbo: false } },
+      class: "flex-shrink-0 text-sm font-semibold text-white bg-white/15 border border-white/40 rounded-lg px-3 py-1.5 whitespace-nowrap" %>
+</div>

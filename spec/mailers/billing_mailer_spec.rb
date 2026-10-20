@@ -17,6 +17,15 @@ RSpec.describe BillingMailer, type: :mailer do
     end
   end
 
+  # The emails say "just reply"; from is noreply@, so replies need a reply-to.
+  describe 'reply-to' do
+    it 'sends replies to the support inbox' do
+      mail = described_class.welcome(subscription)
+      expect(mail.reply_to).to eq([Rails.configuration.x.support_email])
+      expect(mail.reply_to).to eq(['carmin@las-noches.com'])
+    end
+  end
+
   describe '#welcome' do
     it 'renders without raising and addresses the org owner' do
       mail = described_class.welcome(subscription)
@@ -43,6 +52,15 @@ RSpec.describe BillingMailer, type: :mailer do
       mail = described_class.subscription_canceled(canceled)
       expect { mail.body }.not_to raise_error
       expect(mail.to).to eq([owner.email])
+    end
+
+    # Sent on customer.subscription.deleted, i.e. once access has ended.
+    it 'says access has ended and links to resubscribe' do
+      mail = described_class.subscription_canceled(canceled)
+      expect(mail.subject).to eq('Your EnPlace Pro subscription has ended')
+      expect(mail.body.to_s).to include('no longer has access')
+      expect(mail.body.to_s).to include('/subscription/new')
+      expect(mail.body.to_s).not_to include('continue to have access')
     end
   end
 

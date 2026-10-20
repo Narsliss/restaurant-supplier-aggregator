@@ -1,0 +1,70 @@
+<% content_for(:title) { "Stripe test-mode cleanup — Admin — EnPlace Pro" } %>
+
+<div class="space-y-8">
+  <div>
+    <h1 class="text-3xl font-bold text-gray-900">Stripe test-mode cleanup</h1>
+    <p class="text-gray-500 mt-1">
+      One-time step after switching Stripe to live keys. Subscriptions and customer IDs made in test mode don't exist in live Stripe;
+      this stops old test subscriptions from granting free access. Each one is checked against live Stripe first, and nobody is emailed.
+    </p>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+      <h2 class="text-lg font-semibold text-gray-900">Stripe key</h2>
+      <% if @live %>
+        <span class="inline-flex items-center rounded-full bg-green-100 text-green-800 px-3 py-1 text-sm font-semibold" data-stripe-mode="live">LIVE</span>
+      <% else %>
+        <span class="inline-flex items-center rounded-full bg-yellow-100 text-yellow-800 px-3 py-1 text-sm font-semibold" data-stripe-mode="test">TEST</span>
+      <% end %>
+    </div>
+    <div class="p-6 text-sm text-gray-700">
+      <% if !@live %>
+        The app is still using a test key. Set the live keys in Railway (web and worker), wait for the redeploy, then come back here.
+      <% elsif @error %>
+        <p class="text-red-700">Couldn't check Stripe: <%= @error %>. Nothing was changed. Try again in a minute.</p>
+      <% elsif @plan.empty? %>
+        <p data-cutover-clean>Nothing to clean up. Every subscription and customer ID the app relies on exists in live Stripe.</p>
+      <% else %>
+        <% if @plan.subscriptions.any? %>
+          <h3 class="font-semibold text-gray-900 mb-2">Test subscriptions that will stop granting access (<%= @plan.subscriptions.size %>)</h3>
+          <ul class="mb-4 space-y-1" data-cutover-subscriptions>
+            <% @plan.subscriptions.each do |sub| %>
+              <li>
+                <span class="font-medium"><%= sub.organization&.name || "No organization" %></span>
+                · <%= sub.status %> since <%= sub.created_at.strftime("%b %-d, %Y") %>
+                <% if sub.organization&.complimentary? %><span class="text-gray-500">(complimentary, so keeps access)</span><% end %>
+              </li>
+            <% end %>
+          </ul>
+        <% end %>
+        <% if @plan.organizations.any? %>
+          <h3 class="font-semibold text-gray-900 mb-2">Test customer IDs that will be cleared (<%= @plan.organizations.size %>)</h3>
+          <p class="text-gray-500 mb-2">A new live customer is created the next time each one checks out.</p>
+          <ul class="mb-4 space-y-1">
+            <% @plan.organizations.each do |org| %>
+              <li><%= org.name %></li>
+            <% end %>
+          </ul>
+        <% end %>
+        <%= button_to "Clean up test-mode billing", admin_billing_cutover_path,
+            method: :post,
+            class: "inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700",
+            data: { turbo_confirm: "Retire #{@plan.subscriptions.size} test subscription(s) and clear #{@plan.organizations.size} test customer ID(s)? Restaurants without complimentary access or a live subscription will see the pricing page on their next click." } %>
+      <% end %>
+    </div>
+  </div>
+
+  <% if @retired.any? %>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-lg font-semibold text-gray-900">Already retired</h2>
+      </div>
+      <ul class="p-6 text-sm text-gray-700 space-y-1" data-cutover-retired>
+        <% @retired.each do |sub| %>
+          <li><%= sub.organization&.name || "No organization" %> · retired <%= Time.zone.parse(sub.metadata["retired_at"].to_s)&.strftime("%b %-d, %Y %-l:%M %p") %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+</div>

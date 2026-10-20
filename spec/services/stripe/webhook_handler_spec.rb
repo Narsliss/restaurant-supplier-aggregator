@@ -265,6 +265,44 @@ RSpec.describe Stripe::WebhookHandler, type: :service do
     end
   end
 
+  describe '#handle_invoice_payment_failed (clover payload)' do
+    let(:user) { create(:user, :with_organization) }
+    let(:org) { user.current_organization }
+    let!(:sub) { create(:subscription, :past_due, user: user, organization_id: org.id, stripe_subscription_id: 'sub_failed') }
+
+    def failed_invoice(customer:, subscription_id:)
+      {
+        id: "in_#{SecureRandom.hex(4)}", object: 'invoice', customer: customer,
+        status: 'open', amount_due: 9900, amount_paid: 0, currency: 'usd',
+        hosted_invoice_url: 'https://invoice.example/pay', invoice_pdf: nil,
+        period_start: 1.day.ago.to_i, period_end: 29.days.from_now.to_i,
+        parent: { type: 'subscription_details', subscription_details: { subscription: subscription_id } },
+        status_transitions: { paid_at: nil }
+      }
+    end
+
+    # Regression: clover invoices carry no top-level `subscription`, so this
+    # email silently never sent.
+    it 'links the subscription and queues the payment-failed email' do
+      org.update!(stripe_customer_id: 'cus_failed')
+      event = stripe_event(type: 'invoice.payment_failed', data_object: failed_invoice(customer: 'cus_failed', subscription_id: 'sub_failed'))
+
+      expect { described_class.handle(event) }.to have_enqueued_mail(BillingMailer, :payment_failed)
+      expect(Invoice.last.subscription).to eq(sub)
+      expect(BillingEvent.find_by!(stripe_event_id: event.id).processed).to be true
+    end
+
+    it 'reports an invoice matching no restaurant as not found instead of erroring' do
+      event = stripe_event(type: 'invoice.payment_failed', data_object: failed_invoice(customer: 'cus_stranger', subscription_id: 'sub_stranger'))
+
+      result = described_class.handle(event)
+      expect(result[:status]).to eq(:user_not_found)
+      ev = BillingEvent.find_by!(stripe_event_id: event.id)
+      expect(ev.processed).to be false
+      expect(ev.error_message).to be_nil
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Unhandled event type
   # ---------------------------------------------------------------------------

@@ -10,14 +10,29 @@ class SubscriptionsController < ApplicationController
   end
 
   def new
-    # Show pricing page for users without subscription
-    if current_user.subscribed?
+    # Pricing page for orgs without a subscription. Comp orgs see it too: that
+    # is how they switch to paid without ever hitting the paywall.
+    if current_user.current_subscription
       redirect_to subscription_path
     end
   end
 
   def create
     org = current_user.current_organization
+
+    # Never open a second Checkout while a subscription is alive. A past-due
+    # restaurant fixes its card in the billing portal; a new subscription
+    # would bill it twice once Stripe's retry succeeds.
+    if org.current_subscription
+      redirect_to subscription_path, alert: "You already have a subscription. Use Manage Billing to update your card."
+      return
+    end
+    if (existing = org.live_stripe_subscription)
+      Subscription.sync_from_stripe(existing, user: org.owner || current_user)
+      redirect_to subscription_path, alert: "You already have a subscription. Use Manage Billing to update your card."
+      return
+    end
+
     session = org.create_checkout_session(
       user: current_user,
       success_url: success_subscription_url + "?session_id={CHECKOUT_SESSION_ID}",
@@ -29,7 +44,7 @@ class SubscriptionsController < ApplicationController
     render html: "<html><body><script>window.location.href = #{@checkout_url.to_json};</script></body></html>".html_safe
   rescue Stripe::StripeError => e
     Rails.logger.error "[Stripe] Checkout error: #{e.message}"
-    redirect_to new_subscription_path
+    redirect_to new_subscription_path, alert: "We couldn't open checkout. Please try again in a minute."
   end
 
   def success
@@ -70,7 +85,7 @@ class SubscriptionsController < ApplicationController
     redirect_to session.url, allow_other_host: true
   rescue Stripe::StripeError => e
     Rails.logger.error "[Stripe] Portal error: #{e.message}"
-    redirect_to subscription_path
+    redirect_to subscription_path, alert: "We couldn't open billing. Please try again in a minute."
   end
 
   def cancel_subscription
@@ -93,8 +108,10 @@ class SubscriptionsController < ApplicationController
   end
 
   def reactivate
-    subscription = current_user.subscriptions.find_by(cancel_at_period_end: true)
-    return redirect_to subscription_path unless subscription
+    # The org's live subscription only: an old canceled row can still carry
+    # cancel_at_period_end, and Stripe rejects updates to canceled subscriptions.
+    subscription = current_user.current_subscription
+    return redirect_to subscription_path unless subscription&.cancel_at_period_end?
 
     begin
       Stripe::Subscription.update(

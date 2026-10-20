@@ -1,6 +1,10 @@
 <% config = Rails.application.config.stripe_config %>
 <% trial_days = config[:trial_days] || 0 %>
 <% has_trial = trial_days > 0 %>
+<% org = current_user.current_organization %>
+<%# Mirrors Organization#create_checkout_session: seats over the included ones are only billed when a seat price is configured. %>
+<% extra_seats = org && config[:seat_price_id].present? ? org.extra_seat_count : 0 %>
+<% monthly_total_cents = config[:monthly_amount] + extra_seats * config[:seat_amount] %>
 
 <div class="min-h-screen bg-gray-50 py-12">
   <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -28,10 +32,17 @@
           <h2 class="text-2xl font-bold text-gray-900 mb-2">Pro Plan</h2>
           <p class="text-gray-600 mb-6">Everything you need to manage restaurant suppliers</p>
 
-          <div class="flex items-baseline mb-8">
+          <div class="flex items-baseline <%= extra_seats > 0 ? 'mb-2' : 'mb-8' %>">
             <span class="text-5xl font-bold text-gray-900">$<%= config[:monthly_amount] / 100 %></span>
             <span class="text-gray-500 ml-2">/month</span>
           </div>
+          <% if extra_seats > 0 %>
+            <p class="text-sm text-gray-600 mb-8" data-seat-total>
+              Your team has <%= org.seat_count %> seats (<%= config[:included_seats] %> included), so
+              <%= pluralize(extra_seats, 'extra seat') %> at $<%= config[:seat_amount] / 100 %> each.
+              <strong class="text-gray-900">Total: $<%= monthly_total_cents / 100 %>/month.</strong>
+            </p>
+          <% end %>
 
           <!-- Features -->
           <ul class="space-y-4 mb-8">
@@ -78,6 +89,18 @@
               <span class="text-gray-700">Priority support</span>
             </li>
           </ul>
+
+          <% if org&.complimentary? %>
+            <div class="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 mb-4 text-sm text-blue-800" data-complimentary-notice>
+              <%= org.name %> is on complimentary access. Subscribing switches it to paid billing:
+              <% if has_trial %>
+                your card is charged $<%= monthly_total_cents / 100 %> when the <%= trial_days %>-day trial ends, then monthly.
+              <% else %>
+                your card is charged $<%= monthly_total_cents / 100 %> today, then monthly.
+              <% end %>
+              Complimentary access ends on its own once you've subscribed, and nobody loses access in between.
+            </div>
+          <% end %>
 
           <!-- CTA Button -->
           <%= form_with url: subscription_path, method: :post, data: { turbo: false } do %>

@@ -1,4 +1,7 @@
 class BillingMailer < ApplicationMailer
+  # These emails say "just reply to this email"; the from address is noreply.
+  default reply_to: -> { Rails.configuration.x.support_email }
+
   def trial_ending_soon(subscription)
     @subscription = subscription
     @org = subscription.organization || subscription.user&.current_organization
@@ -39,7 +42,7 @@ class BillingMailer < ApplicationMailer
 
     mail(
       to: @owner.email,
-      subject: "Your EnPlace Pro subscription has been canceled"
+      subject: "Your EnPlace Pro subscription has ended"
     )
   end
 

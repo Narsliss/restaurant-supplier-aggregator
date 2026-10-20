@@ -32,8 +32,10 @@ class Organization < ApplicationRecord
   scope :active, -> { where(active: true) }
 
   # Subscription methods
+  # Includes past_due: the restaurant keeps access (and must NOT be offered a
+  # second Checkout) while Stripe retries a declined card.
   def current_subscription
-    subscriptions.active_or_trialing.order(created_at: :desc).first
+    subscriptions.with_access.order(created_at: :desc).first
   end
 
   def subscribed?
@@ -161,9 +163,33 @@ class Organization < ApplicationRecord
     User.find_by(id: complimentary_granted_by_id)
   end
 
+  # A comp org that starts paying drops comp on its own, so the owner can
+  # subscribe while still on comp and nobody ever sees the paywall. Comp and a
+  # paid subscription never coexist: comp would stop seat billing while Stripe
+  # kept charging the base plan.
+  def end_complimentary_for!(subscription)
+    return unless complimentary? && subscription.allows_access?
+
+    Rails.logger.info "[Billing] #{name} (id=#{id}) started paying (#{subscription.stripe_subscription_id}); ending complimentary access"
+    revoke_complimentary!
+  end
+
+  # Non-owner seats beyond the ones the base plan includes.
+  def extra_seat_count
+    included = Rails.application.config.stripe_config[:included_seats] || 5
+    [seat_count - included, 0].max
+  end
+
   # Stripe methods
   def find_or_create_stripe_customer
-    return Stripe::Customer.retrieve(stripe_customer_id) if stripe_customer_id.present?
+    if stripe_customer_id.present?
+      customer = retrieve_stripe_customer
+      return customer if customer
+
+      # Saved ID doesn't exist under the current key: a test-mode customer
+      # after the live cutover, or one deleted in the dashboard. Start fresh.
+      Rails.logger.warn "[Stripe] #{name} (id=#{id}): customer #{stripe_customer_id} not found in this Stripe mode; creating a new one"
+    end
 
     customer = Stripe::Customer.create(
       name: name,
@@ -178,6 +204,31 @@ class Organization < ApplicationRecord
     customer
   end
 
+  # False when the saved customer is missing or deleted under the current key.
+  def stripe_customer_exists?
+    stripe_customer_id.present? && retrieve_stripe_customer.present?
+  end
+
+  # Stripe statuses that mean a subscription is still alive (billing or about to).
+  # incomplete is left out: an abandoned 3D Secure checkout expires on its own
+  # within a day and must not block a retry.
+  LIVE_STRIPE_SUBSCRIPTION_STATUSES = %w[active trialing past_due unpaid paused].freeze
+
+  # Asks Stripe (not our DB) whether this customer already has a live
+  # subscription. Our rows can lag when a webhook is missed, and a second
+  # Checkout would bill the restaurant twice.
+  def live_stripe_subscription
+    return nil if stripe_customer_id.blank?
+
+    Stripe::Subscription.list(customer: stripe_customer_id, status: 'all', limit: 20)
+                        .data
+                        .find { |s| LIVE_STRIPE_SUBSCRIPTION_STATUSES.include?(s.status) }
+  rescue Stripe::InvalidRequestError => e
+    raise unless e.code == 'resource_missing'
+
+    nil
+  end
+
   def create_checkout_session(user:, success_url:, cancel_url:)
     customer = find_or_create_stripe_customer
     config = Rails.application.config.stripe_config
@@ -189,8 +240,7 @@ class Organization < ApplicationRecord
     }]
 
     # If org already has more than included seats, add seat charges
-    included = config[:included_seats] || 5
-    extra_seats = [seat_count - included, 0].max
+    extra_seats = extra_seat_count
     if extra_seats > 0 && config[:seat_price_id].present?
       line_items << {
         price: config[:seat_price_id],
@@ -225,6 +275,16 @@ class Organization < ApplicationRecord
   end
 
   private
+
+  # nil when the saved customer is missing or deleted in the current Stripe mode.
+  def retrieve_stripe_customer
+    customer = Stripe::Customer.retrieve(stripe_customer_id)
+    customer['deleted'] ? nil : customer
+  rescue Stripe::InvalidRequestError => e
+    raise unless e.code == 'resource_missing'
+
+    nil
+  end
 
   def generate_slug
     return if slug.present?

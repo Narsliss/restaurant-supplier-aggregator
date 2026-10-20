@@ -155,5 +155,46 @@ RSpec.describe Subscription, type: :model do
     it '.canceled returns only canceled' do
       expect(Subscription.canceled).to contain_exactly(canceled)
     end
+
+    # past_due keeps access while Stripe retries the card.
+    it '.with_access returns active, trialing and past_due' do
+      expect(Subscription.with_access).to contain_exactly(active, trialing, past_due)
+    end
+  end
+
+  describe '.sync_from_stripe (organization attribution + complimentary)' do
+    let(:user) { create(:user, :with_organization) }
+    let(:home_org) { user.current_organization }
+    let(:other_org) { create(:organization, complimentary: true, complimentary_granted_at: Time.current) }
+
+    def stripe_sub(status:, metadata:)
+      ::Stripe::Subscription.construct_from(
+        id: 'sub_attr_test', object: 'subscription', status: status, customer: 'cus_attr',
+        cancel_at_period_end: false, canceled_at: nil, ended_at: nil, trial_start: nil, trial_end: nil,
+        metadata: metadata,
+        items: { data: [{ id: 'si_attr', price: { id: 'price_test' },
+                          current_period_start: 1.day.ago.to_i, current_period_end: 29.days.from_now.to_i }] }
+      )
+    end
+
+    it 'attributes the subscription to the metadata organization, not the user\'s current one' do
+      sub = described_class.sync_from_stripe(stripe_sub(status: 'active', metadata: { organization_id: other_org.id.to_s }), user: user)
+      expect(sub.organization_id).to eq(other_org.id)
+    end
+
+    it 'falls back to the user\'s current organization without metadata' do
+      sub = described_class.sync_from_stripe(stripe_sub(status: 'active', metadata: {}), user: user)
+      expect(sub.organization_id).to eq(home_org.id)
+    end
+
+    it 'ends complimentary access once the comp org has a paying subscription' do
+      described_class.sync_from_stripe(stripe_sub(status: 'active', metadata: { organization_id: other_org.id.to_s }), user: user)
+      expect(other_org.reload.complimentary).to be false
+    end
+
+    it 'keeps complimentary access when the synced subscription grants no access' do
+      described_class.sync_from_stripe(stripe_sub(status: 'incomplete', metadata: { organization_id: other_org.id.to_s }), user: user)
+      expect(other_org.reload.complimentary).to be true
+    end
   end
 end

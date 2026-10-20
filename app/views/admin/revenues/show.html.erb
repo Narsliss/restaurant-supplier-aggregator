@@ -4,7 +4,10 @@
   <%# Header %>
   <div>
     <h1 class="text-3xl font-bold text-gray-900">Revenue</h1>
-    <p class="text-gray-500 mt-1">Subscription metrics and billing overview</p>
+    <p class="text-gray-500 mt-1">
+      Subscription metrics and billing overview ·
+      <%= link_to "Stripe test-mode cleanup", admin_billing_cutover_path, class: "text-brand-green-dark underline" %>
+    </p>
   </div>
 
   <%# Stat cards %>

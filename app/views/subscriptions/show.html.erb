@@ -76,11 +76,20 @@
             </dl>
 
             <div class="mt-6 pt-6 border-t border-gray-200 flex flex-wrap gap-3">
-              <%= button_to "Manage Billing", billing_portal_subscription_path, method: :post, class: "px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors" %>
+              <%# turbo: false — the portal redirect goes to stripe.com, which a Turbo fetch can't follow. %>
+              <%= button_to "Manage Billing", billing_portal_subscription_path, method: :post, form: { data: { turbo: false } }, class: "px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors" %>
 
               <% unless @subscription.cancel_at_period_end? %>
                 <%= button_to "Cancel Subscription", cancel_subscription_subscription_path, method: :post, class: "px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors", data: { turbo_confirm: "Are you sure you want to cancel? You'll lose access at the end of your billing period." } %>
               <% end %>
+            </div>
+          <% elsif current_user.current_organization&.complimentary? %>
+            <div class="text-center py-8" data-complimentary-plan>
+              <h3 class="text-lg font-medium text-gray-900">Complimentary access</h3>
+              <p class="mt-2 text-gray-600">
+                <%= current_user.current_organization.name %> uses EnPlace Pro free of charge. Nothing is billed.
+              </p>
+              <%= link_to "Switch to paid", new_subscription_path, class: "mt-4 inline-block px-6 py-3 bg-brand-green-dark text-white rounded-lg hover:bg-brand-green transition-colors" %>
             </div>
           <% else %>
             <div class="text-center py-8">
@@ -105,17 +114,18 @@
             <dt class="text-gray-600">Plan</dt>
             <dd class="font-medium text-gray-900">Pro</dd>
           </div>
+          <% plan = Rails.application.config.stripe_config %>
           <div class="flex justify-between">
             <dt class="text-gray-600">Price</dt>
-            <dd class="font-medium text-gray-900">$99/mo</dd>
+            <dd class="font-medium text-gray-900">$<%= plan[:monthly_amount] / 100 %>/mo</dd>
           </div>
           <div class="flex justify-between">
             <dt class="text-gray-600">Suppliers</dt>
             <dd class="font-medium text-gray-900">Unlimited</dd>
           </div>
           <div class="flex justify-between">
-            <dt class="text-gray-600">Users</dt>
-            <dd class="font-medium text-gray-900">Unlimited</dd>
+            <dt class="text-gray-600">Seats</dt>
+            <dd class="font-medium text-gray-900 text-right"><%= plan[:included_seats] %> included, then $<%= plan[:seat_amount] / 100 %>/mo each</dd>
           </div>
         </dl>
       </div>
@@ -125,9 +135,7 @@
         <p class="text-sm text-gray-600 mb-4">
           Questions about your subscription or billing? We're here to help.
         </p>
-        <a href="mailto:support@supplierhub.com" class="text-primary-600 hover:text-primary-700 text-sm font-medium">
-          Contact Support →
-        </a>
+        <%= mail_to support_email, "Contact Support →", class: "text-brand-green-dark underline text-sm font-medium" %>
       </div>
     </div>
   </div>
