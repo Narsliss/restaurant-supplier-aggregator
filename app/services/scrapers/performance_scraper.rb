@@ -57,7 +57,32 @@ module Scrapers
       end
     end
 
+    # API first (Oct 2026): restore the MSAL tokens, refresh them against B2C
+    # when expired, prove them with one read-only call, and save the new ones
+    # back. No Chrome. The browser refresh stays as the fallback because
+    # callers treat false as "session dead" — pre-order validation blocks the
+    # order without trying a login — so a failed API refresh must end where
+    # the browser-only refresh used to.
     def soft_refresh
+      return true if api_soft_refresh
+
+      browser_soft_refresh
+    end
+
+    def api_soft_refresh
+      return false unless api_client.restore_session
+
+      api_client.call('Site', 'GetCurrentUserSite', nil, http_method: :get)
+      api_client.persist_tokens!
+      credential.mark_active!
+      logger.info '[Performance] API soft refresh succeeded'
+      true
+    rescue StandardError => e
+      logger.warn "[Performance] API soft refresh failed, trying the browser: #{e.class}: #{e.message}"
+      false
+    end
+
+    def browser_soft_refresh
       with_browser do
         if restore_session
           navigate_to(BASE_URL)
@@ -77,6 +102,7 @@ module Scrapers
       logger.warn "[Performance] Soft refresh error: #{e.message}"
       false
     end
+    private :api_soft_refresh, :browser_soft_refresh
 
     # Signed in when we're back on the app origin (not parked on the B2C page)
     # and MSAL has cached an account/token in browser storage.

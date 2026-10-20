@@ -81,6 +81,81 @@ RSpec.describe Scrapers::PerformanceApi do
     end
   end
 
+  # B2C issues a new refresh token on every refresh. Unless it's saved, the
+  # stored one never renews and the login only lasts until the original dies.
+  describe '#persist_tokens!' do
+    let(:access_key) { 'abc-tenant-accesstoken-client-tenant-scopes--' }
+    let(:refresh_key) { 'abc-tenant-refreshtoken-client--' }
+
+    def stored_entry(store, key)
+      JSON.parse(JSON.parse(credential.reload.session_data)[store][key])
+    end
+
+    before do
+      credential.update!(session_data: {
+        'cookies' => { 'b2c' => { 'name' => 'x-ms-cpim-sso', 'value' => 'keep-me' } },
+        'local_storage' => {
+          access_key => msal_access_entry(secret: 'stale-token', target: api_scope_target, expires_at: 1.hour.ago),
+          'msal.token.keys.client' => { 'accessToken' => [access_key] }.to_json
+        },
+        'session_storage' => {
+          refresh_key => { 'credentialType' => 'RefreshToken', 'secret' => 'old-refresh' }.to_json
+        }
+      }.to_json)
+    end
+
+    it 'writes the refreshed access and refresh tokens back into the MSAL cache' do
+      stub_request(:post, described_class::TOKEN_ENDPOINT)
+        .to_return(status: 200, headers: { 'Content-Type' => 'application/json' },
+                   body: { access_token: 'fresh-token', refresh_token: 'new-refresh', expires_in: 3600 }.to_json)
+      api.restore_session
+
+      expect(api.persist_tokens!).to be(true)
+
+      access = stored_entry('local_storage', access_key)
+      expect(access['secret']).to eq('fresh-token')
+      expect(access['target']).to eq(api_scope_target)
+      expect(access['expiresOn'].to_i).to be_within(5).of(1.hour.from_now.to_i)
+      expect(stored_entry('session_storage', refresh_key)['secret']).to eq('new-refresh')
+
+      saved = JSON.parse(credential.session_data)
+      expect(saved['cookies']['b2c']['value']).to eq('keep-me')
+      expect(saved['local_storage']['msal.token.keys.client']).to eq({ 'accessToken' => [access_key] }.to_json)
+    end
+
+    it 'lets the next restore use the saved token without calling B2C again' do
+      stub_request(:post, described_class::TOKEN_ENDPOINT)
+        .to_return(status: 200, headers: { 'Content-Type' => 'application/json' },
+                   body: { access_token: 'fresh-token', refresh_token: 'new-refresh', expires_in: 3600 }.to_json)
+      api.restore_session
+      api.persist_tokens!
+
+      later = described_class.new(credential.reload)
+      expect(later.restore_session).to be(true)
+      expect(WebMock).to have_requested(:post, described_class::TOKEN_ENDPOINT).once
+    end
+
+    it 'saves nothing when no refresh happened (stored token was still good)' do
+      credential.update!(session_data: session_blob(
+        access_key => msal_access_entry(secret: 'live-token', target: api_scope_target, expires_at: 1.hour.from_now)
+      ))
+      api.restore_session
+
+      expect { expect(api.persist_tokens!).to be(false) }.not_to(change { credential.reload.session_data })
+    end
+
+    it 'returns false instead of raising when the stored session is unreadable' do
+      stub_request(:post, described_class::TOKEN_ENDPOINT)
+        .to_return(status: 200, headers: { 'Content-Type' => 'application/json' },
+                   body: { access_token: 'fresh-token', expires_in: 3600 }.to_json)
+      api.restore_session
+      credential.update!(session_data: 'not json')
+
+      expect(api.persist_tokens!).to be(false)
+      expect(credential.reload.session_data).to eq('not json')
+    end
+  end
+
   describe '#call' do
     before do
       credential.update!(session_data: session_blob(

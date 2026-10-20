@@ -119,7 +119,11 @@ module Scrapers
       @access_token = payload['access_token']
       @refresh_token = payload['refresh_token'] if payload['refresh_token'].present?
       @token_expires_at = Time.current + payload['expires_in'].to_i
-      logger.info "[Performance-API] Access token refreshed (expires #{@token_expires_at})"
+      @refreshed_at = Time.current
+      # refresh_token_expires_in tells us how long a Performance login lasts
+      # without a browser (open item in docs/prd-performance-integration.md).
+      logger.info "[Performance-API] Access token refreshed (expires #{@token_expires_at}; " \
+                  "refresh token lasts #{payload['refresh_token_expires_in'].inspect}s)"
       @access_token.present?
     rescue StandardError => e
       logger.warn "[Performance-API] Token refresh error: #{e.class}: #{e.message}"
@@ -128,6 +132,54 @@ module Scrapers
 
     def token_expired?
       @token_expires_at.nil? || @token_expires_at <= Time.current + 60
+    end
+
+    # Write tokens this client refreshed back into the stored MSAL cache, so
+    # the next restore — API or browser — starts from them. B2C hands back a
+    # new refresh token on every refresh; before this only a browser session
+    # ever saved one. Returns true when an entry was updated. Never raises: a
+    # failed save only means the next restore starts from the older tokens.
+    def persist_tokens!
+      return false if @access_token.blank? || @refreshed_at.nil?
+
+      data = JSON.parse(credential.session_data.to_s)
+      updated = false
+
+      %w[local_storage session_storage].each do |store|
+        entries = data[store]
+        next unless entries.is_a?(Hash)
+
+        entries.keys.each do |key|
+          entry = begin
+            JSON.parse(entries[key].to_s)
+          rescue JSON::ParserError
+            nil
+          end
+          next unless entry.is_a?(Hash) && entry['secret'].present?
+
+          name = key.to_s.downcase
+          if name.include?('-accesstoken-') && entry['target'].to_s.include?(API_SCOPE_HOST)
+            entry['secret'] = @access_token
+            entry['expiresOn'] = @token_expires_at.to_i.to_s
+            entry['extendedExpiresOn'] = @token_expires_at.to_i.to_s if entry.key?('extendedExpiresOn')
+            entry['cachedAt'] = @refreshed_at.to_i.to_s if entry.key?('cachedAt')
+          elsif name.include?('-refreshtoken-') && @refresh_token.present?
+            entry['secret'] = @refresh_token
+          else
+            next
+          end
+
+          entries[key] = entry.to_json
+          updated = true
+        end
+      end
+      return false unless updated
+
+      credential.update!(session_data: data.to_json)
+      true
+    rescue StandardError => e
+      logger.warn "[Performance-API] Could not save refreshed tokens: #{e.class}: #{e.message}"
+      false
     end
 
     # Decoded claims from the current access token (identity sanity check

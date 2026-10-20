@@ -261,6 +261,50 @@ RSpec.describe Scrapers::PerformanceScraper do
     end
   end
 
+  # Session keepalive runs ~4x a day per login, and pre-order validation runs
+  # it before every Performance order. It used to open Chrome every time.
+  describe '#soft_refresh (API first, browser fallback)' do
+    let(:api) { instance_double(Scrapers::PerformanceApi) }
+
+    before { allow(scraper).to receive(:api_client).and_return(api) }
+
+    it 'refreshes through the API, saves the new tokens, and never opens a browser' do
+      allow(api).to receive(:restore_session).and_return(true)
+      allow(api).to receive(:call).with('Site', 'GetCurrentUserSite', nil, http_method: :get)
+                                  .and_return('ResultObject' => { 'UserCustomers' => [{}] })
+      expect(api).to receive(:persist_tokens!)
+      expect(scraper).not_to receive(:with_browser)
+
+      expect(scraper.soft_refresh).to be(true)
+      expect(credential.reload).to be_active
+    end
+
+    it 'falls back to the browser refresh when the API has no usable token' do
+      allow(api).to receive(:restore_session).and_return(false)
+      expect(scraper).to receive(:browser_soft_refresh).and_return(true)
+
+      expect(scraper.soft_refresh).to be(true)
+    end
+
+    # A refreshed token the middleware rejects (its 203 quirk) must not count
+    # as a live session: pre-order validation would let the order through.
+    it 'falls back to the browser refresh when the refreshed token is rejected' do
+      allow(api).to receive(:restore_session).and_return(true)
+      allow(api).to receive(:call).and_raise(Scrapers::PerformanceApi::AuthError, 'Unauthenticated (HTTP 203)')
+      expect(api).not_to receive(:persist_tokens!)
+      expect(scraper).to receive(:browser_soft_refresh).and_return(true)
+
+      expect(scraper.soft_refresh).to be(true)
+    end
+
+    it 'is false only when the browser refresh fails too' do
+      allow(api).to receive(:restore_session).and_return(false)
+      allow(scraper).to receive(:browser_soft_refresh).and_return(false)
+
+      expect(scraper.soft_refresh).to be(false)
+    end
+  end
+
   describe 'supplier seeding' do
     it 'registers the performance supplier with password auth' do
       seed = Rails.root.join('config/initializers/seed_suppliers.rb').read
