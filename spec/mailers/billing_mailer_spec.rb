@@ -47,7 +47,8 @@ RSpec.describe BillingMailer, type: :mailer do
     it 'states the subscription\'s real monthly amount, not a hardcoded $99' do
       trialing.update!(amount_cents: 17_900)
       mail = described_class.trial_ending_soon(trialing)
-      expect(mail.body.to_s).to include('Your subscription is $179.00/month')
+      expect(mail.body.to_s).to include('charge the card on file $179.00/month')
+      expect(mail.body.to_s).to include('Cancel Subscription before then')
       expect(mail.body.to_s).not_to include('$99')
     end
   end

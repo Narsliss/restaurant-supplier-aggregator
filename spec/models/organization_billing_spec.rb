@@ -90,6 +90,47 @@ RSpec.describe Organization, 'billing', type: :model do
     end
   end
 
+  describe '#checkout_trial_days' do
+    let(:config) { Rails.application.config.stripe_config }
+
+    before { allow(Rails.application.config).to receive(:stripe_config).and_return(config.merge(trial_days: 60)) }
+
+    def history(*statuses)
+      ::Stripe::ListObject.construct_from(
+        object: 'list',
+        data: statuses.each_with_index.map { |st, i| { id: "sub_h#{i}", object: 'subscription', status: st } }
+      )
+    end
+
+    it 'gives a new restaurant the full trial without asking Stripe' do
+      expect(::Stripe::Subscription).not_to receive(:list)
+      expect(org.checkout_trial_days).to eq(60)
+    end
+
+    # Carmin: a comp org switching to paid (Alfio's) is charged the same day.
+    it 'gives a complimentary org no trial' do
+      org.grant_complimentary!(by: owner, reason: 'Founding customer')
+      expect(org.checkout_trial_days).to eq(0)
+    end
+
+    it 'gives a returning customer no second trial' do
+      org.update!(stripe_customer_id: 'cus_back')
+      allow(::Stripe::Subscription).to receive(:list).and_return(history('canceled'))
+      expect(org.checkout_trial_days).to eq(0)
+    end
+
+    it 'ignores test-mode history (customer unknown under the live key)' do
+      org.update!(stripe_customer_id: 'cus_test_era')
+      allow(::Stripe::Subscription).to receive(:list).and_raise(resource_missing)
+      expect(org.checkout_trial_days).to eq(60)
+    end
+
+    it 'is zero when trials are turned off' do
+      allow(Rails.application.config).to receive(:stripe_config).and_return(config.merge(trial_days: 0))
+      expect(org.checkout_trial_days).to eq(0)
+    end
+  end
+
   describe '#live_stripe_subscription' do
     def stripe_list(*statuses)
       ::Stripe::ListObject.construct_from(

@@ -82,7 +82,12 @@
             Create your account
           </h2>
           <p class="mt-2 text-sm text-gray-500">
-            Start your 14-day free trial — no credit card required
+            <% trial_days = Rails.application.config.stripe_config[:trial_days].to_i %>
+            <% if trial_days > 0 %>
+              Start with <%= trial_days %> days free. You'll add a card when you subscribe; nothing is charged until the trial ends.
+            <% else %>
+              Set up your restaurant, then subscribe to start ordering.
+            <% end %>
           </p>
         </div>
 

@@ -14,7 +14,15 @@ class SubscriptionsController < ApplicationController
     # is how they switch to paid without ever hitting the paywall.
     if current_user.current_subscription
       redirect_to subscription_path
+      return
     end
+
+    # Same rule Checkout applies, so the page never promises a trial the
+    # charge won't honor (or the reverse).
+    @trial_days = current_user.current_organization&.checkout_trial_days || 0
+  rescue Stripe::StripeError => e
+    Rails.logger.error "[Stripe] Trial eligibility check failed: #{e.message}"
+    @trial_days = 0
   end
 
   def create

@@ -209,6 +209,31 @@ class Organization < ApplicationRecord
     stripe_customer_id.present? && retrieve_stripe_customer.present?
   end
 
+  # Free-trial length for this org's next Checkout. Only a restaurant's first
+  # subscription gets one: not a comp org switching to paid (already had free
+  # use; Carmin: charged the same day) and not a returning customer, whose
+  # Stripe customer already has a subscription in its history.
+  def checkout_trial_days
+    days = Rails.application.config.stripe_config[:trial_days].to_i
+    return 0 if days <= 0 || complimentary?
+    return 0 if stripe_subscription_history?
+
+    days
+  end
+
+  # Any subscription, in any status, under the saved customer. Test-mode
+  # history is invisible to a live key, so pre-launch test signups still
+  # get their trial.
+  def stripe_subscription_history?
+    return false if stripe_customer_id.blank?
+
+    Stripe::Subscription.list(customer: stripe_customer_id, status: 'all', limit: 1).data.any?
+  rescue Stripe::InvalidRequestError => e
+    raise unless e.code == 'resource_missing'
+
+    false
+  end
+
   # Stripe statuses that mean a subscription is still alive (billing or about to).
   # incomplete is left out: an abandoned 3D Secure checkout expires on its own
   # within a day and must not block a retry.
@@ -230,6 +255,8 @@ class Organization < ApplicationRecord
   end
 
   def create_checkout_session(user:, success_url:, cancel_url:)
+    # Before find_or_create: a stale (test-mode) customer ID reads as no history.
+    trial_days = checkout_trial_days
     customer = find_or_create_stripe_customer
     config = Rails.application.config.stripe_config
 
@@ -258,7 +285,7 @@ class Organization < ApplicationRecord
           organization_id: id,
           user_id: user.id
         }
-      }.merge(config[:trial_days].to_i > 0 ? { trial_period_days: config[:trial_days] } : {}),
+      }.merge(trial_days > 0 ? { trial_period_days: trial_days } : {}),
       success_url: success_url,
       cancel_url: cancel_url,
       allow_promotion_codes: true

@@ -7,7 +7,7 @@ RSpec.describe 'Billing go-live', type: :request do
   let(:base_config) { Rails.application.config.stripe_config }
 
   def configure_prices!
-    config = base_config.merge(monthly_price_id: 'price_base', seat_price_id: 'price_seat')
+    config = base_config.merge(monthly_price_id: 'price_base', seat_price_id: 'price_seat', trial_days: 60)
     allow(Rails.application.config).to receive(:stripe_config).and_return(config)
   end
 
@@ -112,11 +112,70 @@ RSpec.describe 'Billing go-live', type: :request do
           { price: 'price_base', quantity: 1 },
           { price: 'price_seat', quantity: 3 }
         )
+        # Comp switch is charged the same day: no trial even with trials on.
+        expect(params[:subscription_data]).not_to have_key(:trial_period_days)
         ::Stripe::Checkout::Session.construct_from(id: 'cs_1', url: 'https://checkout.stripe.com/c/pay/cs_1')
       end
 
       post subscription_path
       expect(response.body).to include('https://checkout.stripe.com/c/pay/cs_1')
+    end
+  end
+
+  describe '60-day trial' do
+    before do
+      configure_prices!
+      org.update_columns(complimentary: false)
+      allow(::Stripe::Customer).to receive(:create)
+        .and_return(::Stripe::Customer.construct_from(id: 'cus_new', object: 'customer'))
+    end
+
+    it 'tells a new restaurant the trial length and the first charge date' do
+      get new_subscription_path
+      expect(response.body).to include('60-Day Free Trial')
+      expect(response.body).to include((Time.zone.today + 60).strftime('%B %-d, %Y'))
+      expect(response.body).to include('nothing is charged until')
+    end
+
+    it 'opens Checkout with the 60-day trial for a first subscription' do
+      expect(::Stripe::Checkout::Session).to receive(:create) do |params|
+        expect(params[:subscription_data][:trial_period_days]).to eq(60)
+        ::Stripe::Checkout::Session.construct_from(id: 'cs_t', url: 'https://checkout.stripe.com/c/pay/cs_t')
+      end
+
+      post subscription_path
+    end
+
+    context 'returning customer' do
+      before do
+        org.update_columns(stripe_customer_id: 'cus_back')
+        allow(::Stripe::Subscription).to receive(:list).and_return(
+          ::Stripe::ListObject.construct_from(object: 'list', data: [{ id: 'sub_old', object: 'subscription', status: 'canceled' }])
+        )
+        allow(::Stripe::Customer).to receive(:retrieve)
+          .and_return(::Stripe::Customer.construct_from(id: 'cus_back', object: 'customer'))
+      end
+
+      it 'shows no trial and opens Checkout without one' do
+        get new_subscription_path
+        expect(response.body).not_to include('Free Trial')
+        expect(response.body).to include('today, then monthly')
+
+        expect(::Stripe::Checkout::Session).to receive(:create) do |params|
+          expect(params[:subscription_data]).not_to have_key(:trial_period_days)
+          ::Stripe::Checkout::Session.construct_from(id: 'cs_r', url: 'https://checkout.stripe.com/c/pay/cs_r')
+        end
+        post subscription_path
+      end
+    end
+
+    # Regression: the sign-up page promised "14-day free trial — no credit
+    # card required" while trials were off and Checkout always takes a card.
+    it 'sign-up page states the real trial and no "no credit card" promise' do
+      sign_out owner
+      get new_user_registration_path
+      expect(response.body).to include("days free. You'll add a card when you subscribe")
+      expect(response.body).not_to include('no credit card')
     end
   end
 

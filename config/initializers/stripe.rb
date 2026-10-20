@@ -24,7 +24,8 @@ Rails.application.config.stripe_config = {
   included_seats: 5,  # Seats included in base plan (excludes owner)
 
   # Trial period (optional)
-  trial_days: ENV.fetch("STRIPE_TRIAL_DAYS", 14).to_i,
+  # Only a restaurant's first subscription gets it (Organization#checkout_trial_days).
+  trial_days: ENV.fetch("STRIPE_TRIAL_DAYS", 60).to_i,
 
   # Product name
   product_name: "EnPlace Pro",

@@ -1,6 +1,8 @@
 <% config = Rails.application.config.stripe_config %>
-<% trial_days = config[:trial_days] || 0 %>
+<%# Set by SubscriptionsController#new with the same first-subscription rule Checkout uses. %>
+<% trial_days = @trial_days.to_i %>
 <% has_trial = trial_days > 0 %>
+<% first_charge_on = (Time.zone.today + trial_days).strftime("%B %-d, %Y") %>
 <% org = current_user.current_organization %>
 <%# Mirrors Organization#create_checkout_session: seats over the included ones are only billed when a seat price is configured. %>
 <% extra_seats = org && config[:seat_price_id].present? ? org.extra_seat_count : 0 %>
@@ -94,7 +96,7 @@
             <div class="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 mb-4 text-sm text-blue-800" data-complimentary-notice>
               <%= org.name %> is on complimentary access. Subscribing switches it to paid billing:
               <% if has_trial %>
-                your card is charged $<%= monthly_total_cents / 100 %> when the <%= trial_days %>-day trial ends, then monthly.
+                your card is charged $<%= monthly_total_cents / 100 %> on <%= first_charge_on %>, then monthly.
               <% else %>
                 your card is charged $<%= monthly_total_cents / 100 %> today, then monthly.
               <% end %>
@@ -113,11 +115,12 @@
             </button>
           <% end %>
 
-          <p class="text-center text-sm text-gray-500 mt-4">
+          <p class="text-center text-sm text-gray-500 mt-4" data-trial-terms>
             <% if has_trial %>
-              Try free for <%= trial_days %> days. Cancel anytime.
+              Free for <%= trial_days %> days. You'll enter a card at checkout; nothing is charged until
+              <%= first_charge_on %>, when $<%= monthly_total_cents / 100 %>/month begins. Cancel anytime before then and you pay nothing.
             <% else %>
-              Cancel anytime.
+              Charged $<%= monthly_total_cents / 100 %> today, then monthly. Cancel anytime.
             <% end %>
           </p>
         </div>

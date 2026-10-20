@@ -11,7 +11,10 @@ Production has been on Stripe **test** keys since launch. No real money moves, b
 ## Decisions (Carmin, Oct 15 2026)
 - **Alfio's moves from comp to paid, charged the day he enters his card.** No dated free period. He subscribes himself from Subscription → **Switch to paid** while still on comp, and comp ends automatically once his subscription is active. Nobody at Alfio's sees the paywall. Don't use the admin **Revoke** button for this.
 - **Failed card:** keep access while Stripe retries, for a **2-week** window. Then Stripe cancels and the paywall takes over. Set this in Stripe (1g: Smart Retries, 2 weeks, then cancel the subscription).
-- Still open (only needed on switch day): trial length, the other four orgs, Stripe receipts, Ohio sales tax, support email address.
+- **Price (Oct 19):** $149/month base, $10/month per seat over 5. Alfio's 8 seats = $179/month.
+- **Trial (Oct 19):** new restaurants get **60 days free**, card entered at checkout, first charge on day 61. Only a restaurant's **first** subscription gets it: no trial for a comp org switching to paid (Alfio's is charged the same day) or for a returning customer (`Organization#checkout_trial_days`, which asks live Stripe for the customer's subscription history). The pricing page names the exact first-charge date; the sign-up page no longer promises "no credit card required".
+- **Support email (Oct 19):** carmin@las-noches.com.
+- Still open (only needed on switch day): the other four orgs, Stripe receipts, Ohio sales tax.
 
 ## Status (branch `stripe-go-live-fixes`, rebased on main Oct 19, not yet committed)
 | Blocker | State |
@@ -59,7 +62,7 @@ You have to do these yourself. They involve your SSN, bank account and live secr
 - [ ] Turn on 2-step login for the Stripe account
 
 ### 1b. Public details (Settings → Business → Public details)
-- [ ] Statement descriptor, which is what shows on chefs' card statements. Something like `ENPLACEPRO` (22 characters max). An unrecognizable descriptor is the #1 cause of "what is this charge" chargebacks.
+- [ ] Statement descriptor, which is what shows on chefs' card statements: `ENPLACEPRO`. **Keep it to 10 characters or fewer**, because when a free trial converts, Stripe overwrites everything after character 10 with `* TRIAL OVER` (card-network rule). An unrecognizable descriptor is the #1 cause of "what is this charge" chargebacks.
 - [ ] Support email + phone. **This must be a real inbox.** See blocker 6: the app currently tells chefs to email `support@supplierhub.com`.
 - [ ] Terms URL: `https://enplacepro.app/terms`. Privacy URL: there is no separate privacy page. Privacy is section 8 of the terms. Use `https://enplacepro.app/terms` for now, or ask me to add a `/privacy` page.
 
@@ -97,7 +100,7 @@ Live mode needs its own saved portal configuration. Until you save one, the app'
 - [ ] **Failed payments → Smart Retries**, about a 2-week window, then **cancel the subscription**. Decision for you; my recommendation is in the questions at the end.
 - [ ] **Successful payment receipts: ON** (recommended). The app sends no receipts, and restaurants want them for bookkeeping.
 - [ ] Failed payment emails / expiring card emails: decide (see blocker 2: the app's own failed-payment email is currently broken).
-- [ ] Trial-ending reminder: the app already sends its own email 3 days before. Leave Stripe's off to avoid duplicates.
+- [ ] **Trial-ending reminder: ON** (Settings → Billing → Subscriptions and emails → trial reminder with "Link to a Stripe-hosted page"). Card networks require a reminder before a card-on-file free trial converts; Stripe's goes out **7 days** before and includes the cancel link. The app's own email (3 days before, on `trial_will_end`) is an extra. *(Changed Oct 19: with a 60-day trial this must be on.)*
 
 ### 1h. Sales tax: ask your accountant before the first live charge
 - [ ] Ohio generally treats SaaS sold to businesses as taxable. Confirm with your accountant. If it applies, you'd register with Ohio, turn on **Stripe Tax**, and I'd add `automatic_tax` + address collection to Checkout (small change).
@@ -111,7 +114,7 @@ Set on **both** `pretty-friendship` (web) and `worker` so they never disagree. S
 | `STRIPE_WEBHOOK_SECRET` | the live endpoint's `whsec_…` |
 | `STRIPE_MONTHLY_PRICE_ID` | live `price_…` for $149 |
 | `STRIPE_SEAT_PRICE_ID` | live `price_…` for $10 seat |
-| `STRIPE_TRIAL_DAYS` | your decision (see questions). As of June it was `0`, and the code default is 14. |
+| `STRIPE_TRIAL_DAYS` | **`60`** (currently `0` in Railway; the code default is now 60) |
 
 `STRIPE_SUCCESS_URL` / `STRIPE_CANCEL_URL` exist in config but aren't used. The controller builds its own URLs.
 
@@ -159,7 +162,7 @@ Found in the prod census. `Invoice.sync_from_stripe` finds the org by `organizat
 
 ### Should-fix (not blockers)
 - ~~**Cancel email wording.**~~ *Fixed:* it's sent when access ends, and now says so and links to resubscribe. It used to say "reactivate any time". Still nothing emails the owner when they *schedule* a cancel.
-- **Trials repeat.** Every Checkout gets `trial_period_days`, so a restaurant that cancels and resubscribes gets another free trial. This only matters if you turn trials on.
+- ~~**Trials repeat.**~~ *Fixed Oct 19:* only a restaurant's first subscription gets the trial.
 - ~~**Admin "Extend trial" can error.**~~ *Fixed:* it now counts from today when the old trial already ended.
 - **Seat billing drift.** Seats are synced only when an invite is *accepted* or a member is *deactivated*. Pending invites count as paid seats. A revoked or expired invite doesn't un-bill until the next sync. See Part 3.
 - ~~**The subscription page header always said "$99.00/month".**~~ *Fixed Oct 19:* `amount_cents` and `interval` now sync from Stripe (base + seat quantity, before discounts), so the page and the trial-ending email show what Stripe actually bills.
@@ -180,7 +183,7 @@ Found in the prod census. `Invoice.sync_from_stripe` finds the org by `organizat
 ### Signing up (Checkout)
 Owner clicks Subscribe → Stripe-hosted Checkout → enters card → back to the app.
 - **No trial (`STRIPE_TRIAL_DAYS=0`):** charged $149 (+ seats over 5) immediately. That date becomes their monthly billing day.
-- **With a trial:** the card is collected **up front** but not charged. Checkout always requires a card. There is no card-free trial in the current build.
+- **With the trial (60 days, first subscription only):** the card is collected **up front** but not charged; the pricing page states the first-charge date. Comp orgs switching to paid and returning customers are charged immediately. There is no card-free trial.
 - The welcome email goes to the owner, and you get a "new signup" email.
 
 ### How a trial expires and starts charging
@@ -223,7 +226,7 @@ Fully automatic in Stripe. On the billing day each month, Stripe drafts the invo
 | You → Stripe dashboard | Can cancel immediately, optionally prorate/refund | Immediately if you choose | **"Canceled" email goes to the real chef** |
 | Card fails, retries exhausted | Stripe cancels (per 1g) | When Stripe gives up | Same |
 
-After cancellation, all data (lists, matches, orders, credentials) stays. Resubscribing is a fresh Checkout: a new subscription, a new billing day, and another trial if trials are on (see should-fix).
+After cancellation, all data (lists, matches, orders, credentials) stays. Resubscribing is a fresh Checkout: a new subscription and a new billing day, with **no** second trial.
 
 ### Complimentary access
 - Super admin grants it at `/admin/organizations/:id` with a reason. It records who and when.
@@ -257,7 +260,6 @@ If anything in steps 3–5 goes wrong: grant Alfio complimentary access again fr
 **Blast radius of the push itself:** nothing in ordering, scrapers or jobs changed, and there's no database migration. On test keys, the visible differences are a "Switch to paid" link for complimentary orgs, the cleanup page (which refuses to run), and a red admin-dashboard alert about unmatched Stripe events (expected noise until the switch). Rollback = revert the commit.
 
 ## Still open
-- Trial length for new signups (Railway `STRIPE_TRIAL_DAYS`), and whether returning customers get a second trial.
 - Tres Noches, BIG ICE, The Empanada's Box, and the second "Alfios Buon Cibo" org: comp, pay, or leave paywalled?
 - Stripe receipts on/off (recommended on).
 - Ohio sales tax (accountant).
