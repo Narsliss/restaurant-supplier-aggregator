@@ -34,4 +34,31 @@ RSpec.describe Scrapers::BaseScraper do
       expect { scraper.send(:detect_maintenance) }.not_to raise_error
     end
   end
+
+  # Order placement safety (Oct 20 2026): OrderPlacementService records the
+  # submit on the order through this hook before the request goes out.
+  describe '#submit_sent!' do
+    it 'runs the before_live_submit hook first, then counts the submit as sent' do
+      sent_when_hook_ran = nil
+      scraper.before_live_submit = -> { sent_when_hook_ran = scraper.submit_sent? }
+
+      scraper.submit_sent!
+
+      expect(sent_when_hook_ran).to be(false)
+      expect(scraper.submit_sent?).to be(true)
+    end
+
+    it 'stops before the submit when the hook fails, with nothing counted as sent' do
+      scraper.before_live_submit = -> { raise ActiveRecord::StatementInvalid, 'db down' }
+
+      expect { scraper.submit_sent! }.to raise_error(ActiveRecord::StatementInvalid)
+      expect(scraper.submit_sent?).to be(false)
+    end
+
+    it 'works without a hook' do
+      scraper.submit_sent!
+
+      expect(scraper.submit_sent?).to be(true)
+    end
+  end
 end

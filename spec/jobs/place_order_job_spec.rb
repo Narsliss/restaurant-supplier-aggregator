@@ -32,7 +32,8 @@ RSpec.describe PlaceOrderJob, type: :job do
 
     it 'proceeds when order is in a non-terminal state' do
       service = instance_double(Orders::OrderPlacementService, place_order: { success: true, dry_run: true })
-      expect(Orders::OrderPlacementService).to receive(:new).with(order).and_return(service)
+      expect(Orders::OrderPlacementService).to receive(:new)
+        .with(order, account_lock: kind_of(Orders::SupplierAccountLock)).and_return(service)
 
       described_class.new.perform(order.id)
     end
@@ -148,6 +149,30 @@ RSpec.describe PlaceOrderJob, type: :job do
       expect { described_class.new.perform(order.id) }.to raise_error(StandardError, 'boom')
 
       expect(order.reload).to have_attributes(status: 'submitted', confirmation_number: 'C1')
+    end
+
+    # Order placement safety (Oct 20 2026): the persisted marker counts too.
+    it 'calls the order unconfirmed when its recorded submit went out before the crash' do
+      crashing_service { order.update!(status: 'processing', submit_sent_at: Time.current) }
+      expect(OrderFailureAlertJob).to receive(:schedule).with(kind_of(Order), kind: 'unconfirmed')
+
+      expect { described_class.new.perform(order.id) }.to raise_error(StandardError, 'boom')
+
+      expect(order.reload.status).to eq('pending_manual')
+    end
+
+    it 'leaves an order an earlier run sent exactly as it was when this run crashes' do
+      order.update!(status: 'pending_manual', submit_sent_at: 1.minute.ago, error_message: 'Check first.')
+      allow_any_instance_of(Order).to receive(:reload).and_wrap_original do |original, *args|
+        @reloads = (@reloads || 0) + 1
+        raise ActiveRecord::ConnectionNotEstablished, 'db blip' if @reloads == 1
+
+        original.call(*args)
+      end
+
+      expect { described_class.new.perform(order.id) }.to raise_error(ActiveRecord::ConnectionNotEstablished)
+
+      expect(Order.find(order.id)).to have_attributes(status: 'pending_manual', error_message: 'Check first.')
     end
 
     it 'keeps an outcome the service already wrote during this run' do

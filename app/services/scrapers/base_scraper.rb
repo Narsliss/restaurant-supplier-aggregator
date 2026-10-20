@@ -275,7 +275,14 @@ module Scrapers
     # on an unexpected error means the supplier may have the order, so
     # OrderPlacementService reports it unconfirmed, never "failed" (which
     # invites a second order). Refusals after this point raise NotPlacedError.
+    #
+    # before_live_submit (set by OrderPlacementService) records it on the
+    # order first, so a job re-run after a deploy never sends it again. If
+    # that raises, nothing was sent and the error stops the order here.
+    attr_writer :before_live_submit
+
     def submit_sent!
+      @before_live_submit&.call
       @submit_sent = true
     end
 

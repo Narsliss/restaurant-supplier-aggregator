@@ -205,13 +205,33 @@ class Order < ApplicationRecord
   # change was accepted 0.5 s after Submit). Item edits take the same lock
   # (edit_while_editable). The block runs inside it before the flip.
   # false when the order can no longer be placed (or someone got there first).
+  # A new attempt the chef chose, from a state that means nothing was placed,
+  # starts without the previous attempt's submit marker.
   def start_placement!(allowed_statuses: nil, **attrs)
     with_lock do
       next false unless allowed_statuses ? status.in?(allowed_statuses) : can_submit?
 
       yield if block_given?
+      attrs = attrs.merge(submit_sent_at: nil) if self.class.submit_marker?
       update!(attrs.merge(status: "processing"))
       true
+    end
+  end
+
+  # submit_sent_at is written right before the live submit request goes out
+  # (OrderPlacementService#record_live_submit!). Set on an order that isn't
+  # completed, it means a supplier may already have it: PlaceOrderJob never
+  # sends it again (docs/plan-order-placement-double-submit-and-account-lock.md).
+  def submit_sent_recorded?
+    self.class.submit_marker? && submit_sent_at.present?
+  end
+
+  # A worker that booted before the migration ran keeps a column list without
+  # submit_sent_at (UnknownAttributeError on write). Until it restarts, behave
+  # as before the marker existed instead of failing every order.
+  def self.submit_marker?
+    @submit_marker ||= column_names.include?("submit_sent_at").tap do |present|
+      Rails.logger.error "[Order] orders.submit_sent_at is missing from this process's columns: restart it" unless present
     end
   end
 

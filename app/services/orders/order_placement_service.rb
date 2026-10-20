@@ -2,8 +2,11 @@ module Orders
   class OrderPlacementService
     attr_reader :order, :scraper, :validation_result
 
-    def initialize(order)
+    # account_lock: the Orders::SupplierAccountLock PlaceOrderJob holds for
+    # this placement, re-checked right before the live submit.
+    def initialize(order, account_lock: nil)
       @order = order
+      @account_lock = account_lock
     end
 
     def place_order(accept_price_changes: false, skip_warnings: false, skip_pre_validation: false)
@@ -33,6 +36,7 @@ module Orders
 
       # Step 4: Initialize scraper
       @scraper = order.supplier.scraper_klass.new(credential)
+      scraper.before_live_submit = -> { record_live_submit! } if scraper.respond_to?(:before_live_submit=)
 
       order.update!(status: 'processing')
 
@@ -192,6 +196,20 @@ module Orders
     end
 
     private
+
+    # Called by the scraper's submit_sent!, right before the live submit
+    # request. Commits the order's submit marker first: if this process dies
+    # before the outcome is written, the job's re-run sees it and never sends
+    # the order again. Raising here stops the order before anything is sent.
+    def record_live_submit!
+      if @account_lock && !@account_lock.held?
+        raise Scrapers::BaseScraper::NotPlacedError,
+              "Not placed. EnPlace lost its hold on the #{order.supplier.name} account just before sending, " \
+              'so nothing was sent. Try again.'
+      end
+
+      order.update_columns(submit_sent_at: Time.current) if Order.submit_marker?
+    end
 
     # Lines the supplier changed while placing (e.g. PPO moved them to a later
     # delivery day). Shown on the order page, and the chef + owner(s) get the

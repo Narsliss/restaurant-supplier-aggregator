@@ -146,4 +146,43 @@ RSpec.describe Order, type: :model do
       expect(order.calculate_savings).to eq(0)
     end
   end
+
+  # Order placement safety (Oct 20 2026): the submit marker.
+  describe 'submit marker' do
+    let(:order) { create(:order, submit_sent_at: 1.minute.ago) }
+
+    it 'is cleared when the chef starts a new attempt' do
+      expect(order.start_placement!(error_message: nil)).to be(true)
+
+      expect(order.reload).to have_attributes(status: 'processing', submit_sent_at: nil)
+    end
+
+    it 'is kept when the order can no longer be placed' do
+      order.update!(status: 'pending_manual')
+
+      expect(order.start_placement!).to be(false)
+      expect(order.reload.submit_sent_at).to be_present
+    end
+
+    it 'reports whether a live submit was recorded' do
+      expect(order.submit_sent_recorded?).to be(true)
+      expect(create(:order).submit_sent_recorded?).to be(false)
+    end
+
+    context 'in a worker that booted before the migration ran' do
+      before do
+        Order.instance_variable_set(:@submit_marker, nil)
+        allow(Order).to receive(:column_names).and_return(Order.column_names - ['submit_sent_at'])
+      end
+
+      after { Order.instance_variable_set(:@submit_marker, nil) }
+
+      it 'behaves as before the marker existed instead of failing every order' do
+        expect(Order.submit_marker?).to be(false)
+        expect(order.submit_sent_recorded?).to be(false)
+        expect(order.start_placement!).to be(true)
+        expect(order.reload.status).to eq('processing')
+      end
+    end
+  end
 end
