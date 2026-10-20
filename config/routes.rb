@@ -294,7 +294,9 @@ Rails.application.routes.draw do
   end
 
   # Static pages
-  get 'terms', to: 'pages#terms', as: :terms
+  # The one copy of the Terms lives on the marketing site (enplacepro-website repo,
+  # frontend/src/pages/Terms.jsx). Kept as a route so old links, Stripe and emails land there.
+  get 'terms', to: redirect('https://enplacepro.com/terms', status: 301), as: :terms
 
   # Health check
   get 'up' => 'rails/health#show', as: :rails_health_check

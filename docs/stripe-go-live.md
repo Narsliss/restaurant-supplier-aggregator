@@ -14,6 +14,7 @@ Production has been on Stripe **test** keys since launch. No real money moves, b
 - **Price (Oct 19):** $149/month base, $10/month per seat over 5. Alfio's 8 seats = $179/month.
 - **Trial (Oct 19):** new restaurants get **60 days free**, card entered at checkout, first charge on day 61. Only a restaurant's **first** subscription gets it: no trial for a comp org switching to paid (Alfio's is charged the same day) or for a returning customer (`Organization#checkout_trial_days`, which asks live Stripe for the customer's subscription history). The pricing page names the exact first-charge date; the sign-up page no longer promises "no credit card required".
 - **Support email (Oct 19):** carmin@las-noches.com.
+- **Legal pages (Oct 19):** the Terms of Service, Privacy Policy and Support pages live on the marketing site: `https://enplacepro.com/terms`, `/privacy`, `/support` (repo enplacepro-website, change record `docs/support-privacy-pages.md`). The app's `/terms` is a 301 redirect there. In Stripe use those URLs: public details (support URL `…/support`, privacy `…/privacy`) and the customer portal's terms link (`…/terms`).
 - Still open (only needed on switch day): the other four orgs, Stripe receipts, Ohio sales tax.
 
 ## Status (branch `stripe-go-live-fixes`, rebased on main Oct 19, not yet committed)

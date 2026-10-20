@@ -180,11 +180,8 @@ RSpec.describe 'Billing go-live', type: :request do
   end
 
   describe 'support contact' do
-    it 'shows the support inbox on the Subscription page and the Terms' do
+    it 'shows the support inbox on the Subscription page' do
       get subscription_path
-      expect(response.body).to include('mailto:carmin@las-noches.com')
-
-      get terms_path
       expect(response.body).to include('mailto:carmin@las-noches.com')
     end
 

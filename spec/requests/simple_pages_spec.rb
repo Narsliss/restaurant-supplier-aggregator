@@ -17,9 +17,11 @@ RSpec.describe 'Dashboard', type: :request do
 end
 
 RSpec.describe 'Pages', type: :request do
-  it 'GET /terms is publicly accessible' do
+  # The Terms moved to the marketing site (one copy, its look); /terms forwards there.
+  it 'GET /terms permanently redirects to the Terms on enplacepro.com' do
     get terms_path
-    expect(response).to have_http_status(:ok)
+    expect(response).to have_http_status(:moved_permanently)
+    expect(response.location).to eq('https://enplacepro.com/terms')
   end
 end
 
