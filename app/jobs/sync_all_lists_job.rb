@@ -7,9 +7,15 @@
 # auto-login without user interaction. Expired 2FA suppliers are skipped
 # because they would trigger unwanted MFA prompts in a background job.
 class SyncAllListsJob < ApplicationJob
-  queue_as :scraping
+  queue_as :list_sync
 
   ROLE_PRIORITY = %w[owner manager member].freeze
+
+  # Gap between two logins of the SAME supplier. Suppliers run side by side,
+  # so this is our per-supplier rate limit. It used to be one 30-second line
+  # for every login of every supplier: at 250 restaurants the last guide would
+  # start ~9 hours after 8 AM (docs/fix-morning-sync-at-scale.md).
+  STAGGER = 30.seconds
 
   def perform
     credentials = one_credential_per_supplier_per_org
@@ -22,14 +28,14 @@ class SyncAllListsJob < ApplicationJob
     Rails.logger.info "[SyncAllLists] Enqueuing list sync for #{syncable.size} credentials " \
                       "across #{org_count} organization(s)"
 
-    syncable.each_with_index do |credential, index|
-      # Stagger jobs 30 seconds apart to avoid hitting suppliers simultaneously
-      # Sysco: use combined job (catalog + lists in one browser session) since
-      # session restore doesn't work between browser instances.
-      if credential.supplier.code == 'sysco'
-        SyscoCombinedImportJob.set(wait: (index * 30).seconds).perform_later(credential.id)
-      else
-        ImportSupplierListsJob.set(wait: (index * 30).seconds).perform_later(credential.id)
+    syncable.group_by(&:supplier_id).each_value do |creds|
+      creds.each_with_index do |credential, index|
+        # Sysco syncs only its guide here, like the others: the 6 AM run
+        # imports its catalog once a day (this used to re-import all of it
+        # for every Sysco login, ~20 min each). Its delivery dates are per
+        # account, so the guide sync queues them when it finishes.
+        options = credential.supplier.code == 'sysco' ? { delivery_dates: true } : {}
+        ImportSupplierListsJob.set(wait: index * STAGGER).perform_later(credential.id, **options)
       end
     end
   end

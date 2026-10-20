@@ -76,9 +76,11 @@ production:
   # Scheduled 3 hours after staggered import to avoid overlap —
   # a slow US Foods import can run 1-3 hours, and concurrent browser sessions
   # to the same supplier risk rate limiting and double memory usage.
+  # Runs on its own list_sync worker, one lane per supplier
+  # (docs/fix-morning-sync-at-scale.md).
   sync_all_lists:
     class: SyncAllListsJob
-    queue: scraping
+    queue: list_sync
     schedule: "0 8 * * *"
     description: "8 AM ET (app time zone): sync supplier lists/order guides"
 

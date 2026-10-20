@@ -12,7 +12,7 @@
 # browser is only opened when the JWT is expired (rare — tokens live ~7 days).
 # In the common case this is a pure HTTP GraphQL call.
 class FetchSyscoDeliveryDatesJob < ApplicationJob
-  queue_as :scraping
+  queue_as :list_sync
 
   # One refresh at a time per credential; dedupe overlapping enqueues from
   # concurrent order-builder / review page loads.

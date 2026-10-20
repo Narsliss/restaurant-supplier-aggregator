@@ -69,6 +69,12 @@ class MorningStockReportJob < ApplicationJob
                   0
                 end
       off = supplier.morning_stock_mode == 'off'
+      problems = off ? [] : problems_for(run, ran_at, since, total, checked, no_data)
+      refused = refusals_since(supplier, since)
+      if refused.positive?
+        problems << "the supplier refused #{refused} of this morning's syncs or imports (HTTP 429/403), " \
+                    'so it may be rate-limiting or blocking EnPlace'
+      end
 
       {
         supplier: supplier,
@@ -79,7 +85,7 @@ class MorningStockReportJob < ApplicationJob
         in_use_checked: checked,
         in_use_no_data: no_data,
         in_use_out: in_use.where(in_stock: false).count,
-        problems: off ? [] : problems_for(run, ran_at, since, total, checked, no_data),
+        problems: problems,
         notes: off ? [] : notes_for(run)
       }
     end
@@ -112,6 +118,20 @@ class MorningStockReportJob < ApplicationJob
                   'normally a few), so its stock reader may have broken'
     end
     problems
+  end
+
+  # A supplier rate-limiting (429) or blocking (403) us. All supplier traffic
+  # leaves from one Railway address, so this is the first sign of outgrowing
+  # it (docs/fix-morning-sync-at-scale.md). Reported whatever the stock mode.
+  # The guide sync keeps the errors it catches in its log's metadata.
+  REFUSAL_PATTERN = /\bHTTP[ :]*(?:429|403)\b|Too Many Requests/i
+
+  def self.refusals_since(supplier, since)
+    ScrapingLog.where(supplier_id: supplier.id).where('created_at >= ?', since)
+               .select(:error_message, :metadata).to_a.count do |log|
+      caught = log.metadata.is_a?(Hash) ? Array(log.metadata['errors']) : []
+      [log.error_message, *caught].any? { |message| message.to_s.match?(REFUSAL_PATTERN) }
+    end
   end
 
   # Worth seeing on the Operations page, not worth an email.

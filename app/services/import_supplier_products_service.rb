@@ -316,6 +316,28 @@ class ImportSupplierProductsService
     GC.compact if GC.respond_to?(:compact)
   end
 
+  # Sysco's guide carries prices but no stock. Its guide sync calls this for
+  # the guide's items so the 8 AM sync no longer re-imports the whole catalog
+  # per login (docs/fix-morning-sync-at-scale.md). Same lookup, evidence
+  # rules and 25% guard as the morning run. Records no stock run: the 9:15
+  # report keeps judging the 6 AM catalog run.
+  def read_stock_for_list_items!(scraper:, supplier_product_ids:)
+    return unless scraper.respond_to?(:live_stock_for) && SupplierProduct.stock_evidence?
+    return if supplier.morning_stock_mode == 'off'
+
+    products = SupplierProduct.where(id: supplier_product_ids, supplier: supplier, discontinued: false)
+                              .where.not(supplier_sku: [nil, '']).index_by(&:supplier_sku)
+    return if products.empty?
+
+    read_live_stock!(scraper, products)
+    apply_held_outs!
+    Rails.logger.info "[ImportProducts] #{supplier.name}: read stock for #{products.size} guide items " \
+                      "(#{stock_counts[:out]} out#{', held by the guard' if @stock_hold})"
+  rescue StandardError => e
+    results[:errors] << "Reading stock for guide items failed: #{e.class}: #{e.message}"
+    Rails.logger.error "[ImportProducts] #{supplier.name}: guide-item stock read failed: #{e.class}: #{e.message}"
+  end
+
   private
 
   # One row of heal_unitless_pack_sizes. See the guards documented there.
@@ -904,9 +926,19 @@ class ImportSupplierProductsService
     return if unread.empty?
 
     credential.update_columns(import_status_text: "Checking stock for #{unread.size} list items...")
+    read_live_stock!(scraper, unread)
+    Rails.logger.info "[ImportProducts] #{supplier.name}: read stock for list items the crawl missed (#{unread.size} looked up)"
+  rescue StandardError => e
+    results[:errors] << "Reading stock for list items failed: #{e.class}: #{e.message}"
+    Rails.logger.error "[ImportProducts] #{supplier.name}: list-item stock read failed: #{e.class}: #{e.message}"
+  end
+
+  # Look up stock for +products_by_sku+ by item number and record it with the
+  # morning run's evidence rules (outs held for apply_held_outs!).
+  def read_live_stock!(scraper, products_by_sku)
     now = Time.current
-    scraper.live_stock_for(unread.keys).each do |sku, (in_stock, signal)|
-      sp = unread[sku]
+    scraper.live_stock_for(products_by_sku.keys).each do |sku, (in_stock, signal)|
+      sp = products_by_sku[sku]
       next unless sp
 
       row = {}
@@ -916,10 +948,6 @@ class ImportSupplierProductsService
       row[:in_stock] = true if in_stock == true # shadow marks items in too, as the crawl does
       sp.update_columns(row.slice(:stock_signal, :stock_checked_at, :stock_source, :in_stock).merge(updated_at: now))
     end
-    Rails.logger.info "[ImportProducts] #{supplier.name}: read stock for list items the crawl missed (#{unread.size} looked up)"
-  rescue StandardError => e
-    results[:errors] << "Reading stock for list items failed: #{e.class}: #{e.message}"
-    Rails.logger.error "[ImportProducts] #{supplier.name}: list-item stock read failed: #{e.class}: #{e.message}"
   end
 
   # A new product the supplier calls out, in live mode: created in stock and

@@ -184,6 +184,73 @@ RSpec.describe ImportSupplierProductsService, 'stock evidence' do
     end
   end
 
+  # docs/fix-morning-sync-at-scale.md: Sysco's 8 AM guide sync reads stock
+  # for the guide's items instead of re-importing the catalog per login.
+  describe '#read_stock_for_list_items! (a guide sync)' do
+    let(:mode) { 'live' }
+    let(:scraper) { double('Sysco', crawl_stats: nil) }
+    let(:list) { create(:supplier_list) }
+    let(:steady) do
+      (1..20).map { |i| create(:supplier_product, supplier: supplier, supplier_sku: "S#{i}", in_stock: true) }
+    end
+
+    before do
+      (steady + [walnuts, flour]).each { |sp| create(:supplier_list_item, supplier_list: list, supplier_product: sp) }
+    end
+
+    def read(products)
+      service.read_stock_for_list_items!(scraper: scraper, supplier_product_ids: products.map(&:id))
+    end
+
+    it 'records the stock and marks outs once the guard passes' do
+      answers = steady.to_h { |sp| [sp.supplier_sku, [true, '"S" S']] }
+                      .merge('NW101B' => [false, '"O" S'], 'GF210' => [true, '"S" S'])
+      allow(scraper).to receive(:live_stock_for).and_return(answers)
+
+      read(steady + [walnuts, flour])
+
+      expect(walnuts.reload).to have_attributes(in_stock: false, stock_signal: '"O" S', stock_source: 'catalog')
+      expect(walnuts.stock_checked_at).to be_within(1.minute).of(Time.current)
+      expect(flour.reload.in_stock).to be(true)
+    end
+
+    it 'holds every out when too many read out (the morning guard)' do
+      allow(scraper).to receive(:live_stock_for).and_return(steady.to_h { |sp| [sp.supplier_sku, [false, '"O" S']] })
+
+      read(steady)
+
+      expect(steady.map { |sp| sp.reload.in_stock }).to all(be(true))
+    end
+
+    it 'records no stock run, so the 9:15 report keeps judging the 6 AM catalog run' do
+      supplier.update!(last_stock_run: { 'at' => 2.hours.ago.iso8601, 'kind' => 'catalog' })
+      allow(scraper).to receive(:live_stock_for).and_return('NW101B' => [true, '"S" S'])
+
+      expect { read([walnuts]) }.not_to(change { supplier.reload.last_stock_run })
+    end
+
+    it 'looks up only the given items, and skips discontinued ones' do
+      flour.update!(discontinued: true)
+      expect(scraper).to receive(:live_stock_for).with(['NW101B']).and_return({})
+
+      read([walnuts, flour])
+    end
+
+    it 'does nothing in off mode' do
+      supplier.update!(morning_stock_mode: 'off')
+      expect(scraper).not_to receive(:live_stock_for)
+
+      read([walnuts])
+    end
+
+    it 'notes a failed lookup instead of raising' do
+      allow(scraper).to receive(:live_stock_for).and_raise(StandardError, 'HTTP 429 for SearchProducts')
+
+      expect { read([walnuts]) }.not_to raise_error
+      expect(service.results[:errors].join).to include('HTTP 429')
+    end
+  end
+
   # Sysco, Oct 20 2026: the term search missed 142 of 586 list items, so
   # they got no stock reading. Its item-number search reads them.
   describe 'list items the crawl missed' do

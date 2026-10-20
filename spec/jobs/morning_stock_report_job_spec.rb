@@ -32,6 +32,36 @@ RSpec.describe MorningStockReportJob do
   def problems = row[:problems]
   def notes = row[:notes]
 
+  # docs/fix-morning-sync-at-scale.md: all supplier traffic leaves from one
+  # Railway address; a supplier rate-limiting or blocking us must not go unseen.
+  describe 'a supplier refusing us (HTTP 429/403)' do
+    before do
+      ran
+      read_today(on_list)
+    end
+
+    it "counts this morning's refusals, raised or caught by the guide sync" do
+      ScrapingLog.create!(supplier: supplier, status: 'completed', metadata: { 'errors' => ['HTTP 429 for GetLists'] })
+      ScrapingLog.create!(supplier: supplier, status: 'failed', error_message: 'HTTP 403 for Order/V1/GetOrderCart: Forbidden')
+
+      expect(problems).to contain_exactly(a_string_including('refused 2 of this morning'))
+    end
+
+    it "ignores other errors and yesterday's refusals" do
+      ScrapingLog.create!(supplier: supplier, status: 'failed', error_message: 'HTTP 500 for GetLists')
+      ScrapingLog.create!(supplier: supplier, status: 'failed', error_message: 'HTTP 429', created_at: 1.day.ago)
+
+      expect(problems).to eq([])
+    end
+
+    it 'reports them even when the supplier has the stock check off' do
+      supplier.update!(morning_stock_mode: 'off')
+      ScrapingLog.create!(supplier: supplier, status: 'failed', error_message: 'HTTP 429 Too Many Requests')
+
+      expect(problems).to contain_exactly(a_string_including('rate-limiting or blocking EnPlace'))
+    end
+  end
+
   it 'finds nothing wrong when the run happened, was complete, and read the items on lists' do
     ran
     read_today(on_list)

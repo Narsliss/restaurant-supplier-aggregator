@@ -75,6 +75,8 @@ class ImportSupplierListsService
     # its items were still downloading. Match it now that they're all here.
     match_new_lists!
 
+    read_guide_stock!(scraper)
+
     # Onboarding headstart: first successful import for a new location seeds
     # an order list from the chef's recent supplier activity. Guarded inside
     # the service (idempotent, never touches locations with curated lists),
@@ -134,6 +136,29 @@ class ImportSupplierListsService
     AggregatedListMapping.where(supplier_list_id: @new_list_ids).distinct.pluck(:aggregated_list_id).each do |list_id|
       SyncNewProductsJob.perform_later(list_id)
     end
+  end
+
+  # A guide whose scraper can look up stock by item number but whose guide
+  # data has none (Sysco): read it for this guide's items, so the 8 AM sync
+  # keeps stock per restaurant without a catalog import per login
+  # (docs/fix-morning-sync-at-scale.md). Runs after the upserts on purpose:
+  # refresh_linked_product stamps each item with the guide's assumed
+  # "guide:in", and the supplier's real reading must be the one that stays.
+  # About 30 lookups for a 600-item guide. Never fails the sync.
+  def read_guide_stock!(scraper)
+    return unless scraper.respond_to?(:live_stock_for) && @synced_list_ids.present?
+    return unless SupplierProduct.stock_evidence?
+
+    listed = SupplierListItem.where(supplier_list_id: @synced_list_ids).where.not(supplier_product_id: nil)
+                             .distinct.pluck(:supplier_product_id)
+    return if listed.empty?
+
+    stock = ImportSupplierProductsService.new(credential)
+    stock.read_stock_for_list_items!(scraper: scraper, supplier_product_ids: listed)
+    results[:errors].concat(stock.results[:errors])
+  rescue StandardError => e
+    Rails.logger.error "[ImportLists] Guide stock read failed for credential #{credential.id}: #{e.class}: #{e.message}"
+    results[:errors] << "Guide stock read: #{e.message}"
   end
 
   # Which credential a list records as its syncer. Home restaurant: this
@@ -196,6 +221,7 @@ class ImportSupplierListsService
     new_list = supplier_list.new_record?
     supplier_list.save!
     (@new_list_ids ||= []) << supplier_list.id if new_list
+    (@synced_list_ids ||= []) << supplier_list.id
     supplier_list.mark_syncing!
 
     # Upsert items — pre-load all existing items by SKU to avoid N find_or_initialize_by queries
