@@ -39,9 +39,9 @@ RSpec.describe Organization, 'billing', type: :model do
   end
 
   describe '#extra_seat_count' do
-    it 'counts non-owner seats beyond the included five' do
+    it 'counts seats beyond the included five, the owner included' do
       7.times { create(:membership, organization: org, user: create(:user), role: 'chef', active: true) }
-      expect(org.extra_seat_count).to eq(2)
+      expect(org.extra_seat_count).to eq(3) # owner + 7 chefs = 8 seats
     end
 
     it 'is zero at or under the included seats' do

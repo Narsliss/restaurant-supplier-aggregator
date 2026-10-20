@@ -67,10 +67,11 @@ RSpec.describe Organization, type: :model do
   describe 'seat management' do
     let(:org) { create(:organization, max_seats: 3, additional_seats: 0) }
 
-    it 'excludes the owner from seat_count' do
+    # Carmin, Oct 2026: the owner is one of the included seats.
+    it 'counts the owner as a seat' do
       create(:membership, user: create(:user), organization: org, role: 'owner')
       create(:membership, user: create(:user), organization: org, role: 'manager')
-      expect(org.seat_count).to eq(1)
+      expect(org.seat_count).to eq(2)
     end
 
     it '#seat_limit sums max_seats and additional_seats' do

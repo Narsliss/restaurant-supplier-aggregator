@@ -72,8 +72,11 @@ class Organization < ApplicationRecord
   end
 
   # Seat management
+  # Everyone who uses the account, the owner included (Carmin, Oct 2026: the
+  # owner is the power user and is one of the 5 included seats), plus pending
+  # invites. Billing (extra_seat_count, Stripe::SeatSyncService) counts from this.
   def seat_count
-    memberships.where(active: true).where.not(role: 'owner').count +
+    memberships.where(active: true).count +
       organization_invitations.pending.count
   end
 

@@ -21,7 +21,7 @@ Rails.application.config.stripe_config = {
   # Per-seat pricing (additional seats beyond 5 included)
   seat_price_id: ENV.fetch("STRIPE_SEAT_PRICE_ID", nil),
   seat_amount: 1000, # $10.00 per additional seat in cents
-  included_seats: 5,  # Seats included in base plan (excludes owner)
+  included_seats: 5,  # Seats included in base plan, the owner's included
 
   # Trial period (optional)
   # Only a restaurant's first subscription gets it (Organization#checkout_trial_days).

@@ -96,10 +96,10 @@ RSpec.describe 'Billing go-live', type: :request do
 
     it 'shows the full monthly total including extra seats' do
       configure_prices!
-      add_chefs(7) # 1 manager + 7 chefs = 8 seats, 3 over the included 5
+      add_chefs(7) # owner + 1 manager + 7 chefs = 9 seats, 4 over the included 5
 
       get new_subscription_path
-      expect(response.body).to include('Total: $179/month') # $149 + 3 x $10
+      expect(response.body).to include('Total: $189/month') # $149 + 4 x $10
     end
 
     it 'opens Checkout with the base plan and the extra seats' do
@@ -110,7 +110,7 @@ RSpec.describe 'Billing go-live', type: :request do
       expect(::Stripe::Checkout::Session).to receive(:create) do |params|
         expect(params[:line_items]).to contain_exactly(
           { price: 'price_base', quantity: 1 },
-          { price: 'price_seat', quantity: 3 }
+          { price: 'price_seat', quantity: 4 }
         )
         # Comp switch is charged the same day: no trial even with trials on.
         expect(params[:subscription_data]).not_to have_key(:trial_period_days)
