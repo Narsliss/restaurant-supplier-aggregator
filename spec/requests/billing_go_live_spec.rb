@@ -99,7 +99,7 @@ RSpec.describe 'Billing go-live', type: :request do
       add_chefs(7) # 1 manager + 7 chefs = 8 seats, 3 over the included 5
 
       get new_subscription_path
-      expect(response.body).to include('Total: $129/month')
+      expect(response.body).to include('Total: $179/month') # $149 + 3 x $10
     end
 
     it 'opens Checkout with the base plan and the extra seats' do

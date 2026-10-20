@@ -43,6 +43,13 @@ RSpec.describe BillingMailer, type: :mailer do
       expect { mail.body }.not_to raise_error
       expect(mail.to).to eq([owner.email])
     end
+
+    it 'states the subscription\'s real monthly amount, not a hardcoded $99' do
+      trialing.update!(amount_cents: 17_900)
+      mail = described_class.trial_ending_soon(trialing)
+      expect(mail.body.to_s).to include('Your subscription is $179.00/month')
+      expect(mail.body.to_s).not_to include('$99')
+    end
   end
 
   describe '#subscription_canceled' do

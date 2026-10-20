@@ -92,6 +92,9 @@ class Subscription < ApplicationRecord
     subscription.assign_attributes(
       user: resolved_user,
       organization_id: metadata_org_id || resolved_user&.current_organization_id || subscription.organization_id,
+      amount_cents: stripe_amount_cents(stripe_subscription) || subscription.amount_cents,
+      interval: first_item && first_item['price'] && first_item['price']['recurring'] &&
+                first_item['price']['recurring']['interval'] || subscription.interval,
       stripe_price_id: first_item&.price&.id,
       status: stripe_subscription.status,
       current_period_start: period_start ? Time.zone.at(period_start) : nil,
@@ -107,6 +110,19 @@ class Subscription < ApplicationRecord
     subscription.save!
     subscription.organization&.end_complimentary_for!(subscription)
     subscription
+  end
+
+  # What Stripe bills each period, before discounts: base plan plus seat
+  # quantity. nil when an item carries no unit amount, so the stored value is
+  # kept. Bracket access because a StripeObject raises on missing attributes.
+  def self.stripe_amount_cents(stripe_subscription)
+    amounts = stripe_subscription.items.data.map do |item|
+      unit = item['price'] && item['price']['unit_amount']
+      unit && unit * (item['quantity'] || 1)
+    end
+    return nil if amounts.empty? || amounts.any?(&:nil?)
+
+    amounts.sum
   end
 
   # Period fields moved from subscription level to subscription-item level in

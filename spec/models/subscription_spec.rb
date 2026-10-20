@@ -192,6 +192,26 @@ RSpec.describe Subscription, type: :model do
       expect(other_org.reload.complimentary).to be false
     end
 
+    # Regression: amount_cents was never synced, so every subscriber's page
+    # showed the column default ($99.00/month) whatever Stripe charged.
+    it 'records what Stripe bills each month: base plan plus seat quantity' do
+      stripe = ::Stripe::Subscription.construct_from(
+        id: 'sub_amount_test', object: 'subscription', status: 'active', customer: 'cus_amount',
+        cancel_at_period_end: false, canceled_at: nil, ended_at: nil, trial_start: nil, trial_end: nil,
+        metadata: {},
+        items: { data: [
+          { id: 'si_base', quantity: 1, price: { id: 'price_base', unit_amount: 14_900, recurring: { interval: 'month' } },
+            current_period_start: 1.day.ago.to_i, current_period_end: 29.days.from_now.to_i },
+          { id: 'si_seat', quantity: 3, price: { id: 'price_seat', unit_amount: 1_000, recurring: { interval: 'month' } } }
+        ] }
+      )
+
+      sub = described_class.sync_from_stripe(stripe, user: user)
+      expect(sub.amount_cents).to eq(17_900)
+      expect(sub.interval).to eq('month')
+      expect(sub.formatted_amount).to eq('$179.00/month')
+    end
+
     it 'keeps complimentary access when the synced subscription grants no access' do
       described_class.sync_from_stripe(stripe_sub(status: 'incomplete', metadata: { organization_id: other_org.id.to_s }), user: user)
       expect(other_org.reload.complimentary).to be true

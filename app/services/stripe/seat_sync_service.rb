@@ -4,7 +4,7 @@ module Stripe
     # Called automatically when members are added or removed.
     #
     # How it works:
-    #   - Base plan ($99/mo) includes 5 seats (excludes owner)
+    #   - Base plan includes 5 seats (excludes owner)
     #   - Each seat beyond 5 costs $10/mo
     #   - When seat count changes, we update (or add/remove) the seat line item
     #   - Stripe handles proration automatically

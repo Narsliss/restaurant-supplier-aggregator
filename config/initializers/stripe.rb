@@ -14,7 +14,9 @@ Rails.application.config.stripe_webhook_secret = ENV.fetch("STRIPE_WEBHOOK_SECRE
 Rails.application.config.stripe_config = {
   # Monthly subscription price
   monthly_price_id: ENV.fetch("STRIPE_MONTHLY_PRICE_ID", nil),
-  monthly_amount: 9900, # $99.00 in cents
+  # Displayed price only. What Stripe charges comes from the price IDs above;
+  # keep these in step with the live Stripe prices.
+  monthly_amount: 14900, # $149.00 in cents
 
   # Per-seat pricing (additional seats beyond 5 included)
   seat_price_id: ENV.fetch("STRIPE_SEAT_PRICE_ID", nil),

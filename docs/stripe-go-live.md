@@ -33,7 +33,7 @@ Also fixed: subscriptions are attributed to the org in the Checkout metadata, no
 
 | Org | Billing state | Usage | At cutover, as built |
 |---|---|---|---|
-| Alfios buon cibo (7) | **Comp** since Jun 4 ("Granted by admin"). Old test sub canceled Jun 4. | **The real customer:** 33 orders in 30 days, 105 total, 9 members, 8 seats | Comp continues forever. If converted: $99 + 3 extra seats = **$129/mo** |
+| Alfios buon cibo (7) | **Comp** since Jun 4 ("Granted by admin"). Old test sub canceled Jun 4. | **The real customer:** 33 orders in 30 days, 105 total, 9 members, 8 seats | Comp continues forever. If converted: $149 + 3 extra seats = **$179/mo** |
 | Tres Noches Restaurant Group LLC (6) | Test sub **active** (since Aug 13) | 0 orders ever, 2 members | Free access forever (blocker 4) |
 | BIG ICE LLC (11) | Test sub **active** (since Aug 25) | 0 orders, 1 member | Free access forever (blocker 4) |
 | The Empanada's Box (8) | Test sub canceled Aug 13 | 0 orders, 1 member | Paywalled. Checkout would fail (blocker 3). |
@@ -68,7 +68,7 @@ You have to do these yourself. They involve your SSN, bank account and live secr
 
 ### 1d. Live products and prices (Product catalog, with the **Test mode toggle OFF**)
 Test-mode products don't carry over. Recreate them:
-- [ ] Product **EnPlace Pro**, price **$99.00 USD, recurring monthly** → copy the `price_…` ID
+- [ ] Product **EnPlace Pro**, price **$149.00 USD, recurring monthly** → copy the `price_…` ID (price raised from $99, Carmin Oct 19)
 - [ ] Product **Additional seat** (or a second price on the same product), **$10.00 USD, recurring monthly, per unit** → copy the `price_…` ID
 - Both prices **must** be monthly USD, or Checkout rejects the combination.
 - [ ] Optional: **coupons/promotion codes**. Checkout already shows an "Add promotion code" box (`allow_promotion_codes: true`). This is one way to move comp customers over (see Part 3).
@@ -109,7 +109,7 @@ Set on **both** `pretty-friendship` (web) and `worker` so they never disagree. S
 |---|---|
 | `STRIPE_SECRET_KEY` | `sk_live_…` (or a restricted `rk_live_…` key) |
 | `STRIPE_WEBHOOK_SECRET` | the live endpoint's `whsec_…` |
-| `STRIPE_MONTHLY_PRICE_ID` | live `price_…` for $99 |
+| `STRIPE_MONTHLY_PRICE_ID` | live `price_…` for $149 |
 | `STRIPE_SEAT_PRICE_ID` | live `price_…` for $10 seat |
 | `STRIPE_TRIAL_DAYS` | your decision (see questions). As of June it was `0`, and the code default is 14. |
 
@@ -162,8 +162,8 @@ Found in the prod census. `Invoice.sync_from_stripe` finds the org by `organizat
 - **Trials repeat.** Every Checkout gets `trial_period_days`, so a restaurant that cancels and resubscribes gets another free trial. This only matters if you turn trials on.
 - ~~**Admin "Extend trial" can error.**~~ *Fixed:* it now counts from today when the old trial already ended.
 - **Seat billing drift.** Seats are synced only when an invite is *accepted* or a member is *deactivated*. Pending invites count as paid seats. A revoked or expired invite doesn't un-bill until the next sync. See Part 3.
-- **The subscription page header always says "$99.00/month".** `amount_cents` is never synced from Stripe, so seat charges don't show there. The plan box now shows the seat pricing, and the pricing page shows the real total before Checkout.
-- **Admin MRR** counts trialing subs at $99 and ignores seats.
+- ~~**The subscription page header always said "$99.00/month".**~~ *Fixed Oct 19:* `amount_cents` and `interval` now sync from Stripe (base + seat quantity, before discounts), so the page and the trial-ending email show what Stripe actually bills.
+- **Admin MRR** still counts trialing subs as revenue (amounts now include seats).
 - **Stripe Ruby gem is 12.6.0** while we pin a 2026 API version. It works because the objects are dynamic, but the gem's typed helpers predate basil/clover. Upgrade it separately, later.
 
 ---
@@ -171,7 +171,7 @@ Found in the prod census. `Invoice.sync_from_stripe` finds the org by `organizat
 ## Part 3: How billing behaves today
 
 ### The plan
-- **$99/month** base. One plan, no annual option, no upgrades or downgrades.
+- **$149/month** base (raised from $99 on Oct 19). One plan, no annual option, no upgrades or downgrades. The amount customers *see* is `monthly_amount` in `config/initializers/stripe.rb`; what Stripe *charges* comes from the live price ID. Change both together.
 - **5 seats included.** A seat is any active non-owner member **or pending invitation**. The owner is free.
 - **Seat 6+ is $10/month each**, added and removed automatically.
 - Before subscribing, an org can invite up to 5 people. Once subscribed (or comp), there's no seat cap; extras are just billed.
@@ -179,7 +179,7 @@ Found in the prod census. `Invoice.sync_from_stripe` finds the org by `organizat
 
 ### Signing up (Checkout)
 Owner clicks Subscribe → Stripe-hosted Checkout → enters card → back to the app.
-- **No trial (`STRIPE_TRIAL_DAYS=0`):** charged $99 (+ seats over 5) immediately. That date becomes their monthly billing day.
+- **No trial (`STRIPE_TRIAL_DAYS=0`):** charged $149 (+ seats over 5) immediately. That date becomes their monthly billing day.
 - **With a trial:** the card is collected **up front** but not charged. Checkout always requires a card. There is no card-free trial in the current build.
 - The welcome email goes to the owner, and you get a "new signup" email.
 
@@ -191,7 +191,7 @@ Assuming trials are on (N days):
 | Day 0 | Card saved, subscription `trialing`, full access | Stripe Checkout + our webhook |
 | During trial | `/subscription` shows "X days remaining". No banner anywhere else in the app. Adding seats costs nothing yet. | — |
 | Day N − 3 | Stripe fires `trial_will_end` → our email "Your trial ends in 3 days" | Stripe → us |
-| Day N | Stripe bills $99 + seats, charges the saved card automatically → status `active` → billing day = day N every month | Stripe |
+| Day N | Stripe bills $149 + seats, charges the saved card automatically → status `active` → billing day = day N every month | Stripe |
 | Day N, card fails | Status → `past_due`. Access continues, the owner sees a red "Payment failed / Update card" bar and gets the payment-failed email, and Stripe retries for 2 weeks. If every retry fails, Stripe cancels → "subscription has ended" email → paywall. *(Before the fixes: instant lockout, a duplicate-subscription risk, and no email.)* | Stripe + us |
 | Canceled during trial | Ends at trial end, never charged | Stripe |
 
@@ -204,9 +204,9 @@ Fully automatic in Stripe. On the billing day each month, Stripe drafts the invo
 - **Price changes:** Terms §5 promises 30 days' notice. Nothing is built for this. A price change means a new Stripe price and migrating each subscription.
 
 ### Proration: where it happens and where it doesn't
-- **Base plan: never prorated.** The first charge is a full $99 on signup day (or trial end), not prorated to the 1st of the month. There's nothing to upgrade or downgrade to.
+- **Base plan: never prorated.** The first charge is a full $149 on signup day (or trial end), not prorated to the 1st of the month. There's nothing to upgrade or downgrade to.
 - **Seats: the only proration.** When a 6th+ seat is added or removed, the app updates the Stripe seat quantity with Stripe's default behavior. The prorated amount **lands on the next monthly invoice**, not as an immediate charge.
-  - *Example:* billed on the 1st; 6th seat accepted on the 16th → next invoice ≈ $99 + $10 (next month) + ~$5 (half of this month) = **~$114**.
+  - *Example:* billed on the 1st; 6th seat accepted on the 16th → next invoice ≈ $149 + $10 (next month) + ~$5 (half of this month) = **~$164**.
   - *Removing* that seat on the 16th → about $5 credit on the next invoice.
   - Seat changes during a trial cost $0.
 - **Cancellations: no proration, no refund.** Cancel takes effect at the end of the paid month (Terms §5: fees are non-refundable). Refunds, if you ever want to give one, are done by hand in the Stripe dashboard (Payments → the charge → Refund).
@@ -230,7 +230,7 @@ After cancellation, all data (lists, matches, orders, credentials) stays. Resubs
 - **It's purely an app flag. Nothing exists in Stripe.** The org bypasses the paywall, gets unlimited free seats, and seat sync skips it.
 - **No end date, no warnings, no emails.**
 - **Revoking (admin button) is instant.** Everyone at the org lands on the pricing page on their next click, until the owner pays. No email tells them why. Orders already submitted still go through, and background syncs keep running.
-- **Switching to paid without interruption (chosen for Alfio's):** the owner opens Subscription → **Switch to paid**. The pricing page states the monthly total including extra seats ($129 for Alfio's 8 seats). Checkout charges the card that day, and comp ends automatically the moment the subscription is active (`Organization#end_complimentary_for!`, called on every subscription sync). The admin page shows this hint next to the Revoke button.
+- **Switching to paid without interruption (chosen for Alfio's):** the owner opens Subscription → **Switch to paid**. The pricing page states the monthly total including extra seats ($179 for Alfio's 8 seats). Checkout charges the card that day, and comp ends automatically the moment the subscription is active (`Organization#end_complimentary_for!`, called on every subscription sync). The admin page shows this hint next to the Revoke button.
 - Comp and a paying subscription never coexist. Any synced subscription that grants access ends comp. To make a paying restaurant free, cancel its subscription first, then grant comp.
 
 Other ways to move comp customers, not built: a dated free period (Checkout with a fixed `trial_end`), or a 100%-off promotion code (zero code, since Checkout already accepts codes).
@@ -244,7 +244,7 @@ Before: Part 1 done in Stripe (live mode), and my branch pushed with your OK. Th
 1. **Railway → `pretty-friendship` → Variables:** set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_MONTHLY_PRICE_ID`, `STRIPE_SEAT_PRICE_ID`, `STRIPE_TRIAL_DAYS`. Railway redeploys.
 2. **Railway → `worker` → Variables:** the same five. Railway redeploys.
 3. **Admin → Revenue → Stripe test-mode cleanup.** The badge must say **LIVE**. Review the list (expected: Tres Noches and BIG ICE subscriptions, plus test customer IDs on all five orgs). Click **Clean up test-mode billing**. Alfio's complimentary access is unaffected.
-4. **Alfio, in the room:** Subscription → **Switch to paid** → pricing page shows **$129/month** → Stripe Checkout → back in the app. His complimentary flag clears itself.
+4. **Alfio, in the room:** Subscription → **Switch to paid** → pricing page shows **$179/month** → Stripe Checkout → back in the app. His complimentary flag clears itself.
 5. **Check:**
    - Stripe → Developers → Webhooks → the live endpoint shows successful deliveries.
    - Admin → Organizations → Alfio's shows an active subscription and no "Complimentary" badge.
