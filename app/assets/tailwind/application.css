@@ -718,3 +718,21 @@ body.onboarding-spotlight-active nav.sticky.top-0 {
     box-shadow: 0 0 0 3px rgb(212 148 58 / 0.2) !important;
   }
 }
+
+/* Safari only (Safari audit, Oct 21 2026). Safari — and every iPhone/iPad
+   browser, which all run Safari's engine — ignores padding, height and the
+   background of a <select> that keeps its native look, so a select styled as a
+   card (the owner phone dashboard's restaurant picker) shrinks to a thin native
+   dropdown. Only Safari's engine understands the -apple-system-body font
+   keyword, so no other browser applies anything in this block. */
+@supports (font: -apple-system-body) {
+  select.safari-select-card {
+    -webkit-appearance: none;
+    appearance: none;
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem;
+  }
+}

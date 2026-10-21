@@ -323,6 +323,7 @@
                    min="<%= Date.tomorrow %>"
                    max="<%= Date.today + 30.days %>"
                    class="w-full sm:w-48 rounded-md shadow-sm focus:border-brand-green focus:ring-brand-green text-sm <%= needs_delivery_date ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-300' %>"
+                   data-controller="safari-date"
                    data-action="change->order-review#updateDeliveryDate"
                    data-order-review-target="deliveryDate"
                    data-order-id="<%= order.id %>"
