@@ -57,7 +57,38 @@ The fix had to be impossible to reach production. Hence a separate branch, demo-
   - The log shows 0 blocked outbound attempts, because the simulator means no code path even tried.
 - **Push guard**, tested on a commit object no branch points to: refuses demo code to `main`; allows normal `main` pushes, a new `demo` branch, and `main` to a new remote.
 
+## Live demo probe (Oct 20, run by Carmin; read-only, counts only)
+
+**Safety:**
+- No Chromium, no mail key, no Stripe key, no worker process (`SolidQueue::Process` = 0).
+- `checkout_enabled` is **on** for the 6 scraper suppliers (set by `seed_suppliers` at boot); the heal turns it off.
+
+**People:**
+- 1 organization: Bella Vista Restaurant Group.
+- 5 users, all on demo domains (`bellavista.demo` 2, `test.com` 2, `testing.com` 1). No real customers.
+
+**Saved logins:**
+- 10 logins, 2 per supplier, all at Bella Vista Downtown, all `active`.
+- **None can be decrypted on the demo.** Every username and the 4 stored passwords were copied in the Aug 13 rebuild, encrypted under the source machine's development key.
+- No saved sessions and no trusted-device tokens.
+- The heal overwrites all of them with placeholders, without needing to read them.
+
+**Email supplier:** Blue Ribbon's order address is a `hotmail.com` address, shown on the Suppliers page. The heal replaces it.
+
+**Stuck states, all from the night of the rebuild:**
+- The Downtown matched list has been `matching` since 2026-08-13 23:35 (976 matches).
+- 6 jobs are queued for a worker that never existed: 5 `ImportSupplierListsJob`, 1 `SyncNewProductsJob`.
+- 1 order is `processing`.
+
+**Stale data:**
+- Catalog last synced Aug 11-13; Sysco's catalog on May 6.
+- **All 10 logins hold delivery days from August**, not just Sysco's.
+
+**Replayed locally:** these states were recreated on the local copy (the list stuck, the queued jobs, an order processing, logins this server can't decrypt, August delivery days, a hotmail address). One page visit healed every one.
+
 ## What did NOT work at first (fixed)
+
+- **Delivery days, found by the probe:** the heal refreshed only Sysco and Performance. The builder and review page show stored days for every login, so the other four suppliers would have offered August dates. It now refreshes every login that has stored days; a login with none keeps none. Also, `where.not(col: [])` on a JSON column matches every row in Rails, so the query uses `<> '[]'::jsonb`.
 
 - **History shift:** the first version shifted all orders by the newest order of any kind. A recent draft anchored it, so the dashboard stayed at $0. It also pulled old failed orders into this week as a red "2 orders NOT placed" alarm. Now it anchors per organization on placed orders and moves only placed orders.
 - **Login scrub:** the first version read old values through the model. A login encrypted under another key (any copied database; the March snapshot crash) would make it fail. It now writes freshly encrypted placeholders straight into the columns.
@@ -71,15 +102,14 @@ The fix had to be impossible to reach production. Hence a separate branch, demo-
 
 ## Not verified
 
-- **What the real demo database holds:** real credentials, real email addresses, which orgs. The read-only probe (`demo_probe.rb`, counts only) is still waiting for Carmin to run it. The heal scrubs logins and email-supplier addresses whatever it finds.
 - **Menu Planner sending a new request:** it needs an AI key the demo lacks, so expect the app's own error message. Existing plans display fine.
 - **Mobile layouts.**
 - **Performance delivery days in the builder.**
 
 ## Open items (each needs Carmin's OK at the time)
 
-1. Run the read-only probe on the real demo.
-2. Commit on `demo`. Install `demo/bin/pre-push-guard` as `.git/hooks/pre-push`.
+1. ~~Run the read-only probe on the real demo.~~ Done Oct 20 (above).
+2. ~~Commit on `demo`. Install `demo/bin/pre-push-guard` as `.git/hooks/pre-push`.~~ Done Oct 20: `32d839f`; guard installed and tested.
 3. Confirm production's two services build only from `main` (a read-only production check), then push `demo`.
 4. Switch `demo-web`'s source branch to `demo` in Railway. The heal runs on the first visit after the deploy.
 5. Never set `FORCE_RESEED=true` on the demo. It would reload the March snapshot, whose scrub crashes.

@@ -114,8 +114,14 @@ module DemoMode
                        .update_all(last_scraped_at: Time.current)
       end
 
+      # Sysco/Performance always publish delivery days; any other login that
+      # has stored days (the live demo's all held August's) gets fresh ones
+      # too, or the builder offers dates that have passed. A login with none
+      # stored keeps none: no restriction.
       def freshen_delivery_dates
-        SupplierCredential.joins(:supplier).where(suppliers: { code: %w[sysco performance] })
+        api = SupplierCredential.joins(:supplier).where(suppliers: { code: %w[sysco performance] })
+        stored = SupplierCredential.where("available_delivery_dates <> '[]'::jsonb")
+        SupplierCredential.where(id: api.select(:id)).or(SupplierCredential.where(id: stored.select(:id)))
                           .pluck(:id).each { |id| Simulator.fetch_delivery_dates(id) }
       end
 

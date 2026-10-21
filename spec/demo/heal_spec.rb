@@ -99,6 +99,17 @@ RSpec.describe DemoMode::Heal do
       expect(placing.reload.status).to eq('submitted')
     end
 
+    it 'gives fresh delivery days to any login holding old ones, and none to a login without' do
+      stale = create(:supplier_credential, user: user, supplier: create(:supplier),
+                                           available_delivery_dates: %w[2026-08-14 2026-08-17])
+      none = create(:supplier_credential, user: user, supplier: create(:supplier), available_delivery_dates: [])
+
+      described_class.run!
+
+      expect(stale.reload.available_delivery_dates).to eq(DemoMode::Simulator.delivery_dates)
+      expect(none.reload.available_delivery_dates).to eq([])
+    end
+
     it 'empties the queue jobs were waiting in for a worker' do
       SolidQueue::Job.create!(class_name: 'PlaceOrderJob', queue_name: 'critical', arguments: {})
 
