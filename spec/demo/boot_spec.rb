@@ -54,6 +54,15 @@ RSpec.describe 'Demo mode at boot' do
     )
   end
 
+  it 'adds nothing to what the boot scripts read from `rails runner` (user and table counts)' do
+    env = { 'RAILS_ENV' => 'production', 'SECRET_KEY_BASE_DUMMY' => '1', 'RAILS_LOG_TO_STDOUT' => 'true',
+            'DATABASE_URL' => test_database_url, 'DEMO_MODE' => 'true' }
+    out, status = Open3.capture2(env, 'bin/rails', 'runner', 'puts 42', chdir: Rails.root.to_s)
+
+    expect(status).to be_success
+    expect(out.strip).to eq('42')
+  end
+
   it 'installs the offline layer with DEMO_MODE=true' do
     report = boot_report(demo_mode: 'true')
 

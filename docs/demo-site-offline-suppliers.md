@@ -3,7 +3,7 @@
 **Date:** 2026-10-20
 **Branch:** `demo`, in the worktree `.claude/worktrees/demo-site`. Not committed or pushed. It never merges into `main`.
 **Plan:** [plan-demo-site-offline-suppliers.md](plan-demo-site-offline-suppliers.md), approved by Carmin with "build the local branch for me to test on a local server before you push literally anything".
-**Status:** built and tested locally. Nothing is deployed, and the real demo is unchanged.
+**Status:** LIVE on the demo since Oct 21 00:34 UTC (demo-web builds from `demo`). Carmin clicked through the live demo: credentials connected, the matched list done, and an order went through to a demo confirmation. Production is unchanged.
 
 ## What changed
 
@@ -110,8 +110,18 @@ The fix had to be impossible to reach production. Hence a separate branch, demo-
 
 1. ~~Run the read-only probe on the real demo.~~ Done Oct 20 (above).
 2. ~~Commit on `demo`. Install `demo/bin/pre-push-guard` as `.git/hooks/pre-push`.~~ Done Oct 20: `32d839f`; guard installed and tested.
-3. Confirm production's two services build only from `main` (a read-only production check), then push `demo`.
-4. Switch `demo-web`'s source branch to `demo` in Railway. The heal runs on the first visit after the deploy.
+3. ~~Confirm production's two services build only from `main` (a read-only production check), then push `demo`.~~ Done Oct 20:
+   - Web and worker build from the repo, and all 40 of their recent deploys came from `main`. The 12 other branches already on GitHub never triggered one.
+   - `origin/demo` is `fda2b44`. Production's latest deploy is still `fe228e9`, from before the push.
+   - Never open a pull request from `demo`.
+4. ~~Switch `demo-web`'s source branch to `demo` in Railway.~~ Done Oct 21 00:34 UTC:
+   - Carmin switched it in the dashboard; deploy `fda2b44` from `demo` succeeded.
+   - Production's latest deploy is unchanged (`fe228e9`, 00:02 UTC).
+   - One anonymous visit to the sign-in page ran the heal, which took about 6 s with no step failures and moved organization 6's placed orders forward 184 days.
+   - **Bug found in the boot logs.** The "[DemoMode] Installed…" log line went to stdout (`RAILS_LOG_TO_STDOUT=true`), so it landed inside the values `bin/docker-entrypoint` (table count) and `bin/start` (user count) capture from `rails runner`.
+     - On this boot both still took the right branch: "Migrations done", "Database already seeded".
+     - On an empty database, the seed check would no longer read `0`.
+     - The fix removes the line, with a boot spec that `rails runner 'puts 42'` prints exactly `42` in demo mode. It needs a commit and push to `demo`.
 5. Never set `FORCE_RESEED=true` on the demo. It would reload the March snapshot, whose scrub crashes.
 6. Possible later steps:
    - a "Reset demo" button

@@ -34,8 +34,9 @@ module DemoMode
 
     app.config.to_prepare { DemoMode::Overrides.install! }
 
+    # No log line here: with RAILS_LOG_TO_STDOUT it would land in the output
+    # bin/start and bin/docker-entrypoint capture from `rails runner` (user
+    # and table counts), and an empty database would no longer read as 0.
     app.config.middleware.use DemoMode::Heal::Middleware
-
-    Rails.logger&.info '[DemoMode] Installed: suppliers offline, jobs simulated in-process'
   end
 end
