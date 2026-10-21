@@ -144,6 +144,14 @@
   .dark .bg-brand-cream {
     background-color: #1f2937 !important;
   }
+  /* Translucent sticky header on the phone order builder: the opacity variant
+     is a different class, so the rule above never matched it. */
+  .dark .bg-brand-cream\/95 {
+    background-color: rgba(31, 41, 55, 0.95) !important;
+  }
+  .dark .border-gray-200\/60 {
+    border-color: rgba(55, 65, 81, 0.6) !important;
+  }
 
   /* --- Cards & panels --- */
   .dark .bg-white,
@@ -240,6 +248,13 @@
   }
   .dark .bg-gray-300 {
     background-color: #4b5563 !important;
+  }
+  /* bg-gray-300 + cursor-not-allowed is the app's "disabled" look (e.g. the
+     builder's Create Orders). The plain override above makes it a normal grey
+     button with white text, so it read as clickable. Mute it instead. */
+  .dark .bg-gray-300.cursor-not-allowed {
+    background-color: #374151 !important;
+    color: #6b7280 !important;
   }
 
   /* --- Dropdown menus --- */
@@ -367,7 +382,8 @@
   .dark .bg-blue-50 {
     background-color: rgba(30, 58, 95, 0.5) !important;
   }
-  .dark .bg-red-50 {
+  .dark .bg-red-50,
+  .dark .hover\:bg-red-50:hover {
     background-color: rgba(127, 29, 29, 0.3) !important;
   }
   .dark .bg-amber-50 {
