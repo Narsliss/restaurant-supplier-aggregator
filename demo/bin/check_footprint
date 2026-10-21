@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Lists what the demo branch changes compared with main (committed and not
+# yet committed) and fails if it touches anything but demo-only files.
+# The demo branch must only ADD files, so merging main into it never
+# conflicts and nothing of main's behaviour changes.
+#
+#   demo/bin/check_footprint            # against main
+#   demo/bin/check_footprint origin/main
+set -euo pipefail
+
+base_ref="${1:-main}"
+base="$(git merge-base HEAD "$base_ref")"
+allowed='^(demo/|spec/demo/|config/initializers/demo_mode\.rb$|docs/(plan-)?demo-site[^/]*\.md$)'
+
+changes="$(
+  git diff --name-status "$base"
+  git ls-files --others --exclude-standard | sed 's/^/A\t/'
+)"
+
+bad=0
+while IFS=$'\t' read -r status path rest; do
+  [ -z "${status:-}" ] && continue
+  path="${rest:-$path}"
+  if [ "${status:0:1}" != "A" ]; then
+    echo "CHANGES AN EXISTING FILE ($status): $path"
+    bad=1
+  elif ! [[ "$path" =~ $allowed ]]; then
+    echo "OUTSIDE THE DEMO PATHS: $path"
+    bad=1
+  else
+    echo "ok  $path"
+  fi
+done <<< "$changes"
+
+if [ "$bad" -ne 0 ]; then
+  echo "Footprint check FAILED: the demo branch may only add demo-only files." >&2
+  exit 1
+fi
+echo "Footprint check passed: only new demo-only files."
