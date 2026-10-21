@@ -785,8 +785,13 @@ module Scrapers
       rescue StandardError
         nil
       end
+      # Still in the cart doesn't prove it wasn't placed: CW may still be
+      # taking it, so a retry could order twice (risk #4, Oct 20 2026). Only
+      # CW's own success: false above counts as a refusal.
       if cart.is_a?(Hash) && cart.dig('summary', 'itemCount').to_i > 0
-        raise NotPlacedError, "Chef's Warehouse did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again."
+        raise OrderUnconfirmedError,
+              "Chef's Warehouse didn't confirm this order. It was still in the Chef's Warehouse cart right after we sent it, " \
+              "but Chef's Warehouse may still be taking it. Check Chef's Warehouse before reordering, so it is not placed twice."
       end
 
       raise OrderUnconfirmedError,

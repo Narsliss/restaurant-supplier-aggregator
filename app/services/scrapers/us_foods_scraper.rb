@@ -2973,8 +2973,13 @@ module Scrapers
       rescue StandardError
         nil
       end
+      # Still in the cart doesn't prove it wasn't placed: US Foods takes
+      # orders asynchronously, so a retry could order twice (risk #4, Oct 20
+      # 2026). The chef checks US Foods before any retry.
       if still_open && Array(still_open['orderItems']).any?
-        raise NotPlacedError, 'US Foods did not accept the order — it is still in the cart. Nothing was placed; it is safe to try again.'
+        raise OrderUnconfirmedError,
+              "US Foods didn't confirm this order. It still showed in the US Foods cart right after we sent it, " \
+              'but US Foods may still be taking it. Check US Foods before reordering, so it is not placed twice.'
       end
 
       placed = begin
