@@ -17,6 +17,7 @@ module Authentication
         if scraper.respond_to?(:soft_refresh)
           if scraper.soft_refresh
             Rails.logger.info "[SessionManager] Soft refresh succeeded for #{credential.supplier.name}"
+            renew_login_if_ending(scraper)
             return true
           end
           Rails.logger.info "[SessionManager] Soft refresh failed for #{credential.supplier.name}"
@@ -149,6 +150,22 @@ module Authentication
       SupplierCredential.where(status: 'pending').find_each do |credential|
         ValidateCredentialsJob.perform_later(credential.id)
       end
+    end
+
+    private
+
+    # A refresh can succeed and still leave a login with minutes to live:
+    # Performance's ends 24 hours after a real sign-in however often it's
+    # refreshed. A scraper that can tell (#login_ending_soon?) signs in again
+    # now, while the session still works, instead of letting the login die
+    # between two scheduled refreshes (Oct 21 2026: dead for 6–8 hours a day).
+    # #renew_login keeps the current session if it fails, so nothing here
+    # changes what a successful refresh returns.
+    def renew_login_if_ending(scraper)
+      return unless scraper.respond_to?(:login_ending_soon?) && scraper.login_ending_soon?
+
+      Rails.logger.info "[SessionManager] #{credential.supplier.name} login ends soon, signing in again with the stored password"
+      scraper.renew_login
     end
   end
 end

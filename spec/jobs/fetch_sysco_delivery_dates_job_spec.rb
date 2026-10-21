@@ -42,4 +42,42 @@ RSpec.describe FetchSyscoDeliveryDatesJob do
     expect(credential.reload.available_delivery_dates).to eq(%w[2026-09-29])
     expect(credential.delivery_dates_error).to be_nil
   end
+
+  # Oct 21 2026 (Sentry): when the saved Performance session can't be resumed
+  # the job used to retry and then alert. The 2-hourly session refresh logs
+  # Performance back in; this job, run from page views, must not.
+  context "when the saved Performance session has expired" do
+    before do
+      credential.update_columns(available_delivery_dates: %w[2026-09-29],
+                                delivery_dates_fetched_at: 5.hours.ago)
+      allow(scraper).to receive(:delivery_dates_result)
+        .and_raise(Scrapers::PerformanceApi::AuthError, "Performance API session expired — re-login required")
+    end
+
+    it "keeps the stored dates and finishes quietly, without a retry or an alert" do
+      expect { described_class.perform_now(credential.id, force: true) }
+        .not_to have_enqueued_job(described_class)
+
+      credential.reload
+      expect(credential.available_delivery_dates).to eq(%w[2026-09-29])
+      expect(credential.delivery_dates_error).to be_nil
+      expect(credential.delivery_dates_fetched_at).to be < 4.hours.ago # still stale, so the next page view asks again
+    end
+
+    it "leaves the login itself alone: no failed status, no browser login from here" do
+      expect(scraper).not_to receive(:login)
+      expect(scraper).not_to receive(:soft_refresh)
+
+      described_class.perform_now(credential.id, force: true)
+
+      expect(credential.reload.status).to eq("active")
+    end
+  end
+
+  it "still retries when Performance is unreachable (not a login problem)" do
+    allow(scraper).to receive(:delivery_dates_result).and_raise(Scrapers::PerformanceApi::ApiError, "HTTP 500")
+
+    expect { described_class.perform_now(credential.id, force: true) }
+      .to have_enqueued_job(described_class)
+  end
 end
