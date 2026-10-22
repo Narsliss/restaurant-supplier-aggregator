@@ -307,6 +307,22 @@ RSpec.describe ImportSupplierProductsService, 'stock evidence' do
       expect(service.results[:errors].join).to include('Reading stock for list items failed', 'search down')
     end
 
+    # The doubles above answer live_stock_for whatever its visibility. The
+    # real Sysco scraper's lookup was private until Oct 22 2026, so
+    # respond_to? was false and the morning run read none of these.
+    it 'reads them with the real Sysco scraper' do
+      sysco = Scrapers::SyscoScraper.allocate
+      allow(sysco).to receive(:logger).and_return(Logger.new(nil))
+      allow(sysco).to receive(:graphql_search_products).and_return(
+        'results' => [{ 'productId' => 'GF210', 'availableStockInfo' => { 'stockIndicator' => 'S' }, 'productInfo' => {} }]
+      )
+
+      service.send(:read_stock_for_unread_list_items!, sysco)
+
+      expect(flour.reload).to have_attributes(in_stock: true, stock_source: 'catalog')
+      expect(flour.stock_checked_at).to be_within(1.minute).of(Time.current)
+    end
+
     it 'does nothing for a supplier without the lookup' do
       expect { service.send(:read_stock_for_unread_list_items!, double('Crawler')) }.not_to raise_error
       expect(flour.reload.stock_checked_at).to be_nil

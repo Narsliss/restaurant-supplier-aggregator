@@ -1093,6 +1093,28 @@ module Scrapers
       graphql_available_delivery_days(shipping_condition: shipping_condition)
     end
 
+    # Live stock for the price check (plan 3.3): the Prices query carries no
+    # stock, so read it from the same batched catalog search seller discovery
+    # uses (item numbers, 20 per call). A SKU the search doesn't return, or a
+    # failed search, is unknown — never "in", never "out".
+    #
+    # Public on purpose: the morning run and the 8 AM guide sync find it with
+    # respond_to?, which is false for a private method. It sat below
+    # `private` from Oct 20 to Oct 22 2026, so both skipped without a word
+    # and the 9:15 report flagged Sysco every morning
+    # (docs/fix-sysco-live-stock-public.md).
+    def live_stock_for(skus)
+      skus.each_slice(SELLER_LOOKUP_BATCH_SIZE).each_with_object({}) do |batch, out|
+        results = graphql_search_products(batch.join(' '), start: 0, num: batch.size + 10)&.dig('results') || []
+        results.each do |r|
+          sku = r['productId'].to_s
+          out[sku] = sysco_stock(r) if batch.include?(sku)
+        end
+      rescue StandardError => e
+        logger.warn "[Sysco] Live stock read for #{batch.size} SKU(s) failed: #{e.class}: #{e.message}"
+      end
+    end
+
     private
 
     # ----------------------------------------------------------------
@@ -3139,22 +3161,6 @@ module Scrapers
       is_orderable = info['isOrderable'] != false && info['isShopOrderable'] != false
       in_stock = (raw_indicator || 'S') != 'O' && !info['isPhasedOut'] && is_orderable
       [in_stock, "#{raw_indicator.inspect} #{info['stockType']} orderable:#{is_orderable} phased_out:#{info['isPhasedOut'].inspect}"]
-    end
-
-    # Live stock for the price check (plan 3.3): the Prices query carries no
-    # stock, so read it from the same batched catalog search seller discovery
-    # uses (item numbers, 20 per call). A SKU the search doesn't return, or a
-    # failed search, is unknown — never "in", never "out".
-    def live_stock_for(skus)
-      skus.each_slice(SELLER_LOOKUP_BATCH_SIZE).each_with_object({}) do |batch, out|
-        results = graphql_search_products(batch.join(' '), start: 0, num: batch.size + 10)&.dig('results') || []
-        results.each do |r|
-          sku = r['productId'].to_s
-          out[sku] = sysco_stock(r) if batch.include?(sku)
-        end
-      rescue StandardError => e
-        logger.warn "[Sysco] Live stock read for #{batch.size} SKU(s) failed: #{e.class}: #{e.message}"
-      end
     end
 
     def parse_search_result(result, price_map)
