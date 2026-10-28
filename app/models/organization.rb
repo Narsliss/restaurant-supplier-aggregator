@@ -46,6 +46,15 @@ class Organization < ApplicationRecord
     current_subscription&.status || 'none'
   end
 
+  # The subscription the admin list shows: the newest one with access, else
+  # the newest canceled one. An org that went comp and later paid keeps its
+  # old canceled row, which must not hide the live one. Reads the loaded
+  # association so the preloaded admin list stays one query.
+  def display_subscription
+    newest_first = subscriptions.sort_by(&:created_at).reverse
+    newest_first.find(&:allows_access?) || newest_first.find { |s| s.status == 'canceled' }
+  end
+
   # Member methods
   def owner
     memberships.find_by(role: 'owner')&.user

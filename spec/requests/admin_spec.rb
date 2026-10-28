@@ -49,6 +49,40 @@ RSpec.describe 'Admin namespace', type: :request do
       get '/admin/organizations'
       expect(response).to have_http_status(:ok)
     end
+
+    # Regression (Oct 28 2026): Alfio's org paid for a live subscription but
+    # the list showed "Canceled", because it picked the org's older canceled
+    # test-mode row.
+    def subscription_badge(org)
+      row = Nokogiri::HTML(response.body).css('tbody tr').find { |tr| tr.text.include?(org.name) }
+      row.css('td')[4].text.squish
+    end
+
+    it 'shows the live subscription when an older canceled one exists' do
+      owner = target_org.owner
+      create(:subscription, :canceled, user: owner, organization: target_org, created_at: 5.months.ago)
+      create(:subscription, user: owner, organization: target_org, status: 'active', created_at: 1.day.ago)
+
+      sign_in super_admin
+      get '/admin/organizations'
+      expect(subscription_badge(target_org)).to eq('Active')
+    end
+
+    it 'shows Canceled when the org has only canceled subscriptions' do
+      create(:subscription, :canceled, user: target_org.owner, organization: target_org)
+
+      sign_in super_admin
+      get '/admin/organizations'
+      expect(subscription_badge(target_org)).to eq('Canceled')
+    end
+
+    it 'shows None when the org has never subscribed' do
+      target_org
+
+      sign_in super_admin
+      get '/admin/organizations'
+      expect(subscription_badge(target_org)).to eq('None')
+    end
   end
 
   describe 'POST /admin/organizations/:id/suspend' do
