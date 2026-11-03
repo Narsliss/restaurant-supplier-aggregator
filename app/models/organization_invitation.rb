@@ -97,10 +97,9 @@ class OrganizationInvitation < ApplicationRecord
   def resend!
     return false unless pending?
 
-    update!(
-      expires_at: 7.days.from_now,
-      invitation_sent_at: Time.current
-    )
+    # (Used to also write invitation_sent_at, a column that never existed, so
+    # every Resend raised UnknownAttributeError from Feb to Nov 2026.)
+    update!(expires_at: 7.days.from_now)
 
     OrganizationInvitationMailer.invite(self).deliver_later
     true

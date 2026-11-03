@@ -25,7 +25,7 @@ Neither account set anything up: no organization, no restaurant, no invites.
 - **Email:** sign-up sends no email (no `:confirmable`, no welcome email until a subscription
   exists), so the bot's throwaway inbox got nothing.
 
-### Real exposure found (NOT fixed here, see Open items)
+### Real exposure found (fixed in the follow-up, see "Follow-up: invite email cap")
 
 An unpaid, unverified account can create an organization and send **unlimited invitation emails**
 from our sending domain. The organization name and inviter name (both attacker-controlled) appear in
@@ -111,13 +111,77 @@ log line shows it happened.
   the scripted submit. That was correct behavior and a flawed test. The scratch dev account it
   created was deleted.
 
+## Follow-up: invite email cap for unpaid orgs + Resend fix
+
+### What a probe showed (throwaway request specs, not committed)
+
+- An org with **no card** (`subscribed? == false`) sent invite emails. With the org named
+  "Visit myxa.cc SCAM SERVICE 24/7", the subject read *"You've been invited to join Visit myxa.cc
+  SCAM SERVICE 24/7 on EnPlace Pro"*.
+- The existing **seat limit** (`OrganizationInvitation#organization_has_seats`, 5 seats for an
+  unpaid org = owner + 4 pending) let only 4 of 20 straight invites through. But canceling an
+  invite frees its seat: **cancel-and-reinvite x20 sent 20 emails to 20 people.**
+- **Resend was broken for everyone:** `resend!` wrote `invitation_sent_at`, a column that has never
+  existed (since `d90f977`, Feb 2026), so every Resend click (owner page *and* admin panel) raised
+  `ActiveModel::UnknownAttributeError`.
+
+### What changed
+
+1. **`InviteSendLimit`** (`app/services/invite_send_limit.rb`): an unpaid org may send **10 invite
+   emails per 7 days**, counting new invites *and* resends. The counter lives in `Rails.cache`
+   (Solid Cache in prod), keyed by org, and expires 7 days after the *first* send (later sends
+   don't extend it). Canceling doesn't give a send back. `subscribed?` orgs (paid or
+   complimentary) are never counted or limited.
+2. `Organizations::InvitationsController#create` and `#resend` check the cap **before** saving or
+   sending, so a blocked invite takes no row and no seat. Blocked: org page banner (or the wizard
+   form error) "You've sent the most invitations allowed before subscribing. Subscribe to invite
+   more people." Logged as `[InviteSendLimit] blocked action=… org=… user=… sent=… ip=…`.
+3. `OrganizationInvitation#resend!` no longer writes the missing column. This fixes Resend for
+   owners, and for the admin panel's resend (`Admin::OrganizationsController`, super-admin only,
+   not capped).
+
+### Why 10 and no prod query
+
+The seat limit already caps a real unpaid restaurant at 4 pending invites at once, so a legitimate
+onboarding can't need many sends. 10 leaves room for typos and resends. That made the prod invite
+count (which needed Railway access) unnecessary.
+
+### Blast radius
+
+| Area | Affected? |
+|---|---|
+| Unpaid orgs sending invites (onboarding) | Yes. Capped at 10 sends / 7 days |
+| Paid and complimentary orgs | No. Never counted |
+| Resend button (owners + admin) | Yes. Fixed, was raising an error |
+| Accepting an invite, sign-up, ordering, scrapers, jobs | No |
+| Schema | No migration |
+
+**Worst case:** an unpaid owner who really needs more than 10 sends in a week sees "Subscribe to
+invite more people", which is already the next step in onboarding.
+
+**Known limits:** Solid Cache can evict entries under size pressure, which would reset an org's
+count early. That's acceptable for an abuse cap, but it isn't an audit record. In dev the cache is
+`:null_store` unless `tmp/caching-dev.txt` exists, so the cap never triggers in dev.
+
+### Verification
+
+- `spec/services/invite_send_limit_spec.rb`: blocks at 10, per-org, the 7-day window runs from
+  the first send, paid orgs never counted.
+- `spec/requests/invite_send_limit_spec.rb`: the first onboarding invite works; cancel-and-reinvite
+  stops at exactly 10 emails and the blocked invite isn't saved; the wizard shows the message
+  (422); resends count and are blocked at the cap; a complimentary org sends 15 unhindered;
+  **Resend regression** (email queued, expiry extended).
+- Against a real `SolidCache::Store` on the dev DB: 10 sends → `allowed? == false`. The test key
+  was deleted afterwards.
+- Full suite: 2,251 examples, 0 failures.
+
 ## Open items
 
-1. **Invite cap for unpaid organizations** (the real exposure above). It needs a generous limit set
-   from real prod invite counts before payment. The dev DB has 3 test orgs, so it can't answer
-   that. Reading prod needs Carmin's OK (Railway caution).
-2. **Optional:** reject URLs / `<` / `>` in first/last/organization names, scoped to changed values
+1. **Optional:** reject URLs / `<` / `>` in first/last/organization names, scoped to changed values
    (`if: :name_changed?`) so existing rows never fail a later save.
-3. **Delete the two bot accounts** in prod: Carmin's call. They own nothing.
-4. After deploy, watch `[SignupBotGuard]` in the web logs for a week. A `too_fast` with
-   `invited=true` would be the first sign of a false positive.
+2. **Delete the two bot accounts** in prod: Carmin's call. They own nothing.
+3. After deploy, watch the web logs for a week: `[SignupBotGuard]` (a `too_fast` with
+   `invited=true` would be the first false positive) and `[InviteSendLimit]` (a block on a real
+   restaurant would mean 10 is too low).
+4. Noticed, not changed: the org page prints any `?error=` text from the URL. It's escaped, so it
+   isn't XSS, but anyone could craft a link that shows a signed-in owner a fake message on our page.

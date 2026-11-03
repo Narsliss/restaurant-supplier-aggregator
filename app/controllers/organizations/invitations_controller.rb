@@ -35,8 +35,23 @@ module Organizations
                    .where("LOWER(email) = ?", @invitation.email.to_s.downcase)
                    .destroy_all
 
+      # Unpaid orgs: cap invite emails (InviteSendLimit). Checked before save so
+      # no invitation row or seat is taken when the cap is hit.
+      unless InviteSendLimit.allowed?(@organization)
+        log_invite_limit("create")
+        if params[:from_wizard].present?
+          @invitation.errors.add(:base, InviteSendLimit::MESSAGE)
+          @locations = @organization.locations
+          render :new, status: :unprocessable_entity
+        else
+          redirect_to organization_path(error: InviteSendLimit::MESSAGE)
+        end
+        return
+      end
+
       if @invitation.save
         OrganizationInvitationMailer.invite(@invitation).deliver_later
+        InviteSendLimit.record!(@organization)
         if params[:from_wizard].present?
           render html: onboarding_wizard_form_marker_html("Invitation sent to #{@invitation.email}"), layout: false
         else
@@ -73,7 +88,15 @@ module Organizations
 
     def resend
       @invitation = @organization.organization_invitations.find(params[:id])
+
+      unless InviteSendLimit.allowed?(@organization)
+        log_invite_limit("resend")
+        redirect_to organization_path(error: InviteSendLimit::MESSAGE)
+        return
+      end
+
       if @invitation.resend!
+        InviteSendLimit.record!(@organization)
         redirect_to organization_path(resent: @invitation.email)
       else
         redirect_to organization_path(error: "Unable to resend invitation.")
@@ -128,6 +151,13 @@ module Organizations
     end
 
     private
+
+    def log_invite_limit(action)
+      Rails.logger.warn(
+        "[InviteSendLimit] blocked action=#{action} org=#{@organization.id} user=#{current_user.id} " \
+        "sent=#{InviteSendLimit.sent(@organization)} ip=#{request.remote_ip}"
+      )
+    end
 
     def set_organization
       @organization = current_user.current_organization
