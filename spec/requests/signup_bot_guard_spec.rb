@@ -37,6 +37,17 @@ RSpec.describe "Sign-up bot guard", type: :request do
       expect(response).to redirect_to(root_path)
     end
 
+    it "rejects the Nov 3 bot's exact name even when it passes the bot checks" do
+      bot_name = '* * * <a href="https://myxa.cc/">SCAM SERVICE 24/7</a> * * * hs=48508029c103811db09d3bd6f5688b5a* xxx* htv04d'
+
+      expect {
+        post user_registration_path, params: { user: user_params.merge(first_name: bot_name), ep_ts: human_token, ep_hp: "" }
+      }.not_to change(User, :count)
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response.body).to include(CGI.escapeHTML("First name can't contain links or the < > characters"))
+    end
+
     it "creates no account when the honeypot is filled, and logs why" do
       allow(Rails.logger).to receive(:warn).and_call_original
 

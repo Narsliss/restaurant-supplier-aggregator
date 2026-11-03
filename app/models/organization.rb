@@ -21,6 +21,8 @@ class Organization < ApplicationRecord
 
   # Validations
   validates :name, presence: true
+  # Only new/changed names are checked, so existing rows never fail a save.
+  validates :name, plain_text_name: true, if: :name_changed?
   validates :slug, presence: true, uniqueness: true,
                    format: { with: /\A[a-z0-9-]+\z/, message: 'can only contain lowercase letters, numbers, and hyphens' }
   validates :address, :city, :state, :zip_code, presence: true

@@ -175,13 +175,56 @@ count early. That's acceptable for an abuse cap, but it isn't an audit record. I
   was deleted afterwards.
 - Full suite: 2,251 examples, 0 failures.
 
+## Follow-up: plain-text names
+
+### What changed
+
+- **`PlainTextNameValidator`** (`app/validators/plain_text_name_validator.rb`) rejects `<`, `>`,
+  `http://`, `https://` and `www.` (case-insensitive), with the message "can't contain links or the
+  < > characters".
+- It's applied to `User#first_name` / `#last_name`, `Organization#name` and `Location#name`, each
+  **only when that attribute changes** (`if: :<attr>_changed?`). Existing rows are never re-checked,
+  so a legacy name can't make an unrelated save fail.
+- Bare domains (`myxa.cc`) are deliberately allowed, because too many real names contain a dot. The
+  Nov 3 bot's name is still caught by its `<a href=` and `https://`.
+
+### Where names get saved (mapped before building)
+
+Sign-up and profile edit (Devise), organization create and edit (including the wizard; create already
+rescues `RecordInvalid` and re-renders), restaurant create and edit, CRM/admin salesperson accounts,
+CRM `Crm::Lead#convert_to_organization!`, seeds, and `Dev::CompanySandbox`. No job, scraper or
+ordering path renames any of these.
+
+### Blast radius
+
+Only forms where a person types a name; each re-renders with the error. No migration. Ordering,
+scrapers and jobs are untouched. **Worst case:** a real person whose name contains `<`, `>` or
+`www.` is asked to change it.
+
+### Verification
+
+- `spec/validators/plain_text_name_validator_spec.rb`: 17 real-world names pass (O'Brien, José
+  Álvarez, Đặng, Bar & Grill, St. Elmo's, Eat.Drink, Etxe Cincinnati…); 6 link/HTML strings are
+  rejected; a bare domain passes.
+- `spec/models/plain_text_names_spec.rb`: for each model, a bad name is rejected on create and
+  rename, and **an existing row with a bad legacy name still saves** when another field changes.
+- `spec/requests/signup_bot_guard_spec.rb`: the Nov 3 bot's exact name, through the real sign-up
+  form with valid bot-guard fields, creates no account (422, message shown).
+- Full suite: 2,283 examples, 0 failures.
+- **Not checked:** how many existing prod names already match. The read-only prod lookup
+  (`railway ssh`) was blocked by the auto-mode safety check. Matching rows are grandfathered either
+  way.
+
 ## Open items
 
-1. **Optional:** reject URLs / `<` / `>` in first/last/organization names, scoped to changed values
-   (`if: :name_changed?`) so existing rows never fail a later save.
-2. **Delete the two bot accounts** in prod: Carmin's call. They own nothing.
+1. **The two bot accounts are still in prod.** The read-only lookup was blocked (see above). The
+   admin panel has no delete or lock action for users, and Claude doesn't hard-delete prod data, so
+   any deletion is Carmin's, from a Rails console. They own nothing per Carmin's own check.
+2. **Noticed, not changed:** CRM "Convert lead" (`Crm::Lead#convert_to_organization!`) calls
+   `Organization.create!` with only name/city/state, but address and zip are required, so it
+   looks like it raises `RecordInvalid` on every use.
 3. After deploy, watch the web logs for a week: `[SignupBotGuard]` (a `too_fast` with
    `invited=true` would be the first false positive) and `[InviteSendLimit]` (a block on a real
    restaurant would mean 10 is too low).
-4. Noticed, not changed: the org page prints any `?error=` text from the URL. It's escaped, so it
+4. **Noticed, not changed:** the org page prints any `?error=` text from the URL. It's escaped, so it
    isn't XSS, but anyone could craft a link that shows a signed-in owner a fake message on our page.

@@ -16,6 +16,8 @@ class Location < ApplicationRecord
 
   # Validations
   validates :name, presence: true
+  # Only new/changed names are checked, so existing rows never fail a save.
+  validates :name, plain_text_name: true, if: :name_changed?
   validates :name, uniqueness: { scope: :organization_id }
   validates :address, :city, :state, :zip_code, presence: true
 
