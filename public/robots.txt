@@ -1,0 +1,5 @@
+# enplacepro.app is the signed-in product, not a public website.
+# The marketing site (enplacepro.com) is separate and stays indexable.
+# This only affects crawlers that honor robots.txt; it is not a security control.
+User-agent: *
+Disallow: /
