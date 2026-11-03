@@ -1,6 +1,7 @@
-# Sign-up bot guard (honeypot + minimum fill time) and robots.txt
+# Sign-up bot guard (honeypot + minimum fill time)
 
-**Date:** 2026-11-03 · **Status:** built on branch `signup-bot-guard`, not yet pushed
+**Date:** 2026-11-03 · **Status:** live since `c4528d5` (2026-11-03). The robots.txt shipped
+alongside it was removed in a follow-up; see "What did not work".
 
 ## Why
 
@@ -51,9 +52,6 @@ our sending reputation, and then order confirmations and 2FA emails would start 
 3. **Logging:** each rejection writes
    `[SignupBotGuard] blocked reason=honeypot|too_fast|missing_timestamp ip=… email_domain=… invited=…`.
    Only the email *domain* is logged, not the full address.
-4. **`public/robots.txt`:** `Disallow: /` for the app domain. The marketing site (enplacepro.com) is
-   separate and unaffected. This only deters crawlers that honor robots.txt; it is not a security
-   control.
 
 ## Blast radius
 
@@ -64,7 +62,6 @@ our sending reputation, and then order confirmations and 2FA emails would start 
 | Ordering, scrapers, background jobs, Stripe webhooks | No |
 | Existing users and records | No. Nothing is validated or migrated |
 | Page layout | No. The guard fields sit at the end of the form, so `space-y-5` doesn't shift visible fields |
-| Search listing of enplacepro.app | Delisted over time (intended) |
 
 **Worst case:** a real person is flagged (password manager fills the honeypot, or an autofilled
 submit under 3 seconds). They see the error message and their next submit goes through, and the
@@ -79,12 +76,28 @@ log line shows it happened.
 - `spec/requests/signup_bot_guard_spec.rb`: honeypot rendered hidden with no autofill; human
   submit creates the account; honeypot / no-timestamp / too-fast create nothing; a timer-tripped
   person succeeds on resubmit; **invited chef full flow** (accept link → form → join org); a
-  timer-tripped invited chef keeps the invite form; `/robots.txt` served.
+  timer-tripped invited chef keeps the invite form.
 - Full suite: 2,242 examples, 0 failures.
 - Browser (dev, localhost:3001): honeypot wrapper is 1×1px, clipped, absolutely positioned. A submit
   1s after load was rejected with the message shown, no row created, and the log line written.
 
 ## What did not work / was rejected
+
+- **`public/robots.txt` with `Disallow: /`** shipped in `c4528d5` and was **removed** in a follow-up.
+  It never took effect, for two reasons found only after deploy:
+  1. Production returns 404 for files in `public/` (`/404.html` and `/favicon.ico` are 404 too;
+     `config.public_file_server.enabled` depends on `RAILS_SERVE_STATIC_FILES`). The Railway env
+     was not read, because of the Oct 21 breach caution.
+  2. Cloudflare's **Bot Preference Sync** (managed robots.txt) serves its own file for
+     enplacepro.app: AI-training crawlers blocked, `User-agent: * Allow: /` for search engines.
+     If our file did reach it, Cloudflare would *prepend* its rules, and Google resolves an equal
+     `Allow: /` vs `Disallow: /` as allow. So the sync would also have to be switched off.
+
+  The mistake was recommending robots.txt from the repo ("there is none") without checking the
+  live site, which already had Cloudflare's. Carmin decided to drop it: it only deters
+  well-behaved crawlers, and spam bots ignore it. **Cloudflare's managed robots.txt is the one in
+  force and was left unchanged.** If search delisting of the app is ever wanted, it needs a Rails
+  route for `/robots.txt` (not `public/`) *and* Bot Preference Sync switched off.
 
 - **No invites until paid:** rejected. Onboarding requires an invite before the subscription step,
   so this would block every new restaurant.

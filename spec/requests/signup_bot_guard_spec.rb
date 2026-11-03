@@ -113,12 +113,4 @@ RSpec.describe "Sign-up bot guard", type: :request do
       expect(invitation.reload).not_to be_accepted
     end
   end
-
-  describe "GET /robots.txt" do
-    it "asks crawlers to stay off the app" do
-      get "/robots.txt"
-      expect(response).to have_http_status(:ok)
-      expect(response.body).to include("User-agent: *", "Disallow: /")
-    end
-  end
 end
