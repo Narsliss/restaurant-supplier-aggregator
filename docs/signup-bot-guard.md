@@ -5,16 +5,20 @@ alongside it was removed in a follow-up; see "What did not work".
 
 ## Why
 
-Early November 2026, the admin "Recent Signups" list showed the first two junk sign-ups in roughly
-seven months of the app being up:
+On Nov 3 2026, the admin "Recent Signups" list showed two junk sign-ups, the first Carmin had
+noticed in roughly seven months of the app being up:
 
-- Name `* * * <a href="https://myxa.cc/">SCAM SERVICE 24/7</a> * * * hs=4850…`, email on
-  `merepost.com` (a disposable inbox). This is a known form-spam bot. It plants a link and a
-  tracking hash in every form it finds, then searches for where the text resurfaces (emails it
-  receives, pages that render it as a live link).
-- "Matthew Anderson", `@mail.ru`. Ordinary-looking name, almost certainly the same kind of bot.
+- User #27, created **Nov 3**, from IP 89.222.103.193. Name
+  `* * * <a href="https://myxa.cc/">SCAM SERVICE 24/7</a> * * * hs=4850…`, email on `merepost.com`
+  (a disposable inbox). This is a known form-spam bot. It plants a link and a tracking hash in every
+  form it finds, then searches for where the text resurfaces (emails it receives, pages that render
+  it as a live link).
+- User #23, created **Sep 18**, from IP 79.127.178.82. Name "Matthew Anderson", `@mail.ru`.
 
-Neither account set anything up: no organization, no restaurant, no invites.
+A read-only prod lookup on Nov 4 showed both accounts signed in once at sign-up and own nothing:
+no organization, credentials, orders or invites. They are nearly seven weeks apart, so this was
+not a sudden wave (an early assumption, corrected). The Nov 9 follow-up below shows the same IP
+ranges coming back.
 
 ### What the attack did NOT achieve (checked)
 
@@ -211,15 +215,74 @@ scrapers and jobs are untouched. **Worst case:** a real person whose name contai
 - `spec/requests/signup_bot_guard_spec.rb`: the Nov 3 bot's exact name, through the real sign-up
   form with valid bot-guard fields, creates no account (422, message shown).
 - Full suite: 2,283 examples, 0 failures.
-- **Not checked:** how many existing prod names already match. The read-only prod lookup
-  (`railway ssh`) was blocked by the auto-mode safety check. Matching rows are grandfathered either
-  way.
+- **Existing prod names (read-only lookup, Nov 4):** of 19 users, 5 orgs and 7 locations, the only
+  match is bot user #27, so the rule catches no real customer's name. The first attempt at this
+  lookup was blocked by the auto-mode safety check; it ran once Carmin gave the OK.
+
+## Follow-up: Cloudflare challenge on the sign-up page (Nov 9)
+
+### What happened
+
+Four more junk accounts appeared Nov 6–9, all named "Test User" with random webmail addresses (one
+per day, around 13:30–16:00 UTC). From the web logs (`railway logs --filter`):
+
+- **Same operator as #23/#27:** POSTs came from 212.102.36.194, 89.222.123.193, 79.127.178.81
+  and 89.222.123.194, the same ranges as the original two bots.
+- **Zero `[SignupBotGuard]` rejections all week.** The bot behaves like a real browser. For the
+  Nov 9 signup it loaded `/users/sign_up` at 15:30:49 from 79.127.178.81, then POSTed 10s later
+  from 89.222.123.194 (a different IP). It sent that page's own `ep_ts` (decoded: 15:30:49) and
+  left the honeypot empty. Both checks were passed as designed: it waits longer than 3s and only
+  fills visible fields.
+- **It probes every common form URL first:** `/newsletter`, `/contact-form`, `/subscribe`,
+  `/get-in-touch`, `/footer-signup` and so on, then signs up, signs in, lands on `/subscription` and
+  stops. No `POST /organization`, `/locations` or invitation from any of these IPs. It looks like a
+  crawler hunting for forms that echo or email its text.
+
+### What changed (Cloudflare, no code)
+
+A WAF custom rule on the enplacepro.app zone, deployed by Claude in the dashboard with Carmin's
+approval:
+
+- **Name:** Challenge sign-up page (bot signups)
+- **Expression:** `(starts_with(lower(http.request.uri.path), "/users/sign_up") and http.request.method eq "GET")`
+- **Action:** Managed Challenge · **Status:** Active (rule 1 of 5 on the free plan)
+
+The sign-up POST needs the CSRF token and `ep_ts` from that page, so challenging the page also
+protects the submit, without challenging any POST.
+
+### Blast radius
+
+Only the sign-up page (direct sign-ups and invited chefs). Real visitors usually pass without
+interaction; some click "Verify you are human". Login, the app, ordering, supplier connections,
+`/up` and Stripe webhooks don't match the rule. **Rollback:** switch the rule to Disabled in
+Security → Security rules.
+
+### Verification (Nov 9)
+
+- `curl /users/sign_up` → 403 with `cf-mitigated: challenge`, also for `/Users/Sign_Up`.
+  `www.` 301s to the apex first.
+- `/users/sign_in` 200, `/up` 200, `POST /webhooks/stripe` reached Rails (400 for the unsigned
+  test), with no `cf-mitigated` on any of them.
+- **Real browser: works.** Carmin opened the sign-up page in their own browser and the form
+  loaded after the challenge.
+- **Claude Code's built-in browser pane: loops.** After Carmin clicked "Verify you are human", the
+  challenge POSTs returned 200 but every `GET /users/sign_up` came back 403 again. Cloudflare
+  distrusts that remotely driven browser, so **don't use the pane to test the sign-up page**. Use a
+  normal browser, or temporarily disable the rule. Claude doesn't complete challenges itself.
+
+### Known gap
+
+`ep_ts` has no expiry. A bot that passes the challenge once could keep reusing that one form (same
+session cookie + token). If junk continues, give `ep_ts` an expiry (e.g. 1 day) and/or add Turnstile
+to the form itself.
 
 ## Open items
 
-1. **The two bot accounts are still in prod.** The read-only lookup was blocked (see above). The
-   admin panel has no delete or lock action for users, and Claude doesn't hard-delete prod data, so
-   any deletion is Carmin's, from a Rails console. They own nothing per Carmin's own check.
+1. **The bot accounts stay in prod by Carmin's choice** (#23 and #27 from Nov 4, plus the four
+   "Test User" accounts from Nov 6–9). The admin panel has no delete or lock action for users, and
+   Claude doesn't hard-delete prod data, so any deletion is Carmin's, from a Rails console. If they
+   pile up, the planned fix is the dashboard separating signups that have no organization
+   (declined for now on Nov 4).
 2. **Noticed, not changed:** CRM "Convert lead" (`Crm::Lead#convert_to_organization!`) calls
    `Organization.create!` with only name/city/state, but address and zip are required, so it
    looks like it raises `RecordInvalid` on every use.
