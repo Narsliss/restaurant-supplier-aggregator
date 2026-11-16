@@ -38,6 +38,10 @@
         Verifying live prices with suppliers. Review your orders below, then submit when ready.
       </p>
     </div>
+    <div class="flex-shrink-0">
+      <%= render "orders/submit_all_button", review_orders: @review_orders, batch_id: @batch_id,
+                 aggregated_list_id: @aggregated_list_id, size: :regular %>
+    </div>
   </div>
 
   <%# Verification progress banner — re-check since verification may have completed during render %>
@@ -281,11 +285,16 @@
             <% unless review[:has_credentials] %>
               <span class="text-xs text-gray-400">No credentials</span>
             <% end %>
-            <%= button_to "Submit Order",
+            <%# Secondary on purpose: "Submit All" is the primary action. With other
+                orders on the page, order-review#interceptSingleSubmit asks the chef to
+                confirm before sending only this supplier (Nov 12 2026: D'oro sent only
+                US Foods and left CW + PPO as drafts). %>
+            <%= button_to "Submit only this",
                 submit_batch_orders_path(batch_id: @batch_id, order_ids: [order.id], aggregated_list_id: @aggregated_list_id),
                 method: :post,
                 disabled: !can_submit,
-                class: "px-4 py-1.5 rounded-md text-sm font-semibold shadow-sm #{can_submit ? 'text-white bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'text-gray-400 bg-gray-600 opacity-50 cursor-not-allowed'}",
+                class: "px-3 py-1.5 rounded-md text-sm font-medium border border-gray-300 bg-white #{can_submit ? 'text-gray-700 hover:bg-gray-50 cursor-pointer' : 'text-gray-400 opacity-50 cursor-not-allowed'}",
+                form: { data: { action: "submit->order-review#interceptSingleSubmit", order_id: order.id.to_s } },
                 data: { order_review_target: "supplierSubmitBtn", order_id: order.id.to_s } %>
           </div>
         </div>
@@ -619,21 +628,41 @@
       </div>
 
       <div class="flex flex-col sm:flex-row gap-3 sm:items-center">
-        <% submittable = @review_orders.select { |r| r[:has_credentials] && r[:meets_minimum] && r[:meets_case_minimum] && !r[:order].verifying? && r[:verification_status].in?(%w[verified price_changed skipped]) } %>
         <% skipped_for_creds = @review_orders.count { |r| !r[:has_credentials] } %>
-        <% can_submit_all = submittable.any? %>
-        <%# Include all credentialed order IDs in the form — server-side submit_batch validates status/dates %>
-        <% all_credentialed_ids = @review_orders.select { |r| r[:has_credentials] }.map { |r| r[:order].id } %>
-        <% btn_label = submittable.size == @review_orders.size ? "Submit All Orders" : "Submit #{submittable.size} of #{@review_orders.size} Orders" %>
-        <%= button_to btn_label,
-            submit_batch_orders_path(batch_id: @batch_id, order_ids: all_credentialed_ids, aggregated_list_id: @aggregated_list_id),
-            method: :post,
-            disabled: !can_submit_all,
-            class: "px-6 py-2 text-sm font-semibold rounded-md shadow-sm text-center #{can_submit_all ? 'text-white bg-brand-orange hover:bg-brand-orange-dark cursor-pointer' : 'text-gray-400 bg-gray-600 opacity-50 cursor-not-allowed'}",
-            data: { order_review_target: "submitAllBtn" } %>
+        <%= render "orders/submit_all_button", review_orders: @review_orders, batch_id: @batch_id,
+                   aggregated_list_id: @aggregated_list_id, size: :large %>
         <% if skipped_for_creds > 0 %>
           <p class="text-xs text-red-600 text-right"><%= skipped_for_creds %> order<%= skipped_for_creds == 1 ? '' : 's' %> skipped (no credentials)</p>
         <% end %>
+      </div>
+    </div>
+  </div>
+
+  <%# "Only order from one supplier?" confirm — opened by order-review#interceptSingleSubmit
+      when a chef presses "Submit only this" while other orders are on the page. %>
+  <div class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+       data-order-review-target="singleSubmitModal"
+       role="dialog" aria-modal="true" aria-labelledby="single-submit-title">
+    <div class="fixed inset-0 bg-black/60" data-action="click->order-review#closeSingleSubmit"></div>
+    <div class="relative w-full max-w-md bg-white rounded-lg shadow-2xl p-6">
+      <h2 id="single-submit-title" class="text-lg font-semibold text-gray-900" data-order-review-target="singleSubmitTitle">Only order from one supplier?</h2>
+      <p class="mt-2 text-sm text-gray-600">These orders won't be sent. They'll stay as drafts:</p>
+      <ul class="mt-2 space-y-1 text-sm text-gray-900" data-order-review-target="singleSubmitOthers"></ul>
+      <p class="mt-3 text-sm text-gray-600 hidden" data-order-review-target="singleSubmitAllBlocked">
+        Submit All isn't ready yet. Another order is still checking prices or needs a fix (minimum or delivery date). Cancel to fix it, or send only this one now.
+      </p>
+      <div class="mt-6 flex flex-col gap-2">
+        <button type="button"
+                class="w-full px-4 py-2.5 rounded-md text-sm font-semibold text-white bg-brand-orange hover:bg-brand-orange-dark"
+                data-order-review-target="singleSubmitAllBtn"
+                data-action="order-review#submitAllFromDialog">Submit All Orders</button>
+        <button type="button"
+                class="w-full px-4 py-2.5 rounded-md text-sm font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                data-order-review-target="singleSubmitOnlyBtn"
+                data-action="order-review#confirmSingleSubmit">Only this supplier</button>
+        <button type="button"
+                class="w-full px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
+                data-action="order-review#closeSingleSubmit">Cancel</button>
       </div>
     </div>
   </div>
