@@ -30,7 +30,7 @@ supplier when there are several.
 
 1. **Submit All is the one orange button**, rendered at the top (beside "Review Orders") and the
    bottom (larger) of the page, from one partial so both copies stay identical.
-2. **Per-card buttons are quiet outlines** labelled "Submit only this". `SUBMIT_STYLES` in the
+2. **Per-card buttons are quiet outlines** labelled "Submit only <supplier>". `SUBMIT_STYLES` in the
    controller owns both looks; the four duplicated class-toggling blocks are gone.
 3. **Confirm before a single-supplier submit.** With other orders on the page, "Submit only
    this" opens a dialog: "Only order from US Foods?", the other orders and their totals, then
@@ -50,6 +50,21 @@ supplier when there are several.
    "Ready" uses the same rule the page already shows: credentials, minimum, case minimum,
    delivery date, verified, no blocking out-of-stock item.
 
+6. **Every submit button waits for every price check.** While any order in the batch
+   is `pending` or `verifying`, Submit All reads "Checking prices…" and every card's
+   button reads "Waiting for prices…", all disabled. Carmin, Nov 15: "I don't want an
+   impatient chef to click Order CW while Sysco is still verifying because it seems
+   faster." On Nov 12, CW finished checking 8 seconds after the chef sent US Foods
+   alone. `failed` and `skipped` count as finished, so one expired supplier login can't
+   lock the page. Once all checks are done, Submit All covers every ready order
+   ("Submit 2 of 3" when one has a problem the card names), and "Submit only <supplier>"
+   still goes through the confirm dialog. The rule lives in `_updateSubmitStates`
+   (`CHECKING_STATUSES`) and in the server render (`Order::CHECKING_VERIFICATION_STATUSES`).
+
+   Considered and not chosen: blocking Submit All until every problem (minimum,
+   date, out of stock) is fixed. Those don't clear on their own and a chef may
+   mean to leave a supplier out; the label and the card say what's missing.
+
 ## Not changed
 
 - `submit_batch` (server) is untouched. It still re-checks status, dates, deliverable days and
@@ -63,9 +78,12 @@ supplier when there are several.
 
 ## Tests
 
-`spec/requests/review_submit_all_primary_spec.rb`: Submit All renders twice; with one ready
-and one unready order it reads "Submit 1 of 2 Orders" and posts only the ready id (fails on the
-old code, which posted both); per-card buttons are outlined "Submit only this" forms wired to
-`interceptSingleSubmit`; the dialog markup is present; all-ready posts both; nothing-ready is
-disabled. The dialog's behaviour is JavaScript and was checked by hand in the dev server
-(no JS test harness in this repo).
+`spec/requests/review_submit_all_primary_spec.rb`: while one order is still checking, Submit
+All ("Checking prices…") and every card's button ("Waiting for prices…") are disabled, even
+for the ready order; with checks done and one order failed, Submit All renders twice, reads
+"Submit 1 of 2 Orders" and posts only the ready id (fails on the old code, which posted both);
+per-card buttons are outlined "Submit only <supplier>" forms wired to `interceptSingleSubmit`; the
+dialog markup is present; all-ready posts both. The JavaScript (dialog, live unlock when the
+last check finishes, quantity edits) was checked by hand in the dev server (no JS test harness
+in this repo), with every Solid Queue queue paused and no Sysco/Performance orders in the
+test cart so nothing could contact a supplier.

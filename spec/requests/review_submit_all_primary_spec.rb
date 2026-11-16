@@ -1,11 +1,14 @@
 require "rails_helper"
 
 # Nov 12 2026: a D'oro chef pressed one supplier card's orange "Submit Order"
-# (US Foods). Chef's Warehouse and PPO stayed as drafts and he thought ordering
-# was broken. Submit All is now the primary action (top and bottom of the page),
-# the per-card buttons are quiet "Submit only this" outlines that ask for a
-# confirmation when other orders are on the page, and Submit All posts only the
-# orders that are ready ("Submit 1 of 2" used to post both).
+# (US Foods) while Chef's Warehouse was still checking prices. CW and PPO stayed
+# as drafts and he thought ordering was broken. Now:
+# - Submit All is the primary action (top and bottom of the page); per-card
+#   buttons are quiet "Submit only <supplier>" outlines that ask for a confirmation
+#   when other orders are on the page.
+# - Every submit button stays off while ANY order is still checking prices.
+# - Submit All posts only the orders that are ready ("Submit 1 of 2" used to
+#   post both).
 # See docs/review-submit-all-primary.md.
 RSpec.describe "Review page Submit All", type: :request do
   let(:organization) { create(:organization) }
@@ -51,14 +54,40 @@ RSpec.describe "Review page Submit All", type: :request do
     doc.css("button[data-order-review-target='submitAllBtn']")
   end
 
+  def card_buttons(doc)
+    doc.css("button[data-order-review-target='supplierSubmitBtn']")
+  end
+
   def posted_order_ids(button)
     query = URI.parse(button.ancestors("form").first["action"]).query.to_s
     Rack::Utils.parse_nested_query(query)["order_ids"].to_a
   end
 
-  context "with one order ready and one still checking prices" do
+  context "while one order is still checking prices" do
     let!(:usf_order) { order_for(usf) }
-    let!(:cw_order) { order_for(cw, verification_status: "pending") }
+    let!(:cw_order) { order_for(cw, verification_status: "verifying") }
+
+    it "keeps Submit All off and says why" do
+      submit_all_buttons(page_html).each do |button|
+        expect(button.text.strip).to eq("Checking prices…")
+        expect(button["disabled"]).to be_present
+      end
+    end
+
+    it "keeps every card's button off too, including the order that is ready" do
+      buttons = card_buttons(page_html)
+      expect(buttons.size).to eq(2)
+      buttons.each do |button|
+        expect(button.text.strip).to eq("Waiting for prices…")
+        expect(button["disabled"]).to be_present
+      end
+    end
+  end
+
+  context "when checks are done but one order can't be sent" do
+    let!(:usf_order) { order_for(usf) }
+    # A failed check counts as done, so it can't lock the page.
+    let!(:cw_order) { order_for(cw, verification_status: "failed") }
 
     it "renders Submit All at the top and the bottom of the page" do
       expect(submit_all_buttons(page_html).size).to eq(2)
@@ -67,6 +96,7 @@ RSpec.describe "Review page Submit All", type: :request do
     it "posts only the ready order (regression: Submit 1 of 2 used to post both)" do
       submit_all_buttons(page_html).each do |button|
         expect(button.text.strip).to eq("Submit 1 of 2 Orders")
+        expect(button["disabled"]).to be_nil
         expect(posted_order_ids(button)).to eq([usf_order.id.to_s])
       end
     end
@@ -75,10 +105,9 @@ RSpec.describe "Review page Submit All", type: :request do
       doc = page_html
       submit_all_buttons(doc).each { |b| expect(b["class"]).to include("bg-brand-orange") }
 
-      card_buttons = doc.css("button[data-order-review-target='supplierSubmitBtn']")
-      expect(card_buttons.size).to eq(2)
-      card_buttons.each do |button|
-        expect(button.text.strip).to eq("Submit only this")
+      expect(card_buttons(doc).map { |b| b.text.strip })
+        .to contain_exactly("Submit only US Foods", "Submit only Chef's Warehouse")
+      card_buttons(doc).each do |button|
         expect(button["class"]).not_to include("bg-brand-orange")
         expect(button["class"]).to include("border-gray-300")
       end
@@ -87,7 +116,7 @@ RSpec.describe "Review page Submit All", type: :request do
     it "asks before submitting a single supplier" do
       doc = page_html
 
-      doc.css("button[data-order-review-target='supplierSubmitBtn']").each do |button|
+      card_buttons(doc).each do |button|
         form = button.ancestors("form").first
         expect(form["data-action"]).to eq("submit->order-review#interceptSingleSubmit")
         expect(posted_order_ids(button)).to eq([button["data-order-id"]])
@@ -113,13 +142,9 @@ RSpec.describe "Review page Submit All", type: :request do
         expect(posted_order_ids(button)).to contain_exactly(usf_order.id.to_s, cw_order.id.to_s)
       end
     end
-  end
 
-  context "with nothing ready" do
-    let!(:usf_order) { order_for(usf, verification_status: "pending") }
-
-    it "disables Submit All" do
-      submit_all_buttons(page_html).each { |b| expect(b["disabled"]).to be_present }
+    it "enables each card's button" do
+      card_buttons(page_html).each { |b| expect(b["disabled"]).to be_nil }
     end
   end
 end

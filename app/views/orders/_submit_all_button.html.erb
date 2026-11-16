@@ -1,11 +1,16 @@
 <%# The review page's primary action, rendered at the top and the bottom.
     order_ids holds ONLY the orders that are ready right now, so "Submit 2 of 3"
-    sends 2. order-review#_updateSubmitStates rewrites the ids, label and state
-    as prices verify and the chef edits quantities or dates.
+    sends 2. Off while any order is still checking prices.
+    order-review#_updateSubmitStates rewrites the ids, label and state as prices
+    verify and the chef edits quantities or dates.
     Locals: review_orders, batch_id, aggregated_list_id, size (:regular | :large) %>
+<% checking = review_orders.any? { |r| r[:verification_status].in?(Order::CHECKING_VERIFICATION_STATUSES) } %>
 <% ready = review_orders.select { |r| r[:has_credentials] && r[:meets_minimum] && r[:meets_case_minimum] && !r[:order].verifying? && r[:verification_status].in?(%w[verified price_changed skipped]) } %>
-<% can_submit_all = ready.any? %>
-<% label = ready.size == review_orders.size ? "Submit All Orders" : "Submit #{ready.size} of #{review_orders.size} Orders" %>
+<% can_submit_all = ready.any? && !checking %>
+<% label = if checking then "Checking prices…"
+           elsif ready.size == review_orders.size then "Submit All Orders"
+           else "Submit #{ready.size} of #{review_orders.size} Orders"
+           end %>
 <% size_classes = size == :large ? "px-8 py-3 text-base font-bold" : "px-5 py-2 text-sm font-semibold" %>
 <%= button_to label,
     submit_batch_orders_path(batch_id: batch_id, order_ids: ready.map { |r| r[:order].id }, aggregated_list_id: aggregated_list_id),

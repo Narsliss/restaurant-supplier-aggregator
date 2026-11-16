@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 // Submit All is the page's primary (orange) action; each supplier card's
-// "Submit only this" is a quiet outline. One place owns both looks so the
+// "Submit only <supplier>" is a quiet outline. One place owns both looks so the
 // enable/disable code can't drift back to four orange buttons.
 const SUBMIT_STYLES = {
   primary: {
@@ -13,6 +13,11 @@ const SUBMIT_STYLES = {
     off: ["text-gray-400", "opacity-50", "cursor-not-allowed"]
   }
 }
+
+// An order whose price check hasn't finished. While any order is in one of
+// these, every submit button on the page stays off (see _updateSubmitStates).
+// Keep in sync with Order::CHECKING_VERIFICATION_STATUSES (server render).
+const CHECKING_STATUSES = ["pending", "verifying"]
 
 export default class extends Controller {
   static targets = [
@@ -70,7 +75,7 @@ export default class extends Controller {
   }
 
   // --- "Only order from one supplier?" confirm ---
-  // A chef who presses one card's "Submit only this" while other orders are on
+  // A chef who presses one card's "Submit only <supplier>" while other orders are on
   // the page gets asked first. Nov 12 2026: D'oro submitted only US Foods and
   // left Chef's Warehouse + PPO as drafts without noticing.
 
@@ -1797,6 +1802,7 @@ export default class extends Controller {
 
   _updateSubmitStates() {
     const readyIds = []
+    const cardStates = []
     const totalCount = this.orderCardTargets.length
 
     this.orderCardTargets.forEach(card => {
@@ -1833,12 +1839,24 @@ export default class extends Controller {
       const canSubmit = hasCredentials && meetsMinimum && meetsCaseMin && hasDate && isVerified && hasNoUnavailable
 
       if (canSubmit) readyIds.push(orderId)
+      cardStates.push({ orderId, supplierName: card.dataset.supplierName || "this supplier", canSubmit })
+    })
 
-      // Per-supplier "Submit only this" (secondary style)
+    // Nothing is submittable while ANY order is still checking prices — not
+    // Submit All, not a single card. Carmin, Nov 15 2026: an impatient chef must
+    // not send CW alone because Sysco's check is slow (Nov 12: CW finished 8s
+    // after the chef sent US Foods alone). Failed/skipped checks count as done,
+    // so one expired login can't lock the page.
+    const anyChecking = this.orderCardTargets.some(card =>
+      CHECKING_STATUSES.includes(card.dataset.verificationStatus))
+
+    // Per-supplier "Submit only <supplier>" (secondary style)
+    cardStates.forEach(({ orderId, supplierName, canSubmit }) => {
       this.supplierSubmitBtnTargets.forEach(target => {
-        if (target.dataset.orderId === orderId) {
-          this._setSubmitEnabled(this._buttonFor(target), canSubmit, "secondary")
-        }
+        if (target.dataset.orderId !== orderId) return
+        const btn = this._buttonFor(target)
+        this._setButtonLabel(btn, anyChecking ? "Waiting for prices…" : `Submit only ${supplierName}`)
+        this._setSubmitEnabled(btn, canSubmit && !anyChecking, "secondary")
       })
     })
 
@@ -1846,20 +1864,30 @@ export default class extends Controller {
     // It sends ONLY the ready orders: "Submit 2 of 3" used to post all 3, and
     // the unready one (e.g. under its minimum) was placed and then failed.
     const submittableCount = readyIds.length
-    const label = submittableCount === totalCount
-      ? "Submit All Orders"
-      : `Submit ${submittableCount} of ${totalCount} Orders`
+    let label
+    if (anyChecking) {
+      label = "Checking prices…"
+    } else if (submittableCount === totalCount) {
+      label = "Submit All Orders"
+    } else {
+      label = `Submit ${submittableCount} of ${totalCount} Orders`
+    }
     this.submitAllBtnTargets.forEach(target => {
       const btn = this._buttonFor(target)
       if (!btn) return
-      if (btn.tagName === "INPUT") {
-        btn.value = label
-      } else {
-        btn.textContent = label
-      }
+      this._setButtonLabel(btn, label)
       this._setReadyOrderIds(btn.form, readyIds)
-      this._setSubmitEnabled(btn, submittableCount > 0 && totalCount > 0, "primary")
+      this._setSubmitEnabled(btn, !anyChecking && submittableCount > 0 && totalCount > 0, "primary")
     })
+  }
+
+  _setButtonLabel(btn, label) {
+    if (!btn) return
+    if (btn.tagName === "INPUT") {
+      btn.value = label
+    } else {
+      btn.textContent = label
+    }
   }
 
   // submit_batch reads order_ids[] from the form's action URL (button_to params).

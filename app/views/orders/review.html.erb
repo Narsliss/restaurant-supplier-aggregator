@@ -281,7 +281,10 @@
                 <%= review[:cases_to_minimum].to_i %> more case<%= review[:cases_to_minimum].to_i == 1 ? '' : 's' %> needed
               </span>
             <% end %>
-            <% can_submit = review[:has_credentials] && review[:meets_minimum] && review[:meets_case_minimum] && !order.verifying? && order.verification_status.in?(%w[verified price_changed skipped]) %>
+            <%# Off for EVERY card while any order is still checking prices, so a chef
+                can't send one supplier ahead of a slow check (Carmin, Nov 15 2026). %>
+            <% batch_checking = @review_orders.any? { |r| r[:verification_status].in?(Order::CHECKING_VERIFICATION_STATUSES) } %>
+            <% can_submit = !batch_checking && review[:has_credentials] && review[:meets_minimum] && review[:meets_case_minimum] && !order.verifying? && order.verification_status.in?(%w[verified price_changed skipped]) %>
             <% unless review[:has_credentials] %>
               <span class="text-xs text-gray-400">No credentials</span>
             <% end %>
@@ -289,7 +292,7 @@
                 orders on the page, order-review#interceptSingleSubmit asks the chef to
                 confirm before sending only this supplier (Nov 12 2026: D'oro sent only
                 US Foods and left CW + PPO as drafts). %>
-            <%= button_to "Submit only this",
+            <%= button_to (batch_checking ? "Waiting for prices…" : "Submit only #{supplier.name}"),
                 submit_batch_orders_path(batch_id: @batch_id, order_ids: [order.id], aggregated_list_id: @aggregated_list_id),
                 method: :post,
                 disabled: !can_submit,
@@ -639,7 +642,7 @@
   </div>
 
   <%# "Only order from one supplier?" confirm — opened by order-review#interceptSingleSubmit
-      when a chef presses "Submit only this" while other orders are on the page. %>
+      when a chef presses "Submit only <supplier>" while other orders are on the page. %>
   <div class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
        data-order-review-target="singleSubmitModal"
        role="dialog" aria-modal="true" aria-labelledby="single-submit-title">
