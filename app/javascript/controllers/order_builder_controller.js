@@ -1018,9 +1018,13 @@ export default class extends Controller {
   // "why is Chef's Warehouse at $25?" is answerable at a glance.
   _buildOrderPanel() {
     this._orderPanel = document.createElement("div")
+    // Background and border are classes, not inline style, so the .dark
+    // overrides in application.css can repaint them (an inline #fff left the
+    // panel white in dark mode with the text already switched to light).
+    this._orderPanel.className = "bg-white border-t border-gray-200"
     this._orderPanel.style.cssText =
-      "position:fixed;left:0;right:0;z-index:49;display:none;background:#fff;" +
-      "border-top:1px solid #e5e7eb;box-shadow:0 -8px 24px rgba(0,0,0,0.12);" +
+      "position:fixed;left:0;right:0;z-index:49;display:none;" +
+      "box-shadow:0 -8px 24px rgba(0,0,0,0.12);" +
       "max-height:min(60vh,32rem);overflow-y:auto;"
     document.body.appendChild(this._orderPanel)
 

@@ -176,6 +176,16 @@
             <%= f.submit submit_label,
                 class: "flex w-full justify-center rounded-lg bg-brand-orange px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-orange-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-orange transition-colors cursor-pointer" %>
           </div>
+
+          <%# Bot checks (SignupBotGuard). Kept last so space-y-5 doesn't shift
+              the visible fields. The honeypot is hidden from sight, screen
+              readers, tab order and password-manager autofill; real people
+              never fill it. The timestamp records when this form was rendered. %>
+          <%= hidden_field_tag SignupBotGuard::TIMESTAMP_PARAM, SignupBotGuard.timestamp_token, id: nil %>
+          <div class="sr-only" aria-hidden="true">
+            <%= text_field_tag SignupBotGuard::HONEYPOT_PARAM, nil, id: nil, tabindex: -1, autocomplete: "off",
+                data: { "1p-ignore": true, "lpignore": "true", "bwignore": true, "form-type": "other" } %>
+          </div>
         <% end %>
 
         <% unless @invitation %>

@@ -34,10 +34,11 @@ Rails.application.configure do
   config.active_support.disallowed_deprecation = :log
   config.active_record.dump_schema_after_migration = false
 
-  # ActionCable
-  config.action_cable.url = 'wss://pretty-friendship-production-7e4d.up.railway.app/cable'
+  # ActionCable. No `url` on purpose: browsers then connect to /cable on the
+  # host that served the page. A pinned host outlived the move to enplacepro.app
+  # and silently stopped all live updates (docs/fix-live-updates-on-enplacepro.md).
   config.action_cable.allowed_request_origins = [
-    'https://pretty-friendship-production-7e4d.up.railway.app',
-    %r{https://.*\.up\.railway\.app}
+    'https://enplacepro.app',
+    'https://www.enplacepro.app'
   ]
 end

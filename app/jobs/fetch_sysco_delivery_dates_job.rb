@@ -84,7 +84,11 @@ class FetchSyscoDeliveryDatesJob < ApplicationJob
       Rails.logger.warn "[FetchSyscoDeliveryDates] getDeliveryDays returned no dates for credential #{credential_id}; " \
                         "leaving previous values intact"
     end
-  rescue Scrapers::BaseScraper::AuthenticationError => e
+  rescue Scrapers::BaseScraper::AuthenticationError, Scrapers::PerformanceApi::AuthError => e
+    # Performance's saved session couldn't be resumed (Oct 21 2026: this
+    # retried and then alerted). Logging Performance back in is the 2-hourly
+    # session refresh's job, not this page-view poll's, so keep the stored
+    # dates and leave delivery_dates_fetched_at stale for the next page view.
     Rails.logger.warn "[FetchSyscoDeliveryDates] Auth failed for credential #{credential_id}: #{e.message}"
     # Don't mark_failed! here — this is a background poll, not a user action.
     # Credential validation jobs own the active/failed transitions.

@@ -549,8 +549,14 @@ module Scrapers
         return order
       end
 
+      # Still a draft right after the submit doesn't prove PPO dropped it, so
+      # a retry could order twice (risk #4, Oct 20 2026). This branch also
+      # catches a submit PPO answered with an error: it can't tell the two
+      # apart, so both send the chef to check the PPO app.
       if order && %w[DRAFT IN_REVIEW].include?(order['status'])
-        raise NotPlacedError, 'Premiere Produce rejected the order. Nothing was placed — it is safe to try again.'
+        raise OrderUnconfirmedError,
+              "Premiere Produce didn't confirm this order. It still showed as a draft right after we sent it, " \
+              'but Premiere Produce may still be taking it. Check the Premiere Produce app before reordering, so it is not placed twice.'
       end
 
       raise OrderUnconfirmedError,

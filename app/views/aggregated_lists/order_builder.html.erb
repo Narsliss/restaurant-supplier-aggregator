@@ -113,7 +113,7 @@
         </div>
         <div class="flex items-center gap-2">
           <div class="bg-white shadow rounded-lg px-2 py-1.5 flex items-center gap-1">
-            <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
+            <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate", controller: "safari-date" } %>
           </div>
           <button type="button" data-clear-cart title="Remove every item from this order"
                   class="px-3 py-1.5 rounded-md text-sm font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 transition-colors whitespace-nowrap">Clear cart</button>
@@ -169,7 +169,7 @@
         <% end %>
         <div class="bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-1 shrink-0">
           <span class="text-xs font-medium text-gray-500 uppercase">Delivery</span>
-          <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate" } %>
+          <%= date_field_tag :delivery_date, @delivery_date, min: Date.tomorrow, max: Date.today + 30.days, required: true, class: "w-32 rounded-md border-gray-300 shadow-sm focus:border-brand-green focus:ring-brand-green text-sm", data: { order_builder_target: "deliveryDate", controller: "safari-date" } %>
         </div>
         <div class="ml-auto shrink-0 bg-white shadow rounded-lg px-3 py-1.5 flex items-center gap-3">
           <button type="button" data-clear-cart title="Remove every item from this order"

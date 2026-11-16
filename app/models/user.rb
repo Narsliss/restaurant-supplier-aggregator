@@ -44,6 +44,9 @@ class User < ApplicationRecord
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :first_name, :last_name, presence: true
+  # Only new/changed names are checked, so existing rows never fail a save.
+  validates :first_name, plain_text_name: true, if: :first_name_changed?
+  validates :last_name, plain_text_name: true, if: :last_name_changed?
   validates :role, inclusion: { in: %w[user super_admin salesperson] }
   validate :only_one_super_admin, if: :super_admin?
 

@@ -77,7 +77,7 @@
         <tbody class="divide-y divide-gray-200">
           <% @organizations.each do |org| %>
             <% owner_membership = org.memberships.find { |m| m.role == 'owner' } %>
-            <% sub = org.subscriptions.find { |s| %w[active trialing past_due canceled].include?(s.status) } %>
+            <% sub = org.display_subscription %>
             <tr class="hover:bg-gray-50">
               <td class="px-6 py-4 whitespace-nowrap">
                 <%= link_to org.name, admin_organization_path(org), class: "text-sm font-medium text-brand-green-dark hover:underline" %>

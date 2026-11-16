@@ -46,6 +46,7 @@ import CrmStageSelectController from "./crm_stage_select_controller"
 import MobileTabBarController from "./mobile_tab_bar_controller"
 import MobileSearchController from "./mobile_search_controller"
 import MobileOrderBuilderController from "./mobile_order_builder_controller"
+import SafariDateController from "./safari_date_controller"
 import MobileReviewController from "./mobile_review_controller"
 import MatchFilterController from "./match_filter_controller"
 import DeliveryScheduleGridController from "./delivery_schedule_grid_controller"
@@ -103,3 +104,4 @@ application.register("match-filter", MatchFilterController)
 application.register("delivery-schedule-grid", DeliveryScheduleGridController)
 application.register("onboarding-wizard", OnboardingWizardController)
 application.register("set-weight", SetWeightController)
+application.register("safari-date", SafariDateController)

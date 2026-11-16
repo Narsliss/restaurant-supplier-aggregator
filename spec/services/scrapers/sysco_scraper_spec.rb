@@ -379,6 +379,47 @@ RSpec.describe Scrapers::SyscoScraper do
     end
   end
 
+  # Oct 22 2026: live_stock_for sat below `private`, so the morning run's and
+  # the 8 AM guide sync's respond_to?(:live_stock_for) were false and both
+  # skipped Sysco's stock read without a word (docs/fix-sysco-live-stock-public.md).
+  describe '#live_stock_for' do
+    let(:found) do
+      ->(sku, indicator) { { 'productId' => sku, 'availableStockInfo' => { 'stockIndicator' => indicator }, 'productInfo' => {} } }
+    end
+
+    before { allow(scraper).to receive(:logger).and_return(Logger.new(nil)) }
+
+    it 'is public, so the morning run and the guide sync can find it' do
+      expect(scraper).to respond_to(:live_stock_for)
+    end
+
+    it 'reads the asked SKUs from one batched item-number search' do
+      queries = []
+      allow(scraper).to receive(:graphql_search_products) do |query, **|
+        queries << query
+        { 'results' => [found.call('111', 'S'), found.call('222', 'O'), found.call('999', 'S')] }
+      end
+
+      stock = scraper.live_stock_for(%w[111 222])
+
+      expect(queries).to eq(['111 222'])
+      expect(stock.keys).to eq(%w[111 222]) # 999 was not asked for
+      expect(stock['111'].first).to be(true)
+      expect(stock['222'].first).to be(false)
+    end
+
+    it 'leaves unknown a SKU the search does not return, and a failed batch' do
+      stub_const("#{described_class}::SELLER_LOOKUP_BATCH_SIZE", 1)
+      allow(scraper).to receive(:graphql_search_products) do |query, **|
+        raise StandardError, 'timeout' if query == '222'
+
+        { 'results' => [] }
+      end
+
+      expect(scraper.live_stock_for(%w[111 222])).to eq({})
+    end
+  end
+
   # Carmin (Sep 27 2026): only Sysco's own stock (LOCAL_SALES) on EnPlace —
   # Marketplace / Specialty orders can't be cancelled once submitted.
   describe 'keeping Marketplace and Specialty items off EnPlace' do

@@ -81,8 +81,247 @@ RSpec.describe Scrapers::PerformanceApi do
     end
   end
 
+  # A login ends 24 hours after a real sign-in; each refresh reports how long
+  # is left (Oct 21 2026: 57,604 s … 7,205 s … then 6 s, after which B2C
+  # answered "AADB2C90080: The provided grant has expired").
+  describe '#refresh_token_expires_at' do
+    before do
+      credential.update!(session_data: session_blob(
+        'abc-tenant-refreshtoken-client--' =>
+          { 'credentialType' => 'RefreshToken', 'secret' => 'refresh-secret' }.to_json
+      ))
+    end
+
+    def refresh_returning(extra)
+      stub_request(:post, described_class::TOKEN_ENDPOINT)
+        .to_return(status: 200, headers: { 'Content-Type' => 'application/json' },
+                   body: { access_token: 'fresh-token', refresh_token: 'new-refresh', expires_in: 3600 }.merge(extra).to_json)
+    end
+
+    it 'records when the login ends, as B2C reports on a refresh' do
+      refresh_returning(refresh_token_expires_in: 6)
+
+      freeze_time do
+        expect(api.restore_session).to be(true)
+        expect(api.refresh_token_expires_at).to eq(6.seconds.from_now)
+      end
+    end
+
+    it 'is unknown when B2C does not say' do
+      refresh_returning({})
+
+      api.restore_session
+      expect(api.refresh_token_expires_at).to be_nil
+    end
+
+    it 'is unknown when no refresh happened (the stored access token was still good)' do
+      credential.update!(session_data: session_blob(
+        'abc-tenant-accesstoken-client-tenant-scopes--' =>
+          msal_access_entry(secret: 'good-token', target: api_scope_target, expires_at: 1.hour.from_now)
+      ))
+
+      expect(api.restore_session).to be(true)
+      expect(api.refresh_token_expires_at).to be_nil
+    end
+  end
+
   # B2C issues a new refresh token on every refresh. Unless it's saved, the
   # stored one never renews and the login only lasts until the original dies.
+  # Sign-in without a browser: the five requests B2C's hosted page makes,
+  # proven on a real login Oct 21 2026 (docs/recon-performance-http-signin.md).
+  describe '#sign_in' do
+    let(:authorize_pattern) { %r{\A#{Regexp.escape(described_class::SIGN_IN_AUTHORITY)}/oauth2/v2\.0/authorize\?} }
+    let(:self_asserted_pattern) { %r{\A#{Regexp.escape(described_class::SIGN_IN_AUTHORITY)}/SelfAsserted\?} }
+    let(:confirmed_pattern) { %r{\A#{Regexp.escape(described_class::SIGN_IN_AUTHORITY)}/api/CombinedSigninAndSignup/confirmed\?} }
+    let(:sign_in_page) do
+      '<html><script>var SETTINGS = {"csrf":"csrf-123","transId":"StateProperties=tx-456",' \
+        '"api":"CombinedSigninAndSignup"};</script><form id="localAccountForm"></form></html>'
+    end
+    let(:token_body) do
+      { access_token: 'signed-in-access', refresh_token: 'signed-in-refresh', expires_in: 3600,
+        refresh_token_expires_in: 86_400, scope: "https://pfgcustomerfirst.onmicrosoft.com/api/customer-first-site-api openid" }
+    end
+    let(:seen) { {} }
+
+    def stub_sign_in_page
+      stub_request(:get, authorize_pattern).to_return do |request|
+        seen[:authorize] = request.uri.to_s
+        { status: 200, body: sign_in_page,
+          headers: { 'Set-Cookie' => ['x-ms-cpim-csrf=cookie-csrf; path=/', 'x-ms-cpim-trans=cookie-trans; path=/'] } }
+      end
+    end
+
+    def stub_credentials(verdict = { status: '200' })
+      stub_request(:post, self_asserted_pattern).to_return do |request|
+        seen[:credentials] = request
+        { status: 200, body: verdict.to_json }
+      end
+    end
+
+    def stub_confirm(location = "#{described_class::SIGN_IN_REDIRECT_URI}/?state=s&code=auth-code-789")
+      stub_request(:get, confirmed_pattern).to_return(status: 302, headers: { 'Location' => location })
+    end
+
+    def stub_tokens(status: 200, body: token_body)
+      stub_request(:post, described_class::TOKEN_ENDPOINT).to_return do |request|
+        seen[:tokens] = request
+        { status: status, headers: { 'Content-Type' => 'application/json' }, body: body.to_json }
+      end
+    end
+
+    def stub_full_sign_in
+      stub_sign_in_page
+      stub_credentials
+      stub_confirm
+      stub_tokens
+    end
+
+    it 'signs in and loads tokens good for a new 24-hour login' do
+      stub_full_sign_in
+
+      freeze_time do
+        expect(api.sign_in).to eq(:signed_in)
+        expect(api.token_expired?).to be(false)
+        expect(api.refresh_token_expires_at).to eq(24.hours.from_now)
+      end
+    end
+
+    it 'submits the email and password with the page CSRF token and cookies' do
+      stub_full_sign_in
+
+      api.sign_in
+
+      request = seen[:credentials]
+      expect(URI.decode_www_form(URI(request.uri.to_s).query).to_h)
+        .to eq('tx' => 'StateProperties=tx-456', 'p' => described_class::SIGN_IN_POLICY)
+      expect(request.headers['X-Csrf-Token']).to eq('csrf-123')
+      expect(request.headers['Cookie']).to include('x-ms-cpim-csrf=cookie-csrf', 'x-ms-cpim-trans=cookie-trans')
+      expect(URI.decode_www_form(request.body).to_h)
+        .to eq('request_type' => 'RESPONSE', 'signInName' => credential.username, 'password' => credential.password)
+    end
+
+    it 'redeems the code with the PKCE verifier that matches the challenge it sent' do
+      stub_full_sign_in
+
+      api.sign_in
+
+      challenge = URI.decode_www_form(URI(seen[:authorize]).query).to_h['code_challenge']
+      form = URI.decode_www_form(seen[:tokens].body).to_h
+      expect(form).to include('grant_type' => 'authorization_code', 'code' => 'auth-code-789',
+                              'client_id' => described_class::CLIENT_ID, 'redirect_uri' => described_class::SIGN_IN_REDIRECT_URI)
+      expect(Base64.urlsafe_encode64(Digest::SHA256.digest(form['code_verifier']), padding: false)).to eq(challenge)
+      expect(seen[:tokens].headers['Origin']).to eq(described_class::SIGN_IN_REDIRECT_URI)
+    end
+
+    it 'saves the tokens so the next restore uses them without signing in or refreshing' do
+      stub_full_sign_in
+      api.sign_in
+
+      later = described_class.new(credential.reload)
+      expect(later.restore_session).to be(true)
+      expect(later.token_expired?).to be(false)
+      expect(WebMock).to have_requested(:post, described_class::TOKEN_ENDPOINT).once
+    end
+
+    it 'updates the stored MSAL entries in place, so a browser restore still finds its account' do
+      access_key = 'acct-tenant-accesstoken-client-tenant-scopes--'
+      refresh_key = 'acct-tenant-refreshtoken-client--'
+      credential.update!(session_data: {
+        'cookies' => { 'b2c' => { 'name' => 'x-ms-cpim-sso', 'value' => 'keep-me' } },
+        'local_storage' => {
+          access_key => msal_access_entry(secret: 'old-access', target: api_scope_target, expires_at: 1.hour.ago),
+          'msal.account.keys' => '["acct"]'
+        },
+        'session_storage' => { refresh_key => { 'credentialType' => 'RefreshToken', 'secret' => 'old-refresh' }.to_json }
+      }.to_json)
+      stub_full_sign_in
+
+      api.sign_in
+
+      data = JSON.parse(credential.reload.session_data)
+      expect(JSON.parse(data['local_storage'][access_key])['secret']).to eq('signed-in-access')
+      expect(JSON.parse(data['session_storage'][refresh_key])['secret']).to eq('signed-in-refresh')
+      expect(data['local_storage']['msal.account.keys']).to eq('["acct"]')
+      expect(data['cookies']).to eq('b2c' => { 'name' => 'x-ms-cpim-sso', 'value' => 'keep-me' })
+      expect(data['local_storage']).not_to have_key(described_class::SIGNED_IN_ACCESS_KEY)
+    end
+
+    it 'says :rejected, and saves nothing, when Performance refuses the password' do
+      stub_sign_in_page
+      stub_credentials(status: '400', message: 'Your password is incorrect.')
+      before = credential.session_data
+
+      expect(api.sign_in).to eq(:rejected)
+      expect(credential.reload.session_data).to eq(before)
+      expect(WebMock).not_to have_requested(:get, confirmed_pattern)
+    end
+
+    describe 'anything else fails without saving, so the caller can fall back to Chrome' do
+      it 'when the sign-in page has no form (Performance changed it)' do
+        stub_request(:get, authorize_pattern).to_return(status: 200, body: '<html>maintenance</html>')
+
+        expect(api.sign_in).to eq(:failed)
+      end
+
+      it 'when the credentials step itself errors' do
+        stub_sign_in_page
+        stub_request(:post, self_asserted_pattern).to_return(status: 500)
+
+        expect(api.sign_in).to eq(:failed)
+      end
+
+      it 'when no authorization code comes back' do
+        stub_sign_in_page
+        stub_credentials
+        stub_request(:get, confirmed_pattern).to_return(status: 200, body: 'AADB2C90273 error page')
+
+        expect(api.sign_in).to eq(:failed)
+      end
+
+      it 'when the token exchange is refused' do
+        stub_sign_in_page
+        stub_credentials
+        stub_confirm
+        stub_tokens(status: 400, body: { error: 'invalid_grant' })
+
+        expect(api.sign_in).to eq(:failed)
+        expect(credential.reload.session_data).to be_nil
+      end
+
+      it 'when the network fails' do
+        stub_request(:get, authorize_pattern).to_raise(SocketError)
+
+        expect(api.sign_in).to eq(:failed)
+      end
+
+      it 'when there is no stored password' do
+        credential.update_columns(encrypted_password: nil, encrypted_password_iv: nil)
+        without_password = described_class.new(SupplierCredential.find(credential.id))
+
+        expect(without_password.sign_in).to eq(:failed)
+        expect(WebMock).not_to have_requested(:get, authorize_pattern)
+      end
+    end
+
+    it 'never writes a password, token, cookie, code or CSRF value to the log' do
+      logged = []
+      allow(Rails.logger).to receive(:info) { |msg| logged << msg.to_s }
+      allow(Rails.logger).to receive(:warn) { |msg| logged << msg.to_s }
+
+      stub_full_sign_in
+      api.sign_in
+      described_class.new(credential).tap do |again|
+        stub_credentials(status: '400', message: 'Your password is incorrect.')
+        again.sign_in
+      end
+
+      secrets = [credential.password, 'signed-in-access', 'signed-in-refresh', 'auth-code-789', 'csrf-123',
+                 'cookie-csrf', 'cookie-trans']
+      expect(logged.join("\n")).not_to include(*secrets)
+      expect(logged.join("\n")).to include('Signed in without a browser', 'Sign-in refused: Your password is incorrect.')
+    end
+  end
+
   describe '#persist_tokens!' do
     let(:access_key) { 'abc-tenant-accesstoken-client-tenant-scopes--' }
     let(:refresh_key) { 'abc-tenant-refreshtoken-client--' }

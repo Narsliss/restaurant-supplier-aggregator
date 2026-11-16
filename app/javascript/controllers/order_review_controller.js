@@ -1,5 +1,24 @@
 import { Controller } from "@hotwired/stimulus"
 
+// Submit All is the page's primary (orange) action; each supplier card's
+// "Submit only <supplier>" is a quiet outline. One place owns both looks so the
+// enable/disable code can't drift back to four orange buttons.
+const SUBMIT_STYLES = {
+  primary: {
+    on: ["bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer"],
+    off: ["bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed"]
+  },
+  secondary: {
+    on: ["text-gray-700", "hover:bg-gray-50", "cursor-pointer"],
+    off: ["text-gray-400", "opacity-50", "cursor-not-allowed"]
+  }
+}
+
+// An order whose price check hasn't finished. While any order is in one of
+// these, every submit button on the page stays off (see _updateSubmitStates).
+// Keep in sync with Order::CHECKING_VERIFICATION_STATUSES (server render).
+const CHECKING_STATUSES = ["pending", "verifying"]
+
 export default class extends Controller {
   static targets = [
     "quantityInput", "lineTotal", "itemRow", "orderCard",
@@ -20,7 +39,10 @@ export default class extends Controller {
     // Forgot Something modal
     "forgotModal", "forgotSearchInput", "forgotResults",
     // Delivery hints
-    "deliveryHint"
+    "deliveryHint",
+    // "Only order from one supplier?" confirm
+    "singleSubmitModal", "singleSubmitTitle", "singleSubmitOthers",
+    "singleSubmitAllBlocked", "singleSubmitAllBtn", "singleSubmitOnlyBtn"
   ]
 
   static values = {
@@ -49,6 +71,102 @@ export default class extends Controller {
   disconnect() {
     this._stopPolling()
     if (this._recalcRAF) cancelAnimationFrame(this._recalcRAF)
+    this._removeSingleSubmitKeydown()
+  }
+
+  // --- "Only order from one supplier?" confirm ---
+  // A chef who presses one card's "Submit only <supplier>" while other orders are on
+  // the page gets asked first. Nov 12 2026: D'oro submitted only US Foods and
+  // left Chef's Warehouse + PPO as drafts without noticing.
+
+  interceptSingleSubmit(event) {
+    const form = event.currentTarget
+    if (form.dataset.singleConfirmed === "true") {
+      delete form.dataset.singleConfirmed
+      return // confirmed in the dialog — let Turbo submit it
+    }
+
+    const orderId = form.dataset.orderId
+    const card = this._cardForOrder(orderId)
+    const others = this.orderCardTargets.filter(c => c.dataset.orderId !== orderId)
+    if (!card || others.length === 0 || !this.hasSingleSubmitModalTarget) return
+
+    event.preventDefault()
+    this._pendingSingleForm = form
+
+    const supplierName = card.dataset.supplierName || "this supplier"
+    this.singleSubmitTitleTarget.textContent = `Only order from ${supplierName}?`
+    this.singleSubmitOnlyBtnTarget.textContent = `Only ${supplierName}`
+
+    this.singleSubmitOthersTarget.replaceChildren(...others.map(other => {
+      const li = document.createElement("li")
+      const subtotal = this.orderSubtotalTargets.find(el => el.dataset.orderId === other.dataset.orderId)
+      li.textContent = subtotal
+        ? `${other.dataset.supplierName} · ${subtotal.textContent.trim()}`
+        : other.dataset.supplierName
+      return li
+    }))
+
+    // Mirror the real Submit All button: same label ("Submit 2 of 3 Orders"),
+    // and unavailable whenever it is.
+    const submitAll = this._submitAllButton()
+    const allReady = submitAll && !submitAll.disabled
+    this.singleSubmitAllBtnTarget.classList.toggle("hidden", !allReady)
+    this.singleSubmitAllBlockedTarget.classList.toggle("hidden", allReady)
+    if (allReady) this.singleSubmitAllBtnTarget.textContent = this._buttonLabel(submitAll)
+
+    this.singleSubmitModalTarget.classList.remove("hidden")
+    this._singleSubmitKeydown = (e) => { if (e.key === "Escape") this.closeSingleSubmit() }
+    document.addEventListener("keydown", this._singleSubmitKeydown)
+    ;(allReady ? this.singleSubmitAllBtnTarget : this.singleSubmitOnlyBtnTarget).focus()
+  }
+
+  confirmSingleSubmit() {
+    const form = this._pendingSingleForm
+    this.closeSingleSubmit()
+    if (!form) return
+    form.dataset.singleConfirmed = "true"
+    form.requestSubmit()
+  }
+
+  submitAllFromDialog() {
+    this.closeSingleSubmit()
+    const btn = this._submitAllButton()
+    if (btn && !btn.disabled) btn.form.requestSubmit(btn)
+  }
+
+  closeSingleSubmit() {
+    if (this.hasSingleSubmitModalTarget) this.singleSubmitModalTarget.classList.add("hidden")
+    this._pendingSingleForm = null
+    this._removeSingleSubmitKeydown()
+  }
+
+  _removeSingleSubmitKeydown() {
+    if (!this._singleSubmitKeydown) return
+    document.removeEventListener("keydown", this._singleSubmitKeydown)
+    this._singleSubmitKeydown = null
+  }
+
+  // button_to's data- attributes land on the <button>; tolerate either element.
+  _buttonFor(target) {
+    return target.matches("button, input") ? target : target.querySelector("button[type='submit'], input[type='submit']")
+  }
+
+  _submitAllButton() {
+    const target = this.submitAllBtnTargets[0]
+    return target ? this._buttonFor(target) : null
+  }
+
+  _buttonLabel(btn) {
+    return (btn.tagName === "INPUT" ? btn.value : btn.textContent).trim()
+  }
+
+  _setSubmitEnabled(btn, enabled, kind) {
+    if (!btn) return
+    const { on, off } = SUBMIT_STYLES[kind]
+    btn.disabled = !enabled
+    btn.classList.remove(...(enabled ? off : on))
+    btn.classList.add(...(enabled ? on : off))
   }
 
   // --- Quantity adjustments ---
@@ -1248,13 +1366,9 @@ export default class extends Controller {
     })
 
     // ── Phase 2: WRITE — all DOM mutations, no layout reads ──
-    let allCanSubmit = true
-
     for (let c = 0; c < cardData.length; c++) {
       const { orderId, card, subtotal, itemCount, totalCases,
-              minimum, caseMin, meetsMinium, canSubmit } = cardData[c]
-
-      if (!canSubmit) allCanSubmit = false
+              minimum, caseMin, meetsMinium } = cardData[c]
 
       // Order subtotals
       this.orderSubtotalTargets.forEach(el => {
@@ -1362,22 +1476,6 @@ export default class extends Controller {
         })
       }
 
-      // Per-supplier submit button
-      // button_to puts data- on the <form>, so target the <button> inside
-      this.supplierSubmitBtnTargets.forEach(form => {
-        if (form.dataset.orderId === orderId) {
-          const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
-          if (canSubmit) {
-            btn.disabled = false
-            btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-            btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-          } else {
-            btn.disabled = true
-            btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-            btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-          }
-        }
-      })
     }
 
     // Summary bar
@@ -1385,20 +1483,10 @@ export default class extends Controller {
     if (this.hasSummaryItemsTarget) this.summaryItemsTarget.textContent = totalItems
     if (this.hasSummaryTotalTarget) this.summaryTotalTarget.textContent = this._formatCurrency(totalAmount)
 
-    // Submit All button
-    // button_to puts data- on the <form>, so target the <button> inside
-    this.submitAllBtnTargets.forEach(form => {
-      const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
-      if (allCanSubmit && cardData.length > 0) {
-        btn.disabled = false
-        btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-      } else {
-        btn.disabled = true
-        btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-        btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-      }
-    })
+    // Buttons: one owner. This used to grey out Submit All unless EVERY order
+    // was ready, steering chefs to the per-card buttons after any quantity edit,
+    // while _updateSubmitStates offered "Submit 2 of 3". Now both paths agree.
+    this._updateSubmitStates()
   }
 
   _recalculateOrderTotals(orderId) {
@@ -1713,7 +1801,8 @@ export default class extends Controller {
   }
 
   _updateSubmitStates() {
-    let submittableCount = 0
+    const readyIds = []
+    const cardStates = []
     const totalCount = this.orderCardTargets.length
 
     this.orderCardTargets.forEach(card => {
@@ -1749,49 +1838,65 @@ export default class extends Controller {
       const hasCredentials = card.dataset.hasCredentials !== "false"
       const canSubmit = hasCredentials && meetsMinimum && meetsCaseMin && hasDate && isVerified && hasNoUnavailable
 
-      if (canSubmit) submittableCount++
+      if (canSubmit) readyIds.push(orderId)
+      cardStates.push({ orderId, supplierName: card.dataset.supplierName || "this supplier", canSubmit })
+    })
 
-      // Update per-supplier submit button
-      // button_to puts data- on the <form>, so target the <button> inside
-      this.supplierSubmitBtnTargets.forEach(form => {
-        if (form.dataset.orderId === orderId) {
-          const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
-          if (canSubmit) {
-            btn.disabled = false
-            btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-            btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-          } else {
-            btn.disabled = true
-            btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-            btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-          }
-        }
+    // Nothing is submittable while ANY order is still checking prices — not
+    // Submit All, not a single card. Carmin, Nov 15 2026: an impatient chef must
+    // not send CW alone because Sysco's check is slow (Nov 12: CW finished 8s
+    // after the chef sent US Foods alone). Failed/skipped checks count as done,
+    // so one expired login can't lock the page.
+    const anyChecking = this.orderCardTargets.some(card =>
+      CHECKING_STATUSES.includes(card.dataset.verificationStatus))
+
+    // Per-supplier "Submit only <supplier>" (secondary style)
+    cardStates.forEach(({ orderId, supplierName, canSubmit }) => {
+      this.supplierSubmitBtnTargets.forEach(target => {
+        if (target.dataset.orderId !== orderId) return
+        const btn = this._buttonFor(target)
+        this._setButtonLabel(btn, anyChecking ? "Waiting for prices…" : `Submit only ${supplierName}`)
+        this._setSubmitEnabled(btn, canSubmit && !anyChecking, "secondary")
       })
     })
 
-    // Update "Submit All" button text and state
-    // button_to puts data- on the <form>, so target the <button> inside
-    this.submitAllBtnTargets.forEach(form => {
-      const btn = form.querySelector("button[type='submit'], input[type='submit']") || form
-      const label = submittableCount === totalCount
-        ? "Submit All Orders"
-        : `Submit ${submittableCount} of ${totalCount} Orders`
-      if (btn.value !== undefined && btn.type === "submit") {
-        btn.value = label
-      } else {
-        btn.textContent = label
-      }
-
-      if (submittableCount > 0 && totalCount > 0) {
-        btn.disabled = false
-        btn.classList.remove("bg-gray-300", "bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-        btn.classList.add("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-      } else {
-        btn.disabled = true
-        btn.classList.add("bg-gray-600", "opacity-50", "text-gray-400", "cursor-not-allowed")
-        btn.classList.remove("bg-brand-orange", "hover:bg-brand-orange-dark", "text-white", "cursor-pointer")
-      }
+    // "Submit All" (primary) — top and bottom of the page.
+    // It sends ONLY the ready orders: "Submit 2 of 3" used to post all 3, and
+    // the unready one (e.g. under its minimum) was placed and then failed.
+    const submittableCount = readyIds.length
+    let label
+    if (anyChecking) {
+      label = "Checking prices…"
+    } else if (submittableCount === totalCount) {
+      label = "Submit All Orders"
+    } else {
+      label = `Submit ${submittableCount} of ${totalCount} Orders`
+    }
+    this.submitAllBtnTargets.forEach(target => {
+      const btn = this._buttonFor(target)
+      if (!btn) return
+      this._setButtonLabel(btn, label)
+      this._setReadyOrderIds(btn.form, readyIds)
+      this._setSubmitEnabled(btn, !anyChecking && submittableCount > 0 && totalCount > 0, "primary")
     })
+  }
+
+  _setButtonLabel(btn, label) {
+    if (!btn) return
+    if (btn.tagName === "INPUT") {
+      btn.value = label
+    } else {
+      btn.textContent = label
+    }
+  }
+
+  // submit_batch reads order_ids[] from the form's action URL (button_to params).
+  _setReadyOrderIds(form, ids) {
+    if (!form) return
+    const url = new URL(form.action, window.location.origin)
+    url.searchParams.delete("order_ids[]")
+    ids.forEach(id => url.searchParams.append("order_ids[]", id))
+    form.action = url.pathname + url.search
   }
 
   _checkIfAllDone() {

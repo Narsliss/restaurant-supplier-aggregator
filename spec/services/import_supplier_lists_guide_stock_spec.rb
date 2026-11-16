@@ -50,6 +50,23 @@ RSpec.describe ImportSupplierListsService, 'guide stock' do
     expect(butter.reload).to have_attributes(stock_signal: '"O" S', stock_source: 'catalog')
   end
 
+  # The double above answers live_stock_for whatever its visibility. The real
+  # Sysco scraper's lookup was private until Oct 22 2026, so this sync kept
+  # the guide's assumed "guide:in" and never read Sysco's stock.
+  it 'reads stock with the real Sysco scraper' do
+    sysco = Scrapers::SyscoScraper.allocate
+    allow(sysco).to receive(:scrape_lists).and_return(guide)
+    allow(sysco).to receive(:logger).and_return(Logger.new(nil))
+    allow(sysco).to receive(:graphql_search_products).and_return(
+      'results' => %w[B1 C1].map { |sku| { 'productId' => sku, 'availableStockInfo' => { 'stockIndicator' => 'S' }, 'productInfo' => {} } }
+    )
+
+    sync(with: sysco)
+
+    expect(butter.reload).to have_attributes(stock_source: 'catalog')
+    expect(butter.stock_signal).to start_with('"S"')
+  end
+
   it 'still syncs the guide when the stock lookup fails' do
     allow(scraper).to receive(:live_stock_for).and_raise(StandardError, 'HTTP 429 for SearchProducts')
 

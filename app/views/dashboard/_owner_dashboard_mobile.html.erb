@@ -61,7 +61,7 @@
 <div class="mt-4 mb-3" data-controller="location-selector">
   <% locations = current_user.accessible_locations %>
   <% if locations.size > 1 %>
-    <select class="w-full flex items-center justify-between bg-white rounded-xl border border-gray-200 px-3 py-2.5 shadow-sm text-sm font-medium text-brand-navy"
+    <select class="w-full flex items-center justify-between bg-white rounded-xl border border-gray-200 px-3 py-2.5 shadow-sm text-sm font-medium text-brand-navy safari-select-card"
             data-action="change->location-selector#change">
       <option value="all" <%= 'selected' if viewing_all_locations? %>>All Locations</option>
       <% locations.each do |location| %>

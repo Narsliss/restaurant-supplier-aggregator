@@ -35,7 +35,12 @@ module Scrapers
       @api_client ||= PerformanceApi.new(credential)
     end
 
+    # Sign-in without a browser first (Oct 21 2026). Any failure, a refused
+    # password included, goes on to the Chrome login below: Chrome is the
+    # authority on whether the login is bad, and it alone marks it failed.
     def login
+      return true if http_sign_in == :signed_in
+
       with_browser do
         if restore_session
           navigate_to(BASE_URL)
@@ -63,10 +68,86 @@ module Scrapers
     # callers treat false as "session dead" — pre-order validation blocks the
     # order without trying a login — so a failed API refresh must end where
     # the browser-only refresh used to.
+    #
+    # Oct 21 2026: when the API refresh fails (a login past its 24 hours),
+    # sign in again without a browser before trying Chrome. One more way to
+    # succeed before a caller sees "session dead", never fewer.
     def soft_refresh
       return true if api_soft_refresh
+      return true if http_sign_in == :signed_in
 
       browser_soft_refresh
+    end
+
+    # Signs in with the stored email + password over plain HTTP, with no
+    # Chrome (PerformanceApi#sign_in; docs/recon-performance-http-signin.md),
+    # and marks the login active when it works. Returns :signed_in,
+    # :rejected or :failed. Never raises. A password Performance refused is
+    # not sent again over HTTP by this scraper (one refresh run can reach
+    # here from #soft_refresh and then #login), so a bad password costs one
+    # HTTP attempt plus Chrome, not more, toward an account lockout.
+    def http_sign_in
+      return :rejected if @http_sign_in_refused
+
+      result = api_client.sign_in
+      @http_sign_in_refused = true if result == :rejected
+      credential.mark_active! if result == :signed_in
+      result
+    rescue StandardError => e
+      logger.warn "[Performance] Sign-in without a browser errored: #{e.class}"
+      :failed
+    end
+
+    # A Performance login ends 24 hours after a real sign-in, however often
+    # it's refreshed (see PerformanceApi#refresh_token_expires_at). Sign in
+    # again once less than this is left: longer than the widest gap between
+    # two scheduled refreshes of one login (6 hours, then the 2-hourly cron),
+    # so the login is renewed before it can die between refreshes.
+    RENEW_LOGIN_WITHIN = 9.hours
+
+    # True when this scraper's last API refresh says the login ends within
+    # RENEW_LOGIN_WITHIN. Unknown (no refresh this run) counts as false.
+    def login_ending_soon?
+      ends_at = api_client.refresh_token_expires_at
+      ends_at.present? && ends_at < RENEW_LOGIN_WITHIN.from_now
+    end
+
+    # A fresh email + password sign-in, which starts a new 24 hours. Used by
+    # the scheduled refresh (SessionManager#refresh_session) while the current
+    # session still works, so unlike #login it never marks the login failed:
+    # if it doesn't work, the current session is kept and the next scheduled
+    # refresh tries again.
+    #
+    # Without a browser first. If Performance refuses the password there,
+    # Chrome isn't tried (it would only add a failed attempt toward an account
+    # lockout); the login dies at its limit and #login, via the refresh's
+    # password fallback, settles it. Otherwise Chrome, whose profile is new
+    # and empty, so the sign-in form always shows.
+    def renew_login
+      case http_sign_in
+      when :signed_in
+        logger.info '[Performance] Signed in again before the 24-hour login limit (no browser)'
+        return true
+      when :rejected
+        logger.warn '[Performance] Performance refused the stored sign-in; keeping the current session'
+        return false
+      end
+
+      with_browser do
+        perform_login_steps
+        unless logged_in?
+          logger.warn '[Performance] Signing in again did not complete; keeping the current session'
+          return false
+        end
+
+        save_session
+        credential.mark_active!
+        logger.info '[Performance] Signed in again before the 24-hour login limit'
+        true
+      end
+    rescue StandardError => e
+      logger.warn "[Performance] Signing in again failed, keeping the current session: #{e.class}: #{e.message}"
+      false
     end
 
     def api_soft_refresh

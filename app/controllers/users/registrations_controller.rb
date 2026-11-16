@@ -1,5 +1,7 @@
 class Users::RegistrationsController < Devise::RegistrationsController
   before_action :load_invitation, only: [:new, :create]
+  # Runs after load_invitation so a rejected invited chef sees their invite form again.
+  before_action :reject_bot_signups, only: [:create]
 
   # GET /users/sign_up
   def new
@@ -35,6 +37,27 @@ class Users::RegistrationsController < Devise::RegistrationsController
   end
 
   private
+
+  # Honeypot + minimum fill time (SignupBotGuard). No account is created on a
+  # rejection; the form re-renders with a fresh timestamp so a real person
+  # caught by mistake gets through on the next submit.
+  def reject_bot_signups
+    reason = SignupBotGuard.rejection_reason(params)
+    return unless reason
+
+    Rails.logger.warn(
+      "[SignupBotGuard] blocked reason=#{reason} ip=#{request.remote_ip} " \
+      "email_domain=#{sign_up_params[:email].to_s.split('@').last.presence || '-'} " \
+      "invited=#{@invitation.present?}"
+    )
+
+    build_resource(sign_up_params)
+    resource.email = @invitation.email if @invitation
+    resource.errors.add(:base, "We couldn't create your account just now. Please check your details and submit again.")
+    clean_up_passwords(resource)
+    set_minimum_password_length
+    render :new, status: :unprocessable_entity
+  end
 
   def load_invitation
     return unless session[:invitation_token].present?

@@ -21,10 +21,14 @@ export function dateLabel(iso) {
   return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
 }
 
-export function openCalendar(selectedIso, onPick) {
+// opts (both optional, used only by the Safari date fields on desktop pages —
+// safari_date_controller.js): maxIso greys out days after the field's max;
+// narrow keeps the sheet phone-width instead of stretching across the screen.
+// Existing callers pass neither and get exactly the sheet they always had.
+export function openCalendar(selectedIso, onPick, opts = {}) {
   const sel = selectedIso || tomorrowIso()
   const [y, m] = sel.split("-").map(Number)
-  state = { year: y, month: m - 1, selected: sel, onPick }
+  state = { year: y, month: m - 1, selected: sel, onPick, maxIso: opts.maxIso || null }
 
   let sheet = document.getElementById("mobile-cal-sheet")
   if (!sheet) {
@@ -42,6 +46,7 @@ export function openCalendar(selectedIso, onPick) {
           <div data-cal-body></div>
         </div>
       </div>`
+    if (opts.narrow) sheet.querySelector("[data-cal-panel]").classList.add("max-w-md", "mx-auto")
     document.body.appendChild(sheet)
     sheet.querySelector("[data-cal-backdrop]").addEventListener("click", closeCalendar)
     sheet.querySelector("[data-cal-close]").addEventListener("click", closeCalendar)
@@ -89,7 +94,7 @@ function renderMonth() {
   for (let i = 0; i < first.getDay(); i++) cells += "<div></div>"
   for (let day = 1; day <= daysInMonth; day++) {
     const iso = isoOf(new Date(year, month, day))
-    if (iso < minIso) {
+    if (iso < minIso || (state.maxIso && iso > state.maxIso)) {
       cells += `<div class="h-10 flex items-center justify-center text-sm cal-muted">${day}</div>`
     } else {
       const isSel = iso === selected

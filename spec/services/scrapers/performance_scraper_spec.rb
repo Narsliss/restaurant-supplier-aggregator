@@ -234,6 +234,185 @@ RSpec.describe Scrapers::PerformanceScraper do
     end
   end
 
+  # Oct 21 2026: a login ends 24 hours after a real sign-in; refreshing can't
+  # extend it. The scheduled refresh signs in again before that.
+  describe 'the 24-hour login limit' do
+    let(:api) { instance_double(Scrapers::PerformanceApi) }
+
+    before { allow(scraper).to receive(:api_client).and_return(api) }
+
+    describe '#login_ending_soon?' do
+      it 'is true when the last refresh says the login ends within the renewal window' do
+        allow(api).to receive(:refresh_token_expires_at).and_return(5.seconds.from_now)
+        expect(scraper.login_ending_soon?).to be(true)
+
+        allow(api).to receive(:refresh_token_expires_at).and_return(8.hours.from_now)
+        expect(scraper.login_ending_soon?).to be(true)
+      end
+
+      it 'is false while more than the renewal window is left' do
+        allow(api).to receive(:refresh_token_expires_at).and_return(16.hours.from_now)
+        expect(scraper.login_ending_soon?).to be(false)
+      end
+
+      it 'is false when no refresh told us (unknown is not "ending")' do
+        allow(api).to receive(:refresh_token_expires_at).and_return(nil)
+        expect(scraper.login_ending_soon?).to be(false)
+      end
+    end
+
+    describe '#soft_refresh near the end of a login (what ordering calls)' do
+      it 'still says the session works, and opens no browser' do
+        allow(api).to receive_messages(restore_session: true, call: {}, persist_tokens!: true,
+                                       refresh_token_expires_at: 5.seconds.from_now)
+        expect(scraper).not_to receive(:with_browser)
+        expect(scraper).not_to receive(:renew_login)
+
+        expect(scraper.soft_refresh).to be(true)
+      end
+    end
+
+    describe '#renew_login without a browser' do
+      it 'renews over HTTP and opens no browser when that works' do
+        allow(api).to receive(:sign_in).and_return(:signed_in)
+        expect(scraper).not_to receive(:with_browser)
+
+        expect(scraper.renew_login).to be(true)
+        expect(credential.reload.last_login_at).to be_within(5.seconds).of(Time.current)
+      end
+
+      it 'does not try Chrome when Performance refuses the password (no extra failed attempt), and keeps the session' do
+        allow(api).to receive(:sign_in).and_return(:rejected)
+        expect(scraper).not_to receive(:with_browser)
+
+        expect(scraper.renew_login).to be(false)
+        expect(credential.reload.status).to eq('active')
+      end
+    end
+
+    describe '#renew_login falling back to Chrome' do
+      before do
+        allow(api).to receive(:sign_in).and_return(:failed)
+        allow(scraper).to receive(:with_browser).and_yield
+      end
+
+      it 'signs in with the stored password and saves the new session' do
+        expect(scraper).to receive(:perform_login_steps)
+        allow(scraper).to receive(:logged_in?).and_return(true)
+        expect(scraper).to receive(:save_session)
+
+        expect(scraper.renew_login).to be(true)
+        expect(credential.reload.status).to eq('active')
+      end
+
+      it 'keeps the current session, never marking the login failed, when sign-in does not complete' do
+        allow(scraper).to receive(:perform_login_steps)
+        allow(scraper).to receive(:logged_in?).and_return(false)
+        expect(scraper).not_to receive(:save_session)
+
+        expect(scraper.renew_login).to be(false)
+        expect(credential.reload.status).to eq('active')
+      end
+
+      it 'keeps the current session when sign-in raises (Performance down, form changed)' do
+        allow(scraper).to receive(:perform_login_steps).and_raise(Scrapers::BaseScraper::AuthenticationError, 'boom')
+        expect(scraper).not_to receive(:save_session)
+
+        expect(scraper.renew_login).to be(false)
+        expect(credential.reload.status).to eq('active')
+      end
+    end
+  end
+
+  # Oct 21 2026: sign in without a browser first, Chrome only as the fallback.
+  describe 'signing in without a browser' do
+    let(:api) { instance_double(Scrapers::PerformanceApi) }
+
+    before { allow(scraper).to receive(:api_client).and_return(api) }
+
+    describe '#login (new connections, Validate, the refresh password fallback)' do
+      it 'signs in over HTTP and opens no browser' do
+        allow(api).to receive(:sign_in).and_return(:signed_in)
+        expect(scraper).not_to receive(:with_browser)
+
+        expect(scraper.login).to be(true)
+        expect(credential.reload.status).to eq('active')
+      end
+
+      it 'falls back to the Chrome login when the HTTP sign-in fails' do
+        allow(api).to receive(:sign_in).and_return(:failed)
+        expect(scraper).to receive(:with_browser).and_return(true)
+
+        scraper.login
+      end
+
+      it 'still asks Chrome when Performance refuses the password: only Chrome marks a login failed' do
+        allow(api).to receive(:sign_in).and_return(:rejected)
+        expect(scraper).to receive(:with_browser).and_return(true)
+
+        scraper.login
+        expect(credential.reload.status).to eq('active')
+      end
+    end
+
+    describe '#soft_refresh (what the pre-order check calls)' do
+      it 'uses the API refresh when it works, with no sign-in and no browser' do
+        allow(api).to receive_messages(restore_session: true, call: {}, persist_tokens!: true,
+                                       refresh_token_expires_at: 20.hours.from_now)
+        expect(api).not_to receive(:sign_in)
+        expect(scraper).not_to receive(:with_browser)
+
+        expect(scraper.soft_refresh).to be(true)
+      end
+
+      it 'signs in over HTTP when the API refresh fails (a login past 24 hours), before any browser' do
+        allow(api).to receive(:restore_session).and_return(false)
+        allow(api).to receive(:sign_in).and_return(:signed_in)
+        expect(scraper).not_to receive(:with_browser)
+
+        expect(scraper.soft_refresh).to be(true)
+      end
+
+      it 'falls back to the Chrome refresh when both fail, exactly as before' do
+        allow(api).to receive(:restore_session).and_return(false)
+        allow(api).to receive(:sign_in).and_return(:failed)
+        expect(scraper).to receive(:with_browser).and_return(false)
+
+        expect(scraper.soft_refresh).to be(false)
+      end
+    end
+
+    describe '#http_sign_in' do
+      it 'marks the login active when the sign-in works' do
+        credential.update_columns(status: 'failed', last_login_at: 2.days.ago)
+        allow(api).to receive(:sign_in).and_return(:signed_in)
+
+        expect(scraper.http_sign_in).to eq(:signed_in)
+        expect(credential.reload).to have_attributes(status: 'active')
+        expect(credential.last_login_at).to be_within(5.seconds).of(Time.current)
+      end
+
+      it 'never raises' do
+        allow(api).to receive(:sign_in).and_raise(StandardError, 'boom')
+
+        expect(scraper.http_sign_in).to eq(:failed)
+      end
+
+      # One refresh run can reach a sign-in from #soft_refresh and then from
+      # #login (SessionManager's password fallback).
+      it 'does not send a refused password over HTTP twice in one run' do
+        expect(api).to receive(:sign_in).once.and_return(:rejected)
+        allow(api).to receive(:restore_session).and_return(false)
+        allow(scraper).to receive(:with_browser).and_return(false)
+
+        scraper.soft_refresh
+        scraper.login
+
+        expect(scraper.http_sign_in).to eq(:rejected)
+      end
+    end
+  end
+
   describe '#logged_in?' do
     let(:browser) { instance_double(Ferrum::Browser) }
 
@@ -266,7 +445,12 @@ RSpec.describe Scrapers::PerformanceScraper do
   describe '#soft_refresh (API first, browser fallback)' do
     let(:api) { instance_double(Scrapers::PerformanceApi) }
 
-    before { allow(scraper).to receive(:api_client).and_return(api) }
+    # These cover the browser fallback, so the sign-in without a browser that
+    # now runs between the API refresh and Chrome (Oct 21 2026) fails here.
+    before do
+      allow(scraper).to receive(:api_client).and_return(api)
+      allow(api).to receive(:sign_in).and_return(:failed)
+    end
 
     it 'refreshes through the API, saves the new tokens, and never opens a browser' do
       allow(api).to receive(:restore_session).and_return(true)

@@ -21,6 +21,8 @@ class Organization < ApplicationRecord
 
   # Validations
   validates :name, presence: true
+  # Only new/changed names are checked, so existing rows never fail a save.
+  validates :name, plain_text_name: true, if: :name_changed?
   validates :slug, presence: true, uniqueness: true,
                    format: { with: /\A[a-z0-9-]+\z/, message: 'can only contain lowercase letters, numbers, and hyphens' }
   validates :address, :city, :state, :zip_code, presence: true
@@ -44,6 +46,15 @@ class Organization < ApplicationRecord
 
   def subscription_status
     current_subscription&.status || 'none'
+  end
+
+  # The subscription the admin list shows: the newest one with access, else
+  # the newest canceled one. An org that went comp and later paid keeps its
+  # old canceled row, which must not hide the live one. Reads the loaded
+  # association so the preloaded admin list stays one query.
+  def display_subscription
+    newest_first = subscriptions.sort_by(&:created_at).reverse
+    newest_first.find(&:allows_access?) || newest_first.find { |s| s.status == 'canceled' }
   end
 
   # Member methods

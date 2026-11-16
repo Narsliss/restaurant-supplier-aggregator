@@ -523,11 +523,23 @@ RSpec.describe Scrapers::ChefsWarehouseScraper do
       expect(scraper.submit_sent?).to be(true)
     end
 
-    it 'fails as not placed when submit returns nothing and the items are still in the cart' do
+    # Risk #4, Oct 20 2026: an unanswered submit with the items still in the
+    # cart used to say "safe to try again", which could place a second order
+    # if CW was still taking the first. The chef checks CW instead.
+    it 'parks the order as unconfirmed when submit returns nothing and the items are still in the cart' do
       allow(api).to receive(:submit_cart).and_return(nil)
 
       expect { scraper.checkout(dry_run: false) }
-        .to raise_error(Scrapers::BaseScraper::ScrapingError, /still in the cart/)
+        .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError,
+                        /still in the Chef's Warehouse cart.*Check Chef's Warehouse before reordering/)
+      expect(scraper.submit_sent?).to be(true)
+    end
+
+    it 'parks the order as unconfirmed when submit times out and the items are still in the cart' do
+      allow(api).to receive(:submit_cart).and_raise(Net::ReadTimeout)
+
+      expect { scraper.checkout(dry_run: false) }
+        .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError, /Check Chef's Warehouse before reordering/)
     end
 
     it 'raises OrderUnconfirmedError when submit times out and the cart is empty' do

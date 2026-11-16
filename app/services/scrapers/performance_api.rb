@@ -1,5 +1,10 @@
 # frozen_string_literal: true
 
+require 'base64'
+require 'cgi'
+require 'digest'
+require 'set'
+
 module Scrapers
   # Direct API client for Performance Foodservice (CustomerFirst platform).
   #
@@ -24,6 +29,19 @@ module Scrapers
     CLIENT_ID = 'c68e7fae-80a1-42db-bd89-3fb37d1224a2'
     TOKEN_ENDPOINT = 'https://pfgcustomerfirst.b2clogin.com/pfgcustomerfirst.onmicrosoft.com/b2c_1a_signup_signin/oauth2/v2.0/token'
 
+    # Sign-in without a browser (#sign_in): the B2C hosted page and the
+    # settings the CustomerFirst SPA uses (its public main.js, Oct 21 2026).
+    SIGN_IN_AUTHORITY = 'https://pfgcustomerfirst.b2clogin.com/pfgcustomerfirst.onmicrosoft.com/B2C_1A_signup_signin'
+    SIGN_IN_POLICY = 'B2C_1A_signup_signin'
+    SIGN_IN_REDIRECT_URI = 'https://www.customerfirstsolutions.com'
+    SIGN_IN_SCOPE = "openid profile offline_access https://pfgcustomerfirst.onmicrosoft.com/api/#{API_SCOPE_HOST}"
+    SIGN_IN_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' \
+                         '(KHTML, like Gecko) Chrome/129.0 Safari/537.36'
+    # Where #sign_in keeps its tokens when the stored session has no MSAL
+    # entries to update (a login that never had a browser session).
+    SIGNED_IN_ACCESS_KEY = "enplace-signin-accesstoken-#{CLIENT_ID}--#{API_SCOPE_HOST}".freeze
+    SIGNED_IN_REFRESH_KEY = "enplace-signin-refreshtoken-#{CLIENT_ID}--".freeze
+
     # SearchProductCatalog requires the full filter object even when empty.
     EMPTY_ADVANCE_FILTER = {
       'Badges' => [], 'CategoryIds' => [], 'Brands' => [], 'StorageTypes' => [],
@@ -43,6 +61,13 @@ module Scrapers
     class AuthError < ApiError; end
 
     attr_reader :credential, :logger
+
+    # When the login behind the refresh token ends, as B2C reported on this
+    # client's last refresh; nil when no refresh happened or none was reported.
+    # A login lasts 24 hours from a real sign-in and refreshing can't extend
+    # it: near the end B2C still answers, with a refresh token good for seconds
+    # (Oct 21 2026: 6 s, then "AADB2C90080: The provided grant has expired").
+    attr_reader :refresh_token_expires_at
 
     def initialize(credential)
       @credential = credential
@@ -120,6 +145,7 @@ module Scrapers
       @refresh_token = payload['refresh_token'] if payload['refresh_token'].present?
       @token_expires_at = Time.current + payload['expires_in'].to_i
       @refreshed_at = Time.current
+      @refresh_token_expires_at = (Time.current + payload['refresh_token_expires_in'].to_i if payload['refresh_token_expires_in'].present?)
       # refresh_token_expires_in tells us how long a Performance login lasts
       # without a browser (open item in docs/prd-performance-integration.md).
       logger.info "[Performance-API] Access token refreshed (expires #{@token_expires_at}; " \
@@ -143,43 +169,83 @@ module Scrapers
       return false if @access_token.blank? || @refreshed_at.nil?
 
       data = JSON.parse(credential.session_data.to_s)
-      updated = false
-
-      %w[local_storage session_storage].each do |store|
-        entries = data[store]
-        next unless entries.is_a?(Hash)
-
-        entries.keys.each do |key|
-          entry = begin
-            JSON.parse(entries[key].to_s)
-          rescue JSON::ParserError
-            nil
-          end
-          next unless entry.is_a?(Hash) && entry['secret'].present?
-
-          name = key.to_s.downcase
-          if name.include?('-accesstoken-') && entry['target'].to_s.include?(API_SCOPE_HOST)
-            entry['secret'] = @access_token
-            entry['expiresOn'] = @token_expires_at.to_i.to_s
-            entry['extendedExpiresOn'] = @token_expires_at.to_i.to_s if entry.key?('extendedExpiresOn')
-            entry['cachedAt'] = @refreshed_at.to_i.to_s if entry.key?('cachedAt')
-          elsif name.include?('-refreshtoken-') && @refresh_token.present?
-            entry['secret'] = @refresh_token
-          else
-            next
-          end
-
-          entries[key] = entry.to_json
-          updated = true
-        end
-      end
-      return false unless updated
+      return false if write_tokens_into(data).empty?
 
       credential.update!(session_data: data.to_json)
       true
     rescue StandardError => e
       logger.warn "[Performance-API] Could not save refreshed tokens: #{e.class}: #{e.message}"
       false
+    end
+
+    # Sign in with the login's stored email + password over plain HTTP: the
+    # five requests B2C's hosted sign-in page makes, no browser. Proven on a
+    # real login Oct 21 2026 (docs/recon-performance-http-signin.md); every
+    # fresh sign-in starts a new 24-hour login. Returns
+    #   :signed_in  new tokens loaded and saved to session_data
+    #   :rejected   B2C answered the email/password step with a refusal
+    #               (wrong password, locked account); its message is logged
+    #   :failed     anything else (page changed, no code, token error,
+    #               network), so the caller can fall back to Chrome
+    # Never logs or raises with a password, token, cookie or code.
+    def sign_in
+      return sign_in_failed('no stored email or password') if credential.username.blank? || credential.password.blank?
+
+      jar = {}
+      verifier = Base64.urlsafe_encode64(SecureRandom.random_bytes(32), padding: false)
+      authorize_url = sign_in_authorize_url(verifier)
+
+      # 1. The sign-in page: its CSRF token and transaction id.
+      page = sign_in_request(:get, authorize_url, jar)
+      settings = sign_in_settings(page.body)
+      csrf = settings['csrf']
+      tx = settings['transId']
+      return sign_in_failed("no sign-in form (HTTP #{page.code})") if csrf.blank? || tx.blank?
+
+      # 2. Email + password.
+      answer = sign_in_request(
+        :post, "#{SIGN_IN_AUTHORITY}/SelfAsserted?tx=#{CGI.escape(tx)}&p=#{SIGN_IN_POLICY}", jar,
+        form: { 'request_type' => 'RESPONSE', 'signInName' => credential.username, 'password' => credential.password },
+        headers: { 'X-CSRF-TOKEN' => csrf, 'X-Requested-With' => 'XMLHttpRequest',
+                   'Accept' => 'application/json, text/javascript, */*; q=0.01',
+                   'Origin' => 'https://pfgcustomerfirst.b2clogin.com', 'Referer' => authorize_url }
+      )
+      return sign_in_failed("credentials step HTTP #{answer.code}") unless answer.code == '200'
+
+      verdict = parse_json(answer.body)
+      unless verdict['status'].to_s == '200'
+        logger.warn "[Performance-API] Sign-in refused: #{verdict['message'].presence || "status #{verdict['status'].inspect}"}"
+        return :rejected
+      end
+
+      # 3. Confirm: B2C redirects to the app with the authorization code.
+      confirmed = sign_in_request(
+        :get, "#{SIGN_IN_AUTHORITY}/api/CombinedSigninAndSignup/confirmed?rememberMe=false" \
+              "&csrf_token=#{CGI.escape(csrf)}&tx=#{CGI.escape(tx)}&p=#{SIGN_IN_POLICY}", jar,
+        headers: { 'Referer' => authorize_url }
+      )
+      code = sign_in_code(confirmed['location'])
+      return sign_in_failed("no authorization code (HTTP #{confirmed.code})") if code.blank?
+
+      # 4. Exchange the code for tokens, as the single-page app does.
+      tokens = sign_in_request(
+        :post, TOKEN_ENDPOINT, jar,
+        form: { 'grant_type' => 'authorization_code', 'client_id' => CLIENT_ID, 'code' => code,
+                'redirect_uri' => SIGN_IN_REDIRECT_URI, 'code_verifier' => verifier, 'scope' => SIGN_IN_SCOPE },
+        headers: { 'Origin' => SIGN_IN_REDIRECT_URI }
+      )
+      payload = parse_json(tokens.body)
+      unless tokens.is_a?(Net::HTTPSuccess) && payload['access_token'].present?
+        return sign_in_failed("token step HTTP #{tokens.code} #{payload['error']}".strip)
+      end
+
+      load_signed_in_tokens(payload)
+      save_signed_in_tokens!
+      logger.info '[Performance-API] Signed in without a browser ' \
+                  "(login lasts #{payload['refresh_token_expires_in'].inspect}s)"
+      :signed_in
+    rescue StandardError => e
+      sign_in_failed(e.class.name)
     end
 
     # Decoded claims from the current access token (identity sanity check
@@ -506,6 +572,135 @@ module Scrapers
         return parsed
       end
       nil
+    end
+
+    # Puts this client's tokens into the stored MSAL cache entries, in place,
+    # so the next restore (API or browser) starts from them. Returns the
+    # kinds updated: :access and/or :refresh.
+    def write_tokens_into(data)
+      updated = Set.new
+
+      %w[local_storage session_storage].each do |store|
+        entries = data[store]
+        next unless entries.is_a?(Hash)
+
+        entries.keys.each do |key|
+          entry = begin
+            JSON.parse(entries[key].to_s)
+          rescue JSON::ParserError
+            nil
+          end
+          next unless entry.is_a?(Hash) && entry['secret'].present?
+
+          name = key.to_s.downcase
+          if name.include?('-accesstoken-') && entry['target'].to_s.include?(API_SCOPE_HOST)
+            entry['secret'] = @access_token
+            entry['expiresOn'] = @token_expires_at.to_i.to_s
+            entry['extendedExpiresOn'] = @token_expires_at.to_i.to_s if entry.key?('extendedExpiresOn')
+            entry['cachedAt'] = @refreshed_at.to_i.to_s if entry.key?('cachedAt')
+            updated << :access
+          elsif name.include?('-refreshtoken-') && @refresh_token.present?
+            entry['secret'] = @refresh_token
+            updated << :refresh
+          else
+            next
+          end
+
+          entries[key] = entry.to_json
+        end
+      end
+      updated
+    end
+
+    # ── Sign-in without a browser (#sign_in) ─────────────────────────────
+
+    def sign_in_authorize_url(verifier)
+      challenge = Base64.urlsafe_encode64(Digest::SHA256.digest(verifier), padding: false)
+      "#{SIGN_IN_AUTHORITY}/oauth2/v2.0/authorize?" + URI.encode_www_form(
+        client_id: CLIENT_ID, redirect_uri: SIGN_IN_REDIRECT_URI, response_type: 'code', response_mode: 'query',
+        scope: SIGN_IN_SCOPE, code_challenge: challenge, code_challenge_method: 'S256',
+        state: SecureRandom.hex(8), nonce: SecureRandom.hex(8)
+      )
+    end
+
+    # One request of the sign-in, carrying B2C's cookies (jar) between them.
+    # Redirects are not followed: step 3's redirect is where the code is.
+    def sign_in_request(method, url, jar, form: nil, headers: {})
+      uri = URI(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 15
+      http.read_timeout = 30
+
+      req = method == :get ? Net::HTTP::Get.new(uri.request_uri) : Net::HTTP::Post.new(uri.request_uri)
+      req['User-Agent'] = SIGN_IN_USER_AGENT
+      req['Cookie'] = jar.map { |name, value| "#{name}=#{value}" }.join('; ') if jar.any?
+      headers.each { |name, value| req[name] = value }
+      req.set_form_data(form) if form
+
+      res = http.request(req)
+      Array(res.get_fields('set-cookie')).each do |cookie|
+        name, value = cookie.split(';').first.to_s.split('=', 2)
+        jar[name] = value if name.present?
+      end
+      res
+    end
+
+    def sign_in_settings(html)
+      json = html.to_s[/var SETTINGS = (\{.*?\});/m, 1]
+      json ? parse_json(json) : {}
+    end
+
+    def sign_in_code(location)
+      return nil if location.blank?
+
+      URI.decode_www_form(URI(location).query.to_s).to_h['code']
+    rescue URI::InvalidURIError, ArgumentError
+      nil
+    end
+
+    def parse_json(text)
+      parsed = JSON.parse(text.to_s)
+      parsed.is_a?(Hash) ? parsed : {}
+    rescue JSON::ParserError
+      {}
+    end
+
+    def load_signed_in_tokens(payload)
+      @access_token = payload['access_token']
+      @refresh_token = payload['refresh_token'] if payload['refresh_token'].present?
+      @token_scopes = payload['scope'].presence || SIGN_IN_SCOPE
+      @token_expires_at = Time.current + payload['expires_in'].to_i
+      @refreshed_at = Time.current
+      @refresh_token_expires_at = (Time.current + payload['refresh_token_expires_in'].to_i if payload['refresh_token_expires_in'].present?)
+    end
+
+    # Saves the new tokens: into the existing MSAL entries when the stored
+    # session has them (so a browser restore still finds its account), else
+    # into entries of our own in the shape #restore_session reads.
+    def save_signed_in_tokens!
+      data = parse_json(credential.session_data)
+      written = write_tokens_into(data)
+      data['local_storage'] = {} unless data['local_storage'].is_a?(Hash)
+
+      unless written.include?(:access)
+        data['local_storage'][SIGNED_IN_ACCESS_KEY] = {
+          'credentialType' => 'AccessToken', 'secret' => @access_token, 'target' => @token_scopes,
+          'expiresOn' => @token_expires_at.to_i.to_s, 'cachedAt' => @refreshed_at.to_i.to_s
+        }.to_json
+      end
+      unless written.include?(:refresh) || @refresh_token.blank?
+        data['local_storage'][SIGNED_IN_REFRESH_KEY] = { 'credentialType' => 'RefreshToken', 'secret' => @refresh_token }.to_json
+      end
+      data['cookies'] = {} unless data['cookies'].is_a?(Hash)
+      data['session_storage'] = {} unless data['session_storage'].is_a?(Hash)
+
+      credential.update!(session_data: data.to_json)
+    end
+
+    def sign_in_failed(reason)
+      logger.warn "[Performance-API] Sign-in without a browser did not complete: #{reason}"
+      :failed
     end
   end
 end

@@ -118,13 +118,17 @@ RSpec.describe Scrapers::PremiereProduceOneScraper do
     context "when submitOrder gives no order back" do
       before { allow(api).to receive(:submit_order).and_return(nil) }
 
-      it "fails as not placed when the draft is still a DRAFT — never invents a confirmation" do
+      # Risk #4, Oct 20 2026: a DRAFT read right after the submit doesn't
+      # prove PPO dropped it. "Safe to try again" invited a second order; the
+      # chef checks the PPO app instead. Never invents a confirmation either.
+      it "parks the order as unconfirmed when the draft is still a DRAFT" do
         allow(api).to receive(:get_order_status).with(draft_uuid).and_return(
           [{ "uuid" => draft_uuid, "status" => "DRAFT", "placed_at" => nil }]
         )
 
         expect { scraper.checkout(dry_run: false) }
-          .to raise_error(Scrapers::BaseScraper::NotPlacedError, /rejected the order. Nothing was placed/)
+          .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError,
+                          /still showed as a draft.*Check the Premiere Produce app before reordering/)
         expect(scraper.submit_sent?).to be(true)
       end
 
@@ -142,6 +146,15 @@ RSpec.describe Scrapers::PremiereProduceOneScraper do
 
       it "raises OrderUnconfirmedError when the status lookup fails too" do
         allow(api).to receive(:get_order_status).and_return(nil)
+
+        expect { scraper.checkout(dry_run: false) }
+          .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError, /Check the Premiere Produce app before reordering/)
+      end
+
+      it "raises OrderUnconfirmedError when the draft is still IN_REVIEW" do
+        allow(api).to receive(:get_order_status).and_return(
+          [{ "uuid" => draft_uuid, "status" => "IN_REVIEW", "placed_at" => nil }]
+        )
 
         expect { scraper.checkout(dry_run: false) }
           .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError, /Check the Premiere Produce app before reordering/)

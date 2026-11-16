@@ -201,12 +201,17 @@ RSpec.describe Scrapers::UsFoodsScraper do
       expect(scraper.checkout(dry_run: false)[:confirmation_number]).to eq('648653')
     end
 
-    it 'says "not placed, safe to retry" when the order is still in the cart after a failed submit' do
+    # Risk #4, Oct 20 2026: US Foods takes orders asynchronously (order 482
+    # came back SUBMITTING), so "still in the cart" right after an unanswered
+    # submit doesn't prove it wasn't placed. "Safe to try again" invited a
+    # second order; the chef checks US Foods instead.
+    it 'parks the order as unconfirmed when it still shows in the cart after an unanswered submit' do
       allow(api).to receive(:submit_order).and_raise(Net::ReadTimeout)
       allow(api).to receive(:get_orders).and_return([order])
 
       expect { scraper.checkout(dry_run: false) }
-        .to raise_error(Scrapers::BaseScraper::NotPlacedError, /still in the cart\. Nothing was placed/)
+        .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError,
+                        /still showed in the US Foods cart.*Check US Foods before reordering/)
       expect(scraper.submit_sent?).to be(true)
     end
 
@@ -229,7 +234,8 @@ RSpec.describe Scrapers::UsFoodsScraper do
       allow(api).to receive(:submit_order).and_return({ 'orderId' => 'someone-else', 'orderStatus' => 'SUBMITTED' })
       allow(api).to receive(:get_orders).and_return([order])
 
-      expect { scraper.checkout(dry_run: false) }.to raise_error(Scrapers::BaseScraper::ScrapingError, /still in the cart/)
+      expect { scraper.checkout(dry_run: false) }
+        .to raise_error(Scrapers::BaseScraper::OrderUnconfirmedError, /still showed in the US Foods cart/)
     end
 
     it 'never submits an order that is not the open cart' do

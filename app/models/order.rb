@@ -60,6 +60,10 @@ class Order < ApplicationRecord
   }.freeze
 
   VERIFICATION_STATUSES = %w[pending verifying verified price_changed failed skipped].freeze
+  # Price check not finished yet. The review page keeps every submit button off
+  # while any order in the batch is in one of these (order_review_controller.js
+  # CHECKING_STATUSES mirrors this list).
+  CHECKING_VERIFICATION_STATUSES = %w[pending verifying].freeze
 
   # Statuses that represent real orders (submitted to suppliers) — used for KPI aggregation
   KPI_STATUSES = %w[submitted confirmed dry_run_complete].freeze
