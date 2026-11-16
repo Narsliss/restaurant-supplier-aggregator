@@ -47,7 +47,7 @@ class User < ApplicationRecord
   # Only new/changed names are checked, so existing rows never fail a save.
   validates :first_name, plain_text_name: true, if: :first_name_changed?
   validates :last_name, plain_text_name: true, if: :last_name_changed?
-  validates :role, inclusion: { in: %w[user super_admin salesperson] }
+  validates :role, inclusion: { in: %w[user super_admin admin salesperson] }
   validate :only_one_super_admin, if: :super_admin?
 
   # Callbacks
@@ -55,7 +55,10 @@ class User < ApplicationRecord
 
   # System-level roles (different from organization roles):
   # - user: Regular user, access determined by organization membership
-  # - super_admin: Platform owner/support staff, can access any organization for support
+  # - super_admin: Platform owner. The only one; gets every alert email.
+  # - admin: Support staff. Admin dashboard + support actions + read-only
+  #   impersonation, nothing else (no alerts, no jobs, no billing changes).
+  #   See docs/admin-role.md.
 
   # Scopes
   scope :super_admins, -> { where(role: 'super_admin') }
@@ -69,6 +72,15 @@ class User < ApplicationRecord
   # Alias for backwards compatibility and clarity
   def platform_admin?
     super_admin?
+  end
+
+  def admin?
+    role == 'admin'
+  end
+
+  # Can open the /admin dashboard: the super admin or an admin.
+  def admin_access?
+    super_admin? || admin?
   end
 
   def salesperson?

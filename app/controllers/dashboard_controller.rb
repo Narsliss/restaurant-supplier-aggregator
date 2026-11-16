@@ -3,7 +3,7 @@ class DashboardController < ApplicationController
 
   def index
     # Super admin has no use for the regular dashboard — send to admin panel
-    redirect_to admin_root_path and return if current_user.super_admin?
+    redirect_to admin_root_path and return if current_user.admin_access?
 
     # Salesperson goes straight to CRM dashboard
     redirect_to crm_root_path and return if current_user.salesperson?

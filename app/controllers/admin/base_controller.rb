@@ -1,9 +1,11 @@
 # Base controller for all admin pages.
-# Requires super_admin role and skips organization-level checks
-# since the admin is not scoped to any specific org.
+# Open to the super admin and to admins (support staff). Actions that only the
+# super admin may take add `before_action :require_super_admin, only: [...]`
+# in their own controller. See docs/admin-role.md.
+# Skips organization-level checks since neither is scoped to an org.
 class Admin::BaseController < ApplicationController
-  before_action :require_super_admin
+  before_action :require_admin_access
 
-  # Super admin has no org/location context — skip these checks
+  # No org/location context here — skip these checks
   skip_before_action :ensure_onboarding_complete, raise: false
 end

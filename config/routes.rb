@@ -339,8 +339,9 @@ Rails.application.routes.draw do
     end
   end
 
-  # Super Admin Dashboard & Tools
-  authenticate :user, ->(u) { u.super_admin? } do
+  # Admin Dashboard & Tools — the super admin and admins (support staff).
+  # Super-admin-only actions are guarded in each controller (docs/admin-role.md).
+  authenticate :user, ->(u) { u.admin_access? } do
     namespace :admin do
       root to: 'dashboard#index'
 
@@ -374,7 +375,10 @@ Rails.application.routes.draw do
       # Supplier Portal User Management
       resources :supplier_portal_users, only: [:index, :new, :create]
     end
+  end
 
+  # Job dashboard — super admin only
+  authenticate :user, ->(u) { u.super_admin? } do
     mount MissionControl::Jobs::Engine, at: '/jobs'
   end
 end

@@ -1,4 +1,6 @@
 class Admin::SupplierPortalUsersController < Admin::BaseController
+  before_action :require_super_admin, only: %i[new create]
+
   def index
     @supplier_users = SupplierUser.includes(:supplier).order(:email)
     @pending_invitations = SupplierPortalInvitation.pending.includes(:supplier).order(created_at: :desc)

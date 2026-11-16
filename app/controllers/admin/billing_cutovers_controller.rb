@@ -1,6 +1,8 @@
 # Admin page for the one-time Stripe test-mode cleanup (Billing::TestModeCutover).
 # GET previews what would change; POST applies it. Both ask live Stripe first.
 class Admin::BillingCutoversController < Admin::BaseController
+  before_action :require_super_admin
+
   def show
     @live = Billing::TestModeCutover.live_key?
     @plan = Billing::TestModeCutover.new.plan if @live

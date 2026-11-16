@@ -1,4 +1,6 @@
 class Admin::OperationsController < Admin::BaseController
+  before_action :require_super_admin, only: %i[stock_mode]
+
   def show
     suppliers = Supplier.where(active: true).order(:name)
     supplier_ids = suppliers.pluck(:id)

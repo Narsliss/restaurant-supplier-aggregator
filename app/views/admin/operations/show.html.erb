@@ -264,7 +264,7 @@
                   <% Supplier::MORNING_STOCK_MODES.each do |mode| %>
                     <%= button_to mode, stock_mode_admin_operations_path(supplier_id: row[:supplier].id, mode: mode), method: :patch,
                           class: "rounded px-2 py-0.5 text-xs font-medium #{row[:mode] == mode ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700'}",
-                          disabled: row[:mode] == mode %>
+                          disabled: row[:mode] == mode || !current_user.super_admin? %>
                   <% end %>
                 </div>
               </td>

@@ -7,6 +7,7 @@ class ApplicationController < ActionController::Base
   # Removal records name who made the change (see MatchItemRemoval).
   before_action { MatchChange.user = current_user if user_signed_in? }
   before_action :redirect_salesperson_to_crm
+  before_action :redirect_admin_to_admin_panel
   before_action :ensure_onboarding_complete, unless: :skip_onboarding_check?
   before_action :require_subscription, unless: :skip_subscription_check?
   before_action :configure_permitted_parameters, if: :devise_controller?
@@ -74,8 +75,28 @@ class ApplicationController < ActionController::Base
     redirect_to crm_root_path
   end
 
+  # Admins (support staff, not the super admin) have no restaurant and no
+  # business in the regular app. They only see it by impersonating someone,
+  # and then current_user is that person, not the admin.
+  def redirect_admin_to_admin_panel
+    return unless current_user&.admin?
+    return if controller_path.start_with?("admin")
+    return if devise_controller?
+    return if controller_name == "health"
+
+    redirect_to admin_root_path
+  end
+
   def require_super_admin
     unless current_user&.super_admin?
+      redirect_to(current_user&.admin? ? admin_root_path : root_path,
+                  alert: (current_user&.admin? ? "Only the super admin can do that." : nil))
+    end
+  end
+
+  # The /admin dashboard: the super admin or an admin.
+  def require_admin_access
+    unless current_user&.admin_access?
       redirect_to root_path
     end
   end

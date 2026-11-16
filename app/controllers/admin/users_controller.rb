@@ -1,5 +1,7 @@
 class Admin::UsersController < Admin::BaseController
-  skip_before_action :require_super_admin, only: [:stop_impersonating]
+  skip_before_action :require_admin_access, only: [:stop_impersonating]
+  # Admins may unlock, reset passwords and view as users; creating salespeople stays with the super admin.
+  before_action :require_super_admin, only: %i[new create]
   before_action :require_impersonation_session, only: [:stop_impersonating]
 
   def index
@@ -42,6 +44,12 @@ class Admin::UsersController < Admin::BaseController
 
   def impersonate
     user = User.find(params[:id])
+    # An admin may only view as regular users, never as the super admin or
+    # another admin (that would reach pages this role can't open).
+    if current_user.admin? && user.admin_access?
+      redirect_to admin_user_path(user), alert: "Admins can't view as #{user.super_admin? ? 'the super admin' : 'another admin'}."
+      return
+    end
     session[:admin_user_id] = current_user.id
     session[:impersonated_user_id] = user.id
     session[:impersonating] = true
@@ -56,7 +64,7 @@ class Admin::UsersController < Admin::BaseController
     session.delete(:impersonated_user_id)
     session.delete(:impersonating)
 
-    if admin&.super_admin?
+    if admin&.admin_access?
       sign_in(:user, admin)
       redirect_to admin_user_path(impersonated_user_id), notice: "Stopped viewing as another user."
     else

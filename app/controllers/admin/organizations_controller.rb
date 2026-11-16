@@ -1,4 +1,7 @@
 class Admin::OrganizationsController < Admin::BaseController
+  # Admins may resend invites and extend trials; account and billing changes stay with the super admin.
+  before_action :require_super_admin, only: %i[suspend reactivate grant_complimentary revoke_complimentary cancel_subscription]
+
   def index
     @organizations = Organization.includes(:subscriptions, :locations, memberships: :user)
                                   .order(params[:sort] == 'name' ? :name : { created_at: :desc })

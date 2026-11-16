@@ -43,9 +43,11 @@
           method: :post,
           class: "inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors duration-150",
           data: { turbo_confirm: "Send a password reset email to #{@user.email}?" } %>
+      <% unless current_user.admin? && @user.admin_access? %>
       <%= button_to "Impersonate", impersonate_admin_user_path(@user),
           method: :post,
           class: "inline-flex items-center rounded-lg bg-gray-600 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 transition-colors duration-150" %>
+      <% end %>
     </div>
   </div>
 
